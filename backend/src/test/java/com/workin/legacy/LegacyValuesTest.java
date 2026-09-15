@@ -289,4 +289,25 @@ class LegacyValuesTest {
 		assertThat(LegacyValues.toPhpFilterBoolean("no")).isFalse();
 		assertThat(LegacyValues.toPhpFilterBoolean("")).isFalse();
 	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	void toPhpLongAgreesWithPhpOnEveryStringInTheCorpus() throws java.io.IOException {
+		// The same PHP 8.3 corpus PhpCastTest holds PhpCast to: a string reaching
+		// toPhpLong must get PHP's own (int), including where PHP goes through a double.
+		Map<String, Object> corpus;
+		try (java.io.InputStream in = LegacyValuesTest.class.getResourceAsStream("/legacy-parity/php-intval.json")) {
+			corpus = new tools.jackson.databind.ObjectMapper().readValue(in, Map.class);
+		}
+		List<Map<String, Object>> cases = (List<Map<String, Object>>) corpus.get("cases");
+		assertThat(cases).hasSizeGreaterThan(50);
+		for (Map<String, Object> sample : cases) {
+			String input = (String) sample.get("in");
+			assertThat(LegacyValues.toPhpLong(input))
+					.as("(int) of a %d-character string starting %s", input.length(),
+							new tools.jackson.databind.ObjectMapper().writeValueAsString(
+									input.substring(0, Math.min(12, input.length()))))
+					.isEqualTo(((Number) sample.get("int")).longValue());
+		}
+	}
 }

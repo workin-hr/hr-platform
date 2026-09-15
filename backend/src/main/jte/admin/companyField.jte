@@ -14,15 +14,16 @@
      add names its company from the active ones instead of posting 0, which the
      service can only refuse. `wide` spans the org-form grid; pages without that
      grid pass false. `cascade` is legacy's $formPrefix marker: the page's form
-     script finds the select by it ("jt" for job-title-form.js, "dp" for department-form.js). --%>
+     script finds the select by it ("jt" for job-title-form.js, "dp" for department-form.js,
+     "wp" for workforce-form.js, which also reads the hidden input's data-fixed-company). --%>
 @if(session.isScopedToOneCompany())
-	<input type="hidden" name="company_id" value="${session.companyId()}">
+	<input type="hidden" name="company_id" value="${session.companyId()}" data-fixed-company="${"wp".equals(cascade) ? String.valueOf(session.companyId()) : null}">
 @elseif(companyId > 0)
-	<input type="hidden" name="company_id" value="${companyId}">
+	<input type="hidden" name="company_id" value="${companyId}" data-fixed-company="${"wp".equals(cascade) ? String.valueOf(companyId) : null}">
 @else
 	!{gg.jte.Content field = @`
 		<label for="${inputId}">${t.apply("company")}</label>
-		<select name="company_id" id="${inputId}" data-jt-company="${"jt".equals(cascade) ? "1" : null}" data-dept-company="${"dp".equals(cascade) ? "1" : null}" required>
+		<select name="company_id" id="${inputId}" data-jt-company="${"jt".equals(cascade) ? "1" : null}" data-dept-company="${"dp".equals(cascade) ? "1" : null}" data-filter-company="${"wp".equals(cascade) ? "1" : null}" required>
 			<option value="">${t.apply("company")}...</option>
 			@for(ActiveCompanies.CompanyOption company : companies)
 				<option value="${company.id()}">${company.name()}</option>

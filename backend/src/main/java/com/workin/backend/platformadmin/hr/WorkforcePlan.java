@@ -41,19 +41,23 @@ public record WorkforcePlan(
 		return name == null || name.isEmpty() ? "—" : name;
 	}
 
-	/**
-	 * One entry of the form's branch, department or job-title select.
-	 *
-	 * <p>{@code companyName} is set only for an administrator with no company
-	 * filter, who sees options from every company and needs them told apart --
-	 * {@code org_option_label()}'s rule.
-	 */
-	public record Option(long id, String name, String companyName) {
+	/** One entry of a map {@code workforce-form.js} fills a select from: {@code {"id", "name"}}. */
+	public record CascadeOption(long id, String name) {
+	}
 
-		public String label() {
-			return this.companyName == null || this.companyName.isEmpty()
-					? this.name : this.name + " — " + this.companyName;
-		}
+	/**
+	 * The four maps {@code hr_workforce_form_attrs()} puts on the form -- branches by
+	 * company, departments by branch, job titles by department and by company -- for
+	 * the companies one form may use. {@link #NONE} when no form is open.
+	 */
+	public record Cascade(
+			java.util.Map<Long, java.util.List<CascadeOption>> branchesByCompany,
+			java.util.Map<Long, java.util.List<CascadeOption>> departmentsByBranch,
+			java.util.Map<Long, java.util.List<CascadeOption>> jobTitlesByDepartment,
+			java.util.Map<Long, java.util.List<CascadeOption>> jobTitlesByCompany) {
+
+		public static final Cascade NONE = new Cascade(
+				java.util.Map.of(), java.util.Map.of(), java.util.Map.of(), java.util.Map.of());
 	}
 
 	/** Legacy colours the actual figure red when it is short of the plan. */

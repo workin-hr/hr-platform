@@ -13,6 +13,7 @@ import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.WorkforcePlan;
 import com.workin.backend.platformadmin.hr.WorkforcePlanAdminService;
 import com.workin.backend.platformadmin.hr.WorkforcePlanStore;
+import com.workin.backend.platformadmin.org.ActiveCompanies;
 
 /** {@code dashboard/pages/workforce_planning/page.php}. */
 @Controller
@@ -22,14 +23,19 @@ public class AdminWorkforcePlanningController {
 
 	private static final String PATH = PlatformAdminWebSecurityConfig.WORKFORCE_PLANNING_PATH;
 
+	private static final tools.jackson.databind.ObjectMapper JSON = new tools.jackson.databind.ObjectMapper();
+
 	private final WorkforcePlanStore store;
 
 	private final WorkforcePlanAdminService service;
 
+	private final ActiveCompanies companies;
+
 	public AdminWorkforcePlanningController(
-			WorkforcePlanStore store, WorkforcePlanAdminService service) {
+			WorkforcePlanStore store, WorkforcePlanAdminService service, ActiveCompanies companies) {
 		this.store = store;
 		this.service = service;
+		this.companies = companies;
 	}
 
 	@AuthenticatedUseCase(reason = "How many people a company plans for each branch, department "
@@ -51,21 +57,28 @@ public class AdminWorkforcePlanningController {
 		model.addAttribute("filters", filters);
 		model.addAttribute("result", this.store.paginate(filters));
 
+		boolean addOpen = "add".equals(action);
 		WorkforcePlan editRow = "edit".equals(action) ? visible(current, filters, id) : null;
-		// R-051: the options are a server-side query per company, not every
-		// company's shipped to the browser to filter. When editing, they follow
-		// the row's own company rather than the filter -- an administrator with
-		// no filter would otherwise be offered every company's branches for a
-		// row that D-176 will only let stay in its own.
-		long optionsCompanyId = editRow != null ? editRow.companyId() : filters.companyId();
-		model.addAttribute("branchOptions", this.store.branchOptions(optionsCompanyId));
-		model.addAttribute("departmentOptions", this.store.departmentOptions(optionsCompanyId));
-		model.addAttribute("jobTitleOptions", this.store.jobTitleOptions(optionsCompanyId));
+		// page.php: with no company to add under, the form asks for one through
+		// org_render_company_field_in_form(), and workforce-form.js fills the branch,
+		// department and job title selects for the company chosen.
+		boolean pickCompany = addOpen && !current.isScopedToOneCompany() && filters.companyId() <= 0;
+		// R-051: the maps carry only the companies this form may use -- the edited
+		// row's own (D-176), the filtered company's on an add, and every company
+		// only for an administrator with no filter, whose reach that is. With no
+		// form open there is nothing to fill.
+		WorkforcePlan.Cascade cascade = editRow != null ? this.store.cascade(editRow.companyId())
+				: addOpen ? this.store.cascade(filters.companyId()) : WorkforcePlan.Cascade.NONE;
+		model.addAttribute("companyOptions", pickCompany ? this.companies.all() : java.util.List.of());
+		model.addAttribute("branchesByCompany", JSON.writeValueAsString(cascade.branchesByCompany()));
+		model.addAttribute("departmentsByBranch", JSON.writeValueAsString(cascade.departmentsByBranch()));
+		model.addAttribute("jobTitlesByDepartment", JSON.writeValueAsString(cascade.jobTitlesByDepartment()));
+		model.addAttribute("jobTitlesByCompany", JSON.writeValueAsString(cascade.jobTitlesByCompany()));
 		model.addAttribute("canManage",
 				DashboardAccess.canViewPage(current, "workforce_planning"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
 		model.addAttribute("errorKey", error);
-		model.addAttribute("addOpen", "add".equals(action));
+		model.addAttribute("addOpen", addOpen);
 		model.addAttribute("editRow", editRow);
 		return VIEW;
 	}
@@ -95,12 +108,19 @@ public class AdminWorkforcePlanningController {
 					long departmentId,
 			@RequestParam(name = "job_title_id", required = false, defaultValue = "0")
 					long jobTitleId,
+			// Text, cast as legacy's (int) $_POST['planned_count'] is: the form is novalidate,
+			// as legacy's is, so "1.5" or "1e2" can arrive, and an int parameter would
+			// answer with a 400 page where legacy stores 1 or 100.
 			@RequestParam(name = "planned_count", required = false, defaultValue = "0")
-					int plannedCount) {
+					String plannedCountText) {
 
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
+		// The store reads and writes planned_count as an int, so a count past 2147483647 is
+		// stored at that bound; legacy's int(10) unsigned column keeps up to 4294967295 (D-249).
+		int plannedCount = (int) Math.max(Integer.MIN_VALUE,
+				Math.min(Integer.MAX_VALUE, com.workin.legacy.PhpCast.intval(plannedCountText)));
 
 		try {
 			long wrote = switch (action) {

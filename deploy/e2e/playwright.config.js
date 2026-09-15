@@ -55,7 +55,7 @@ export default defineConfig({
 			// No stack: the dashboard's own scripts on a static page, needing
 			// neither the proxy nor the database.
 			name: 'browser',
-			testMatch: /(row-dialog|setting-templates|emp-picker|job-title-form|department-form)\.spec\.js/,
+			testMatch: /(row-dialog|setting-templates|emp-picker|job-title-form|department-form|workforce-form)\.spec\.js/,
 			use: { ...devices['Desktop Chrome'] },
 		},
 		{

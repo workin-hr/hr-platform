@@ -1,6 +1,7 @@
 @import java.util.List
 @import java.util.function.Function
 @import com.workin.backend.platformadmin.hr.WorkforcePlan
+@import com.workin.backend.platformadmin.org.ActiveCompanies
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -9,9 +10,11 @@
 @param String currentAdminPhone
 @param DashboardPage<WorkforcePlan> result
 @param DashboardListFilters filters
-@param List<WorkforcePlan.Option> branchOptions
-@param List<WorkforcePlan.Option> departmentOptions
-@param List<WorkforcePlan.Option> jobTitleOptions
+@param List<ActiveCompanies.CompanyOption> companyOptions = List.of()
+@param String branchesByCompany = "{}"
+@param String departmentsByBranch = "{}"
+@param String jobTitlesByDepartment = "{}"
+@param String jobTitlesByCompany = "{}"
 @param boolean canManage
 @param boolean actionsEnabled
 @param WorkforcePlan editRow = null
@@ -37,6 +40,7 @@
 	t = t,
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css", "org-form.css"),
+	pageScripts = java.util.List.of("workforce-form.js"),
 	body = @`
 		@if(errorKey != null)
 			<div class="flash flash-error">${t.apply(errorKey)}</div>
@@ -69,70 +73,65 @@
 
 		@if(addOpen || editRow != null)
 			<%-- page.php renders this in modal modal--org-form over a
-			     modal-bg. The port had it as a data-table-card in the page
-			     flow, wrapped in account-form org-form -- classes no
-			     stylesheet defines here or in legacy. The close button legacy
-			     also carries is not copied: it is opened and closed by crud.js
-			     there, and this form is rendered by the server. --%>
-			<div class="modal-bg open">
+			     modal-bg. The close button legacy also carries is not copied: it
+			     is opened and closed by crud.js there, and this form is rendered
+			     by the server. workforce-form.js finds the form by #wpModal and
+			     data-org-wp-form, and fills the three selects from the maps, which
+			     the server leaves empty as legacy's page does. R-051: each map holds
+			     only the companies this form may use. --%>
+			<div class="modal-bg open" id="wpModal">
 				<div class="modal modal--org-form">
 					<h2>${editRow == null ? t.apply("add_workforce")
 							: t.apply("edit") + " " + t.apply("workforce_item")}</h2>
-					<form method="POST">
+					<form method="POST" novalidate
+					      data-org-wp-form
+					      data-branches-by-company="${branchesByCompany}"
+					      data-departments-by-branch="${departmentsByBranch}"
+					      data-job-titles-by-dept="${jobTitlesByDepartment}"
+					      data-job-titles-by-company="${jobTitlesByCompany}"
+					      data-placeholder-branch="${t.apply("branch")}..."
+					      data-placeholder-job="${t.apply("job_title")}..."
+					      data-selected-branch="${editRow == null ? "" : String.valueOf(editRow.branchId())}"
+					      data-selected-department="${editRow == null ? "" : String.valueOf(editRow.departmentId())}"
+					      data-selected-job-title="${editRow == null ? "" : String.valueOf(editRow.jobTitleId())}">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="${editRow == null ? "add_wp" : "edit_wp"}">
 					@if(editRow != null)
 						<input type="hidden" name="id" value="${editRow.id()}">
-					@endif
-					<%-- Posted on the create path only. On an edit the row's own
-					     company decides everything and this value is not read:
-					     D-176. --%>
-					@if(editRow == null)
-						<input type="hidden" name="company_id" value="${filters.companyId()}">
+						<%-- The row's company, for the script to read. Not named, so not
+						     posted: on an edit the row's own company decides everything,
+						     D-176. --%>
+						<input type="hidden" data-fixed-company="${editRow.companyId()}" value="${editRow.companyId()}">
+					@else
+						@template.admin.companyField(session = session, companyId = filters.companyId(),
+								companies = companyOptions, inputId = "wp_company_id", cascade = "wp", t = t)
 					@endif
 
 					<div class="form-row">
-						<label for="branch_id">${t.apply("branch")} *</label>
-						<select id="branch_id" name="branch_id" required>
-							@for(WorkforcePlan.Option option : branchOptions)
-								<option value="${option.id()}"
-								        selected="${editRow != null && editRow.branchId() == option.id()}">
-									${option.label()}</option>
-							@endfor
-						</select>
+						<label for="wp_branch">${t.apply("branch")} *</label>
+						<select name="branch_id" id="wp_branch" data-wp-branch required></select>
 					</div>
 					<div class="form-row">
 						<%-- Optional: 0 is how "no department" is posted, and the
 						     column is NOT NULL DEFAULT 0 rather than nullable. --%>
-						<label for="department_id">${t.apply("department")}</label>
-						<select id="department_id" name="department_id">
-							<option value="0">—</option>
-							@for(WorkforcePlan.Option option : departmentOptions)
-								<option value="${option.id()}"
-								        selected="${editRow != null && editRow.departmentId() == option.id()}">
-									${option.label()}</option>
-							@endfor
-						</select>
+						<label for="wp_department">${t.apply("department")}</label>
+						<select name="department_id" id="wp_department" data-wp-department></select>
 					</div>
 					<div class="form-row">
-						<label for="job_title_id">${t.apply("job_title")} *</label>
-						<select id="job_title_id" name="job_title_id" required>
-							@for(WorkforcePlan.Option option : jobTitleOptions)
-								<option value="${option.id()}"
-								        selected="${editRow != null && editRow.jobTitleId() == option.id()}">
-									${option.label()}</option>
-							@endfor
-						</select>
+						<label for="wp_job">${t.apply("job_title")} *</label>
+						<select name="job_title_id" id="wp_job" data-wp-job-title required></select>
 					</div>
 					<div class="form-row">
-						<label for="planned_count">${t.apply("planned_count")} *</label>
-						<input type="number" id="planned_count" name="planned_count" min="0" required
+						<label for="wp_planned">${t.apply("planned_count")} *</label>
+						<input type="number" id="wp_planned" min="0" name="planned_count" required
 						       value="${editRow == null ? "1" : String.valueOf(editRow.plannedCount())}">
 					</div>
 					<div class="form-footer">
 						<a href="/admin/workforce_planning" class="btn btn-gray">${t.apply("cancel")}</a>
 						@if(canWrite)
-							<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+							<%-- Disabled until workforce-form.js sees a company, a branch,
+							     a job title and a count, as legacy's is. --%>
+							<button type="submit" class="btn btn-blue" data-wp-submit disabled>${t.apply("save")}</button>
 						@endif
 					</div>
 					</form>
