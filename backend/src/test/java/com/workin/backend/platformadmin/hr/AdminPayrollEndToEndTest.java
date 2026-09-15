@@ -165,6 +165,21 @@ class AdminPayrollEndToEndTest extends AdminPayrollTestSupport {
 				.usingElementComparator(java.math.BigDecimal::compareTo)
 				.containsExactly(new java.math.BigDecimal("210"), new java.math.BigDecimal("220"),
 						new java.math.BigDecimal("70"), new java.math.BigDecimal("60"), new java.math.BigDecimal("230"));
+		// The cells alone pass with a header over the wrong figure, which is
+		// the defect itself: the headers must name those cells, in order.
+		int tableHead = html.lastIndexOf("<thead>", html.indexOf("<td class=\"col-center text-red"));
+		java.util.List<String> headerTexts = new java.util.ArrayList<>();
+		java.util.regex.Matcher header = java.util.regex.Pattern.compile("<th class=\"col-center\">([^<]*)</th>")
+				.matcher(html.substring(tableHead, html.indexOf("</thead>", tableHead)));
+		while (header.find()) {
+			headerTexts.add(unescaped(header.group(1).trim()));
+		}
+		java.util.List<java.util.List<String>> sequences = CATALOGUES.stream().map(catalogue -> texts(catalogue,
+				"total_entitlements", "insurance_deduction", "tax_deduction", "medical_insurance_deduction",
+				"advance_deduction", "fund_deduction", "penalties", "other_fixed_deductions",
+				"total_deductions", "net_salary")).toList();
+		assertThat(sequences).as("the headers over those cells, in legacy's order, in the page's language; the page has %s",
+				headerTexts).anySatisfy(sequence -> assertThat(headerTexts).containsSequence(sequence));
 
 		long emptyBatch = batch(this.companyA, 4, 2026, "2026-04-01", "2026-04-30", "draft");
 		String empty = body(PATH + "?run_id=" + emptyBatch);
@@ -186,6 +201,39 @@ class AdminPayrollEndToEndTest extends AdminPayrollTestSupport {
 		String medical = label(html, "advances_deduction");
 		String advance = label(html, "advance_deduction");
 		assertThat(medical).as("medical insurance is not labelled as the advance deduction").isNotEqualTo(advance);
+		assertThat(CATALOGUES.stream()
+				.map(catalogue -> texts(catalogue, "medical_insurance_deduction", "advance_deduction")).toList())
+				.as("each field carries legacy's own label, in the page's language")
+				.contains(java.util.List.of(medical, advance));
+	}
+
+	/** The page's message catalogues, English then Arabic: it renders in one of them. */
+	private static final java.util.List<java.util.Properties> CATALOGUES = java.util.List.of(
+			catalogue("i18n/admin-messages.properties"), catalogue("i18n/admin-messages_ar.properties"));
+
+	private static java.util.Properties catalogue(String resource) {
+		java.util.Properties catalogue = new java.util.Properties();
+		try (java.io.InputStream in = AdminPayrollEndToEndTest.class.getClassLoader().getResourceAsStream(resource)) {
+			assertThat(in).as("the catalogue %s", resource).isNotNull();
+			catalogue.load(new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8));
+		} catch (java.io.IOException e) {
+			throw new java.io.UncheckedIOException(e);
+		}
+		return catalogue;
+	}
+
+	/** Each key's text in one catalogue, in the order given. */
+	private static java.util.List<String> texts(java.util.Properties catalogue, String... keys) {
+		return java.util.Arrays.stream(keys).map(key -> {
+			assertThat(catalogue.getProperty(key)).as("the message %s", key).isNotNull();
+			return catalogue.getProperty(key);
+		}).toList();
+	}
+
+	/** Text as jte's escaping wrote it, read back. */
+	private static String unescaped(String text) {
+		return text.replace("&#39;", "'").replace("&#34;", "\"").replace("&quot;", "\"")
+				.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&");
 	}
 
 	/** The text of the label for one form field. */
