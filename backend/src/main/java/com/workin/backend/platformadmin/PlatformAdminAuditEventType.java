@@ -37,6 +37,11 @@ public enum PlatformAdminAuditEventType {
 	COMPANY_CREATED,
 	COMPANY_UPDATED,
 
+	// Deleting a company removes it and everything under it, and legacy
+	// records nothing. This row is written in the same transaction as the
+	// cascade, so a delete that rolls back leaves no row claiming it happened.
+	COMPANY_DELETED,
+
 	// --- platform content the mobile and desktop clients read but cannot
 	// write: dial codes, FAQs, banners, broadcast notifications (ADR-0016).
 	// One triple for all of them, with the table in the audit row's target

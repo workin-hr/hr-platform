@@ -91,6 +91,35 @@ public interface PlatformAdminCompanyDirectory {
 
 	java.util.Optional<CompanyDetail> detail(long companyId);
 
+	/** A company as deleting it needs it: what to show, and what the operator must type back. */
+	record DeletionTarget(CompanyView company, String phone) {
+
+		/**
+		 * The name; the phone for a company without one; the id for a company
+		 * with neither. Never blank, so an empty field can never confirm a delete.
+		 * {@link #normalised}, because it is also what the page shows.
+		 */
+		public String confirmationText() {
+			String name = normalised(company.name());
+			if (!name.isEmpty()) {
+				return name;
+			}
+			String number = normalised(phone);
+			return number.isEmpty() ? "#" + company.id() : number;
+		}
+
+		/**
+		 * Format characters (zero-width and bidi marks) removed, and every run of
+		 * whitespace, non-breaking spaces included, made one space: what a browser
+		 * shows of the text, and so all a reader can type back.
+		 */
+		public static String normalised(String text) {
+			return text == null ? "" : text.replaceAll("\\p{Cf}", "").replaceAll("(?U)\\s+", " ").strip();
+		}
+	}
+
+	java.util.Optional<DeletionTarget> deletionTarget(long companyId);
+
 	/**
 	 * @return whether a company with that id existed and was updated
 	 */

@@ -1,15 +1,23 @@
 package com.workin.legacy.profile;
 
+import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import javax.sql.DataSource;
 
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.workin.legacy.wire.LegacyMessages;
@@ -32,9 +40,17 @@ import com.workin.legacy.wire.LegacyMessages;
  * in legacy: the three company-scoped tables that may not exist in every
  * deployment, the three join tables, and the final batch of company-scoped
  * tables. A failure there does not abort the cascade and does not surface to
- * the caller. That is reproduced exactly, and it is the reason a partial
- * cascade can commit -- which is a real operational property of this endpoint,
- * not an accident of the port.
+ * the caller. That is reproduced, and it is the reason a partial cascade can
+ * commit -- which is a real operational property of this endpoint, not an
+ * accident of the port.
+ *
+ * <p>One failure is not swallowed: a lock failure. InnoDB answers a deadlock, and
+ * a lock wait timeout under {@code innodb_rollback_on_timeout}, by rolling the
+ * whole transaction back, so carrying on would commit the rest of the cascade in
+ * a new transaction, without the rows deleted before it and without anything the
+ * caller wrote first. Legacy swallows it; this rethrows it (D-245). A lock wait
+ * timeout is recognised by its error code: Spring's default translator reads the
+ * SQLSTATE, and MariaDB reports that one as {@code HY000}.
  *
  * <p><b>Every statement outside those inner catches is fatal.</b> PHP's outer
  * {@code try} ends in {@code catch (Throwable $e) { $pdo->rollBack(); throw $e; }},
@@ -62,15 +78,17 @@ import com.workin.legacy.wire.LegacyMessages;
  * than mitigated, because legacy behaves this way today and D-058 puts the
  * burden of proof on the change.
  *
- * <h2>The device tables are deleted but not previewed</h2>
+ * <h2>The device tables are deleted but not in the client preview</h2>
  * <p>{@link #DEVICE_OWNED} extends the cascade to the Phase-1-owned device
- * tables, which PHP knows nothing about. The <b>preview</b> is deliberately
- * left alone: its key set and order are a client-visible contract (D-111)
- * that the Flutter clients render, and those clients cannot be inspected from
- * this repository (PMR-02). So a company admin deleting their company is not
- * told how many device punches go with it, while they are told about
- * attendance. That under-reporting is a known gap awaiting an owner decision,
- * not an oversight.
+ * tables, which PHP knows nothing about. The client <b>preview</b> is
+ * deliberately left alone: its key set and order are a client-visible contract
+ * (D-111) that the Flutter clients render, and those clients cannot be
+ * inspected from this repository (PMR-02). So a company admin deleting their
+ * company from the app is not told how many device punches go with it, while
+ * they are told about attendance. That under-reporting is a known gap awaiting
+ * an owner decision, not an oversight. The platform administrator's delete page
+ * does not share it: {@link #clearedTables} counts every table the cascade
+ * deletes from, device tables included (D-245).
  */
 @Service
 public class LegacyCompanyDelete {
@@ -127,6 +145,76 @@ public class LegacyCompanyDelete {
 	private static final List<String> COMPANY_OWNED_LATE = List.of(
 			"payroll_batches", "company_settings", "request_types", "exception_types",
 			"company_official_holidays", "job_titles", "shifts", "departments", "branches");
+
+	/**
+	 * The foreign keys with {@code ON DELETE CASCADE} that remove rows the table's own
+	 * statement does not reach: a complaint the company filed rather than an employee,
+	 * a payslip in one of its batches, an assignment to one of its shifts, a link to one
+	 * of its departments, and another company's notification to or from one of its
+	 * employees. Declared before {@link #COUNTED}, which is built from it.
+	 */
+	private static final Map<String, List<Path>> ALSO_THROUGH_KEYS = Map.of(
+			"notifications", List.of(new Path("to_employee_id", "employees"), new Path("from_employee_id", "employees")),
+			"complaints", List.of(new Path("company_id", "companies")),
+			"payslips", List.of(new Path("batch_id", "payroll_batches")),
+			"employee_shift_assignments", List.of(new Path("shift_id", "shifts")),
+			"department_branches", List.of(new Path("department_id", "departments")));
+
+	/**
+	 * Every table the delete removes rows from, in the cascade's order, with each way its
+	 * rows go with the company: the cascade's own statement for the table, and the keys in
+	 * {@link #ALSO_THROUGH_KEYS}. Counting one path per table missed a support complaint
+	 * with no employee, which only {@code complaints.company_id}'s key removes.
+	 * {@code LegacyCompanyDeleteCascadeTest} holds this list to the statements the cascade
+	 * runs, to every cascading key the schema declares, and to the rows a delete removes.
+	 */
+	private static final List<Counted> COUNTED = counted();
+
+	/** A column whose value makes a row go: the company's id, or the id of a parent row that goes. */
+	private record Path(String column, String parent) {
+
+		String condition() {
+			return "companies".equals(parent)
+					? column + " = ?"
+					: column + " IN (SELECT id FROM " + parent + " WHERE company_id = ?)";
+		}
+	}
+
+	private record Counted(String table, List<Path> paths) {
+
+		String sql() {
+			return "SELECT COUNT(*) FROM " + table + " WHERE "
+					+ String.join(" OR ", paths.stream().map(Path::condition).toList());
+		}
+
+		List<String> needs() {
+			List<String> needs = new ArrayList<>(List.of(table));
+			paths.stream().map(Path::parent).filter(parent -> !"companies".equals(parent)).forEach(needs::add);
+			return needs;
+		}
+	}
+
+	private static List<Counted> counted() {
+		List<Counted> counted = new ArrayList<>();
+		counted.add(rows("notifications", "company_id", "companies"));
+		EMPLOYEE_OWNED.forEach(table -> counted.add(rows(table, "employee_id", "employees")));
+		COMPANY_OWNED_EARLY.forEach(table -> counted.add(rows(table, "company_id", "companies")));
+		DEVICE_OWNED.forEach(table -> counted.add(rows(table, "company_id", "companies")));
+		counted.add(rows("employees", "company_id", "companies"));
+		counted.add(rows("department_branches", "branch_id", "branches"));
+		counted.add(rows("job_title_sections", "job_title_id", "job_titles"));
+		counted.add(rows("section_departments", "department_id", "departments"));
+		counted.add(rows("company_setting_values", "company_setting_id", "company_settings"));
+		COMPANY_OWNED_LATE.forEach(table -> counted.add(rows(table, "company_id", "companies")));
+		return List.copyOf(counted);
+	}
+
+	/** The path the cascade's own statement takes, and any the table's keys add. */
+	private static Counted rows(String table, String column, String parent) {
+		List<Path> paths = new ArrayList<>(List.of(new Path(column, parent)));
+		paths.addAll(ALSO_THROUGH_KEYS.getOrDefault(table, List.of()));
+		return new Counted(table, List.copyOf(paths));
+	}
 
 	private final JdbcTemplate jdbcTemplate;
 	private final TransactionTemplate transactions;
@@ -199,6 +287,55 @@ public class LegacyCompanyDelete {
 		return items;
 	}
 
+	/** One table the cascade deletes from, and this company's rows in it. */
+	public record ClearedTable(String table, long rows) {
+	}
+
+	/** The tables {@link #clearedTables} counts, in the cascade's order. */
+	public static List<String> countedTables() {
+		return COUNTED.stream().map(Counted::table).toList();
+	}
+
+	/** Every way a counted table's rows go, as {@code table.column -> parent}. */
+	public static Set<String> countedPaths() {
+		Set<String> paths = new HashSet<>();
+		for (Counted count : COUNTED) {
+			count.paths().forEach(path -> paths.add(count.table() + "." + path.column() + " -> " + path.parent()));
+		}
+		return paths;
+	}
+
+	/**
+	 * What the delete would remove: every row, by table, that the cascade's statements
+	 * or the foreign keys cascading from them take with the company, device tables
+	 * included, in the cascade's order.
+	 *
+	 * <p>Not {@link #summary}, whose fifteen keys are the client preview's
+	 * contract. A table with no rows is left out, and so is a table not deployed
+	 * here, which is asked of {@code information_schema} as
+	 * {@link #deleteFromOptionalTable} does. Any other failure is thrown, unlike in
+	 * {@code summary}: a count that silently read zero would show an operator less
+	 * than the delete removes.
+	 */
+	public List<ClearedTable> clearedTables(long companyId) {
+		Set<String> deployed = new HashSet<>(jdbcTemplate.queryForList(
+				"SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()",
+				String.class));
+		List<ClearedTable> cleared = new ArrayList<>();
+		for (Counted count : COUNTED) {
+			if (!deployed.containsAll(count.needs())) {
+				continue;
+			}
+			Object[] ids = new Object[count.paths().size()];
+			Arrays.fill(ids, companyId);
+			Long rows = jdbcTemplate.queryForObject(count.sql(), Long.class, ids);
+			if (rows != null && rows > 0) {
+				cleared.add(new ClearedTable(count.table(), rows));
+			}
+		}
+		return cleared;
+	}
+
 	/**
 	 * {@code company_cascade_delete()}.
 	 *
@@ -210,70 +347,94 @@ public class LegacyCompanyDelete {
 	 */
 	public List<Map<String, Object>> cascadeDelete(long companyId, String locale) {
 		List<Map<String, Object>> preview = summary(companyId, locale);
-		transactions.executeWithoutResult(status -> {
-			jdbcTemplate.update(
-					"UPDATE notifications SET from_employee_id = NULL WHERE company_id = ?", companyId);
-			jdbcTemplate.update("DELETE FROM notifications WHERE company_id = ?", companyId);
-
-			for (String table : EMPLOYEE_OWNED) {
-				jdbcTemplate.update(
-						"DELETE t FROM " + table + " t"
-								+ " INNER JOIN employees e ON e.id = t.employee_id WHERE e.company_id = ?",
-						companyId);
-			}
-
-			jdbcTemplate.update("UPDATE departments SET manager_id = NULL WHERE company_id = ?", companyId);
-
-			for (String table : COMPANY_OWNED_EARLY) {
-				ignoringFailure("DELETE FROM " + table + " WHERE company_id = ?", companyId);
-			}
-
-			// Before employees and branches go, though nothing here has a
-			// foreign key to either -- the ordering is for readers, not the
-			// database.
-			//
-			// deleteFromOptionalTable, NOT ignoringFailure: these four are the
-			// tables whose survival is dangerous rather than merely untidy. An
-			// attendance_devices row is what makes a serial recognised, so one
-			// surviving row keeps a terminal ingesting punches against a company
-			// that no longer exists. Swallowing every RuntimeException cannot
-			// tell "not deployed here" from "the delete was refused", and the
-			// second must roll the cascade back.
-			for (String table : DEVICE_OWNED) {
-				deleteFromOptionalTable(table, companyId);
-			}
-
-			jdbcTemplate.update("DELETE FROM employees WHERE company_id = ?", companyId);
-
-			jdbcTemplate.update("""
-					DELETE db FROM department_branches db
-					INNER JOIN branches b ON b.id = db.branch_id
-					WHERE b.company_id = ?""", companyId);
-
-			ignoringFailure("""
-					DELETE jts FROM job_title_sections jts
-					INNER JOIN job_titles jt ON jt.id = jts.job_title_id
-					WHERE jt.company_id = ?""", companyId);
-			ignoringFailure("""
-					DELETE sd FROM section_departments sd
-					INNER JOIN departments d ON d.id = sd.department_id
-					WHERE d.company_id = ?""", companyId);
-			ignoringFailure("""
-					DELETE csv FROM company_setting_values csv
-					INNER JOIN company_settings cs ON cs.id = csv.company_setting_id
-					WHERE cs.company_id = ?""", companyId);
-
-			for (String table : COMPANY_OWNED_LATE) {
-				ignoringFailure("DELETE FROM " + table + " WHERE company_id = ?", companyId);
-			}
-
-			if (jdbcTemplate.update("DELETE FROM companies WHERE id = ?", companyId) != 1) {
-				// throw new RuntimeException('company_delete_failed') -- the one
-				// statement whose failure rolls the whole cascade back.
-				throw new IllegalStateException("company_delete_failed");
-			}
-		});
+		transactions.executeWithoutResult(status -> deleteEverything(companyId));
 		return preview;
+	}
+
+	/**
+	 * The same cascade in the caller's transaction instead of one of its own, for a
+	 * caller whose own writes must commit or roll back with it: the platform
+	 * administrator's audit row.
+	 *
+	 * <p>{@link #cascadeDelete} cannot serve that caller. Its
+	 * {@code DataSourceTransactionManager} does not recognise a JPA transaction on the
+	 * same connection as one to join, because {@code JpaTransactionManager} exposes the
+	 * connection without marking it transaction-active. So it begins its "own"
+	 * transaction on that connection and commits it, and the caller's earlier writes
+	 * commit with it.
+	 *
+	 * @throws IllegalTransactionStateException when no transaction is active
+	 */
+	public void cascadeDeleteInCurrentTransaction(long companyId) {
+		if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+			throw new IllegalTransactionStateException(
+					"the company cascade must join the caller's transaction");
+		}
+		deleteEverything(companyId);
+	}
+
+	private void deleteEverything(long companyId) {
+		jdbcTemplate.update(
+				"UPDATE notifications SET from_employee_id = NULL WHERE company_id = ?", companyId);
+		jdbcTemplate.update("DELETE FROM notifications WHERE company_id = ?", companyId);
+
+		for (String table : EMPLOYEE_OWNED) {
+			jdbcTemplate.update(
+					"DELETE t FROM " + table + " t"
+							+ " INNER JOIN employees e ON e.id = t.employee_id WHERE e.company_id = ?",
+					companyId);
+		}
+
+		jdbcTemplate.update("UPDATE departments SET manager_id = NULL WHERE company_id = ?", companyId);
+
+		for (String table : COMPANY_OWNED_EARLY) {
+			ignoringFailure("DELETE FROM " + table + " WHERE company_id = ?", companyId);
+		}
+
+		// Before employees and branches go, though nothing here has a
+		// foreign key to either -- the ordering is for readers, not the
+		// database.
+		//
+		// deleteFromOptionalTable, NOT ignoringFailure: these four are the
+		// tables whose survival is dangerous rather than merely untidy. An
+		// attendance_devices row is what makes a serial recognised, so one
+		// surviving row keeps a terminal ingesting punches against a company
+		// that no longer exists. Swallowing every RuntimeException cannot
+		// tell "not deployed here" from "the delete was refused", and the
+		// second must roll the cascade back.
+		for (String table : DEVICE_OWNED) {
+			deleteFromOptionalTable(table, companyId);
+		}
+
+		jdbcTemplate.update("DELETE FROM employees WHERE company_id = ?", companyId);
+
+		jdbcTemplate.update("""
+				DELETE db FROM department_branches db
+				INNER JOIN branches b ON b.id = db.branch_id
+				WHERE b.company_id = ?""", companyId);
+
+		ignoringFailure("""
+				DELETE jts FROM job_title_sections jts
+				INNER JOIN job_titles jt ON jt.id = jts.job_title_id
+				WHERE jt.company_id = ?""", companyId);
+		ignoringFailure("""
+				DELETE sd FROM section_departments sd
+				INNER JOIN departments d ON d.id = sd.department_id
+				WHERE d.company_id = ?""", companyId);
+		ignoringFailure("""
+				DELETE csv FROM company_setting_values csv
+				INNER JOIN company_settings cs ON cs.id = csv.company_setting_id
+				WHERE cs.company_id = ?""", companyId);
+
+		for (String table : COMPANY_OWNED_LATE) {
+			ignoringFailure("DELETE FROM " + table + " WHERE company_id = ?", companyId);
+		}
+
+		if (jdbcTemplate.update("DELETE FROM companies WHERE id = ?", companyId) != 1) {
+			// throw new RuntimeException('company_delete_failed') -- the one
+			// statement whose failure rolls the whole cascade back.
+			throw new IllegalStateException("company_delete_failed");
+		}
 	}
 
 	/**
@@ -301,10 +462,25 @@ public class LegacyCompanyDelete {
 	private void ignoringFailure(String sql, long companyId) {
 		try {
 			jdbcTemplate.update(sql, companyId);
-		} catch (RuntimeException ignored) {
+		} catch (RuntimeException failure) {
+			if (isLockFailure(failure)) {
+				// Not PHP's (see the class javadoc): the server may already have rolled
+				// the transaction back, and what follows would commit without it.
+				throw failure;
+			}
 			// catch (Throwable $ignored) {} -- deliberately silent, see the class
 			// javadoc. A table missing from this deployment must not abort the
 			// cascade, and legacy reports nothing either.
 		}
+	}
+
+	/** MySQL's lock wait timeout, deadlock and {@code NOWAIT} errors. */
+	private static final Set<Integer> LOCK_ERRORS = Set.of(1205, 1213, 3572);
+
+	private static boolean isLockFailure(RuntimeException failure) {
+		return failure instanceof PessimisticLockingFailureException
+				|| failure instanceof DataAccessException access
+						&& access.getMostSpecificCause() instanceof SQLException sql
+						&& LOCK_ERRORS.contains(sql.getErrorCode());
 	}
 }

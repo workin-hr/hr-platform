@@ -2,6 +2,8 @@ package com.workin.backend.platformadmin.web;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -27,6 +29,8 @@ import com.workin.backend.platformadmin.companies.CompanyListFilters;
 @Controller
 public class PlatformAdminCompaniesController {
 
+	private static final Logger log = LoggerFactory.getLogger(PlatformAdminCompaniesController.class);
+
 	/** One company, for the detail page: the narrow view the actions also use. */
 	private final PlatformAdminCompanyDirectory companies;
 
@@ -37,13 +41,18 @@ public class PlatformAdminCompaniesController {
 
 	private final com.workin.legacy.phone.LegacyPhoneNumbers phoneNumbers;
 
+	/** The delete page's counts: every table the cascade deletes from. */
+	private final com.workin.legacy.profile.LegacyCompanyDelete companyDelete;
+
 	public PlatformAdminCompaniesController(PlatformAdminCompanyDirectory companies,
 			PlatformAdminCompanyService companyService, CompanyDirectoryStore directory,
-			com.workin.legacy.phone.LegacyPhoneNumbers phoneNumbers) {
+			com.workin.legacy.phone.LegacyPhoneNumbers phoneNumbers,
+			com.workin.legacy.profile.LegacyCompanyDelete companyDelete) {
 		this.companies = companies;
 		this.companyService = companyService;
 		this.directory = directory;
 		this.phoneNumbers = phoneNumbers;
+		this.companyDelete = companyDelete;
 	}
 
 	@AuthenticatedUseCase(reason = "Platform-wide oversight: the list of companies this "
@@ -100,6 +109,65 @@ public class PlatformAdminCompaniesController {
 			default -> "error_not_found";
 		});
 		return "admin/companies";
+	}
+
+	@AuthenticatedUseCase(reason = "What deleting one company would remove, and the form that asks "
+			+ "for its name. Read-only: the delete is the POST to the same path.")
+	@GetMapping(PlatformAdminWebSecurityConfig.COMPANY_DELETE_PATH)
+	public String deletePreview(
+			@org.springframework.web.bind.annotation.PathVariable long companyId,
+			Model model, HttpServletRequest request) {
+		return renderDelete(companyId, model, request)
+				? "admin/company-delete"
+				: "redirect:" + PlatformAdminWebSecurityConfig.COMPANIES_PATH;
+	}
+
+	@AuthenticatedUseCase(reason = "Hard-deletes one company and everything under it, as "
+			+ "company_cascade_delete() does, once the operator types the company's name back. "
+			+ "CSRF-protected, refused while the surface is disabled, and audited in the "
+			+ "cascade's own transaction.")
+	@PostMapping(PlatformAdminWebSecurityConfig.COMPANY_DELETE_PATH)
+	public String delete(@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
+			@org.springframework.web.bind.annotation.PathVariable long companyId,
+			@RequestParam(required = false, defaultValue = "") String confirmation,
+			Model model, HttpServletRequest request) {
+		PlatformAdminCompanyService.Outcome outcome;
+		try {
+			outcome = this.companyService.delete(principal.platformAdminId(), companyId, confirmation);
+		} catch (RuntimeException failure) {
+			// pages/companies/page.php:24-27 logs the failure and flashes error_db. By
+			// now the transaction has rolled back: the cascade and the audit row alike.
+			log.error("Deleting company {} failed and was rolled back", companyId, failure);
+			outcome = null;
+		}
+		if (outcome == PlatformAdminCompanyService.Outcome.DONE
+				|| !renderDelete(companyId, model, request)) {
+			return "redirect:" + PlatformAdminWebSecurityConfig.COMPANIES_PATH;
+		}
+		if (outcome == null) {
+			model.addAttribute("errorKey", "error_db");
+		} else if (outcome == PlatformAdminCompanyService.Outcome.CONFIRMATION_MISMATCH) {
+			model.addAttribute("errorKey", "company_delete_mismatch");
+		}
+		return "admin/company-delete";
+	}
+
+	/** @return false when there is no such company, which sends the caller back to the list */
+	private boolean renderDelete(long companyId, Model model, HttpServletRequest request) {
+		java.util.Optional<PlatformAdminCompanyDirectory.DeletionTarget> target =
+				this.companies.deletionTarget(companyId);
+		if (target.isEmpty()) {
+			return false;
+		}
+		java.util.List<com.workin.legacy.profile.LegacyCompanyDelete.ClearedTable> cleared =
+				this.companyDelete.clearedTables(companyId);
+		PlatformAdminWebCsrf.expose(model, request);
+		model.addAttribute("actionsEnabled", this.companyService.actionsEnabled());
+		model.addAttribute("target", target.get());
+		model.addAttribute("cleared", cleared);
+		model.addAttribute("clearedTotal", cleared.stream()
+				.mapToLong(com.workin.legacy.profile.LegacyCompanyDelete.ClearedTable::rows).sum());
+		return true;
 	}
 
 	@AuthenticatedUseCase(reason = "Creates a company, which provisions a login for its owner, "

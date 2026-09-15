@@ -17,6 +17,11 @@
 		     opens the prefilled form at ?edit=<id>, not legacy's ?action=edit&id=. --%>
 		<a href="/admin/companies?edit=${companyId}" class="row-actions__item"
 		   role="menuitem">${t.apply("edit")}</a>
+		<%-- company_helper.php:191-197: Delete right after Edit. Legacy posts after a
+		     browser confirm(); this opens a page that counts what goes with the
+		     company and asks for its name first. --%>
+		<a href="/admin/companies/${companyId}/delete"
+		   class="row-actions__item row-actions__item--danger" role="menuitem">${t.apply("delete")}</a>
 		@if("pending".equals(status) || "rejected".equals(status))
 			<form method="post" action="/admin/companies/action" class="row-actions__form" role="none">
 				<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
