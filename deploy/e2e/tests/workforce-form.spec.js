@@ -20,7 +20,7 @@ const SCRIPT = readFileSync(
 
 const MAPS = {
 	branches: { 11: [{ id: 101, name: 'Alpha HQ' }, { id: 102, name: 'Alpha North' }], 12: [{ id: 201, name: 'Beta HQ' }] },
-	departmentsByBranch: { 101: [{ id: 301, name: 'Alpha Ops' }, { id: 302, name: 'Alpha Sales' }] },
+	departmentsByBranch: { 101: [{ id: 301, name: 'Alpha Ops' }, { id: 302, name: 'Alpha Sales' }], 103: [{ id: 303, name: 'Alpha Stores' }] },
 	jobsByDepartment: { 301: [{ id: 401, name: 'Alpha Fitter' }], 302: [{ id: 402, name: 'Alpha Seller' }] },
 	jobsByCompany: {
 		11: [{ id: 403, name: 'Alpha Driver' }, { id: 401, name: 'Alpha Fitter' }, { id: 402, name: 'Alpha Seller' }],
@@ -147,6 +147,17 @@ test("an edit selects the row's branch, department and job title, and its save i
 	await expect(browserPage.locator('#wp_branch')).toHaveValue('101');
 	await expect(browserPage.locator('#wp_department')).toHaveValue('301');
 	await expect(browserPage.locator('#wp_job')).toHaveValue('401');
+	await expect(save(browserPage)).toBeEnabled();
+});
+
+test("an edit shows a department not linked to the row's branch by id, and keeps it, as legacy's does", async ({ page: browserPage }) => {
+	// Department 303 is linked to branch 103 only. The script lists a branch's own departments, so on an edit of a
+	// plan on branch 101 it keeps 303 selected under an option labelled #303; a retired department is absent the same way.
+	await load(browserPage, page({ company: EDIT, selected: { branch: '101', department: '303', job: '401' }, planned: '3' }));
+
+	await expect(browserPage.locator('#wp_department')).toHaveValue('303');
+	expect(await options(browserPage, '#wp_department')).toEqual(
+		[['0', '—'], ['301', 'Alpha Ops'], ['302', 'Alpha Sales'], ['303', '#303']]);
 	await expect(save(browserPage)).toBeEnabled();
 });
 
