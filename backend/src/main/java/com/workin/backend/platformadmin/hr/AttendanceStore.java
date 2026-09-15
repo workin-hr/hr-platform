@@ -289,6 +289,20 @@ public class AttendanceStore {
 		return found != null && found > 0;
 	}
 
+	/** Whether an exception type is active. A type that does not exist is not. */
+	public boolean exceptionTypeActive(long exceptionTypeId) {
+		List<Integer> found = this.jdbcTemplate.queryForList(
+				"SELECT is_active FROM exception_types WHERE id = ?", Integer.class, exceptionTypeId);
+		return !found.isEmpty() && found.get(0) != null && found.get(0) == 1;
+	}
+
+	/** The exception type an attendance row carries now, or null when it has none. */
+	public Long exceptionTypeOfRow(long id) {
+		List<Long> found = this.jdbcTemplate.queryForList(
+				"SELECT exception_type_id FROM attendance WHERE id = ?", Long.class, id);
+		return found.isEmpty() ? null : found.get(0);
+	}
+
 	public List<LeaveBalance.EmployeeOption> employeeOptions(long companyId) {
 		if (companyId > 0) {
 			return this.jdbcTemplate.query(

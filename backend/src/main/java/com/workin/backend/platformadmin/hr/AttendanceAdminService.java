@@ -40,6 +40,13 @@ public class AttendanceAdminService {
 		 */
 		FOREIGN_ROW,
 
+		/**
+		 * {@code exception_type_inactive}: a retired exception type given to a
+		 * punch that does not already carry it. A retired type stays only with
+		 * the rows that have it (D-240).
+		 */
+		INACTIVE_TYPE,
+
 		/** {@code error_required}: no employee, or an unusable date range. */
 		INVALID
 	}
@@ -147,6 +154,10 @@ public class AttendanceAdminService {
 			throw new RefusedException(Refusal.FOREIGN_ROW);
 		}
 		assertExceptionTypeVisible(exceptionTypeId, companyId);
+		// A retired type is not given to a new punch; the add form offers active types only.
+		if (exceptionTypeId != null && !this.store.exceptionTypeActive(exceptionTypeId)) {
+			throw new RefusedException(Refusal.INACTIVE_TYPE);
+		}
 
 		this.store.insert(employeeId, checkIn, blankToNull(checkOut), exceptionTypeId);
 		audit(adminId, PlatformAdminAuditEventType.ORG_CREATED, employeeId,
@@ -163,6 +174,13 @@ public class AttendanceAdminService {
 		long owner = assertRowVisible(session, id);
 		// The stored row's company, never one the request named -- D-176(b).
 		assertExceptionTypeVisible(exceptionTypeId, owner);
+		// A retired type stays with the rows that already carry it (D-240). The shared
+		// edit dialog lists it for every row on the page, so the save refuses it for
+		// any other row.
+		if (exceptionTypeId != null && !exceptionTypeId.equals(this.store.exceptionTypeOfRow(id))
+				&& !this.store.exceptionTypeActive(exceptionTypeId)) {
+			throw new RefusedException(Refusal.INACTIVE_TYPE);
+		}
 
 		this.store.update(id, checkIn, blankToNull(checkOut), exceptionTypeId);
 		audit(adminId, PlatformAdminAuditEventType.ORG_UPDATED, id,

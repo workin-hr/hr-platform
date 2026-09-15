@@ -297,9 +297,10 @@
 							<label>${t.apply("exception")}
 								<select name="exception_type_id" data-dialog-field="exception_type_id">
 									<option value="0">—</option>
-									<%-- Active types, plus a retired type a listed row carries, marked: a punch keeps its own type. --%>
+									<%-- Active types, plus a retired type a listed row carries, marked. row-dialog.js
+									     disables a retired option unless the opened row already carries it. --%>
 									@for(AttendanceRecord.ExceptionTypeOption option : editExceptionTypes)
-										<option value="${option.id()}">${option.name()}@if(!option.active()) — ${t.apply("status_inactive")}@endif</option>
+										<option value="${option.id()}" data-dialog-current-only="${option.active() ? null : "1"}">${option.name()}@if(!option.active()) — ${t.apply("status_inactive")}@endif</option>
 									@endfor
 								</select></label>
 							@else

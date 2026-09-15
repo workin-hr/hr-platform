@@ -157,6 +157,7 @@ public class AdminAttendanceController {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
 			case FOREIGN_ROW -> "error_db";
+			case INACTIVE_TYPE -> "exception_type_inactive";
 			case INVALID -> "error_required";
 		};
 	}

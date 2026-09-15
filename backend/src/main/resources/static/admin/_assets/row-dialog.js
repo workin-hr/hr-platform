@@ -4,7 +4,9 @@
 // values as `data-dialog-*`, and each is copied into the element declaring the
 // matching `data-dialog-field`. A checkbox is ticked when the value is "1" and
 // unticked otherwise; any other form input takes it as its value; anything
-// else takes it as text, which is how the subject line names the row.
+// else takes it as text, which is how the subject line names the row. An
+// option marked data-dialog-current-only is disabled unless it is the value the
+// row carries: a retired choice stays with the rows that already have it.
 (function () {
   function fill(dialog, trigger) {
     // Reset first. Closing a native <dialog> does not clear its form, and
@@ -29,6 +31,11 @@
         target.checked = value === '1';
       } else if ('value' in target && target.tagName !== 'P' && target.tagName !== 'SPAN') {
         target.value = value;
+        if (target.tagName === 'SELECT') {
+          target.querySelectorAll('option[data-dialog-current-only]').forEach(function (option) {
+            option.disabled = option.value !== value;
+          });
+        }
       } else {
         target.textContent = value;
       }

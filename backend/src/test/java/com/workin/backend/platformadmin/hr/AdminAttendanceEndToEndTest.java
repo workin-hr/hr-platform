@@ -286,13 +286,13 @@ class AdminAttendanceEndToEndTest {
 		assertThat(scoped).as("the add form offers an active type")
 				.contains("<option value=\"" + active + "\">Field mission</option>");
 		assertThat(scoped).as("an inactive type is not")
-				.doesNotContain("<option value=\"" + inactive + "\">");
+				.doesNotContain("<option value=\"" + inactive + "\"");
 
 		String unfiltered = selectMarkup(body("/admin/attendance?company_id="),
 				"<select id=\"exception_type_id\" name=\"exception_type_id\">");
 		assertThat(unfiltered).as("with no company chosen, no type is offered")
-				.doesNotContain("<option value=\"" + active + "\">")
-				.doesNotContain("<option value=\"" + inactive + "\">");
+				.doesNotContain("<option value=\"" + active + "\"")
+				.doesNotContain("<option value=\"" + inactive + "\"");
 	}
 
 	@Test
@@ -312,13 +312,13 @@ class AdminAttendanceEndToEndTest {
 		assertThat(dialog).as("the edit dialog renders").isPositive();
 		assertThat(selectMarkup(html.substring(dialog), "<select name=\"exception_type_id\""))
 				.as("the edit dialog offers the row's retired type")
-				.contains("<option value=\"" + retired + "\">Field mission");
+				.contains("<option value=\"" + retired + "\" data-dialog-current-only=\"1\">Field mission");
 		assertThat(selectMarkup(html.substring(dialog), "<select name=\"exception_type_id\""))
 				.as("but not a retired type that no listed row carries")
-				.doesNotContain("<option value=\"" + unused + "\">");
+				.doesNotContain("<option value=\"" + unused + "\"");
 		assertThat(selectMarkup(html, "<select id=\"exception_type_id\" name=\"exception_type_id\">"))
 				.as("the add form still does not")
-				.doesNotContain("<option value=\"" + retired + "\">");
+				.doesNotContain("<option value=\"" + retired + "\"");
 
 		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
 				"action", "edit_attendance", "id", String.valueOf(id),
@@ -347,7 +347,7 @@ class AdminAttendanceEndToEndTest {
 		String markup = html.substring(dialog, html.indexOf("</dialog>", dialog));
 		assertThat(markup).as("with no company chosen, the edit dialog offers no type to choose")
 				.doesNotContain("<select name=\"exception_type_id\"")
-				.doesNotContain("<option value=\"" + other + "\">");
+				.doesNotContain("<option value=\"" + other + "\"");
 		assertThat(markup).as("it carries the row's type back in a hidden field")
 				.contains("<input type=\"hidden\" name=\"exception_type_id\" data-dialog-field=\"exception_type_id\">");
 		assertThat(html).as("the row's Edit carries its type and the type's name")
@@ -355,7 +355,7 @@ class AdminAttendanceEndToEndTest {
 				.contains("data-dialog-exception_name=\"Field mission\"");
 		assertThat(selectMarkup(html, "<select id=\"exception_type_id\" name=\"exception_type_id\">"))
 				.as("the add form still offers none")
-				.doesNotContain("<option value=\"" + type + "\">");
+				.doesNotContain("<option value=\"" + type + "\"");
 
 		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
 				"action", "edit_attendance", "id", String.valueOf(id),
@@ -365,6 +365,51 @@ class AdminAttendanceEndToEndTest {
 				"SELECT exception_type_id FROM attendance WHERE id = ?", Long.class, id))
 				.as("saving what the dialog carries keeps the type")
 				.isEqualTo(type);
+	}
+
+	@Test
+	void aRetiredTypeStaysWithTheRowsThatHaveIt() {
+		// With a company chosen, a retired type that one listed row carries appears in
+		// the shared edit dialog for every row. The save keeps it on the row that has
+		// it and refuses it for any other row and for a new punch; the dialog marks
+		// the option so row-dialog.js disables it for the other rows.
+		long retired = exceptionType(this.companyA, "Field mission");
+		long carrier = attendance(this.employeeA, "2026-03-02 09:00:00", null, retired);
+		long other = attendance(this.employeeA, "2026-03-03 09:00:00", null, null);
+		this.jdbc.update("UPDATE exception_types SET is_active = 0 WHERE id = ?", retired);
+
+		assertThat(post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+				"action", "edit_attendance", "id", String.valueOf(other),
+				"check_in", "2026-03-03 08:30:00", "check_out", "2026-03-03 18:00:00",
+				"exception_type_id", String.valueOf(retired))
+				.getHeaders().getLocation()).as("another row cannot take the retired type")
+				.asString().contains("error=exception_type_inactive");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT exception_type_id FROM attendance WHERE id = ?", Long.class, other))
+				.as("and it still has none").isNull();
+
+		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+				"action", "edit_attendance", "id", String.valueOf(carrier),
+				"check_in", "2026-03-02 08:30:00", "check_out", "2026-03-02 18:00:00",
+				"exception_type_id", String.valueOf(retired));
+		assertThat(this.jdbc.queryForObject(
+				"SELECT exception_type_id FROM attendance WHERE id = ?", Long.class, carrier))
+				.as("the row that has it keeps it").isEqualTo(retired);
+
+		int rows = this.jdbc.queryForObject("SELECT COUNT(*) FROM attendance", Integer.class);
+		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+				"action", "add_attendance", "employee_id", String.valueOf(this.employeeA),
+				"check_in", "2026-03-04 09:00:00", "check_out", "2026-03-04 17:00:00",
+				"exception_type_id", String.valueOf(retired));
+		assertThat(this.jdbc.queryForObject("SELECT COUNT(*) FROM attendance", Integer.class))
+				.as("a new punch cannot take the retired type").isEqualTo(rows);
+
+		String html = body(PATH + range() + "&company_id=" + this.companyA);
+		int dialog = html.indexOf("<dialog class=\"row-dialog\" id=\"attendance-edit\"");
+		assertThat(dialog).as("the edit dialog renders").isPositive();
+		assertThat(selectMarkup(html.substring(dialog), "<select name=\"exception_type_id\""))
+				.as("the dialog marks the retired option for row-dialog.js")
+				.contains("<option value=\"" + retired + "\" data-dialog-current-only=\"1\">Field mission");
 	}
 
 	@Test
