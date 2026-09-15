@@ -492,6 +492,20 @@ class AdminAttendanceEndToEndTest {
 				.isEqualTo("Pia Kerr (PK1)");
 	}
 
+	@Test
+	void anEmployeeWithNoNameIsListedByCodeAlone() {
+		long company = createCompany("Nameless Co");
+		long employee = createEmployee(company, "NN1", "", "");
+
+		assertThat(pickerLabels(body("/admin/attendance?company_id=" + company)).get(employee))
+				.as("one company chosen: the code alone, as the attendance list showed before the picker")
+				.isEqualTo("NN1");
+		// ?company_id= clears the company the dashboard remembers from the request above.
+		assertThat(pickerLabels(body("/admin/attendance?company_id=")).get(employee))
+				.as("across companies: the code, then the company")
+				.isEqualTo("NN1 — Nameless Co");
+	}
+
 	private Map<Long, String> pickerLabels(String html) {
 		Matcher list = Pattern.compile("id=\"employee-picker-list\" data-employees=\"([^\"]*)\"").matcher(html);
 		assertThat(list.find()).as("the page renders the picker's list").isTrue();
