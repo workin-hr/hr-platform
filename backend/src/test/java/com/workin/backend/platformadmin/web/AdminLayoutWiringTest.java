@@ -116,6 +116,41 @@ class AdminLayoutWiringTest {
 		}
 	}
 
+	/**
+	 * Legacy's dashboard renders in the stack its {@code style.css} names on {@code body},
+	 * {@code 'Segoe UI', Tahoma, Arial}, and ships no web font. At the owner's choice the port
+	 * does the same (D-251), and a template linking a font sheet, or a sheet declaring a face,
+	 * would undo that without any page's own test noticing.
+	 */
+	@Test
+	void theDashboardShipsNoWebFontAndKeepsLegacysSystemStack() throws IOException {
+		List<String> faces = new ArrayList<>();
+		List<String> fontFiles = new ArrayList<>();
+		try (var files = Files.walk(ASSETS)) {
+			for (Path file : files.filter(Files::isRegularFile).toList()) {
+				String name = file.getFileName().toString();
+				if (name.matches(".*\\.(woff2?|ttf|otf|eot)")) {
+					fontFiles.add(ASSETS.relativize(file).toString());
+				}
+				if (name.endsWith(".css") && Files.readString(file, StandardCharsets.UTF_8).contains("@font-face")) {
+					faces.add(ASSETS.relativize(file).toString());
+				}
+			}
+		}
+		assertThat(faces).as("stylesheets declaring a font face").isEmpty();
+		assertThat(fontFiles).as("font files under _assets").isEmpty();
+		try (var templates = Files.walk(TEMPLATES)) {
+			for (Path template : templates.filter(file -> file.toString().endsWith(".jte")).toList()) {
+				assertThat(Files.readString(template, StandardCharsets.UTF_8))
+						.as("%s links a font stylesheet", fileName(template))
+						.doesNotContain("fonts.css");
+			}
+		}
+		assertThat(Files.readString(ASSETS.resolve("style.css"), StandardCharsets.UTF_8))
+				.as("the copied style.css still names legacy's stack on body")
+				.contains("font-family: 'Segoe UI', Tahoma, Arial, sans-serif;");
+	}
+
 	@Test
 	void everyMessageKeyAControllerCanEmitResolvesInACatalogue() throws IOException {
 		// A missing key does not fail: the translator answers with the key
