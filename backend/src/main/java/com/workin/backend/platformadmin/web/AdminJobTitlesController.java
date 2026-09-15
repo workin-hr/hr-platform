@@ -56,7 +56,8 @@ public class AdminJobTitlesController {
 		model.addAttribute("showCompanyColumn", showCompany);
 		model.addAttribute("filters", filters);
 		model.addAttribute("result", this.store.paginate(filters, showCompany));
-		model.addAttribute("departmentOptions", this.store.departmentOptions(filters.companyId()));
+		java.util.List<JobTitle.DepartmentOption> departmentOptions = this.store.departmentOptions(filters.companyId());
+		model.addAttribute("departmentOptions", departmentOptions);
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "job_titles"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
 		model.addAttribute("errorKey", error);
@@ -71,11 +72,11 @@ public class AdminJobTitlesController {
 		model.addAttribute("companyOptions", pickCompany ? this.companies.all() : java.util.List.of());
 		model.addAttribute("departmentsByCompany", pickCompany ? departmentsByCompany() : "{}");
 		// The form's own list is one company's: the row's on an edit, including the
-		// department it already has once that is retired, or the filtered company's on
-		// an add. The toolbar's filter list above keeps every company's.
+		// department it already has once that is retired, or on a filtered add the
+		// toolbar's list, which is already that company's. With no form open, none.
 		model.addAttribute("formDepartments", editRow != null
 				? this.store.departmentOptions(editRow.companyId(), editRow.departmentId())
-				: pickCompany ? java.util.List.of() : this.store.departmentOptions(filters.companyId()));
+				: addOpen && !pickCompany ? departmentOptions : java.util.List.of());
 		return VIEW;
 	}
 
