@@ -10,6 +10,8 @@ import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.workin.legacy.wire.LegacyMessages;
@@ -210,70 +212,94 @@ public class LegacyCompanyDelete {
 	 */
 	public List<Map<String, Object>> cascadeDelete(long companyId, String locale) {
 		List<Map<String, Object>> preview = summary(companyId, locale);
-		transactions.executeWithoutResult(status -> {
-			jdbcTemplate.update(
-					"UPDATE notifications SET from_employee_id = NULL WHERE company_id = ?", companyId);
-			jdbcTemplate.update("DELETE FROM notifications WHERE company_id = ?", companyId);
-
-			for (String table : EMPLOYEE_OWNED) {
-				jdbcTemplate.update(
-						"DELETE t FROM " + table + " t"
-								+ " INNER JOIN employees e ON e.id = t.employee_id WHERE e.company_id = ?",
-						companyId);
-			}
-
-			jdbcTemplate.update("UPDATE departments SET manager_id = NULL WHERE company_id = ?", companyId);
-
-			for (String table : COMPANY_OWNED_EARLY) {
-				ignoringFailure("DELETE FROM " + table + " WHERE company_id = ?", companyId);
-			}
-
-			// Before employees and branches go, though nothing here has a
-			// foreign key to either -- the ordering is for readers, not the
-			// database.
-			//
-			// deleteFromOptionalTable, NOT ignoringFailure: these four are the
-			// tables whose survival is dangerous rather than merely untidy. An
-			// attendance_devices row is what makes a serial recognised, so one
-			// surviving row keeps a terminal ingesting punches against a company
-			// that no longer exists. Swallowing every RuntimeException cannot
-			// tell "not deployed here" from "the delete was refused", and the
-			// second must roll the cascade back.
-			for (String table : DEVICE_OWNED) {
-				deleteFromOptionalTable(table, companyId);
-			}
-
-			jdbcTemplate.update("DELETE FROM employees WHERE company_id = ?", companyId);
-
-			jdbcTemplate.update("""
-					DELETE db FROM department_branches db
-					INNER JOIN branches b ON b.id = db.branch_id
-					WHERE b.company_id = ?""", companyId);
-
-			ignoringFailure("""
-					DELETE jts FROM job_title_sections jts
-					INNER JOIN job_titles jt ON jt.id = jts.job_title_id
-					WHERE jt.company_id = ?""", companyId);
-			ignoringFailure("""
-					DELETE sd FROM section_departments sd
-					INNER JOIN departments d ON d.id = sd.department_id
-					WHERE d.company_id = ?""", companyId);
-			ignoringFailure("""
-					DELETE csv FROM company_setting_values csv
-					INNER JOIN company_settings cs ON cs.id = csv.company_setting_id
-					WHERE cs.company_id = ?""", companyId);
-
-			for (String table : COMPANY_OWNED_LATE) {
-				ignoringFailure("DELETE FROM " + table + " WHERE company_id = ?", companyId);
-			}
-
-			if (jdbcTemplate.update("DELETE FROM companies WHERE id = ?", companyId) != 1) {
-				// throw new RuntimeException('company_delete_failed') -- the one
-				// statement whose failure rolls the whole cascade back.
-				throw new IllegalStateException("company_delete_failed");
-			}
-		});
+		transactions.executeWithoutResult(status -> deleteEverything(companyId));
 		return preview;
+	}
+
+	/**
+	 * The same cascade in the caller's transaction instead of one of its own, for a
+	 * caller whose own writes must commit or roll back with it: the platform
+	 * administrator's audit row.
+	 *
+	 * <p>{@link #cascadeDelete} cannot serve that caller. Its
+	 * {@code DataSourceTransactionManager} does not recognise a JPA transaction on the
+	 * same connection as one to join, because {@code JpaTransactionManager} exposes the
+	 * connection without marking it transaction-active. So it begins its "own"
+	 * transaction on that connection and commits it, and the caller's earlier writes
+	 * commit with it.
+	 *
+	 * @throws IllegalTransactionStateException when no transaction is active
+	 */
+	public void cascadeDeleteInCurrentTransaction(long companyId) {
+		if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+			throw new IllegalTransactionStateException(
+					"the company cascade must join the caller's transaction");
+		}
+		deleteEverything(companyId);
+	}
+
+	private void deleteEverything(long companyId) {
+		jdbcTemplate.update(
+				"UPDATE notifications SET from_employee_id = NULL WHERE company_id = ?", companyId);
+		jdbcTemplate.update("DELETE FROM notifications WHERE company_id = ?", companyId);
+
+		for (String table : EMPLOYEE_OWNED) {
+			jdbcTemplate.update(
+					"DELETE t FROM " + table + " t"
+							+ " INNER JOIN employees e ON e.id = t.employee_id WHERE e.company_id = ?",
+					companyId);
+		}
+
+		jdbcTemplate.update("UPDATE departments SET manager_id = NULL WHERE company_id = ?", companyId);
+
+		for (String table : COMPANY_OWNED_EARLY) {
+			ignoringFailure("DELETE FROM " + table + " WHERE company_id = ?", companyId);
+		}
+
+		// Before employees and branches go, though nothing here has a
+		// foreign key to either -- the ordering is for readers, not the
+		// database.
+		//
+		// deleteFromOptionalTable, NOT ignoringFailure: these four are the
+		// tables whose survival is dangerous rather than merely untidy. An
+		// attendance_devices row is what makes a serial recognised, so one
+		// surviving row keeps a terminal ingesting punches against a company
+		// that no longer exists. Swallowing every RuntimeException cannot
+		// tell "not deployed here" from "the delete was refused", and the
+		// second must roll the cascade back.
+		for (String table : DEVICE_OWNED) {
+			deleteFromOptionalTable(table, companyId);
+		}
+
+		jdbcTemplate.update("DELETE FROM employees WHERE company_id = ?", companyId);
+
+		jdbcTemplate.update("""
+				DELETE db FROM department_branches db
+				INNER JOIN branches b ON b.id = db.branch_id
+				WHERE b.company_id = ?""", companyId);
+
+		ignoringFailure("""
+				DELETE jts FROM job_title_sections jts
+				INNER JOIN job_titles jt ON jt.id = jts.job_title_id
+				WHERE jt.company_id = ?""", companyId);
+		ignoringFailure("""
+				DELETE sd FROM section_departments sd
+				INNER JOIN departments d ON d.id = sd.department_id
+				WHERE d.company_id = ?""", companyId);
+		ignoringFailure("""
+				DELETE csv FROM company_setting_values csv
+				INNER JOIN company_settings cs ON cs.id = csv.company_setting_id
+				WHERE cs.company_id = ?""", companyId);
+
+		for (String table : COMPANY_OWNED_LATE) {
+			ignoringFailure("DELETE FROM " + table + " WHERE company_id = ?", companyId);
+		}
+
+		if (jdbcTemplate.update("DELETE FROM companies WHERE id = ?", companyId) != 1) {
+			// throw new RuntimeException('company_delete_failed') -- the one
+			// statement whose failure rolls the whole cascade back.
+			throw new IllegalStateException("company_delete_failed");
+		}
 	}
 
 	/**

@@ -22,12 +22,18 @@ import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
 import com.workin.backend.AbstractIntegrationTest;
+import com.workin.legacy.profile.LegacyCompanyDelete;
+import com.workin.legacy.wire.LegacyMessages;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The whole administrative journey over real HTTP: the password, the pages,
@@ -57,6 +63,16 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 
 	@Autowired
 	private PasswordEncoder passwordEncoder;
+
+	@Autowired
+	private LegacyCompanyDelete companyDelete;
+
+	@Autowired
+	private LegacyMessages legacyMessages;
+
+	@Autowired
+	@Qualifier("legacyTransactionManager")
+	private PlatformTransactionManager legacyTransactionManager;
 
 
 	@BeforeEach
@@ -166,6 +182,190 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 			assertThat(markup).as("%s preselects nothing for a company without one", select)
 					.doesNotContain("selected");
 		}
+	}
+
+	@Test
+	void eachCompanyRowOffersDeleteAfterEdit() {
+		// company_helper.php:191-197: Details, Edit, then Delete as a danger item,
+		// ahead of the status actions.
+		String cookie = signIn();
+		long companyId = createCompany();
+
+		String html = get("/admin/companies", cookie).response().getBody();
+		int start = html.indexOf("id=\"row-actions-menu-" + companyId + "\"");
+		assertThat(start).as("the row menu for company %s", companyId).isPositive();
+		String menu = html.substring(start, html.indexOf("</div>", start));
+
+		Matcher delete = Pattern.compile("<a href=\"/admin/companies/" + companyId
+				+ "/delete\"\\s+class=\"([^\"]*)\"").matcher(menu);
+		assertThat(delete.find()).as("the menu links to this company's delete page").isTrue();
+		assertThat(delete.group(1).split("\\s+")).as("styled as a destructive item")
+				.contains("row-actions__item--danger");
+		assertThat(delete.start()).as("after Edit")
+				.isGreaterThan(menu.indexOf("href=\"/admin/companies?edit=" + companyId + "\""));
+		assertThat(delete.start()).as("before the status actions, as in legacy")
+				.isLessThan(menu.indexOf("COMPANY_SUSPEND"));
+	}
+
+	@Test
+	void theDeletePageCountsWhatGoesWithTheCompanyAndDeletesNothing() {
+		String cookie = signIn();
+		long companyId = createCompany();
+		long employeeId = seedBranchAndEmployee(companyId);
+
+		ResponseEntity<String> page = get("/admin/companies/" + companyId + "/delete", cookie).response();
+
+		assertThat(page.getStatusCode()).isEqualTo(HttpStatus.OK);
+		// The counts and labels the mobile preview shows a company deleting itself
+		// (company_related_records_summary()), in the page's default Arabic.
+		assertThat(page.getBody())
+			.containsPattern(statCard("1", this.legacyMessages.translate("ar", "company_related_employees", null)))
+			.containsPattern(statCard("1", this.legacyMessages.translate("ar", "company_related_branches", null)))
+			.containsPattern(statCard("2", arabic("admin-own", "company_delete_total")))
+			.contains("<code dir=\"auto\">" + nameOf(companyId) + "</code>")
+			.contains("<form method=\"post\" action=\"/admin/companies/" + companyId + "/delete\">");
+		assertThat(companyExists(companyId)).as("showing the page deletes nothing").isTrue();
+		assertThat(count("SELECT COUNT(*) FROM employees WHERE id = ?", employeeId)).isOne();
+	}
+
+	@Test
+	void aConfirmationThatDoesNotMatchDeletesNothingAndRecordsNothing() {
+		String cookie = signIn();
+		long companyId = createCompany();
+		long employeeId = seedBranchAndEmployee(companyId);
+		String name = nameOf(companyId);
+		String path = "/admin/companies/" + companyId + "/delete";
+
+		for (String typed : List.of("", "Flow", name + "1", name.toUpperCase(java.util.Locale.ROOT))) {
+			ResponseEntity<String> refused = post(path, cookie, get(path, cookie).csrf(), "confirmation", typed);
+			assertThat(refused.getStatusCode()).as("typed %s", typed).isEqualTo(HttpStatus.OK);
+			assertThat(refused.getBody()).as("typed %s", typed).contains(
+					"<div class=\"flash flash-error\">" + arabic("admin-own", "company_delete_mismatch") + "</div>");
+		}
+		assertThat(companyExists(companyId)).isTrue();
+		assertThat(count("SELECT COUNT(*) FROM employees WHERE id = ?", employeeId)).isOne();
+		assertThat(deletionAudits(companyId)).isEmpty();
+	}
+
+	@Test
+	void typingTheNameDeletesTheCompanyWithEverythingUnderItAndAuditsIt() {
+		String cookie = signIn();
+		long adminId = adminId();
+		long companyId = createCompany();
+		long employeeId = seedBranchAndEmployee(companyId);
+		String name = nameOf(companyId);
+		String path = "/admin/companies/" + companyId + "/delete";
+
+		// Surrounding spaces, as a paste can bring them, still match.
+		ResponseEntity<String> deleted = post(path, cookie, get(path, cookie).csrf(),
+				"confirmation", " " + name + " ");
+
+		assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.FOUND);
+		assertThat(deleted.getHeaders().getLocation()).hasPath("/admin/companies");
+		assertThat(companyExists(companyId)).isFalse();
+		assertThat(count("SELECT COUNT(*) FROM employees WHERE id = ?", employeeId)).as("the cascade ran").isZero();
+		assertThat(count("SELECT COUNT(*) FROM branches WHERE company_id = ?", companyId)).isZero();
+		assertThat(deletionAudits(companyId)).singleElement().satisfies(row -> {
+			assertThat(((Number) row.get("platform_admin_id")).longValue()).isEqualTo(adminId);
+			assertThat(row.get("target_type")).isEqualTo("COMPANY");
+			assertThat(row.get("detail")).as("what was confirmed, and what went with it")
+					.isEqualTo(name + " (employees=1, branches=1)");
+		});
+	}
+
+	@Test
+	void aCompanyWithoutANameIsConfirmedByItsPhone() {
+		String cookie = signIn();
+		String phone = "+91" + (System.nanoTime() % 100_000_000_000L);
+		long companyId = new JdbcTemplate(this.legacyDataSource).queryForObject(
+				"INSERT INTO companies (company_name, phone, password_hash, status)"
+						+ " VALUES (NULL, ?, 'unused-hash', 'pending') RETURNING id", Long.class, phone);
+		String path = "/admin/companies/" + companyId + "/delete";
+
+		Page page = get(path, cookie);
+		assertThat(page.response().getBody()).contains("<code dir=\"auto\">" + phone + "</code>");
+		assertThat(post(path, cookie, page.csrf(), "confirmation", "").getStatusCode())
+			.as("an empty field never confirms, even with no name to type")
+			.isEqualTo(HttpStatus.OK);
+		assertThat(companyExists(companyId)).isTrue();
+
+		assertThat(post(path, cookie, get(path, cookie).csrf(), "confirmation", phone).getStatusCode())
+			.isEqualTo(HttpStatus.FOUND);
+		assertThat(companyExists(companyId)).isFalse();
+	}
+
+	@Test
+	void aCascadeThatFailsRollsBackTheDeleteAndItsAuditRow() {
+		String cookie = signIn();
+		long companyId = createCompany();
+		long employeeId = seedBranchAndEmployee(companyId);
+		String name = nameOf(companyId);
+		String path = "/admin/companies/" + companyId + "/delete";
+		Page page = get(path, cookie);
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		// The company row goes last, so this fails the cascade after its employee
+		// and branch deletes have run in the same transaction.
+		jdbc.execute("CREATE TRIGGER flow_company_delete_refused BEFORE DELETE ON companies"
+				+ " FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'forced failure for the rollback test'");
+		ResponseEntity<String> failed;
+		try {
+			failed = post(path, cookie, page.csrf(), "confirmation", name);
+		} finally {
+			jdbc.execute("DROP TRIGGER IF EXISTS flow_company_delete_refused");
+		}
+
+		// pages/companies/page.php:24-27 tells the operator "database error".
+		assertThat(failed.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(failed.getBody())
+			.contains("<div class=\"flash flash-error\">" + arabic("admin-messages", "error_db") + "</div>");
+		assertThat(companyExists(companyId)).isTrue();
+		assertThat(count("SELECT COUNT(*) FROM employees WHERE id = ?", employeeId))
+			.as("the deletes that ran before the failure roll back with it")
+			.isOne();
+		assertThat(deletionAudits(companyId)).as("no audit row claims a delete that did not happen").isEmpty();
+	}
+
+	@Test
+	void anAuditRowThatCannotBeWrittenDeletesNothing() {
+		String cookie = signIn();
+		long companyId = createCompany();
+		long employeeId = seedBranchAndEmployee(companyId);
+		String name = nameOf(companyId);
+		String path = "/admin/companies/" + companyId + "/delete";
+		Page page = get(path, cookie);
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		jdbc.execute("CREATE TRIGGER flow_audit_insert_refused BEFORE INSERT ON platform_admin_audit_events"
+				+ " FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'forced failure for the audit test'");
+		ResponseEntity<String> failed;
+		try {
+			failed = post(path, cookie, page.csrf(), "confirmation", name);
+		} finally {
+			jdbc.execute("DROP TRIGGER IF EXISTS flow_audit_insert_refused");
+		}
+
+		assertThat(failed.getBody())
+			.as("the delete path reached the database and failed there")
+			.contains("<div class=\"flash flash-error\">" + arabic("admin-messages", "error_db") + "</div>");
+		assertThat(companyExists(companyId)).as("a delete that cannot be recorded does not happen").isTrue();
+		assertThat(count("SELECT COUNT(*) FROM employees WHERE id = ?", employeeId)).isOne();
+	}
+
+	@Test
+	void theAdministratorsCascadeRollsBackWithTheCallersTransaction() {
+		long companyId = createCompany();
+		long employeeId = seedBranchAndEmployee(companyId);
+
+		new TransactionTemplate(this.legacyTransactionManager).executeWithoutResult(status -> {
+			this.companyDelete.cascadeDeleteInCurrentTransaction(companyId);
+			status.setRollbackOnly();
+		});
+
+		assertThat(companyExists(companyId)).as("the caller's rollback undoes the cascade").isTrue();
+		assertThat(count("SELECT COUNT(*) FROM employees WHERE id = ?", employeeId)).isOne();
+		assertThatThrownBy(() -> this.companyDelete.cascadeDeleteInCurrentTransaction(companyId))
+			.as("with no transaction to join it refuses, rather than committing statement by statement")
+			.isInstanceOf(IllegalTransactionStateException.class);
+		assertThat(companyExists(companyId)).isTrue();
 	}
 
 	@Test
@@ -284,6 +484,55 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 		return new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"INSERT INTO companies (company_name, phone, password_hash, status) VALUES (?, ?, 'unused-hash', 'active') RETURNING id",
 				Long.class, "Flow " + System.nanoTime(), "+90" + System.nanoTime());
+	}
+
+	private String nameOf(long companyId) {
+		return new JdbcTemplate(this.legacyDataSource).queryForObject(
+				"SELECT company_name FROM companies WHERE id = ?", String.class, companyId);
+	}
+
+	private boolean companyExists(long companyId) {
+		return count("SELECT COUNT(*) FROM companies WHERE id = ?", companyId) == 1;
+	}
+
+	private int count(String sql, Object... args) {
+		return new JdbcTemplate(this.legacyDataSource).queryForObject(sql, Integer.class, args);
+	}
+
+	/** One branch with one employee in it, so the cascade has something under the company to remove. */
+	private long seedBranchAndEmployee(long companyId) {
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		long branchId = jdbc.queryForObject(
+				"INSERT INTO branches (company_id, name) VALUES (?, 'Flow branch') RETURNING id",
+				Long.class, companyId);
+		return jdbc.queryForObject("INSERT INTO employees (company_id, branch_id, first_name, last_name,"
+				+ " phone, password_hash, role, join_request_status, is_active, created_at)"
+				+ " VALUES (?, ?, 'Flow', 'Employee', ?, 'unused-hash', 'employee', 'accepted', 1, NOW())"
+				+ " RETURNING id", Long.class, companyId, branchId, "+80" + System.nanoTime());
+	}
+
+	private List<java.util.Map<String, Object>> deletionAudits(long companyId) {
+		return new JdbcTemplate(this.legacyDataSource).queryForList(
+				"SELECT platform_admin_id, target_type, target_id, detail FROM platform_admin_audit_events"
+						+ " WHERE event_type = 'COMPANY_DELETED' AND target_id = ?", String.valueOf(companyId));
+	}
+
+	/** A value from one of this surface's Arabic catalogues, the language the page renders by default. */
+	private static String arabic(String basename, String key) {
+		java.util.Properties catalogue = new java.util.Properties();
+		try (java.io.InputStream in = PlatformAdminFullFlowTest.class
+				.getResourceAsStream("/i18n/" + basename + "_ar.properties")) {
+			catalogue.load(new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8));
+		} catch (java.io.IOException e) {
+			throw new java.io.UncheckedIOException(e);
+		}
+		return catalogue.getProperty(key);
+	}
+
+	/** One stat card's number and label, as company-delete.jte draws them. */
+	private static Pattern statCard(String number, String label) {
+		return Pattern.compile("<div class=\"stat-num\">" + Pattern.quote(number) + "</div>\\s*"
+				+ "<div class=\"stat-label\">" + Pattern.quote(label) + "</div>");
 	}
 
 

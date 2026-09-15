@@ -53,6 +53,15 @@ public class LegacyPlatformAdminCompanyDirectory implements PlatformAdminCompany
 	}
 
 	@Override
+	public java.util.Optional<DeletionTarget> deletionTarget(long companyId) {
+		return this.jdbc.query("SELECT id, company_name, phone, status FROM companies WHERE id = ?",
+				(rs, rowNum) -> new DeletionTarget(
+						new CompanyView(rs.getLong("id"), rs.getString("company_name"), rs.getString("status")),
+						rs.getString("phone")),
+				companyId).stream().findFirst();
+	}
+
+	@Override
 	public List<String> dialCodes() {
 		return this.jdbc.queryForList(
 				"SELECT country_code FROM phone_countries WHERE is_active = 1 "

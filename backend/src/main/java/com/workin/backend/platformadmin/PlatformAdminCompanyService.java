@@ -40,6 +40,7 @@ public class PlatformAdminCompanyService {
 	private final com.workin.legacy.phone.LegacyPhoneNumbers phoneNumbers;
 	private final com.workin.legacy.uploads.LegacyFileUploads uploads;
 	private final org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
+	private final com.workin.legacy.profile.LegacyCompanyDelete companyDelete;
 	private final boolean actionsEnabled;
 
 	public PlatformAdminCompanyService(
@@ -48,12 +49,14 @@ public class PlatformAdminCompanyService {
 			com.workin.legacy.phone.LegacyPhoneNumbers phoneNumbers,
 			com.workin.legacy.uploads.LegacyFileUploads uploads,
 			org.springframework.security.crypto.password.PasswordEncoder passwordEncoder,
+			com.workin.legacy.profile.LegacyCompanyDelete companyDelete,
 			@Value("${app.platform-admin.actions.enabled:false}") boolean actionsEnabled) {
 		this.companies = companies;
 		this.auditService = auditService;
 		this.phoneNumbers = phoneNumbers;
 		this.uploads = uploads;
 		this.passwordEncoder = passwordEncoder;
+		this.companyDelete = companyDelete;
 		this.actionsEnabled = actionsEnabled;
 	}
 
@@ -152,6 +155,8 @@ public class PlatformAdminCompanyService {
 		DONE,
 		SURFACE_DISABLED,
 		NO_SUCH_COMPANY,
+		/** A delete whose typed confirmation did not match; nothing was written. */
+		CONFIRMATION_MISMATCH,
 	}
 
 	/**
@@ -177,6 +182,52 @@ public class PlatformAdminCompanyService {
 		this.auditService.recordAction(platformAdminId, auditTypeFor(action),
 				TARGET_TYPE, String.valueOf(companyId), reason);
 		return Outcome.DONE;
+	}
+
+	/**
+	 * Deletes a company and everything under it: {@code company_cascade_delete()},
+	 * which legacy's companies page runs on a browser {@code confirm()} alone.
+	 * Here the operator must type the company's name back first.
+	 *
+	 * <p>The audit row and the cascade share this transaction, because the cascade
+	 * runs in it ({@link com.workin.legacy.profile.LegacyCompanyDelete#cascadeDeleteInCurrentTransaction}).
+	 * A cascade that fails rolls the row back; a row that cannot be written stops
+	 * the cascade before it starts, since the row goes first and its
+	 * {@code IDENTITY} id makes {@code save} insert at once rather than at commit.
+	 *
+	 * @param confirmation what the operator typed, compared with
+	 *        {@link PlatformAdminCompanyDirectory.DeletionTarget#confirmationText()}
+	 */
+	@Transactional
+	public Outcome delete(long platformAdminId, long companyId, String confirmation) {
+		if (!this.actionsEnabled) {
+			return Outcome.SURFACE_DISABLED;
+		}
+		java.util.Optional<PlatformAdminCompanyDirectory.DeletionTarget> target =
+				this.companies.deletionTarget(companyId);
+		if (target.isEmpty()) {
+			return Outcome.NO_SUCH_COMPANY;
+		}
+		String expected = target.get().confirmationText();
+		if (confirmation == null || !confirmation.strip().equals(expected)) {
+			return Outcome.CONFIRMATION_MISMATCH;
+		}
+		this.auditService.recordAction(platformAdminId, PlatformAdminAuditEventType.COMPANY_DELETED,
+				TARGET_TYPE, String.valueOf(companyId),
+				deletionDetail(expected, this.companyDelete.summary(companyId, "en")));
+		this.companyDelete.cascadeDeleteInCurrentTransaction(companyId);
+		return Outcome.DONE;
+	}
+
+	/** What was confirmed, and what went with it by the preview's stable keys rather than its labels. */
+	private static String deletionDetail(String confirmed,
+			java.util.List<java.util.Map<String, Object>> related) {
+		java.util.StringJoiner counts = new java.util.StringJoiner(", ", confirmed + " (", ")");
+		counts.setEmptyValue(confirmed);
+		for (java.util.Map<String, Object> item : related) {
+			counts.add(item.get("key") + "=" + item.get("count"));
+		}
+		return counts.toString();
 	}
 
 	private static String statusFor(String action) {

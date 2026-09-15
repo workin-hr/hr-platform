@@ -91,6 +91,25 @@ public interface PlatformAdminCompanyDirectory {
 
 	java.util.Optional<CompanyDetail> detail(long companyId);
 
+	/** A company as deleting it needs it: what to show, and what the operator must type back. */
+	record DeletionTarget(CompanyView company, String phone) {
+
+		/**
+		 * The name; the phone for a company without one; the id for a company
+		 * with neither. Never blank, so an empty field can never confirm a delete.
+		 */
+		public String confirmationText() {
+			String name = company.name() == null ? "" : company.name().strip();
+			if (!name.isEmpty()) {
+				return name;
+			}
+			String number = phone == null ? "" : phone.strip();
+			return number.isEmpty() ? "#" + company.id() : number;
+		}
+	}
+
+	java.util.Optional<DeletionTarget> deletionTarget(long companyId);
+
 	/**
 	 * @return whether a company with that id existed and was updated
 	 */

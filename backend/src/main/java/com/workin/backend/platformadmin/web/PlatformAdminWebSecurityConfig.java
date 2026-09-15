@@ -87,6 +87,12 @@ public class PlatformAdminWebSecurityConfig {
 	public static final String COMPANIES_ACTION_PATH = COMPANIES_PATH + "/action";
 
 	/**
+	 * Deleting one company: GET counts what goes with it, POST deletes. Nested
+	 * under the detail path, so it adds no page to the inventory.
+	 */
+	public static final String COMPANY_DELETE_PATH = COMPANY_DETAIL_PATH + "/delete";
+
+	/**
 	 * Platform content the clients read but cannot write -- dial codes first
 	 * (ADR-0016). Authenticated like every other page here; the write side is
 	 * gated again in the service by the surface flag and a bound second
