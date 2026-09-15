@@ -88,58 +88,6 @@ public class WorkforcePlanStore {
 		return DashboardPage.of(rows, total == null ? 0 : total, filters.page(), filters.perPage());
 	}
 
-	/**
-	 * The maps {@code workforce-form.js} fills the form's three selects from, as
-	 * {@code org_filter_cascade_payload()} builds them
-	 * ({@code org_helper.php:246-264} and {@code :375-437}), for one company.
-	 *
-	 * <p><b>R-051</b>: legacy builds them from queries whose only predicate is
-	 * {@code is_active = 1} and lets the browser pick the chosen company's group.
-	 * Measured against the production copy that is 3,671 rows across 283
-	 * companies handed to any company-scoped session that opens the page.
-	 * Filtering client-side is not filtering; the predicate belongs here. A
-	 * {@code companyId} of zero is the administrator with no filter, whose reach
-	 * genuinely is every company, and is the only case that returns every
-	 * company's rows.
-	 *
-	 * <p>A department is listed under a branch, and a job title under a department,
-	 * only when both belong to the same company. {@code department_branches} carries
-	 * no company, a job title's {@code department_id} is not held to its own company,
-	 * and legacy checks neither; a department or job title listed across companies is
-	 * one the service refuses on save.
-	 */
-	public WorkforcePlan.Cascade cascade(long companyId) {
-		boolean scoped = companyId > 0;
-		Object[] args = scoped ? new Object[] { companyId } : new Object[0];
-		return new WorkforcePlan.Cascade(
-				grouped("SELECT b.id, b.name, b.company_id AS grp FROM branches b"
-						+ " WHERE b.is_active = 1" + (scoped ? " AND b.company_id = ?" : "")
-						+ " ORDER BY b.company_id, b.name", args),
-				grouped("SELECT DISTINCT d.id, d.name, db.branch_id AS grp FROM departments d"
-						+ " INNER JOIN department_branches db ON db.department_id = d.id"
-						+ " INNER JOIN branches b ON b.id = db.branch_id AND b.company_id = d.company_id"
-						+ " WHERE d.is_active = 1" + (scoped ? " AND d.company_id = ?" : "")
-						+ " ORDER BY db.branch_id, d.name", args),
-				grouped("SELECT jt.id, jt.name, jt.department_id AS grp FROM job_titles jt"
-						+ " INNER JOIN departments d ON d.id = jt.department_id AND d.company_id = jt.company_id"
-						+ " WHERE jt.is_active = 1"
-						+ (scoped ? " AND jt.company_id = ?" : "")
-						+ " ORDER BY jt.department_id, jt.name", args),
-				grouped("SELECT jt.id, jt.name, jt.company_id AS grp FROM job_titles jt"
-						+ " WHERE jt.is_active = 1" + (scoped ? " AND jt.company_id = ?" : "")
-						+ " ORDER BY jt.company_id, jt.name", args));
-	}
-
-	private java.util.Map<Long, List<WorkforcePlan.CascadeOption>> grouped(String sql, Object[] args) {
-		java.util.Map<Long, List<WorkforcePlan.CascadeOption>> grouped = new java.util.LinkedHashMap<>();
-		this.jdbcTemplate.query(sql,
-				(org.springframework.jdbc.core.RowCallbackHandler) rs -> grouped
-						.computeIfAbsent(rs.getLong("grp"), key -> new ArrayList<>())
-						.add(new WorkforcePlan.CascadeOption(rs.getLong("id"), rs.getString("name"))),
-				args);
-		return grouped;
-	}
-
 	/** The company that owns a plan -- a column on the row itself. */
 	public Long companyOf(long id) {
 		if (id <= 0) {

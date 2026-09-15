@@ -2,6 +2,7 @@
 @import java.util.function.Function
 @import com.workin.backend.platformadmin.hr.Employee
 @import com.workin.backend.platformadmin.hr.EmployeeDisplay
+@import com.workin.backend.platformadmin.org.ActiveCompanies
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -14,6 +15,14 @@
 @param List<Employee.Option> departmentOptions
 @param List<Employee.Option> jobTitleOptions
 @param List<Employee.Option> shiftOptions
+@param List<ActiveCompanies.CompanyOption> companyOptions
+@param String branchesByCompany
+@param String departmentsByCompany
+@param String departmentsByBranch
+@param String jobTitlesByDepartment
+@param String jobTitlesByCompany
+@param String shiftsByCompany
+@param String selectedJobLabel
 @param String status
 @param long filterBranch
 @param long filterDepartment
@@ -51,6 +60,7 @@
 	t = t,
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css", "company-add.css", "org-form.css", "employee-form.css"),
+	pageScripts = java.util.List.of("employee-form.js", "employee-shift.js"),
 	body = @`
 		@if(errorKey != null)
 			<div class="flash flash-error">${t.apply(errorKey)}</div>
@@ -63,8 +73,8 @@
 			<form method="GET" class="toolbar-form toolbar-form--labeled">
 				@if(!session.isScopedToOneCompany())
 					<div class="filter-field">
-						<label class="filter-field__label" for="emp_company">${t.apply("company")}</label>
-						<input type="number" id="emp_company" name="company_id" min="0"
+						<label class="filter-field__label" for="emp_company_f">${t.apply("company")}</label>
+						<input type="number" id="emp_company_f" name="company_id" min="0"
 						       placeholder="${t.apply("filter_all")}"
 						       value="${filters.companyId() > 0 ? String.valueOf(filters.companyId()) : ""}">
 					</div>
@@ -131,15 +141,48 @@
 			<div class="modal-bg open">
 				<div class="modal modal--employee-form">
 					<h2>${editRow == null ? t.apply("add_employee") : t.apply("edit")}</h2>
-					<form method="POST">
+					<%-- _employee_form.php: employee-form.js, copied from legacy, fills the
+					     branch, department and job title selects from these maps, which carry
+					     only the companies this form may use (R-051); employee-shift.js fills
+					     the shift select when the form names its company (D-250). Legacy's
+					     data-invalid-phone-msg is left out: only phone-form-bind.js reads it,
+					     and this page does not load it. --%>
+					<form method="POST" data-employee-form
+					      data-branches-by-company="${branchesByCompany}"
+					      data-departments-by-company="${departmentsByCompany}"
+					      data-departments-by-branch="${departmentsByBranch}"
+					      data-job-titles-by-dept="${jobTitlesByDepartment}"
+					      data-job-titles-by-company="${jobTitlesByCompany}"
+					      data-shifts-by-company="${shiftsByCompany}"
+					      data-select-company-msg="${t.apply("select_company_first_branches")}"
+					      data-select-branch-msg="${t.apply("pick_branch")}"
+					      data-select-dept-msg="${t.apply("pick_department")}"
+					      data-selected-company="${editRow == null ? filters.companyId() : editRow.companyId()}"
+					      data-selected-branch="${editRow == null ? 0L : editRow.branchId()}"
+					      data-selected-department="${editRow == null ? 0L : editRow.departmentId()}"
+					      data-selected-job="${editRow == null ? 0L : editRow.jobTitleId()}"
+					      data-selected-job-label="${selectedJobLabel}">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="${editRow == null ? "add_employee" : "save_edit"}">
 					@if(editRow != null)
 						<input type="hidden" name="id" value="${editRow.id()}">
-					@else
+					@elseif(filters.companyId() > 0)
 						<%-- Create path only. An edit takes the company from the
 						     row itself: D-176. --%>
 						<input type="hidden" name="company_id" value="${filters.companyId()}">
+					@else
+						<%-- With no company to add under, _employee_form.php asks for one
+						     rather than posting 0, which the service refuses.
+						     employee-form.js reads it as #emp_company. --%>
+						<div class="form-row">
+							<label for="emp_company">${t.apply("company")} *</label>
+							<select name="company_id" id="emp_company" required>
+								<option value="">${t.apply("search")}...</option>
+								@for(ActiveCompanies.CompanyOption company : companyOptions)
+									<option value="${company.id()}">${company.name()}</option>
+								@endfor
+							</select>
+						</div>
 					@endif
 
 					<%-- save_edit writes these columns from the post, so each input
@@ -173,7 +216,7 @@
 					</div>
 					<div class="form-row">
 						<label for="branch_id">${t.apply("branch")}</label>
-						<select id="branch_id" name="branch_id">
+						<select id="branch_id" name="branch_id" data-emp-branch>
 							<option value="0">—</option>
 							@for(Employee.Option option : branchOptions)
 								<option value="${option.id()}"
@@ -183,7 +226,7 @@
 					</div>
 					<div class="form-row">
 						<label for="department_id">${t.apply("department")}</label>
-						<select id="department_id" name="department_id">
+						<select id="department_id" name="department_id" data-emp-department>
 							<option value="0">—</option>
 							@for(Employee.Option option : departmentOptions)
 								<option value="${option.id()}"
@@ -193,7 +236,7 @@
 					</div>
 					<div class="form-row">
 						<label for="job_title_id">${t.apply("job_title")}</label>
-						<select id="job_title_id" name="job_title_id">
+						<select id="job_title_id" name="job_title_id" data-emp-job>
 							<option value="0">—</option>
 							@for(Employee.Option option : jobTitleOptions)
 								<option value="${option.id()}"
@@ -205,7 +248,7 @@
 						<%-- Required on the create path, and the only foreign key
 						     legacy insists on there. --%>
 						<label for="shift_id">${t.apply("shift")} *</label>
-						<select id="shift_id" name="shift_id" required>
+						<select id="shift_id" name="shift_id" required data-emp-shift>
 							<option value="0">—</option>
 							@for(Employee.Option option : shiftOptions)
 								<option value="${option.id()}"

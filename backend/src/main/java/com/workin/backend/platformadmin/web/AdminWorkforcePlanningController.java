@@ -14,6 +14,8 @@ import com.workin.backend.platformadmin.hr.WorkforcePlan;
 import com.workin.backend.platformadmin.hr.WorkforcePlanAdminService;
 import com.workin.backend.platformadmin.hr.WorkforcePlanStore;
 import com.workin.backend.platformadmin.org.ActiveCompanies;
+import com.workin.backend.platformadmin.org.OrgCascade;
+import com.workin.backend.platformadmin.org.OrgCascadeStore;
 
 /** {@code dashboard/pages/workforce_planning/page.php}. */
 @Controller
@@ -31,11 +33,14 @@ public class AdminWorkforcePlanningController {
 
 	private final ActiveCompanies companies;
 
-	public AdminWorkforcePlanningController(
-			WorkforcePlanStore store, WorkforcePlanAdminService service, ActiveCompanies companies) {
+	private final OrgCascadeStore cascades;
+
+	public AdminWorkforcePlanningController(WorkforcePlanStore store, WorkforcePlanAdminService service,
+			ActiveCompanies companies, OrgCascadeStore cascades) {
 		this.store = store;
 		this.service = service;
 		this.companies = companies;
+		this.cascades = cascades;
 	}
 
 	@AuthenticatedUseCase(reason = "How many people a company plans for each branch, department "
@@ -67,8 +72,8 @@ public class AdminWorkforcePlanningController {
 		// row's own (D-176), the filtered company's on an add, and every company
 		// only for an administrator with no filter, whose reach that is. With no
 		// form open there is nothing to fill.
-		WorkforcePlan.Cascade cascade = editRow != null ? this.store.cascade(editRow.companyId())
-				: addOpen ? this.store.cascade(filters.companyId()) : WorkforcePlan.Cascade.NONE;
+		OrgCascade cascade = editRow != null ? this.cascades.cascade(editRow.companyId())
+				: addOpen ? this.cascades.cascade(filters.companyId()) : OrgCascade.NONE;
 		model.addAttribute("companyOptions", pickCompany ? this.companies.all() : java.util.List.of());
 		model.addAttribute("branchesByCompany", JSON.writeValueAsString(cascade.branchesByCompany()));
 		model.addAttribute("departmentsByBranch", JSON.writeValueAsString(cascade.departmentsByBranch()));
