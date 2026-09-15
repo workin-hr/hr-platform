@@ -40,10 +40,11 @@ const MAPS = {
 	shifts: { 11: [{ id: 501, name: 'Alpha Day' }, { id: 502, name: 'Alpha Night' }], 12: [{ id: 511, name: 'Beta Day' }] },
 };
 
-// What employees.jte writes for an add: legacy's form puts the page's company, 0 with no filter.
+// What employees.jte writes for an add: legacy's form puts the page's company, 0 with no filter. The shift
+// select's empty choice is "" on an add, as legacy's is, and 0 on an edit (shiftNone).
 const ADD = { company: '0', branch: '0', department: '0', job: '0', jobLabel: '' };
 
-function page({ company, selected = ADD, maps = MAPS, branchOptions = '', shiftOptions = '' }) {
+function page({ company, selected = ADD, maps = MAPS, branchOptions = '', shiftOptions = '', shiftNone = '' }) {
 	const json = (value) => JSON.stringify(value);
 	return `<!doctype html>
 <div class="modal-bg open"><div class="modal modal--employee-form">
@@ -66,7 +67,7 @@ function page({ company, selected = ADD, maps = MAPS, branchOptions = '', shiftO
     <select id="branch_id" name="branch_id" data-emp-branch><option value="0">—</option>${branchOptions}</select>
     <select id="department_id" name="department_id" data-emp-department><option value="0">—</option></select>
     <select id="job_title_id" name="job_title_id" data-emp-job><option value="0">—</option></select>
-    <select id="shift_id" name="shift_id" required data-emp-shift><option value="0">—</option>${shiftOptions}</select>
+    <select id="shift_id" name="shift_id" required data-emp-shift><option value="${shiftNone}">—</option>${shiftOptions}</select>
     <button type="submit">Save</button>
   </form>
 </div></div>`;
@@ -91,6 +92,10 @@ async function options(browserPage, selector) {
 		.evaluateAll((all) => all.map((option) => [option.value, option.textContent.trim()]));
 }
 
+async function valid(browserPage) {
+	return browserPage.locator('form').evaluate((form) => form.checkValidity());
+}
+
 async function posted(browserPage) {
 	return browserPage.locator('form').evaluate((form) => Object.fromEntries(new FormData(form).entries()));
 }
@@ -111,7 +116,7 @@ test.describe('an add with no company chosen', () => {
 		await expect(browserPage.locator('#department_id')).toBeDisabled();
 		expect(await options(browserPage, '#job_title_id')).toEqual([['0', '—'], ['0', 'Pick department']]);
 		await expect(browserPage.locator('#job_title_id')).toBeDisabled();
-		expect(await options(browserPage, '#shift_id')).toEqual([['0', '—']]);
+		expect(await options(browserPage, '#shift_id')).toEqual([['', '—']]);
 	});
 
 	test("choosing a company lists its branches, departments, job titles and shifts", async ({ page: browserPage }) => {
@@ -122,7 +127,7 @@ test.describe('an add with no company chosen', () => {
 			[['0', '—'], ['301', 'Alpha Ops'], ['302', 'Alpha Sales'], ['303', 'Alpha Stores']]);
 		expect(await options(browserPage, '#job_title_id')).toEqual(
 			[['0', '—'], ['403', 'Alpha Driver'], ['401', 'Alpha Fitter'], ['402', 'Alpha Seller']]);
-		expect(await options(browserPage, '#shift_id')).toEqual([['0', '—'], ['501', 'Alpha Day'], ['502', 'Alpha Night']]);
+		expect(await options(browserPage, '#shift_id')).toEqual([['', '—'], ['501', 'Alpha Day'], ['502', 'Alpha Night']]);
 	});
 
 	test('a branch narrows the departments to its own and the job titles to theirs; a department to its own', async ({ page: browserPage }) => {
@@ -142,8 +147,8 @@ test.describe('an add with no company chosen', () => {
 
 		await browserPage.selectOption('#emp_company', '12');
 
-		expect(await options(browserPage, '#shift_id')).toEqual([['0', '—'], ['511', 'Beta Day']]);
-		await expect(browserPage.locator('#shift_id')).toHaveValue('0');
+		expect(await options(browserPage, '#shift_id')).toEqual([['', '—'], ['511', 'Beta Day']]);
+		await expect(browserPage.locator('#shift_id')).toHaveValue('');
 		expect(await options(browserPage, '#branch_id')).toEqual([['0', 'Pick branch'], ['201', 'Beta HQ']]);
 	});
 
@@ -155,7 +160,7 @@ test.describe('an add with no company chosen', () => {
 		await expect(browserPage.locator('#branch_id')).toBeDisabled();
 		await expect(browserPage.locator('#department_id')).toBeDisabled();
 		await expect(browserPage.locator('#job_title_id')).toBeDisabled();
-		expect(await options(browserPage, '#shift_id')).toEqual([['0', '—']]);
+		expect(await options(browserPage, '#shift_id')).toEqual([['', '—']]);
 	});
 
 	test('a completed add posts the company, branch, department, job title and shift chosen', async ({ page: browserPage }) => {
@@ -167,6 +172,15 @@ test.describe('an add with no company chosen', () => {
 
 		expect(await posted(browserPage)).toMatchObject(
 			{ company_id: '12', branch_id: '201', department_id: '311', job_title_id: '411', shift_id: '511' });
+	});
+
+	test('an add with no shift chosen fails the browser\'s validation, and passes once one is', async ({ page: browserPage }) => {
+		await browserPage.selectOption('#emp_company', '11');
+		await browserPage.selectOption('#branch_id', '101');
+		expect(await valid(browserPage)).toBe(false);
+
+		await browserPage.selectOption('#shift_id', '501');
+		expect(await valid(browserPage)).toBe(true);
 	});
 });
 
@@ -183,7 +197,7 @@ test("a filtered add lists its company's departments and job titles on load, and
 		[['0', '—'], ['301', 'Alpha Ops'], ['302', 'Alpha Sales'], ['303', 'Alpha Stores']]);
 	expect(await options(browserPage, '#job_title_id')).toEqual(
 		[['0', '—'], ['403', 'Alpha Driver'], ['401', 'Alpha Fitter'], ['402', 'Alpha Seller']]);
-	expect(await options(browserPage, '#shift_id')).toEqual([['0', '—'], ['501', 'Alpha Day'], ['502', 'Alpha Night']]);
+	expect(await options(browserPage, '#shift_id')).toEqual([['', '—'], ['501', 'Alpha Day'], ['502', 'Alpha Night']]);
 });
 
 test("an edit's maps list the employee's department under their branch, so it shows by name and is posted", async ({ page: browserPage }) => {
@@ -194,6 +208,7 @@ test("an edit's maps list the employee's department under their branch, so it sh
 	};
 	await load(browserPage, page({
 		company: EDIT,
+		shiftNone: '0',
 		selected: { company: '11', branch: '102', department: '303', job: '0', jobLabel: '' },
 		maps,
 		branchOptions: '<option value="102" selected>Alpha North</option>',
@@ -206,11 +221,27 @@ test("an edit's maps list the employee's department under their branch, so it sh
 	expect(await posted(browserPage)).toMatchObject({ branch_id: '102', department_id: '303', shift_id: '501' });
 });
 
+test("an edit keeps another company's stored department by id and posts it, which the service then refuses", async ({ page: browserPage }) => {
+	// Department 999 belongs to another company, as legacy's unguarded save_edit can leave it. The maps are the employee's
+	// company's, so the script keeps it under #999; the service refuses the post until it is changed (D-250).
+	await load(browserPage, page({
+		company: EDIT,
+		shiftNone: '0',
+		selected: { company: '11', branch: '101', department: '999', job: '0', jobLabel: '' },
+		branchOptions: '<option value="101" selected>Alpha HQ</option>',
+	}));
+
+	await expect(browserPage.locator('#department_id')).toHaveValue('999');
+	expect(await options(browserPage, '#department_id')).toEqual([['0', '—'], ['301', 'Alpha Ops'], ['302', 'Alpha Sales'], ['999', '#999']]);
+	expect(await posted(browserPage)).toMatchObject({ department_id: '999' });
+});
+
 test("with legacy's maps, an edit whose branch lists no departments disables the department select, which posts nothing", async ({ page: browserPage }) => {
 	// Why D-250 lists the employee's department under their branch: the port reads a missing department_id as none,
 	// so an unchanged save from this form would clear the department, as legacy's does.
 	await load(browserPage, page({
 		company: EDIT,
+		shiftNone: '0',
 		selected: { company: '11', branch: '102', department: '303', job: '0', jobLabel: '' },
 		branchOptions: '<option value="102" selected>Alpha North</option>',
 		shiftOptions: '<option value="501" selected>Alpha Day</option>',
@@ -228,6 +259,7 @@ test("an edit keeps the employee's job title under its name when the department 
 	};
 	await load(browserPage, page({
 		company: EDIT,
+		shiftNone: '0',
 		selected: { company: '11', branch: '101', department: '301', job: '409', jobLabel: 'Alpha Welder' },
 		maps,
 		branchOptions: '<option value="101" selected>Alpha HQ</option>',

@@ -248,8 +248,12 @@
 						<%-- Required on the create path, and the only foreign key
 						     legacy insists on there. --%>
 						<label for="shift_id">${t.apply("shift")} *</label>
+						<%-- An add's empty choice is legacy's value="", which required
+						     refuses, so a browser keeps an add with no shift, and what was
+						     typed, instead of posting a 0 the service refuses. An edit keeps
+						     0: an employee with no shift must still save unchanged. --%>
 						<select id="shift_id" name="shift_id" required data-emp-shift>
-							<option value="0">—</option>
+							<option value="${editRow == null ? "" : "0"}">—</option>
 							@for(Employee.Option option : shiftOptions)
 								<option value="${option.id()}"
 								        selected="${editRow != null && editRow.shiftId() == option.id()}">${option.label()}</option>

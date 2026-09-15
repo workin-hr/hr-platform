@@ -976,6 +976,34 @@ class AdminEmployeesEndToEndTest {
 	}
 
 	@Test
+	void aBrowserWillNotSubmitAnAddWithoutAShift() {
+		// Legacy's empty choice is value="", which required refuses. The port's was 0,
+		// which required accepts: the post reached the service, was refused, and lost
+		// everything typed into the form.
+		for (String path : List.of("/admin/employees?company_id=0&action=add",
+				"/admin/employees?company_id=" + this.companyA + "&action=add")) {
+			BrowserForm form = formFields(body(path), "add_employee");
+			assertThat(form.fields()).as(path).containsEntry("shift_id", "");
+			assertThat(form.required()).as(path).contains("shift_id");
+		}
+	}
+
+	@Test
+	void anEditOfAnEmployeeWithNoShiftCanStillBeSubmittedUnchanged() {
+		// The other side of the add's empty choice: an edit's is 0, so an employee who
+		// has no shift assignment is not held back by the required shift select.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+
+		BrowserForm form = formFields(body("/admin/employees?action=edit&id=" + id), "save_edit");
+
+		assertThat(form.fields()).containsEntry("shift_id", "0");
+		assertSaved(postFields(form));
+		assertThat(this.jdbc.queryForObject(
+				"SELECT COUNT(*) FROM employee_shift_assignments WHERE employee_id = " + id, Integer.class))
+				.as("and no assignment is invented").isZero();
+	}
+
+	@Test
 	void anUnfilteredAddCarriesEveryCompanysMapsAndShifts() {
 		// With no filter the administrator's reach is every company (R-051), and the
 		// shifts travel with the maps: legacy's form has none for a company chosen in it.
