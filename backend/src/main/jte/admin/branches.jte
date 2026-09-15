@@ -9,6 +9,7 @@
 @param String currentAdminPhone
 @param DashboardPage<Branch> result
 @param DashboardListFilters filters
+@param java.util.function.Supplier<java.util.List<com.workin.backend.platformadmin.org.ActiveCompanies.CompanyOption>> companyFilterOptions
 @param java.util.List<ActiveCompanies.CompanyOption> companyOptions
 @param boolean showCompanyColumn
 @param boolean canManage
@@ -52,12 +53,7 @@
 				<%-- The administrator's company filter. A scoped session has no
 				     such choice, so the field is not rendered for one. --%>
 				@if(!session.isScopedToOneCompany())
-					<div class="filter-field">
-						<label class="filter-field__label" for="br_company">${t.apply("company")}</label>
-						<input type="number" id="br_company" name="company_id" min="0"
-						       placeholder="${t.apply("all")}"
-						       value="${filters.companyId() > 0 ? String.valueOf(filters.companyId()) : ""}">
-					</div>
+					@template.admin.companyFilterField(companyId = filters.companyId(), companies = companyFilterOptions, t = t)
 				@endif
 				<div class="filter-field">
 					<label class="filter-field__label" for="br_search">${t.apply("branch")}</label>

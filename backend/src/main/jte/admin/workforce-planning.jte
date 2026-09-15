@@ -10,6 +10,7 @@
 @param String currentAdminPhone
 @param DashboardPage<WorkforcePlan> result
 @param DashboardListFilters filters
+@param java.util.function.Supplier<java.util.List<com.workin.backend.platformadmin.org.ActiveCompanies.CompanyOption>> companyFilterOptions
 @param List<ActiveCompanies.CompanyOption> companyOptions = List.of()
 @param String branchesByCompany = "{}"
 @param String departmentsByBranch = "{}"
@@ -52,12 +53,7 @@
 		<div class="toolbar page-toolbar page-toolbar-filters">
 			<form method="GET" class="toolbar-form toolbar-form--labeled">
 				@if(!session.isScopedToOneCompany())
-					<div class="filter-field">
-						<label class="filter-field__label" for="wp_company">${t.apply("company")}</label>
-						<input type="number" id="wp_company" name="company_id" min="0"
-						       placeholder="${t.apply("filter_all")}"
-						       value="${filters.companyId() > 0 ? String.valueOf(filters.companyId()) : ""}">
-					</div>
+					@template.admin.companyFilterField(companyId = filters.companyId(), companies = companyFilterOptions, t = t)
 				@endif
 				<div class="filter-field">
 					<%-- The search matches the job title only, not the branch or
