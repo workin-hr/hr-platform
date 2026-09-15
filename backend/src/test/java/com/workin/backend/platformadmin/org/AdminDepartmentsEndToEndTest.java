@@ -296,13 +296,103 @@ class AdminDepartmentsEndToEndTest {
 	}
 
 	@Test
-	void thePickerOffersOnlyTheFilteredCompanysBranches() {
-		String unfiltered = body("/admin/departments?company_id=&action=add");
-		assertThat(unfiltered).as("every company's, labelled by company")
-				.contains("Alpha North").contains("Beta Central").contains("Beta Co");
+	void anAddWithNoCompanyChosenAsksForOneAndLeavesTheBranchesToIt() throws java.io.IOException {
+		long suspended = createCompany("Zeta Suspended");
+		this.jdbc.update("UPDATE companies SET status = 'suspended' WHERE id = ?", suspended);
+		long retired = seedBranch(this.companyA, "Alpha Retired");
+		this.jdbc.update("UPDATE branches SET is_active = 0 WHERE id = ?", retired);
 
-		String filtered = body("/admin/departments?company_id=" + this.companyA + "&action=add");
-		assertThat(filtered).contains("Alpha North").doesNotContain("Beta Central");
+		String form = formFor(body("/admin/departments?company_id=&action=add"), "add");
+
+		Matcher company = Pattern.compile(
+				"<select name=\"company_id\" id=\"dp_company_id\"([^>]*)>(.*?)</select>", Pattern.DOTALL).matcher(form);
+		assertThat(company.find()).as("the add form asks for the company").isTrue();
+		assertThat(company.group(1)).contains("data-dept-company=\"1\"").contains("required")
+				.doesNotContain("data-jt-company");
+		assertThat(company.group(2)).as("the active companies, not a suspended one")
+				.contains("value=\"" + this.companyA + "\"").contains("value=\"" + this.companyB + "\"")
+				.doesNotContain("value=\"" + suspended + "\"");
+		assertThat(form.indexOf("data-org-dept-form")).as("the company select sits inside the script's wrapper")
+				.isPositive().isLessThan(company.start());
+		assertThat(form).as("no hidden company of 0").doesNotContain("type=\"hidden\" name=\"company_id\"");
+
+		assertThat(form).as("the picker waits for the company, as legacy's does")
+				.contains("dept-branches-panel is-disabled")
+				.contains("data-dept-toolbar hidden")
+				.contains("data-dept-branches-picker data-disabled=\"1\"")
+				.contains(arabic("select_company_first_branches"))
+				.doesNotContain("name=\"branch_ids[]\"");
+
+		Matcher json = Pattern.compile("data-branches=\"([^\"]*)\"").matcher(form);
+		assertThat(json.find()).as("the wrapper carries every company's active branches").isTrue();
+		Map<?, ?> byCompany = new tools.jackson.databind.ObjectMapper().readValue(unescape(json.group(1)), Map.class);
+		assertThat(names(byCompany, this.companyA)).containsExactly("Alpha North", "Alpha South");
+		assertThat(names(byCompany, this.companyB)).containsExactly("Beta Central");
+	}
+
+	@Test
+	void anAddUnderAChosenCompanyListsThatCompanysBranchesAsCards() {
+		long retired = seedBranch(this.companyA, "Alpha Retired");
+		this.jdbc.update("UPDATE branches SET is_active = 0 WHERE id = ?", retired);
+
+		String form = formFor(body("/admin/departments?company_id=" + this.companyA + "&action=add"), "add");
+
+		assertThat(form).as("the filtered company travels hidden")
+				.contains("<input type=\"hidden\" name=\"company_id\" value=\"" + this.companyA + "\">")
+				.doesNotContain("data-dept-company")
+				.doesNotContain("data-disabled=\"1\"");
+		assertThat(form).as("every hook department-form.js looks up")
+				.contains("data-org-dept-form", "data-dept-branches-panel", "data-dept-toolbar", "data-dept-search",
+						"data-dept-select-all", "data-dept-clear-all", "data-dept-count-badge",
+						"data-dept-branches-picker", "data-dept-branches-grid", "dept-branch-card__name");
+		assertThat(cards(form)).as("that company's active branches, in name order")
+				.containsExactly(this.branchA1, this.branchA2);
+		assertThat(checked(form)).isEmpty();
+	}
+
+	@Test
+	void anEditListsItsOwnCompanysBranchesAndKeepsARetiredOneItIsLinkedTo() throws java.io.IOException {
+		long west = seedBranch(this.companyA, "Alpha West");
+		post("/admin/departments", this.cookie, page("/admin/departments?action=add", this.cookie).csrf(),
+				"action", "add", "company_id", String.valueOf(this.companyA), "name", "Kept",
+				"branch_ids[]", String.valueOf(this.branchA1), "branch_ids[]", String.valueOf(this.branchA2));
+		long id = this.jdbc.queryForObject("SELECT id FROM departments WHERE name = 'Kept'", Long.class);
+		this.jdbc.update("UPDATE branches SET is_active = 0 WHERE id = ?", this.branchA2);
+
+		Page page = page("/admin/departments?company_id=&action=edit&id=" + id, this.cookie);
+		String form = formFor(page.response().getBody(), "save_edit");
+
+		assertThat(cards(form)).as("the row's company's branches only, the retired linked one included")
+				.containsExactly(this.branchA1, this.branchA2, west);
+		assertThat(checked(form)).containsExactly(this.branchA1, this.branchA2);
+		assertThat(form).as("the count legacy's badge shows")
+				.contains("2 " + arabic("branches_selected_label_plural"))
+				.doesNotContain("data-dept-company");
+		assertThat(form).as("no data-fixed-company, so the script keeps these cards rather than re-rendering active ones")
+				.doesNotContain("data-fixed-company");
+
+		post("/admin/departments", this.cookie, page.csrf(), "action", "save_edit",
+				"id", String.valueOf(id), "company_id", String.valueOf(this.companyA), "name", "Kept",
+				"branch_ids[]", String.valueOf(this.branchA1), "branch_ids[]", String.valueOf(this.branchA2),
+				"is_active", "1");
+
+		assertThat(this.jdbc.queryForList(
+				"SELECT branch_id FROM department_branches WHERE department_id = ? ORDER BY branch_id", Long.class, id))
+				.as("an unchanged save keeps the retired branch linked")
+				.containsExactly(Math.min(this.branchA1, this.branchA2), Math.max(this.branchA1, this.branchA2));
+	}
+
+	@Test
+	void theBranchesTheCardsPostAsBranchIdsWithBracketsAreLinked() {
+		// The cards post branch_ids[]. The controller reads branch_ids, and Spring's
+		// @RequestParam resolver falls back to the bracketed name; this holds it there.
+		post("/admin/departments", this.cookie, page("/admin/departments?action=add", this.cookie).csrf(),
+				"action", "add", "company_id", String.valueOf(this.companyA), "name", "Bracketed",
+				"branch_ids[]", String.valueOf(this.branchA1), "branch_ids[]", String.valueOf(this.branchA2));
+
+		assertThat(this.jdbc.queryForList("SELECT db.branch_id FROM department_branches db"
+				+ " INNER JOIN departments d ON d.id = db.department_id WHERE d.name = 'Bracketed' ORDER BY db.branch_id", Long.class))
+				.containsExactly(Math.min(this.branchA1, this.branchA2), Math.max(this.branchA1, this.branchA2));
 	}
 
 	@Test
@@ -324,6 +414,44 @@ class AdminDepartmentsEndToEndTest {
 				"/admin/departments", HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), String.class);
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FOUND);
 		assertThat(response.getHeaders().getLocation()).asString().contains("/admin/login");
+	}
+
+	private static String formFor(String html, String action) {
+		int field = html.indexOf("name=\"action\" value=\"" + action + "\"");
+		assertThat(field).as("the page renders the %s form", action).isPositive();
+		return html.substring(html.lastIndexOf("<form", field), html.indexOf("</form>", field));
+	}
+
+	private static final Pattern CARD = Pattern.compile("name=\"branch_ids\\[\\]\"\\s+value=\"(\\d+)\"( checked)?");
+
+	private static List<Long> cards(String form) {
+		return CARD.matcher(form).results().map(card -> Long.parseLong(card.group(1))).toList();
+	}
+
+	private static List<Long> checked(String form) {
+		return CARD.matcher(form).results().filter(card -> card.group(2) != null)
+				.map(card -> Long.parseLong(card.group(1))).toList();
+	}
+
+	private static List<String> names(Map<?, ?> byCompany, long companyId) {
+		Object branches = byCompany.get(String.valueOf(companyId));
+		return branches == null ? List.of()
+				: ((List<?>) branches).stream().map(branch -> (String) ((Map<?, ?>) branch).get("name")).toList();
+	}
+
+	/** JTE escapes the JSON it puts in an attribute. */
+	private static String unescape(String attribute) {
+		return attribute.replace("&#34;", "\"").replace("&#39;", "'").replace("&lt;", "<")
+				.replace("&gt;", ">").replace("&amp;", "&");
+	}
+
+	/** The page renders in Arabic by default. */
+	private static String arabic(String key) throws java.io.IOException {
+		java.util.Properties catalogue = new java.util.Properties();
+		try (java.io.InputStream in = AdminDepartmentsEndToEndTest.class.getResourceAsStream("/i18n/admin-messages_ar.properties")) {
+			catalogue.load(new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8));
+		}
+		return catalogue.getProperty(key);
 	}
 
 	private record Csrf(String name, String value) {

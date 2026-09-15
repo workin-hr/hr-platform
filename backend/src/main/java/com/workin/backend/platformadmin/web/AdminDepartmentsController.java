@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
+import com.workin.backend.platformadmin.org.ActiveCompanies;
 import com.workin.backend.platformadmin.org.Department;
 import com.workin.backend.platformadmin.org.DepartmentAdminService;
 import com.workin.backend.platformadmin.org.DepartmentStore;
@@ -34,9 +35,14 @@ public class AdminDepartmentsController {
 
 	private final DepartmentAdminService service;
 
-	public AdminDepartmentsController(DepartmentStore store, DepartmentAdminService service) {
+	private final ActiveCompanies companies;
+
+	private static final tools.jackson.databind.ObjectMapper JSON = new tools.jackson.databind.ObjectMapper();
+
+	public AdminDepartmentsController(DepartmentStore store, DepartmentAdminService service, ActiveCompanies companies) {
 		this.store = store;
 		this.service = service;
+		this.companies = companies;
 	}
 
 	@AuthenticatedUseCase(reason = "One company's departments and the branches they span. "
@@ -58,13 +64,40 @@ public class AdminDepartmentsController {
 		model.addAttribute("showCompanyColumn", showCompany);
 		model.addAttribute("filters", filters);
 		model.addAttribute("result", this.store.paginate(filters, showCompany));
-		model.addAttribute("branchOptions", this.store.branchOptions(filters.companyId()));
+		List<Department.BranchOption> branchOptions = this.store.branchOptions(filters.companyId());
+		model.addAttribute("branchOptions", branchOptions);
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "departments"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
 		model.addAttribute("errorKey", error);
-		model.addAttribute("addOpen", "add".equals(action));
-		model.addAttribute("editRow", "edit".equals(action) ? visible(current, filters, id) : null);
+		boolean addOpen = "add".equals(action);
+		Department editRow = "edit".equals(action) ? visible(current, filters, id) : null;
+		// _department_form.php: with no company to add under, the form asks for one and
+		// department-form.js renders that company's active branches as cards.
+		boolean pickCompany = addOpen && !current.isScopedToOneCompany() && filters.companyId() <= 0;
+		model.addAttribute("addOpen", addOpen);
+		model.addAttribute("editRow", editRow);
+		model.addAttribute("pickCompany", pickCompany);
+		model.addAttribute("companyOptions", pickCompany ? this.companies.all() : List.of());
+		model.addAttribute("branchesByCompany", pickCompany ? branchesByCompany() : "{}");
+		model.addAttribute("selectedBranches", JSON.writeValueAsString(
+				editRow == null ? List.of() : editRow.branchIds()));
+		// The cards are one company's: the row's on an edit, including a retired branch
+		// the department is still linked to, or on a filtered add the toolbar's list,
+		// which is already that company's. With no form open, none.
+		model.addAttribute("formBranches", editRow != null
+				? this.store.editBranchOptions(editRow.companyId(), editRow.id())
+				: addOpen && !pickCompany ? branchOptions : List.of());
 		return VIEW;
+	}
+
+	/** {@code org_branches_grouped_by_company()}, as the JSON department-form.js reads. */
+	private String branchesByCompany() {
+		java.util.Map<String, List<java.util.Map<String, Object>>> grouped = new java.util.LinkedHashMap<>();
+		this.store.activeBranchesByCompany().forEach((company, branches) -> grouped.put(
+				String.valueOf(company),
+				branches.stream().map(branch -> java.util.Map.<String, Object>of(
+						"id", branch.id(), "name", branch.name())).toList()));
+		return JSON.writeValueAsString(grouped);
 	}
 
 	/** {@code dbFind()} then {@link DashboardOrgScope#canOpenRow}. */
@@ -89,6 +122,8 @@ public class AdminDepartmentsController {
 			@RequestParam(required = false, defaultValue = "0") long id,
 			@RequestParam(name = "company_id", required = false, defaultValue = "0") long companyId,
 			@RequestParam(required = false, defaultValue = "") String name,
+			// Also binds branch_ids[], the name department-form.js's cards post: Spring's
+			// resolver reads name + "[]" when the plain name is absent.
 			@RequestParam(name = "branch_ids", required = false) String[] branchIds,
 			@RequestParam(name = "is_active", required = false) String isActive) {
 

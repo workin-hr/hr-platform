@@ -1,5 +1,6 @@
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.org.ActiveCompanies
 @import com.workin.backend.platformadmin.org.Department
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
@@ -10,6 +11,11 @@
 @param DashboardPage<Department> result
 @param DashboardListFilters filters
 @param List<Department.BranchOption> branchOptions
+@param List<Department.BranchOption> formBranches = List.of()
+@param boolean pickCompany = false
+@param List<ActiveCompanies.CompanyOption> companyOptions = List.of()
+@param String branchesByCompany = "{}"
+@param String selectedBranches = "[]"
 @param boolean showCompanyColumn
 @param boolean canManage
 @param boolean actionsEnabled
@@ -23,6 +29,8 @@
 @param Function<String, Boolean> available
 !{boolean canWrite = canManage && actionsEnabled;}
 !{int colCount = showCompanyColumn ? 9 : 8;}
+!{long selectedCount = editRow == null ? 0
+		: formBranches.stream().filter(option -> editRow.branchIds().contains(option.id())).count();}
 <%-- dashboard/pages/departments/page.php. --%>
 @template.admin.layout(
 	title = t.apply("departments"),
@@ -35,6 +43,7 @@
 	t = t,
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css", "org-form.css"),
+	pageScripts = java.util.List.of("department-form.js"),
 	body = @`
 		@if(errorKey != null)
 			<div class="flash flash-error">${t.apply(errorKey)}</div>
@@ -96,37 +105,83 @@
 					<input type="hidden" name="action" value="${editRow == null ? "add" : "save_edit"}">
 					@if(editRow != null)
 						<input type="hidden" name="id" value="${editRow.id()}">
+						<input type="hidden" name="company_id" value="${editRow.companyId()}">
 					@endif
-					<input type="hidden" name="company_id"
-					       value="${editRow != null ? editRow.companyId() : filters.companyId()}">
 
 					<%-- The rows are a grid in legacy (_department_form.php), with the wide ones
 					     marked "org-form-span-2". Without the wrapper every field is a
-					     full-width band. --%>
-					<div class="org-form-grid">
+					     full-width band. The data-* attributes are what department-form.js
+					     reads; unlike legacy there is no data-fixed-company, so an edit or a
+					     filtered add keeps the cards rendered here instead of a re-render from
+					     active branches only, which would drop a retired branch the department
+					     is still linked to. --%>
+					<div class="org-form-grid"
+					     data-org-dept-form
+					     data-branches="${branchesByCompany}"
+					     data-selected-branches="${selectedBranches}"
+					     data-select-company-msg="${t.apply("select_company_first_branches")}"
+					     data-label-select-all="${t.apply("branches_select_all")}"
+					     data-label-clear-all="${t.apply("branches_clear_all")}"
+					     data-label-search="${t.apply("branches_search")}"
+					     data-label-selected-one="${t.apply("branches_selected_label")}"
+					     data-label-selected-many="${t.apply("branches_selected_label_plural")}">
+					@if(editRow == null)
+						@template.admin.companyField(session = session, companyId = filters.companyId(),
+								companies = companyOptions, inputId = "dp_company_id", cascade = "dp", t = t)
+					@endif
 					<div class="form-row org-form-span-2">
 						<label for="name">${t.apply("department")}</label>
 						<input type="text" id="name" name="name" required maxlength="255"
 						       value="${editRow == null ? "" : editRow.name()}">
 					</div>
-					<div class="form-row org-form-span-2">
-						<label>${t.apply("branches")}</label>
+					<div class="form-row org-form-span-2 dept-branches-field">
 						<%-- At least one is required, and every one must belong to the
-						     same company. The service checks both; the picker only
-						     offers this company's branches when one is filtered to. --%>
-						<div class="checkbox-grid">
-							@for(Department.BranchOption option : branchOptions)
-								<label class="checkbox-item">
-									<input type="checkbox" name="branch_ids" value="${option.id()}"
-									       checked="${editRow != null && editRow.branchIds().contains(option.id())}">
-									<span>${option.companyName() == null ? option.name()
-										: option.companyName() + " — " + option.name()}</span>
-								</label>
-							@endfor
+						     department's company. The service checks both; the cards only
+						     offer that company's branches. --%>
+						<div class="dept-branches-field__label-row">
+							<span class="form-label-static">${t.apply("branches")}</span>
+							<span class="dept-branches-badge" data-dept-count-badge hidden="${selectedCount == 0}">${selectedCount == 0 ? "0"
+								: selectedCount + " " + t.apply(selectedCount == 1 ? "branches_selected_label" : "branches_selected_label_plural")}</span>
 						</div>
-						@if(branchOptions.isEmpty())
-							<p class="text-muted">${t.apply("select_at_least_one_branch")}</p>
-						@endif
+						<p class="form-hint dept-branches-hint">${t.apply("branches_select_hint")}</p>
+						<div class="dept-branches-panel${pickCompany ? " is-disabled" : ""}" data-dept-branches-panel>
+							<div class="dept-branches-toolbar" data-dept-toolbar hidden="${pickCompany}">
+								<input type="search" class="dept-branches-search" data-dept-search
+								       placeholder="${t.apply("branches_search")}" autocomplete="off">
+								<div class="dept-branches-toolbar__actions">
+									<button type="button" class="btn btn-outline btn-sm" data-dept-select-all>${t.apply("branches_select_all")}</button>
+									<button type="button" class="btn btn-outline btn-sm" data-dept-clear-all>${t.apply("branches_clear_all")}</button>
+								</div>
+							</div>
+							<div class="dept-branches-picker" data-dept-branches-picker data-disabled="${pickCompany ? "1" : null}">
+								@if(pickCompany)
+									<div class="dept-branches-picker__empty">
+										<span class="dept-branches-picker__empty-icon" aria-hidden="true">◎</span>
+										<p>${t.apply("select_company_first_branches")}</p>
+									</div>
+								@elseif(formBranches.isEmpty())
+									<div class="dept-branches-picker__empty">
+										<p>${t.apply("no_data")}</p>
+									</div>
+								@else
+									<div class="dept-branches-grid" data-dept-branches-grid>
+										@for(Department.BranchOption option : formBranches)
+											!{boolean checked = editRow != null && editRow.branchIds().contains(option.id());}
+											<label class="dept-branch-card${checked ? " is-selected" : ""}">
+												<input type="checkbox" class="dept-branch-card__input" name="branch_ids[]"
+												       value="${option.id()}" checked="${checked}">
+												<span class="dept-branch-card__box" aria-hidden="true">
+													<svg class="dept-branch-card__icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+														<path d="M5 12l5 5L20 7"/>
+													</svg>
+												</span>
+												<span class="dept-branch-card__name">${option.name()}</span>
+											</label>
+										@endfor
+									</div>
+								@endif
+							</div>
+						</div>
 					</div>
 					@if(editRow != null)
 						<div class="form-row org-form-span-2">

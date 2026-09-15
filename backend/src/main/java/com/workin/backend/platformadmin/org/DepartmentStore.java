@@ -1,7 +1,9 @@
 package com.workin.backend.platformadmin.org;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -166,6 +168,34 @@ public class DepartmentStore {
 						+ " WHERE b.is_active = 1 ORDER BY c.company_name, b.name",
 				(rs, rowNum) -> new Department.BranchOption(
 						rs.getLong("id"), rs.getString("name"), rs.getString("company_name")));
+	}
+
+	/**
+	 * {@code org_branches_grouped_by_company()}: every company's active branches,
+	 * for the add form's cards once a company is chosen.
+	 */
+	public Map<Long, List<Department.BranchOption>> activeBranchesByCompany() {
+		Map<Long, List<Department.BranchOption>> grouped = new LinkedHashMap<>();
+		this.jdbcTemplate.query(
+				"SELECT id, name, company_id FROM branches WHERE is_active = 1 ORDER BY company_id, name",
+				(org.springframework.jdbc.core.RowCallbackHandler) rs -> grouped
+						.computeIfAbsent(rs.getLong("company_id"), company -> new ArrayList<>())
+						.add(new Department.BranchOption(rs.getLong("id"), rs.getString("name"), null)));
+		return grouped;
+	}
+
+	/**
+	 * The edit form's cards: the department's company's active branches, and any
+	 * retired one it is still linked to. Legacy's form leaves that one out, so an
+	 * unchanged save there unlinks it.
+	 */
+	public List<Department.BranchOption> editBranchOptions(long companyId, long departmentId) {
+		return this.jdbcTemplate.query(
+				"SELECT id, name FROM branches WHERE company_id = ? AND (is_active = 1"
+						+ " OR id IN (SELECT branch_id FROM department_branches WHERE department_id = ?))"
+						+ " ORDER BY name",
+				(rs, rowNum) -> new Department.BranchOption(rs.getLong("id"), rs.getString("name"), null),
+				companyId, departmentId);
 	}
 
 	public long insert(long companyId, String name) {
