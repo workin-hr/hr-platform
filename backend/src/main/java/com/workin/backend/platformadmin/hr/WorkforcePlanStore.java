@@ -102,10 +102,11 @@ public class WorkforcePlanStore {
 	 * genuinely is every company, and is the only case that returns every
 	 * company's rows.
 	 *
-	 * <p>A department is listed under a branch only when both belong to the same
-	 * company. {@code department_branches} carries no company, and legacy does not
-	 * check; a department listed under another company's branch is one the
-	 * service refuses on save.
+	 * <p>A department is listed under a branch, and a job title under a department,
+	 * only when both belong to the same company. {@code department_branches} carries
+	 * no company, a job title's {@code department_id} is not held to its own company,
+	 * and legacy checks neither; a department or job title listed across companies is
+	 * one the service refuses on save.
 	 */
 	public WorkforcePlan.Cascade cascade(long companyId) {
 		boolean scoped = companyId > 0;
@@ -120,7 +121,8 @@ public class WorkforcePlanStore {
 						+ " WHERE d.is_active = 1" + (scoped ? " AND d.company_id = ?" : "")
 						+ " ORDER BY db.branch_id, d.name", args),
 				grouped("SELECT jt.id, jt.name, jt.department_id AS grp FROM job_titles jt"
-						+ " WHERE jt.is_active = 1 AND jt.department_id IS NOT NULL"
+						+ " INNER JOIN departments d ON d.id = jt.department_id AND d.company_id = jt.company_id"
+						+ " WHERE jt.is_active = 1"
 						+ (scoped ? " AND jt.company_id = ?" : "")
 						+ " ORDER BY jt.department_id, jt.name", args),
 				grouped("SELECT jt.id, jt.name, jt.company_id AS grp FROM job_titles jt"

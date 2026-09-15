@@ -12,8 +12,9 @@ import java.util.regex.Pattern;
  * is 100 -- a parser that keeps only the leading digits reads that as 1.
  * Anything that is not such a number is 0, including {@code ".5"} read as a
  * float first ({@code 0.5}, then 0), hexadecimal, {@code "INF"} and non-ASCII
- * digits. A value past the 64-bit range saturates; a float that overflows to
- * infinity is 0.
+ * digits. A value past the 64-bit range saturates, unless it is past a double's
+ * range too: PHP reads it as a double, which overflows to infinity, and that is 0.
+ * {@link LegacyValues#toPhpLong} casts strings through this.
  */
 public final class PhpCast {
 
@@ -43,7 +44,8 @@ public final class PhpCast {
 			try {
 				return Long.parseLong(text);
 			} catch (NumberFormatException outOfRange) {
-				return text.charAt(0) == '-' ? Long.MIN_VALUE : Long.MAX_VALUE;
+				// Past the long range PHP reads the digits as a double too, so a string
+				// long enough to overflow that is 0, not the bound.
 			}
 		}
 		double value = Double.parseDouble(text);

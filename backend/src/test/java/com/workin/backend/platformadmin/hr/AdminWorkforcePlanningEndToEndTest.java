@@ -577,6 +577,19 @@ class AdminWorkforcePlanningEndToEndTest {
 	}
 
 	@Test
+	void aDepartmentListsOnlyItsOwnCompanysJobTitles() {
+		// A job title's department_id is not held to its own company, and legacy's
+		// org_job_titles_grouped_by_department() does not check. Company B's job title
+		// pointing at company A's department is one the service refuses on save.
+		this.jdbc.update("UPDATE job_titles SET department_id = ? WHERE id = ?", this.departmentA, this.jobTitleA);
+		this.jdbc.update("UPDATE job_titles SET department_id = ? WHERE id = ?", this.departmentA, this.jobTitleB);
+
+		String form = formFor(get("/admin/workforce_planning?company_id=0&action=add", this.cookie).getBody(), "add_wp");
+
+		assertThat(names(map(form, "data-job-titles-by-dept"), this.departmentA)).containsExactly("Alpha Fitter");
+	}
+
+	@Test
 	void everyWriteIsAudited() {
 		long id = seedPlan(this.companyA, this.branchA, this.departmentA, this.jobTitleA, 2);
 		postForm("action", "delete_wp", "id", String.valueOf(id));

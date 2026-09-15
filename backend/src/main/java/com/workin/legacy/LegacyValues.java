@@ -83,6 +83,11 @@ public final class LegacyValues {
 	 * bound; they never use {@link BigDecimal#longValue()}'s wraparound result.
 	 */
 	public static long toPhpLong(Object raw) {
+		if (raw instanceof CharSequence text) {
+			// One string cast, held to PHP 8.3's own answers (PhpCast): an exact decimal
+			// differs where PHP goes through a double, past its range or at its rounding.
+			return PhpCast.intval(text.toString());
+		}
 		BigDecimal value = phpNumericValue(raw);
 		if (value.compareTo(PHP_INT_MAX) > 0) {
 			return Long.MAX_VALUE;
