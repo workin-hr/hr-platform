@@ -195,8 +195,8 @@ public class PlatformAdminCompanyService {
 	 * the cascade before it starts, since the row goes first and its
 	 * {@code IDENTITY} id makes {@code save} insert at once rather than at commit.
 	 *
-	 * @param confirmation what the operator typed, compared with
-	 *        {@link PlatformAdminCompanyDirectory.DeletionTarget#confirmationText()}
+	 * @param confirmation what the operator typed, normalised as the page's text is
+	 *        and compared with {@link PlatformAdminCompanyDirectory.DeletionTarget#confirmationText()}
 	 */
 	@Transactional
 	public Outcome delete(long platformAdminId, long companyId, String confirmation) {
@@ -209,23 +209,23 @@ public class PlatformAdminCompanyService {
 			return Outcome.NO_SUCH_COMPANY;
 		}
 		String expected = target.get().confirmationText();
-		if (confirmation == null || !confirmation.strip().equals(expected)) {
+		if (!PlatformAdminCompanyDirectory.DeletionTarget.normalised(confirmation).equals(expected)) {
 			return Outcome.CONFIRMATION_MISMATCH;
 		}
 		this.auditService.recordAction(platformAdminId, PlatformAdminAuditEventType.COMPANY_DELETED,
 				TARGET_TYPE, String.valueOf(companyId),
-				deletionDetail(expected, this.companyDelete.summary(companyId, "en")));
+				deletionDetail(expected, this.companyDelete.clearedTables(companyId)));
 		this.companyDelete.cascadeDeleteInCurrentTransaction(companyId);
 		return Outcome.DONE;
 	}
 
-	/** What was confirmed, and what went with it by the preview's stable keys rather than its labels. */
+	/** What was confirmed, and this company's rows in every table the cascade deletes from. */
 	private static String deletionDetail(String confirmed,
-			java.util.List<java.util.Map<String, Object>> related) {
+			java.util.List<com.workin.legacy.profile.LegacyCompanyDelete.ClearedTable> cleared) {
 		java.util.StringJoiner counts = new java.util.StringJoiner(", ", confirmed + " (", ")");
 		counts.setEmptyValue(confirmed);
-		for (java.util.Map<String, Object> item : related) {
-			counts.add(item.get("key") + "=" + item.get("count"));
+		for (com.workin.legacy.profile.LegacyCompanyDelete.ClearedTable table : cleared) {
+			counts.add(table.table() + "=" + table.rows());
 		}
 		return counts.toString();
 	}

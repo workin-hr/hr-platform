@@ -1,15 +1,15 @@
 @import com.workin.backend.platformadmin.PlatformAdminCompanyDirectory.DeletionTarget
 @import com.workin.backend.platformadmin.web.DashboardSession
+@import com.workin.legacy.profile.LegacyCompanyDelete.ClearedTable
 @import java.util.List
-@import java.util.Map
 @import java.util.function.Function
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
 @param boolean actionsEnabled
 @param DeletionTarget target
-@param List<Map<String, Object>> related
-@param long relatedTotal
+@param List<ClearedTable> cleared
+@param long clearedTotal
 @param String errorKey = null
 @param String currentPage
 @param String lang
@@ -48,17 +48,20 @@
 				<div class="stat-label">${t.apply("company")}</div>
 			</div>
 			<div class="stat-card red">
-				<div class="stat-num">${relatedTotal}</div>
+				<div class="stat-num">${clearedTotal}</div>
 				<div class="stat-label">${t.apply("company_delete_total")}</div>
 			</div>
-			@for(Map<String, Object> item : related)
+			<%-- One card per table the cascade deletes from. The key is built from the
+			     table name, so CompanyDeleteTableLabelsTest, not the template key gate,
+			     holds both catalogues to the cascade's list. --%>
+			@for(ClearedTable table : cleared)
 				<div class="stat-card gray">
-					<div class="stat-num">${String.valueOf(item.get("count"))}</div>
-					<div class="stat-label">${String.valueOf(item.get("label"))}</div>
+					<div class="stat-num">${table.rows()}</div>
+					<div class="stat-label">${t.apply("company_delete_table_" + table.table())}</div>
 				</div>
 			@endfor
 		</div>
-		@if(related.isEmpty())
+		@if(cleared.isEmpty())
 			<p class="text-muted">${t.apply("company_delete_nothing_related")}</p>
 		@endif
 

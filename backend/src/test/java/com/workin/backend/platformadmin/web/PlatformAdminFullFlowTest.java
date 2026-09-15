@@ -30,7 +30,6 @@ import org.springframework.util.MultiValueMap;
 
 import com.workin.backend.AbstractIntegrationTest;
 import com.workin.legacy.profile.LegacyCompanyDelete;
-import com.workin.legacy.wire.LegacyMessages;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -66,9 +65,6 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 
 	@Autowired
 	private LegacyCompanyDelete companyDelete;
-
-	@Autowired
-	private LegacyMessages legacyMessages;
 
 	@Autowired
 	@Qualifier("legacyTransactionManager")
@@ -212,16 +208,18 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 		String cookie = signIn();
 		long companyId = createCompany();
 		long employeeId = seedBranchAndEmployee(companyId);
+		seedDevice(companyId);
 
 		ResponseEntity<String> page = get("/admin/companies/" + companyId + "/delete", cookie).response();
 
 		assertThat(page.getStatusCode()).isEqualTo(HttpStatus.OK);
-		// The counts and labels the mobile preview shows a company deleting itself
-		// (company_related_records_summary()), in the page's default Arabic.
+		// Every table the cascade deletes from, device tables included, not only the
+		// client preview's fifteen; labelled in the page's default Arabic.
 		assertThat(page.getBody())
-			.containsPattern(statCard("1", this.legacyMessages.translate("ar", "company_related_employees", null)))
-			.containsPattern(statCard("1", this.legacyMessages.translate("ar", "company_related_branches", null)))
-			.containsPattern(statCard("2", arabic("admin-own", "company_delete_total")))
+			.containsPattern(statCard("1", arabic("admin-own", "company_delete_table_employees")))
+			.containsPattern(statCard("1", arabic("admin-own", "company_delete_table_attendance_devices")))
+			.containsPattern(statCard("1", arabic("admin-own", "company_delete_table_branches")))
+			.containsPattern(statCard("3", arabic("admin-own", "company_delete_total")))
 			.contains("<code dir=\"auto\">" + nameOf(companyId) + "</code>")
 			.contains("<form method=\"post\" action=\"/admin/companies/" + companyId + "/delete\">");
 		assertThat(companyExists(companyId)).as("showing the page deletes nothing").isTrue();
@@ -348,6 +346,58 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 			.contains("<div class=\"flash flash-error\">" + arabic("admin-messages", "error_db") + "</div>");
 		assertThat(companyExists(companyId)).as("a delete that cannot be recorded does not happen").isTrue();
 		assertThat(count("SELECT COUNT(*) FROM employees WHERE id = ?", employeeId)).isOne();
+	}
+
+	@Test
+	void aLockFailureInAToleratedDeleteRollsBackEverything() {
+		// Deleting branches is a failure legacy tolerates. A deadlock there has already
+		// rolled the transaction back on the server; swallowed, the rest of the cascade
+		// would commit the delete, through the foreign keys, without its audit row.
+		// SQLSTATE 40001 with error 1213 is what a deadlock reports.
+		String cookie = signIn();
+		long companyId = createCompany();
+		long employeeId = seedBranchAndEmployee(companyId);
+		String name = nameOf(companyId);
+		String path = "/admin/companies/" + companyId + "/delete";
+		Page page = get(path, cookie);
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		jdbc.execute("CREATE TRIGGER flow_branch_delete_deadlock BEFORE DELETE ON branches FOR EACH ROW"
+				+ " SIGNAL SQLSTATE '40001' SET MESSAGE_TEXT = 'forced deadlock', MYSQL_ERRNO = 1213");
+		ResponseEntity<String> failed;
+		try {
+			failed = post(path, cookie, page.csrf(), "confirmation", name);
+		} finally {
+			jdbc.execute("DROP TRIGGER IF EXISTS flow_branch_delete_deadlock");
+		}
+
+		assertThat(failed.getStatusCode()).as("the delete failed rather than reporting success")
+			.isEqualTo(HttpStatus.OK);
+		assertThat(failed.getBody())
+			.contains("<div class=\"flash flash-error\">" + arabic("admin-messages", "error_db") + "</div>");
+		assertThat(companyExists(companyId)).isTrue();
+		assertThat(count("SELECT COUNT(*) FROM employees WHERE id = ?", employeeId)).isOne();
+		assertThat(deletionAudits(companyId)).isEmpty();
+	}
+
+	@Test
+	void aNameIsConfirmedAsThePageShowsIt() {
+		// A browser collapses runs of whitespace and hides zero-width and bidi marks,
+		// so the operator can only see, and type, the name without them.
+		String cookie = signIn();
+		String shown = "Flow " + System.nanoTime() + " Trading";
+		String stored = shown.replace(" Trading", "  Trading\u200F");
+		long companyId = new JdbcTemplate(this.legacyDataSource).queryForObject(
+				"INSERT INTO companies (company_name, phone, password_hash, status)"
+						+ " VALUES (?, ?, 'unused-hash', 'active') RETURNING id",
+				Long.class, stored, "+92" + (System.nanoTime() % 100_000_000_000L));
+		String path = "/admin/companies/" + companyId + "/delete";
+
+		Page page = get(path, cookie);
+		assertThat(page.response().getBody()).contains("<code dir=\"auto\">" + shown + "</code>");
+		// Typed with the stored double space, as a copy from the database would be.
+		assertThat(post(path, cookie, page.csrf(), "confirmation", shown.replace(" Trading", "  Trading"))
+				.getStatusCode()).isEqualTo(HttpStatus.FOUND);
+		assertThat(companyExists(companyId)).isFalse();
 	}
 
 	@Test
@@ -509,6 +559,16 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 				+ " phone, password_hash, role, join_request_status, is_active, created_at)"
 				+ " VALUES (?, ?, 'Flow', 'Employee', ?, 'unused-hash', 'employee', 'accepted', 1, NOW())"
 				+ " RETURNING id", Long.class, companyId, branchId, "+80" + System.nanoTime());
+	}
+
+	/** One attendance device in the company's first branch: a table the client preview does not count. */
+	private void seedDevice(long companyId) {
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		long branchId = jdbc.queryForObject("SELECT MIN(id) FROM branches WHERE company_id = ?", Long.class, companyId);
+		jdbc.update("INSERT INTO attendance_devices (company_id, branch_id, vendor, serial_number, name,"
+				+ " device_time_zone, is_active, created_at, updated_at)"
+				+ " VALUES (?, ?, 'zkteco', ?, 'Flow device', 'Africa/Cairo', 1, NOW(), NOW())",
+				companyId, branchId, "FLOW-" + System.nanoTime());
 	}
 
 	private List<java.util.Map<String, Object>> deletionAudits(long companyId) {

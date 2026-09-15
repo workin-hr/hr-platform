@@ -1,12 +1,15 @@
 package com.workin.legacy.profile;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import javax.sql.DataSource;
 
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.stereotype.Service;
@@ -34,9 +37,15 @@ import com.workin.legacy.wire.LegacyMessages;
  * in legacy: the three company-scoped tables that may not exist in every
  * deployment, the three join tables, and the final batch of company-scoped
  * tables. A failure there does not abort the cascade and does not surface to
- * the caller. That is reproduced exactly, and it is the reason a partial
- * cascade can commit -- which is a real operational property of this endpoint,
- * not an accident of the port.
+ * the caller. That is reproduced, and it is the reason a partial cascade can
+ * commit -- which is a real operational property of this endpoint, not an
+ * accident of the port.
+ *
+ * <p>One failure is not swallowed: a lock failure. InnoDB answers a deadlock by
+ * rolling the whole transaction back, so carrying on would commit the rest of
+ * the cascade in a new transaction, without the rows deleted before it and
+ * without anything the caller wrote first. Legacy swallows it; this rethrows
+ * it (D-245).
  *
  * <p><b>Every statement outside those inner catches is fatal.</b> PHP's outer
  * {@code try} ends in {@code catch (Throwable $e) { $pdo->rollBack(); throw $e; }},
@@ -64,15 +73,17 @@ import com.workin.legacy.wire.LegacyMessages;
  * than mitigated, because legacy behaves this way today and D-058 puts the
  * burden of proof on the change.
  *
- * <h2>The device tables are deleted but not previewed</h2>
+ * <h2>The device tables are deleted but not in the client preview</h2>
  * <p>{@link #DEVICE_OWNED} extends the cascade to the Phase-1-owned device
- * tables, which PHP knows nothing about. The <b>preview</b> is deliberately
- * left alone: its key set and order are a client-visible contract (D-111)
- * that the Flutter clients render, and those clients cannot be inspected from
- * this repository (PMR-02). So a company admin deleting their company is not
- * told how many device punches go with it, while they are told about
- * attendance. That under-reporting is a known gap awaiting an owner decision,
- * not an oversight.
+ * tables, which PHP knows nothing about. The client <b>preview</b> is
+ * deliberately left alone: its key set and order are a client-visible contract
+ * (D-111) that the Flutter clients render, and those clients cannot be
+ * inspected from this repository (PMR-02). So a company admin deleting their
+ * company from the app is not told how many device punches go with it, while
+ * they are told about attendance. That under-reporting is a known gap awaiting
+ * an owner decision, not an oversight. The platform administrator's delete page
+ * does not share it: {@link #clearedTables} counts every table the cascade
+ * deletes from, device tables included (D-245).
  */
 @Service
 public class LegacyCompanyDelete {
@@ -129,6 +140,42 @@ public class LegacyCompanyDelete {
 	private static final List<String> COMPANY_OWNED_LATE = List.of(
 			"payroll_batches", "company_settings", "request_types", "exception_types",
 			"company_official_holidays", "job_titles", "shifts", "departments", "branches");
+
+	/**
+	 * Every table {@link #deleteEverything} deletes from, in its order, as the
+	 * {@code FROM ... WHERE} that counts this company's rows there and the tables
+	 * that count needs. The batches come from the same lists as the deletes; the
+	 * one-off statements are repeated, and {@code LegacyCompanyDeleteCascadeTest}
+	 * records the statements the cascade runs, so a delete without a count fails.
+	 */
+	private static final List<Counted> COUNTED = counted();
+
+	private record Counted(String table, String from, List<String> needs) {
+	}
+
+	private static List<Counted> counted() {
+		List<Counted> counted = new ArrayList<>();
+		counted.add(companyRows("notifications"));
+		EMPLOYEE_OWNED.forEach(table -> counted.add(throughParent(table, "employees", "employee_id")));
+		COMPANY_OWNED_EARLY.forEach(table -> counted.add(companyRows(table)));
+		DEVICE_OWNED.forEach(table -> counted.add(companyRows(table)));
+		counted.add(companyRows("employees"));
+		counted.add(throughParent("department_branches", "branches", "branch_id"));
+		counted.add(throughParent("job_title_sections", "job_titles", "job_title_id"));
+		counted.add(throughParent("section_departments", "departments", "department_id"));
+		counted.add(throughParent("company_setting_values", "company_settings", "company_setting_id"));
+		COMPANY_OWNED_LATE.forEach(table -> counted.add(companyRows(table)));
+		return List.copyOf(counted);
+	}
+
+	private static Counted companyRows(String table) {
+		return new Counted(table, table + " WHERE company_id = ?", List.of(table));
+	}
+
+	private static Counted throughParent(String table, String parent, String column) {
+		return new Counted(table, table + " c INNER JOIN " + parent + " p ON p.id = c." + column
+				+ " WHERE p.company_id = ?", List.of(table, parent));
+	}
 
 	private final JdbcTemplate jdbcTemplate;
 	private final TransactionTemplate transactions;
@@ -199,6 +246,43 @@ public class LegacyCompanyDelete {
 			items.add(item);
 		}
 		return items;
+	}
+
+	/** One table the cascade deletes from, and this company's rows in it. */
+	public record ClearedTable(String table, long rows) {
+	}
+
+	/** The tables {@link #clearedTables} counts, in the cascade's order. */
+	public static List<String> countedTables() {
+		return COUNTED.stream().map(Counted::table).toList();
+	}
+
+	/**
+	 * What the cascade would delete: this company's rows in every table it deletes
+	 * from, device tables included, in its order.
+	 *
+	 * <p>Not {@link #summary}, whose fifteen keys are the client preview's
+	 * contract. A table with no rows is left out, and so is a table not deployed
+	 * here, which is asked of {@code information_schema} as
+	 * {@link #deleteFromOptionalTable} does. Any other failure is thrown, unlike in
+	 * {@code summary}: a count that silently read zero would show an operator less
+	 * than the delete removes.
+	 */
+	public List<ClearedTable> clearedTables(long companyId) {
+		Set<String> deployed = new HashSet<>(jdbcTemplate.queryForList(
+				"SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()",
+				String.class));
+		List<ClearedTable> cleared = new ArrayList<>();
+		for (Counted count : COUNTED) {
+			if (!deployed.containsAll(count.needs())) {
+				continue;
+			}
+			Long rows = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + count.from(), Long.class, companyId);
+			if (rows != null && rows > 0) {
+				cleared.add(new ClearedTable(count.table(), rows));
+			}
+		}
+		return cleared;
 	}
 
 	/**
@@ -327,6 +411,10 @@ public class LegacyCompanyDelete {
 	private void ignoringFailure(String sql, long companyId) {
 		try {
 			jdbcTemplate.update(sql, companyId);
+		} catch (PessimisticLockingFailureException lockFailure) {
+			// Not PHP's (see the class javadoc): the server has already rolled the
+			// transaction back, and what follows would commit without it.
+			throw lockFailure;
 		} catch (RuntimeException ignored) {
 			// catch (Throwable $ignored) {} -- deliberately silent, see the class
 			// javadoc. A table missing from this deployment must not abort the

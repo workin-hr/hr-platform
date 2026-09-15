@@ -41,7 +41,7 @@ public class PlatformAdminCompaniesController {
 
 	private final com.workin.legacy.phone.LegacyPhoneNumbers phoneNumbers;
 
-	/** The delete page's counts: the same summary the cascade is previewed with. */
+	/** The delete page's counts: every table the cascade deletes from. */
 	private final com.workin.legacy.profile.LegacyCompanyDelete companyDelete;
 
 	public PlatformAdminCompaniesController(PlatformAdminCompanyDirectory companies,
@@ -159,16 +159,14 @@ public class PlatformAdminCompaniesController {
 		if (target.isEmpty()) {
 			return false;
 		}
-		// The labels are legacy's API catalogue, which t does not read, so they are
-		// resolved here in the page's language.
-		java.util.List<java.util.Map<String, Object>> related =
-				this.companyDelete.summary(companyId, (String) model.getAttribute("lang"));
+		java.util.List<com.workin.legacy.profile.LegacyCompanyDelete.ClearedTable> cleared =
+				this.companyDelete.clearedTables(companyId);
 		PlatformAdminWebCsrf.expose(model, request);
 		model.addAttribute("actionsEnabled", this.companyService.actionsEnabled());
 		model.addAttribute("target", target.get());
-		model.addAttribute("related", related);
-		model.addAttribute("relatedTotal",
-				related.stream().mapToLong(item -> (Long) item.get("count")).sum());
+		model.addAttribute("cleared", cleared);
+		model.addAttribute("clearedTotal", cleared.stream()
+				.mapToLong(com.workin.legacy.profile.LegacyCompanyDelete.ClearedTable::rows).sum());
 		return true;
 	}
 
