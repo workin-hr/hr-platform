@@ -32,10 +32,6 @@
 	<link rel="stylesheet" href="/admin/_assets/style.css">
 	<link rel="stylesheet" href="/admin/_assets/app-ui.css">
 	<link rel="stylesheet" href="/admin/_assets/sidebar.css">
-	<%-- After the copied sheets, not before: the @font-face blocks would
-	     work anywhere, but the family override is a `body` rule at the same
-	     specificity as style.css's, so it only wins by coming later. --%>
-	<link rel="stylesheet" href="/admin/_assets/fonts.css">
 	<link rel="stylesheet" href="/admin/_assets/admin-extra.css">
 	<%-- The shell below a desktop width: the sidebar becomes a drawer,
 	     padding tightens, targets grow. Last of the shared sheets so its
