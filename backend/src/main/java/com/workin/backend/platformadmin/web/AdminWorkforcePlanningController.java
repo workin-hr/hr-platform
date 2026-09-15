@@ -109,12 +109,17 @@ public class AdminWorkforcePlanningController {
 					long departmentId,
 			@RequestParam(name = "job_title_id", required = false, defaultValue = "0")
 					long jobTitleId,
+			// Text, cast as legacy's (int) $_POST['planned_count'] is: the form is novalidate,
+			// as legacy's is, so "1.5" or "1e2" can arrive, and an int parameter would
+			// answer with a 400 page where legacy stores 1 or 100.
 			@RequestParam(name = "planned_count", required = false, defaultValue = "0")
-					int plannedCount) {
+					String plannedCountText) {
 
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
+		int plannedCount = (int) Math.max(Integer.MIN_VALUE,
+				Math.min(Integer.MAX_VALUE, com.workin.legacy.PhpCast.intval(plannedCountText)));
 
 		try {
 			long wrote = switch (action) {

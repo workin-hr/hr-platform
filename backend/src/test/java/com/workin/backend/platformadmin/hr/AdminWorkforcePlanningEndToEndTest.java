@@ -244,6 +244,30 @@ class AdminWorkforcePlanningEndToEndTest {
 	}
 
 	@Test
+	void aDecimalOrExponentPlannedCountIsCastAsLegacysIntRatherThanRefused() {
+		// The form is novalidate, as legacy's is, and workforce-form.js checks only
+		// parseInt(...) >= 0, so either value reaches the server. Legacy stores
+		// max(0, (int) $_POST['planned_count']); a typed int parameter answered 400.
+		postForm("action", "add_wp",
+				"company_id", String.valueOf(this.companyA),
+				"branch_id", String.valueOf(this.branchA),
+				"department_id", "0",
+				"job_title_id", String.valueOf(this.jobTitleA),
+				"planned_count", "1.5");
+		postForm("action", "add_wp",
+				"company_id", String.valueOf(this.companyA),
+				"branch_id", String.valueOf(this.branchA),
+				"department_id", String.valueOf(this.departmentA),
+				"job_title_id", String.valueOf(this.jobTitleA),
+				"planned_count", "1e2");
+
+		assertThat(this.jdbc.queryForList(
+				"SELECT planned_count FROM workforce_planning ORDER BY department_id", Integer.class))
+				.as("(int) \"1.5\" is 1 and (int) \"1e2\" is 100")
+				.containsExactly(1, 100);
+	}
+
+	@Test
 	void aPlanMayHaveNoDepartmentButMustHaveABranchAndAJobTitle() {
 		postForm("action", "add_wp",
 				"company_id", String.valueOf(this.companyA),
