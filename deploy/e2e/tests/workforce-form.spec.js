@@ -28,14 +28,14 @@ const MAPS = {
 	},
 };
 
-function page({ company, selected = { branch: '', department: '', job: '' }, planned = '1' }) {
+function page({ company, selected = { branch: '', department: '', job: '' }, planned = '1', maps = MAPS }) {
 	return `<!doctype html>
 <div class="modal-bg open" id="wpModal"><div class="modal modal--org-form">
   <form method="POST" novalidate data-org-wp-form
-        data-branches-by-company='${JSON.stringify(MAPS.branches)}'
-        data-departments-by-branch='${JSON.stringify(MAPS.departmentsByBranch)}'
-        data-job-titles-by-dept='${JSON.stringify(MAPS.jobsByDepartment)}'
-        data-job-titles-by-company='${JSON.stringify(MAPS.jobsByCompany)}'
+        data-branches-by-company='${JSON.stringify(maps.branches)}'
+        data-departments-by-branch='${JSON.stringify(maps.departmentsByBranch)}'
+        data-job-titles-by-dept='${JSON.stringify(maps.jobsByDepartment)}'
+        data-job-titles-by-company='${JSON.stringify(maps.jobsByCompany)}'
         data-placeholder-branch="Branch..."
         data-placeholder-job="Job title..."
         data-selected-branch="${selected.branch}"
@@ -133,6 +133,22 @@ test.describe('an add with no company chosen', () => {
 		await expect(browserPage.locator('#wp_branch')).toHaveValue('');
 		await expect(save(browserPage)).toBeDisabled();
 	});
+});
+
+test("a job title no department lists is offered on an add only when the chosen branch's or department's list is empty, as legacy's is", async ({ page: browserPage }) => {
+	// 403 belongs to no department. Branch 101's departments list only 401, so choosing the branch drops 403; department
+	// 304 lists no job titles, so choosing it falls back to the company's, the only path on which an add reaches 403.
+	const maps = { ...MAPS, departmentsByBranch: { 101: [{ id: 301, name: 'Alpha Ops' }, { id: 304, name: 'Alpha Empty' }] } };
+	await load(browserPage, page({ company: PICK, maps }));
+	await browserPage.selectOption('#wp_company_id', '11');
+	await browserPage.selectOption('#wp_branch', '101');
+	expect(await options(browserPage, '#wp_job')).toEqual([['', 'Job title...'], ['401', 'Alpha Fitter']]);
+
+	await browserPage.selectOption('#wp_department', '304');
+	expect(await options(browserPage, '#wp_job')).toEqual(
+		[['', 'Job title...'], ['403', 'Alpha Driver'], ['401', 'Alpha Fitter'], ['402', 'Alpha Seller']]);
+	await browserPage.selectOption('#wp_job', '403');
+	await expect(save(browserPage)).toBeEnabled();
 });
 
 test('a filtered add reads its company from the hidden input and lists that company on load', async ({ page: browserPage }) => {
