@@ -129,6 +129,14 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 
 		String form = get("/admin/companies?edit=" + companyId, cookie).response().getBody();
 		assertThat(form).as("the link opens the company form").contains("class=\"modal-bg open\" id=\"companyModal\"");
+		// ?action=add opens the same modal, so the markup must also be this company's edit form.
+		String name = new JdbcTemplate(this.legacyDataSource).queryForObject(
+				"SELECT company_name FROM companies WHERE id = ?", String.class, companyId);
+		assertThat(form).as("the form saves an edit, not an add")
+				.containsPattern("name=\"action\"\\s+value=\"save_edit\"");
+		assertThat(form).as("for this company").contains("name=\"id\" value=\"" + companyId + "\"");
+		assertThat(form).as("prefilled with its name")
+				.containsPattern("id=\"co_name\"[^>]*value=\"" + Pattern.quote(name) + "\"");
 	}
 
 	@Test
