@@ -69,6 +69,15 @@
     }
   });
 
+  // Cancel: a plain button, so that Enter in a field submits through Save.
+  document.addEventListener('click', function (event) {
+    const closer = event.target.closest('[data-dialog-close]');
+    const dialog = closer && closer.closest('dialog');
+    if (dialog) {
+      dialog.close();
+    }
+  });
+
   // Clicking the backdrop closes it, which is what every other modal on the
   // web does and what people try first.
   document.addEventListener('click', function (event) {

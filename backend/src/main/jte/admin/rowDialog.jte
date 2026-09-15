@@ -45,10 +45,12 @@
 		</div>
 
 		<footer class="row-dialog__foot">
-			<%-- formnovalidate: cancelling must not be blocked by a required
-			     field the user has decided not to fill in. --%>
-			<button type="submit" class="btn btn-gray" value="cancel" formmethod="dialog"
-					formnovalidate>${t.apply("cancel")}</button>
+			<%-- Cancel is a plain button that row-dialog.js closes the dialog with,
+			     so Save is the form's only submit button. Enter in a field submits
+			     through the first submit button, and while Cancel was a
+			     formmethod="dialog" submit ahead of Save, Enter closed the dialog
+			     and lost what had been typed. --%>
+			<button type="button" class="btn btn-gray" data-dialog-close>${t.apply("cancel")}</button>
 			<button type="submit" class="btn btn-${submitVariant}">${submitLabel}</button>
 		</footer>
 	</form>
