@@ -140,6 +140,35 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void aCompanyWithoutLookupsOpensItsFormWithNothingChosen() {
+		// _company_form.php:74-93 starts each required lookup select with an empty
+		// "choose" option. Without it, a company whose lookups are NULL (a
+		// registration stopped after step one) shows, and would save, the first
+		// activity, title and size as if they were stored.
+		String cookie = signIn();
+		long companyId = createCompany();
+		// Real options, so a select without its empty choice would show the first of them.
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		jdbc.update("INSERT INTO company_activities (id, name) VALUES (24301, 'Flow activity')");
+		jdbc.update("INSERT INTO company_titles (id, name) VALUES (24311, 'Flow title')");
+		jdbc.update("INSERT INTO company_sizes (id, name, min_employees, max_employees) VALUES (24321, 'Flow size', 1, 10)");
+
+		String form = get("/admin/companies?edit=" + companyId, cookie).response().getBody();
+		java.util.Map<String, Long> seeded = java.util.Map.of("co_act", 24301L, "co_title", 24311L, "co_size", 24321L);
+		for (String select : List.of("co_act", "co_title", "co_size")) {
+			int start = form.indexOf("<select id=\"" + select + "\"");
+			assertThat(start).as("the %s select renders", select).isPositive();
+			String markup = form.substring(start, form.indexOf("</select>", start));
+			assertThat(markup).as("%s lists the stored options", select)
+					.contains("value=\"" + seeded.get(select) + "\"");
+			assertThat(markup).as("%s starts with an empty choice", select)
+					.containsPattern("^<select[^>]*>\\s*<option value=\"\">");
+			assertThat(markup).as("%s preselects nothing for a company without one", select)
+					.doesNotContain("selected");
+		}
+	}
+
+	@Test
 	void aWrongPasswordIsRefusedAndOpensNothing() {
 		Page loginForm = get("/admin/login", null);
 		ResponseEntity<String> refused = post("/admin/login", loginForm.cookie(), loginForm.csrf(),
