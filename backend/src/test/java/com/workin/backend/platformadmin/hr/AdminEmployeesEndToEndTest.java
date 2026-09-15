@@ -563,6 +563,51 @@ class AdminEmployeesEndToEndTest {
 	}
 
 	@Test
+	void anEditHoldingAnotherCompanysDepartmentIsRefusedWhileItStillPostsIt() {
+		// D-250. Legacy's unguarded save_edit (R-053) can leave an employee pointing at
+		// another company's department, and the copied script keeps it selected and posts
+		// it. With everything else the employee's own, only the department check can
+		// refuse it: the kept id passes as the employee's current row, but is still held to
+		// the company.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update("UPDATE employees SET department_id = ? WHERE id = ?", this.departmentB, id);
+
+		ResponseEntity<String> response = postForm("action", "save_edit", "id", String.valueOf(id),
+				"first_name", "Aya", "employee_code", "1001",
+				"branch_id", String.valueOf(this.branchA),
+				"department_id", String.valueOf(this.departmentB),
+				"shift_id", String.valueOf(this.shiftA));
+
+		assertThat(response.getHeaders().getLocation()).asString().contains("error_required");
+		assertThat(this.jdbc.queryForObject("SELECT department_id FROM employees WHERE id = " + id, Long.class))
+				.as("refused, so the stored department is left as it was").isEqualTo(this.departmentB);
+		assertThat(this.jdbc.queryForObject(
+				"SELECT COUNT(*) FROM employee_shift_assignments WHERE employee_id = " + id, Integer.class))
+				.as("and nothing else of the edit was written").isZero();
+	}
+
+	@Test
+	void anEditHoldingAnotherCompanysJobTitleIsRefusedWhileItStillPostsIt() {
+		// The same for a job title: everything else the employee's own, so only the job
+		// title check can refuse it.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update("UPDATE employees SET job_title_id = ? WHERE id = ?", this.jobTitleB, id);
+
+		ResponseEntity<String> response = postForm("action", "save_edit", "id", String.valueOf(id),
+				"first_name", "Aya", "employee_code", "1001",
+				"branch_id", String.valueOf(this.branchA),
+				"job_title_id", String.valueOf(this.jobTitleB),
+				"shift_id", String.valueOf(this.shiftA));
+
+		assertThat(response.getHeaders().getLocation()).asString().contains("error_required");
+		assertThat(this.jdbc.queryForObject("SELECT job_title_id FROM employees WHERE id = " + id, Long.class))
+				.as("refused, so the stored job title is left as it was").isEqualTo(this.jobTitleB);
+		assertThat(this.jdbc.queryForObject(
+				"SELECT COUNT(*) FROM employee_shift_assignments WHERE employee_id = " + id, Integer.class))
+				.as("and nothing else of the edit was written").isZero();
+	}
+
+	@Test
 	void anEditMayRePointAnEmployeeWithinItsOwnCompany() {
 		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
 
