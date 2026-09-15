@@ -118,3 +118,42 @@ test('Enter in a field submits the dialog through Save, and Cancel closes withou
 	await cancel(page);
 	expect(await page.evaluate(() => window.submitted), 'Cancel submitted nothing').toEqual(['save']);
 });
+
+test('a current-only option is disabled for any row that does not already carry it', async ({ page }) => {
+	// A retired exception type appears in the shared attendance edit dialog for every
+	// row on the page. It stays available only to the row that already has it.
+	await page.setContent(`<!doctype html>
+<button type="button" data-dialog="typed" data-dialog-id="1" data-dialog-type="7">edit 1</button>
+<button type="button" data-dialog="typed" data-dialog-id="2" data-dialog-type="0">edit 2</button>
+<dialog class="row-dialog" id="typed">
+  <form method="POST" class="row-dialog__form">
+    <input type="hidden" name="id" data-dialog-field="id">
+    <div class="row-dialog__body">
+      <select name="type" data-dialog-field="type">
+        <option value="0">—</option>
+        <option value="5">Active</option>
+        <option value="7" data-dialog-current-only="1">Retired — Inactive</option>
+      </select>
+    </div>
+    <button type="button" data-dialog-close>cancel</button>
+    <button type="submit">save</button>
+  </form>
+</dialog>`);
+	await page.addScriptTag({ content: SCRIPT });
+	const select = page.locator('#typed [name="type"]');
+	const retired = page.locator('#typed option[value="7"]');
+	const close = () => page.locator('#typed [data-dialog-close]').click();
+
+	await page.locator('[data-dialog-id="1"]').click();
+	await expect(select, 'the row that has the retired type opens with it').toHaveValue('7');
+	await expect(retired, 'and may keep it').toBeEnabled();
+	await close();
+
+	await page.locator('[data-dialog-id="2"]').click();
+	await expect(select, 'another row opens with its own value').toHaveValue('0');
+	await expect(retired, 'and cannot choose the retired type').toBeDisabled();
+	await close();
+
+	await page.locator('[data-dialog-id="1"]').click();
+	await expect(retired, 'reopening the row that has it enables it again').toBeEnabled();
+});

@@ -289,6 +289,20 @@ public class AttendanceStore {
 		return found != null && found > 0;
 	}
 
+	/** Whether an exception type is active. A type that does not exist is not. */
+	public boolean exceptionTypeActive(long exceptionTypeId) {
+		List<Integer> found = this.jdbcTemplate.queryForList(
+				"SELECT is_active FROM exception_types WHERE id = ?", Integer.class, exceptionTypeId);
+		return !found.isEmpty() && found.get(0) != null && found.get(0) == 1;
+	}
+
+	/** The exception type an attendance row carries now, or null when it has none. */
+	public Long exceptionTypeOfRow(long id) {
+		List<Long> found = this.jdbcTemplate.queryForList(
+				"SELECT exception_type_id FROM attendance WHERE id = ?", Long.class, id);
+		return found.isEmpty() ? null : found.get(0);
+	}
+
 	public List<LeaveBalance.EmployeeOption> employeeOptions(long companyId) {
 		if (companyId > 0) {
 			return this.jdbcTemplate.query(
@@ -311,14 +325,43 @@ public class AttendanceStore {
 	}
 
 	public List<AttendanceRecord.ExceptionTypeOption> exceptionTypeOptions(long companyId) {
+		// Legacy lists every company's active types when no company is chosen
+		// (payroll_list_helper.php:118-128). Legacy since 505004f, which closed R-059,
+		// and the port (D-176(b)) both refuse a type from another company on save, so
+		// that list would only offer choices the save refuses.
 		if (companyId <= 0) {
 			return List.of();
 		}
 		return this.jdbcTemplate.query(
-				"SELECT id, name FROM exception_types WHERE company_id = ? ORDER BY name ASC, id ASC",
+				"SELECT id, name FROM exception_types WHERE company_id = ? AND is_active = 1 ORDER BY name ASC, id ASC",
 				(rs, rowNum) -> new AttendanceRecord.ExceptionTypeOption(
-						rs.getLong("id"), rs.getString("name")),
+						rs.getLong("id"), rs.getString("name"), true),
 				companyId);
+	}
+
+	/**
+	 * The company's active types plus any retired type a listed row carries, for
+	 * the edit dialog. A punch keeps the type it was saved with after that type
+	 * is retired, because the dialog has an option for it; a retired type that no
+	 * listed row carries is not offered as a new choice, as legacy offers active
+	 * types only.
+	 */
+	public List<AttendanceRecord.ExceptionTypeOption> editableExceptionTypeOptions(
+			long companyId, java.util.Collection<Long> rowTypeIds) {
+		if (companyId <= 0) {
+			return List.of();
+		}
+		String retiredKept = rowTypeIds.isEmpty() ? ""
+				: " OR id IN (" + String.join(", ", java.util.Collections.nCopies(rowTypeIds.size(), "?")) + ")";
+		java.util.List<Object> args = new java.util.ArrayList<>();
+		args.add(companyId);
+		args.addAll(rowTypeIds);
+		return this.jdbcTemplate.query(
+				"SELECT id, name, is_active FROM exception_types WHERE company_id = ? AND (is_active = 1" + retiredKept + ")"
+						+ " ORDER BY is_active DESC, name ASC, id ASC",
+				(rs, rowNum) -> new AttendanceRecord.ExceptionTypeOption(
+						rs.getLong("id"), rs.getString("name"), rs.getInt("is_active") == 1),
+				args.toArray());
 	}
 
 	// ------------------------------------------------------------------

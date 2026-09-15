@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.AttendanceAdminService;
+import com.workin.backend.platformadmin.hr.AttendanceRecord;
 import com.workin.backend.platformadmin.hr.AttendanceStore;
 import com.workin.backend.platformadmin.hr.EmployeeStore;
 import com.workin.legacy.LegacyClock;
@@ -77,13 +78,26 @@ public class AdminAttendanceController {
 		model.addAttribute("from", from);
 		model.addAttribute("to", to);
 		model.addAttribute("aggPage", aggPage);
-		model.addAttribute("result", this.store.paginateDetail(filters, from, to, weeklyRestLabel));
+		var result = this.store.paginateDetail(filters, from, to, weeklyRestLabel);
+		model.addAttribute("result", result);
+		// The types the listed rows carry: the edit dialog needs an option for each row's own type.
+		java.util.List<Long> rowTypeIds = result.data().stream()
+				.map(AttendanceRecord.Row::exceptionTypeId)
+				.filter(java.util.Objects::nonNull)
+				.distinct()
+				.toList();
 		model.addAttribute("aggregateResult", this.store.aggregate(
 				filters, from, to, aggPage,
 				current.isScopedToOneCompany() ? current.companyId() : 0,
 				today.toString()));
 		model.addAttribute("employeeOptions", this.store.employeeOptions(optionsCompanyId));
 		model.addAttribute("exceptionTypes", this.store.exceptionTypeOptions(optionsCompanyId));
+		// With no company chosen the table lists every company's rows and a type belongs to one
+		// company, so the edit dialog offers no type choice: it carries each row's type back.
+		model.addAttribute("editChoosesType", optionsCompanyId > 0);
+		model.addAttribute("editExceptionTypes", optionsCompanyId > 0
+				? this.store.editableExceptionTypeOptions(optionsCompanyId, rowTypeIds)
+				: java.util.List.<AttendanceRecord.ExceptionTypeOption>of());
 		model.addAttribute("branchOptions", this.employeeStore.branchOptions(optionsCompanyId));
 		model.addAttribute("departmentOptions", this.employeeStore.departmentOptions(optionsCompanyId));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "attendance"));
@@ -143,6 +157,7 @@ public class AdminAttendanceController {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
 			case FOREIGN_ROW -> "error_db";
+			case INACTIVE_TYPE -> "exception_type_inactive";
 			case INVALID -> "error_required";
 		};
 	}
