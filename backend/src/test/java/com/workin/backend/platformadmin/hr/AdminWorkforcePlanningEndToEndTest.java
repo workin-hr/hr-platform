@@ -452,7 +452,12 @@ class AdminWorkforcePlanningEndToEndTest {
 		// R-051: legacy embeds every company's branches, departments and job
 		// titles as JSON and filters in the browser. Measured against the
 		// production copy that is 3,671 rows across 283 companies handed to
-		// any company-scoped session.
+		// any company-scoped session. The port's maps hold the filtered company's.
+		linkDepartment(this.departmentA, this.branchA);
+		linkDepartment(this.departmentB, this.branchB);
+		this.jdbc.update("UPDATE job_titles SET department_id = ? WHERE id = ?", this.departmentA, this.jobTitleA);
+		this.jdbc.update("UPDATE job_titles SET department_id = ? WHERE id = ?", this.departmentB, this.jobTitleB);
+
 		String html = get("/admin/workforce_planning?company_id=" + this.companyA + "&action=add",
 				this.cookie).getBody();
 
@@ -462,18 +467,46 @@ class AdminWorkforcePlanningEndToEndTest {
 				.doesNotContain("Beta HQ")
 				.doesNotContain("Beta Ops")
 				.doesNotContain("Beta Fitter");
+
+		String form = formFor(html, "add_wp");
+		assertThat(form).as("the filtered company travels hidden, where workforce-form.js reads it")
+				.contains("<input type=\"hidden\" name=\"company_id\" value=\"" + this.companyA
+						+ "\" data-fixed-company=\"" + this.companyA + "\">")
+				.doesNotContain("data-filter-company");
+		assertThat(map(form, "data-branches-by-company").keySet()).containsExactly(String.valueOf(this.companyA));
+		assertThat(map(form, "data-departments-by-branch").keySet()).containsExactly(String.valueOf(this.branchA));
+		assertThat(map(form, "data-job-titles-by-dept").keySet()).containsExactly(String.valueOf(this.departmentA));
+		assertThat(map(form, "data-job-titles-by-company").keySet()).containsExactly(String.valueOf(this.companyA));
 	}
 
 	@Test
 	void anUnfilteredAdministratorSeesEveryCompanysOptionsNamed() {
+		long suspended = createCompany("Zeta Suspended");
+		this.jdbc.update("UPDATE companies SET status = 'suspended' WHERE id = ?", suspended);
+
 		String html = get("/admin/workforce_planning?company_id=0&action=add", this.cookie)
 				.getBody();
 
 		assertThat(html).contains("Alpha HQ", "Beta HQ");
-		assertThat(html)
-				.as("and they are told apart by company, as org_option_label() does")
-				.contains("Alpha Co")
-				.contains("Beta Co");
+		assertThat(html).as("and the company select names the companies").contains("Alpha Co").contains("Beta Co");
+
+		String form = formFor(html, "add_wp");
+		Matcher company = Pattern.compile(
+				"<select name=\"company_id\" id=\"wp_company_id\"([^>]*)>(.*?)</select>", Pattern.DOTALL).matcher(form);
+		assertThat(company.find()).as("with no company chosen, the add form asks for one").isTrue();
+		assertThat(company.group(1)).contains("data-filter-company=\"1\"").contains("required");
+		assertThat(company.group(2)).as("every active company, and no other")
+				.contains("value=\"" + this.companyA + "\"").contains("value=\"" + this.companyB + "\"")
+				.doesNotContain("value=\"" + suspended + "\"");
+		assertThat(form).as("instead of posting a company of 0").doesNotContain("type=\"hidden\" name=\"company_id\"");
+		assertThat(map(form, "data-branches-by-company").keySet())
+				.as("that administrator's reach is every company, so the maps are every company's")
+				.contains(String.valueOf(this.companyA), String.valueOf(this.companyB));
+		assertThat(form).as("the save waits for the script to see a company, a branch and a job title")
+				.contains("data-wp-submit disabled");
+		assertThat(html.indexOf("id=\"wpModal\""))
+				.as("the form sits inside #wpModal and carries data-org-wp-form, where workforce-form.js looks for it")
+				.isPositive().isLessThan(html.indexOf("data-org-wp-form"));
 	}
 
 	@Test
@@ -481,6 +514,8 @@ class AdminWorkforcePlanningEndToEndTest {
 		// Even for an administrator with no filter, whose list legitimately
 		// spans every company. Offering company B's branches for a row owned by
 		// A would be offering a choice D-176 refuses on submit.
+		linkDepartment(this.departmentA, this.branchA);
+		linkDepartment(this.departmentB, this.branchB);
 		long planA = seedPlan(this.companyA, this.branchA, this.departmentA, this.jobTitleA, 2);
 
 		String html = get("/admin/workforce_planning?company_id=0&action=edit&id=" + planA,
@@ -491,6 +526,30 @@ class AdminWorkforcePlanningEndToEndTest {
 				.doesNotContain("Beta HQ")
 				.doesNotContain("Beta Ops")
 				.doesNotContain("Beta Fitter");
+
+		String form = formFor(html, "edit_wp");
+		assertThat(form).as("the row's company, for the script to read, and not posted (D-176)")
+				.contains("<input type=\"hidden\" data-fixed-company=\"" + this.companyA
+						+ "\" value=\"" + this.companyA + "\">")
+				.doesNotContain("name=\"company_id\"");
+		assertThat(form).as("the row's own choices, which the script selects once it has filled the lists")
+				.contains("data-selected-branch=\"" + this.branchA + "\"")
+				.contains("data-selected-department=\"" + this.departmentA + "\"")
+				.contains("data-selected-job-title=\"" + this.jobTitleA + "\"");
+	}
+
+	@Test
+	void aBranchListsOnlyItsOwnCompanysDepartments() {
+		// department_branches carries no company, and legacy's
+		// org_departments_grouped_by_branch() does not check that a department and
+		// the branch it is linked to share one. A department listed under another
+		// company's branch is one the service refuses on save.
+		linkDepartment(this.departmentA, this.branchA);
+		linkDepartment(this.departmentB, this.branchA);
+
+		String form = formFor(get("/admin/workforce_planning?company_id=0&action=add", this.cookie).getBody(), "add_wp");
+
+		assertThat(names(map(form, "data-departments-by-branch"), this.branchA)).containsExactly("Alpha Ops");
 	}
 
 	@Test
@@ -603,6 +662,33 @@ class AdminWorkforcePlanningEndToEndTest {
 				id, companyId, branchId, departmentId, jobTitleId, code);
 		return id;
 	}
+	private void linkDepartment(long departmentId, long branchId) {
+		this.jdbc.update("INSERT INTO department_branches (department_id, branch_id) VALUES (?, ?)",
+				departmentId, branchId);
+	}
+
+	private static String formFor(String html, String action) {
+		int field = html.indexOf("name=\"action\" value=\"" + action + "\"");
+		assertThat(field).as("the page renders the %s form", action).isPositive();
+		return html.substring(html.lastIndexOf("<form", field), html.indexOf("</form>", field));
+	}
+
+	/** A map workforce-form.js reads, from the attribute JTE escaped it into. */
+	@SuppressWarnings("unchecked")
+	private static Map<String, Object> map(String form, String attribute) {
+		Matcher json = Pattern.compile(attribute + "=\"([^\"]*)\"").matcher(form);
+		assertThat(json.find()).as("the form carries %s", attribute).isTrue();
+		String unescaped = json.group(1).replace("&#34;", "\"").replace("&#39;", "'").replace("&lt;", "<")
+				.replace("&gt;", ">").replace("&amp;", "&");
+		return (Map<String, Object>) new tools.jackson.databind.ObjectMapper().readValue(unescaped, Map.class);
+	}
+
+	private static List<String> names(Map<?, ?> map, long key) {
+		Object entries = map.get(String.valueOf(key));
+		return entries == null ? List.of()
+				: ((List<?>) entries).stream().map(entry -> (String) ((Map<?, ?>) entry).get("name")).toList();
+	}
+
 	private record Csrf(String name, String value) {
 	}
 

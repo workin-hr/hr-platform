@@ -89,47 +89,53 @@ public class WorkforcePlanStore {
 	}
 
 	/**
-	 * The form's three selects, scoped to one company.
+	 * The maps {@code workforce-form.js} fills the form's three selects from, as
+	 * {@code org_filter_cascade_payload()} builds them
+	 * ({@code org_helper.php:246-264} and {@code :375-437}), for one company.
 	 *
-	 * <p><b>R-051</b>: legacy builds these from five queries whose only
-	 * predicate is {@code is_active = 1}, JSON-encodes every company's rows
-	 * into {@code data-} attributes and lets the browser pick the group for the
-	 * chosen company. Measured against the production copy that is 3,671 rows
-	 * across 283 companies handed to any company-scoped session that opens the
-	 * page. Filtering client-side is not filtering; the predicate belongs here.
+	 * <p><b>R-051</b>: legacy builds them from queries whose only predicate is
+	 * {@code is_active = 1} and lets the browser pick the chosen company's group.
+	 * Measured against the production copy that is 3,671 rows across 283
+	 * companies handed to any company-scoped session that opens the page.
+	 * Filtering client-side is not filtering; the predicate belongs here. A
+	 * {@code companyId} of zero is the administrator with no filter, whose reach
+	 * genuinely is every company, and is the only case that returns every
+	 * company's rows.
 	 *
-	 * <p>A {@code companyId} of zero is the administrator with no filter, whose
-	 * reach genuinely is every company -- so that case returns everything, with
-	 * the company name appended the way {@code org_option_label()} does when no
-	 * company is chosen.
+	 * <p>A department is listed under a branch only when both belong to the same
+	 * company. {@code department_branches} carries no company, and legacy does not
+	 * check; a department listed under another company's branch is one the
+	 * service refuses on save.
 	 */
-	public List<WorkforcePlan.Option> branchOptions(long companyId) {
-		return options("branches", companyId);
+	public WorkforcePlan.Cascade cascade(long companyId) {
+		boolean scoped = companyId > 0;
+		Object[] args = scoped ? new Object[] { companyId } : new Object[0];
+		return new WorkforcePlan.Cascade(
+				grouped("SELECT b.id, b.name, b.company_id AS grp FROM branches b"
+						+ " WHERE b.is_active = 1" + (scoped ? " AND b.company_id = ?" : "")
+						+ " ORDER BY b.company_id, b.name", args),
+				grouped("SELECT DISTINCT d.id, d.name, db.branch_id AS grp FROM departments d"
+						+ " INNER JOIN department_branches db ON db.department_id = d.id"
+						+ " INNER JOIN branches b ON b.id = db.branch_id AND b.company_id = d.company_id"
+						+ " WHERE d.is_active = 1" + (scoped ? " AND d.company_id = ?" : "")
+						+ " ORDER BY db.branch_id, d.name", args),
+				grouped("SELECT jt.id, jt.name, jt.department_id AS grp FROM job_titles jt"
+						+ " WHERE jt.is_active = 1 AND jt.department_id IS NOT NULL"
+						+ (scoped ? " AND jt.company_id = ?" : "")
+						+ " ORDER BY jt.department_id, jt.name", args),
+				grouped("SELECT jt.id, jt.name, jt.company_id AS grp FROM job_titles jt"
+						+ " WHERE jt.is_active = 1" + (scoped ? " AND jt.company_id = ?" : "")
+						+ " ORDER BY jt.company_id, jt.name", args));
 	}
 
-	public List<WorkforcePlan.Option> departmentOptions(long companyId) {
-		return options("departments", companyId);
-	}
-
-	public List<WorkforcePlan.Option> jobTitleOptions(long companyId) {
-		return options("job_titles", companyId);
-	}
-
-	private List<WorkforcePlan.Option> options(String table, long companyId) {
-		if (companyId > 0) {
-			return this.jdbcTemplate.query(
-					"SELECT id, name FROM " + table + " WHERE company_id = ? AND is_active = 1"
-							+ " ORDER BY name",
-					(rs, rowNum) -> new WorkforcePlan.Option(
-							rs.getLong("id"), rs.getString("name"), null),
-					companyId);
-		}
-		return this.jdbcTemplate.query(
-				"SELECT t.id, t.name, c.company_name FROM " + table + " t"
-						+ " INNER JOIN companies c ON c.id = t.company_id"
-						+ " WHERE t.is_active = 1 ORDER BY c.company_name, t.name",
-				(rs, rowNum) -> new WorkforcePlan.Option(
-						rs.getLong("id"), rs.getString("name"), rs.getString("company_name")));
+	private java.util.Map<Long, List<WorkforcePlan.CascadeOption>> grouped(String sql, Object[] args) {
+		java.util.Map<Long, List<WorkforcePlan.CascadeOption>> grouped = new java.util.LinkedHashMap<>();
+		this.jdbcTemplate.query(sql,
+				(org.springframework.jdbc.core.RowCallbackHandler) rs -> grouped
+						.computeIfAbsent(rs.getLong("grp"), key -> new ArrayList<>())
+						.add(new WorkforcePlan.CascadeOption(rs.getLong("id"), rs.getString("name"))),
+				args);
+		return grouped;
 	}
 
 	/** The company that owns a plan -- a column on the row itself. */
