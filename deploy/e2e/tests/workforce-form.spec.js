@@ -151,6 +151,26 @@ test("a job title no department lists is offered on an add only when the chosen 
 	await expect(save(browserPage)).toBeEnabled();
 });
 
+test("clearing the company on an add rebuilds only the branch select, and the save waits, as legacy's does", async ({ page: browserPage }) => {
+	// With no company, renderBranches resets the branch select and returns before the department and job title
+	// selects are rebuilt, so they keep the last company's lists and choices while the save stays disabled.
+	await load(browserPage, page({ company: PICK }));
+	await browserPage.selectOption('#wp_company_id', '11');
+	await browserPage.selectOption('#wp_branch', '101');
+	await browserPage.selectOption('#wp_department', '301');
+	await browserPage.selectOption('#wp_job', '401');
+	await expect(save(browserPage)).toBeEnabled();
+
+	await browserPage.selectOption('#wp_company_id', '');
+
+	expect(await options(browserPage, '#wp_branch')).toEqual([['', 'Branch...']]);
+	await expect(browserPage.locator('#wp_department')).toHaveValue('301');
+	expect(await options(browserPage, '#wp_department')).toEqual([['0', '—'], ['301', 'Alpha Ops'], ['302', 'Alpha Sales']]);
+	await expect(browserPage.locator('#wp_job')).toHaveValue('401');
+	expect(await options(browserPage, '#wp_job')).toEqual([['', 'Job title...'], ['401', 'Alpha Fitter']]);
+	await expect(save(browserPage)).toBeDisabled();
+});
+
 test('a filtered add reads its company from the hidden input and lists that company on load', async ({ page: browserPage }) => {
 	await load(browserPage, page({ company: FILTERED }));
 
@@ -174,6 +194,25 @@ test("an edit shows a department not linked to the row's branch by id, and keeps
 	await expect(browserPage.locator('#wp_department')).toHaveValue('303');
 	expect(await options(browserPage, '#wp_department')).toEqual(
 		[['0', '—'], ['301', 'Alpha Ops'], ['302', 'Alpha Sales'], ['303', '#303']]);
+	await expect(save(browserPage)).toBeEnabled();
+});
+
+test("an edit keeps its department linked to no branch choosable, lists that department's own job titles, and saves with one", async ({ page: browserPage }) => {
+	// Department 305 is linked to no branch. The edit keeps it under #305 until the branch changes, and choosing a job
+	// title reads the department's own list, whether or not it is linked, so 405 can be chosen and saved, as in legacy.
+	const maps = {
+		...MAPS,
+		jobsByDepartment: { ...MAPS.jobsByDepartment, 305: [{ id: 405, name: 'Alpha Packer' }] },
+	};
+	await load(browserPage, page({ company: EDIT, selected: { branch: '101', department: '305', job: '401' }, planned: '3', maps }));
+
+	await expect(browserPage.locator('#wp_department')).toHaveValue('305');
+	expect(await options(browserPage, '#wp_department')).toEqual(
+		[['0', '—'], ['301', 'Alpha Ops'], ['302', 'Alpha Sales'], ['305', '#305']]);
+	expect(await options(browserPage, '#wp_job')).toEqual([['', 'Job title...'], ['405', 'Alpha Packer'], ['401', '#401']]);
+
+	await browserPage.selectOption('#wp_job', '405');
+	await expect(browserPage.locator('#wp_department')).toHaveValue('305');
 	await expect(save(browserPage)).toBeEnabled();
 });
 
