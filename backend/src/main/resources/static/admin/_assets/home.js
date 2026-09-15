@@ -4,9 +4,9 @@
 // <script>: JTE escapes an attribute value, so a company named `</script>` or
 // `"` is a string in a JSON array and nothing else. Nothing here is templated.
 //
-// Chart.js is served from /admin/_assets, not a CDN. Same reason as the fonts:
-// an admin panel should not need a third party to draw, and an air-gapped or
-// blocked deployment renders the same as any other.
+// Chart.js is served from /admin/_assets, not a CDN: an admin panel should not
+// need a third party to draw, and an air-gapped or blocked deployment renders
+// the same as any other.
 (function () {
   if (typeof Chart === 'undefined') {
     return;
