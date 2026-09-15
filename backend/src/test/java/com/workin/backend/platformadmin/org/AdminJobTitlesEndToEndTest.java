@@ -188,6 +188,89 @@ class AdminJobTitlesEndToEndTest {
 	}
 
 	@Test
+	void anAddWithNoCompanyChosenAsksForOneAndLeavesTheDepartmentsToIt() throws Exception {
+		// _job_title_form.php: with no company, the company is a required select of
+		// active ones, and the department select waits for it with every company's
+		// active departments on the wrapper for job-title-form.js to narrow.
+		long suspended = createCompany("Zeta Suspended");
+		this.jdbc.update("UPDATE companies SET status = 'suspended' WHERE id = ?", suspended);
+		long retired = seedDepartment(this.companyA, "Alpha Retired");
+		this.jdbc.update("UPDATE departments SET is_active = 0 WHERE id = ?", retired);
+
+		String form = formFor(body("/admin/job_titles?action=add&company_id="), "add");
+
+		Matcher company = Pattern.compile(
+				"<select name=\"company_id\" id=\"jt_add_company\"([^>]*)>(.*?)</select>", Pattern.DOTALL).matcher(form);
+		assertThat(company.find()).as("with no company chosen, the add form asks for one").isTrue();
+		assertThat(company.group(1)).as("required, and marked for job-title-form.js")
+				.contains("required").contains("data-jt-company");
+		assertThat(company.group(2)).as("every active company, and no other")
+				.contains("value=\"" + this.companyA + "\"")
+				.contains("value=\"" + this.companyB + "\"")
+				.doesNotContain("value=\"" + suspended + "\"");
+		assertThat(form).as("instead of posting a company of 0").doesNotContain("name=\"company_id\" value=\"0\"");
+		assertThat(form.indexOf("data-org-jt-form"))
+				.as("the company select sits inside the wrapper the script searches")
+				.isPositive()
+				.isLessThan(form.indexOf("id=\"jt_add_company\""));
+
+		Matcher department = departmentSelect(form);
+		assertThat(department.group(1)).as("waiting for a company, as legacy's select does")
+				.contains("data-jt-department").contains("disabled");
+		assertThat(department.group(2)).as("with no company's departments until one is chosen")
+				.contains(arabic("select_company_first_department"))
+				.doesNotContain("value=\"" + this.departmentA + "\"")
+				.doesNotContain("value=\"" + this.departmentB + "\"");
+
+		Matcher json = Pattern.compile("data-departments=\"([^\"]*)\"").matcher(form);
+		assertThat(json.find()).as("the departments travel on the wrapper").isTrue();
+		Map<?, ?> byCompany = new tools.jackson.databind.ObjectMapper().readValue(unescape(json.group(1)), Map.class);
+		assertThat(names(byCompany, this.companyA)).as("each company's active departments").containsExactly("Alpha Dept");
+		assertThat(names(byCompany, this.companyB)).containsExactly("Beta Dept");
+	}
+
+	@Test
+	void anAddUnderAChosenCompanyListsThatCompanysDepartmentsOnly() {
+		String form = formFor(body("/admin/job_titles?action=add&company_id=" + this.companyA), "add");
+
+		assertThat(form).as("the chosen company travels hidden")
+				.contains("<input type=\"hidden\" name=\"company_id\" value=\"" + this.companyA + "\">")
+				.doesNotContain("<select name=\"company_id\"");
+		Matcher department = departmentSelect(form);
+		assertThat(department.group(1)).doesNotContain("disabled");
+		assertThat(department.group(2))
+				.contains("value=\"" + this.departmentA + "\"")
+				.doesNotContain("value=\"" + this.departmentB + "\"");
+	}
+
+	@Test
+	void anEditListsItsOwnCompanysDepartmentsAndKeepsARetiredOneItHas() {
+		post("/admin/job_titles", this.cookie, page("/admin/job_titles?action=add", this.cookie).csrf(),
+				"action", "add", "company_id", String.valueOf(this.companyA), "name", "Keeper",
+				"department_id", String.valueOf(this.departmentA), "work_hours", "8");
+		long id = this.jdbc.queryForObject("SELECT id FROM job_titles WHERE name = 'Keeper'", Long.class);
+		this.jdbc.update("UPDATE departments SET is_active = 0 WHERE id = ?", this.departmentA);
+
+		String form = formFor(body("/admin/job_titles?company_id=&action=edit&id=" + id), "save_edit");
+
+		Matcher department = departmentSelect(form);
+		assertThat(department.group(2))
+				.as("the retired department the title has is still its choice")
+				.containsPattern("value=\"" + this.departmentA + "\"\\s+selected")
+				.as("and no other company's department is offered")
+				.doesNotContain("value=\"" + this.departmentB + "\"")
+				.doesNotContain("Beta Co");
+
+		post("/admin/job_titles", this.cookie,
+				page("/admin/job_titles?action=edit&id=" + id, this.cookie).csrf(),
+				"action", "save_edit", "id", String.valueOf(id),
+				"company_id", String.valueOf(this.companyA), "name", "Keeper",
+				"department_id", String.valueOf(this.departmentA), "work_hours", "8", "is_active", "1");
+		assertThat(this.jdbc.queryForObject("SELECT department_id FROM job_titles WHERE id = " + id, Long.class))
+				.as("an unchanged save keeps it").isEqualTo(this.departmentA);
+	}
+
+	@Test
 	void editingCanClearTheDepartment() {
 		post("/admin/job_titles", this.cookie, page("/admin/job_titles?action=add", this.cookie).csrf(),
 				"action", "add", "company_id", String.valueOf(this.companyA), "name", "Movable",
@@ -279,6 +362,41 @@ class AdminJobTitlesEndToEndTest {
 				"/admin/job_titles", HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), String.class);
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FOUND);
 		assertThat(response.getHeaders().getLocation()).asString().contains("/admin/login");
+	}
+
+	/** One form alone, so an input elsewhere on the page (the toolbar's, the pager's) cannot answer for it. */
+	private static String formFor(String html, String action) {
+		int field = html.indexOf("name=\"action\" value=\"" + action + "\"");
+		assertThat(field).as("the page renders the %s form", action).isPositive();
+		return html.substring(html.lastIndexOf("<form", field), html.indexOf("</form>", field));
+	}
+
+	private static Matcher departmentSelect(String form) {
+		Matcher select = Pattern.compile(
+				"<select id=\"department_id\" name=\"department_id\"([^>]*)>(.*?)</select>", Pattern.DOTALL).matcher(form);
+		assertThat(select.find()).as("the form's department select").isTrue();
+		return select;
+	}
+
+	private static List<String> names(Map<?, ?> byCompany, long companyId) {
+		Object departments = byCompany.get(String.valueOf(companyId));
+		return departments == null ? List.of()
+				: ((List<?>) departments).stream().map(department -> (String) ((Map<?, ?>) department).get("name")).toList();
+	}
+
+	/** An attribute value as the browser reads it: JTE escapes the JSON's quotes. */
+	private static String unescape(String attribute) {
+		return attribute.replace("&#34;", "\"").replace("&#39;", "'").replace("&lt;", "<")
+				.replace("&gt;", ">").replace("&amp;", "&");
+	}
+
+	/** The page renders in Arabic by default, so text is compared with the catalogue. */
+	private static String arabic(String key) throws java.io.IOException {
+		java.util.Properties catalogue = new java.util.Properties();
+		try (java.io.InputStream in = AdminJobTitlesEndToEndTest.class.getResourceAsStream("/i18n/admin-messages_ar.properties")) {
+			catalogue.load(new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8));
+		}
+		return catalogue.getProperty(key);
 	}
 
 	private record Csrf(String name, String value) {

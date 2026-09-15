@@ -2,7 +2,9 @@ package com.workin.backend.platformadmin.org;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -123,6 +125,33 @@ public class JobTitleStore {
 				"SELECT COUNT(*) FROM departments WHERE id = ? AND company_id = ?",
 				Integer.class, departmentId, companyId);
 		return count != null && count > 0;
+	}
+
+	/**
+	 * {@code org_departments_grouped_by_company()}: every company's active departments
+	 * by name, for the add form's script to narrow to the company chosen.
+	 */
+	public Map<Long, List<JobTitle.DepartmentOption>> activeDepartmentsByCompany() {
+		Map<Long, List<JobTitle.DepartmentOption>> grouped = new LinkedHashMap<>();
+		this.jdbcTemplate.query(
+				"SELECT id, name, company_id FROM departments WHERE is_active = 1 ORDER BY company_id, name",
+				(org.springframework.jdbc.core.RowCallbackHandler) rs -> grouped
+						.computeIfAbsent(rs.getLong("company_id"), company -> new ArrayList<>())
+						.add(new JobTitle.DepartmentOption(rs.getLong("id"), rs.getString("name"), null)));
+		return grouped;
+	}
+
+	/**
+	 * The edit form's list: the row's company's active departments and the one the
+	 * title already has, once that is retired. Legacy lists active ones only, so its
+	 * select falls back to "none" and an unchanged save clears the department.
+	 */
+	public List<JobTitle.DepartmentOption> departmentOptions(long companyId, Long keepId) {
+		return this.jdbcTemplate.query(
+				"SELECT id, name FROM departments WHERE company_id = ? AND (is_active = 1 OR id = ?)"
+						+ " ORDER BY name",
+				(rs, rowNum) -> new JobTitle.DepartmentOption(rs.getLong("id"), rs.getString("name"), null),
+				companyId, keepId == null ? 0L : keepId);
 	}
 
 	/** {@code org_departments_for_company()}: the picker's options. */

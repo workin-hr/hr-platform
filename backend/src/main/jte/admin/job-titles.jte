@@ -1,5 +1,6 @@
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.org.ActiveCompanies
 @import com.workin.backend.platformadmin.org.JobTitle
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
@@ -10,6 +11,10 @@
 @param DashboardPage<JobTitle> result
 @param DashboardListFilters filters
 @param List<JobTitle.DepartmentOption> departmentOptions
+@param List<JobTitle.DepartmentOption> formDepartments = List.of()
+@param boolean pickCompany = false
+@param List<ActiveCompanies.CompanyOption> companyOptions = List.of()
+@param String departmentsByCompany = "{}"
 @param boolean showCompanyColumn
 @param boolean canManage
 @param boolean actionsEnabled
@@ -35,6 +40,7 @@
 	t = t,
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css", "org-form.css"),
+	pageScripts = java.util.List.of("job-title-form.js"),
 	body = @`
 		@if(errorKey != null)
 			<div class="flash flash-error">${t.apply(errorKey)}</div>
@@ -97,13 +103,25 @@
 					@if(editRow != null)
 						<input type="hidden" name="id" value="${editRow.id()}">
 					@endif
-					<input type="hidden" name="company_id"
-					       value="${editRow != null ? editRow.companyId() : filters.companyId()}">
+					@if(editRow != null)
+						<input type="hidden" name="company_id" value="${editRow.companyId()}">
+					@endif
 
 					<%-- The rows are a grid in legacy (_job_title_form.php), with the wide ones
 					     marked "org-form-span-2". Without the wrapper every field is a
-					     full-width band. --%>
-					<div class="org-form-grid">
+					     full-width band. The data-* attributes are what job-title-form.js
+					     reads; unlike legacy there is no data-fixed-company, so an edit or a
+					     filtered add keeps the list rendered here instead of a re-render from
+					     active departments only, which would drop a retired one the row has. --%>
+					<div class="org-form-grid"
+					     data-org-jt-form
+					     data-departments="${departmentsByCompany}"
+					     data-selected-department=""
+					     data-select-company-msg="${t.apply("select_company_first_department")}">
+					@if(editRow == null)
+						@template.admin.companyField(session = session, companyId = filters.companyId(),
+								companies = companyOptions, inputId = "jt_add_company", cascade = "jt", t = t)
+					@endif
 					<div class="form-row org-form-span-2">
 						<label for="name">${t.apply("job_title")}</label>
 						<input type="text" id="name" name="name" required maxlength="255"
@@ -113,9 +131,14 @@
 						<%-- Optional: a job title can exist with no department, and 0
 						     is how "none" is posted. --%>
 						<label for="department_id">${t.apply("department")}</label>
-						<select id="department_id" name="department_id">
+						<select id="department_id" name="department_id" data-jt-department
+						        disabled="${pickCompany}">
+							@if(pickCompany)
+								<option value="0">${t.apply("select_company_first_department")}</option>
+							@else
 							<option value="0">—</option>
-							@for(JobTitle.DepartmentOption option : departmentOptions)
+							@endif
+							@for(JobTitle.DepartmentOption option : formDepartments)
 								<option value="${option.id()}"
 								        selected="${editRow != null && editRow.departmentId() != null
 									        && editRow.departmentId() == option.id()}">

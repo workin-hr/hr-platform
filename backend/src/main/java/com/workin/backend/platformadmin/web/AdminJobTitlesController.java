@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
+import com.workin.backend.platformadmin.org.ActiveCompanies;
 import com.workin.backend.platformadmin.org.JobTitle;
 import com.workin.backend.platformadmin.org.JobTitleAdminService;
 import com.workin.backend.platformadmin.org.JobTitleStore;
@@ -26,9 +27,14 @@ public class AdminJobTitlesController {
 
 	private final JobTitleAdminService service;
 
-	public AdminJobTitlesController(JobTitleStore store, JobTitleAdminService service) {
+	private final ActiveCompanies companies;
+
+	private static final tools.jackson.databind.ObjectMapper JSON = new tools.jackson.databind.ObjectMapper();
+
+	public AdminJobTitlesController(JobTitleStore store, JobTitleAdminService service, ActiveCompanies companies) {
 		this.store = store;
 		this.service = service;
+		this.companies = companies;
 	}
 
 	@AuthenticatedUseCase(reason = "One company's job titles and the departments they sit in. "
@@ -54,9 +60,33 @@ public class AdminJobTitlesController {
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "job_titles"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
 		model.addAttribute("errorKey", error);
-		model.addAttribute("addOpen", "add".equals(action));
-		model.addAttribute("editRow", "edit".equals(action) ? visible(current, filters, id) : null);
+		boolean addOpen = "add".equals(action);
+		JobTitle editRow = "edit".equals(action) ? visible(current, filters, id) : null;
+		// _job_title_form.php: with no company to add under, the form asks for one and
+		// job-title-form.js fills the departments from that company's active ones.
+		boolean pickCompany = addOpen && !current.isScopedToOneCompany() && filters.companyId() <= 0;
+		model.addAttribute("addOpen", addOpen);
+		model.addAttribute("editRow", editRow);
+		model.addAttribute("pickCompany", pickCompany);
+		model.addAttribute("companyOptions", pickCompany ? this.companies.all() : java.util.List.of());
+		model.addAttribute("departmentsByCompany", pickCompany ? departmentsByCompany() : "{}");
+		// The form's own list is one company's: the row's on an edit, including the
+		// department it already has once that is retired, or the filtered company's on
+		// an add. The toolbar's filter list above keeps every company's.
+		model.addAttribute("formDepartments", editRow != null
+				? this.store.departmentOptions(editRow.companyId(), editRow.departmentId())
+				: pickCompany ? java.util.List.of() : this.store.departmentOptions(filters.companyId()));
 		return VIEW;
+	}
+
+	/** {@code org_departments_grouped_by_company()}, as the JSON job-title-form.js reads. */
+	private String departmentsByCompany() {
+		java.util.Map<String, java.util.List<java.util.Map<String, Object>>> grouped = new java.util.LinkedHashMap<>();
+		this.store.activeDepartmentsByCompany().forEach((company, departments) -> grouped.put(
+				String.valueOf(company),
+				departments.stream().map(department -> java.util.Map.<String, Object>of(
+						"id", department.id(), "name", department.name())).toList()));
+		return JSON.writeValueAsString(grouped);
 	}
 
 	private JobTitle visible(
