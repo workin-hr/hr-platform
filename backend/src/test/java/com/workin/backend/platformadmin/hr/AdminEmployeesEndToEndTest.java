@@ -122,6 +122,7 @@ class AdminEmployeesEndToEndTest {
 		this.jdbc.update("DELETE FROM employees");
 		this.jdbc.update("DELETE FROM shifts");
 		this.jdbc.update("DELETE FROM job_titles");
+		this.jdbc.update("DELETE FROM department_branches");
 		this.jdbc.update("DELETE FROM departments");
 		this.jdbc.update("DELETE FROM branches");
 		this.jdbc.update("DELETE FROM platform_admin_audit_events");
@@ -562,6 +563,51 @@ class AdminEmployeesEndToEndTest {
 	}
 
 	@Test
+	void anEditHoldingAnotherCompanysDepartmentIsRefusedWhileItStillPostsIt() {
+		// D-250. Legacy's unguarded save_edit (R-053) can leave an employee pointing at
+		// another company's department, and the copied script keeps it selected and posts
+		// it. With everything else the employee's own, only the department check can
+		// refuse it: the kept id passes as the employee's current row, but is still held to
+		// the company.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update("UPDATE employees SET department_id = ? WHERE id = ?", this.departmentB, id);
+
+		ResponseEntity<String> response = postForm("action", "save_edit", "id", String.valueOf(id),
+				"first_name", "Aya", "employee_code", "1001",
+				"branch_id", String.valueOf(this.branchA),
+				"department_id", String.valueOf(this.departmentB),
+				"shift_id", String.valueOf(this.shiftA));
+
+		assertThat(response.getHeaders().getLocation()).asString().contains("error_required");
+		assertThat(this.jdbc.queryForObject("SELECT department_id FROM employees WHERE id = " + id, Long.class))
+				.as("refused, so the stored department is left as it was").isEqualTo(this.departmentB);
+		assertThat(this.jdbc.queryForObject(
+				"SELECT COUNT(*) FROM employee_shift_assignments WHERE employee_id = " + id, Integer.class))
+				.as("and nothing else of the edit was written").isZero();
+	}
+
+	@Test
+	void anEditHoldingAnotherCompanysJobTitleIsRefusedWhileItStillPostsIt() {
+		// The same for a job title: everything else the employee's own, so only the job
+		// title check can refuse it.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update("UPDATE employees SET job_title_id = ? WHERE id = ?", this.jobTitleB, id);
+
+		ResponseEntity<String> response = postForm("action", "save_edit", "id", String.valueOf(id),
+				"first_name", "Aya", "employee_code", "1001",
+				"branch_id", String.valueOf(this.branchA),
+				"job_title_id", String.valueOf(this.jobTitleB),
+				"shift_id", String.valueOf(this.shiftA));
+
+		assertThat(response.getHeaders().getLocation()).asString().contains("error_required");
+		assertThat(this.jdbc.queryForObject("SELECT job_title_id FROM employees WHERE id = " + id, Long.class))
+				.as("refused, so the stored job title is left as it was").isEqualTo(this.jobTitleB);
+		assertThat(this.jdbc.queryForObject(
+				"SELECT COUNT(*) FROM employee_shift_assignments WHERE employee_id = " + id, Integer.class))
+				.as("and nothing else of the edit was written").isZero();
+	}
+
+	@Test
 	void anEditMayRePointAnEmployeeWithinItsOwnCompany() {
 		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
 
@@ -954,6 +1000,124 @@ class AdminEmployeesEndToEndTest {
 				.isEqualTo(1);
 	}
 
+	@Test
+	void anUnfilteredAddAsksForTheCompanyInsteadOfPostingNone() {
+		// #213: with no company filter the add form posted a hidden company_id of 0,
+		// which the service refuses. _employee_form.php asks for the company instead.
+		BrowserForm form = formFields(body("/admin/employees?company_id=0&action=add"), "add_employee");
+
+		assertThat(form.fields()).as("no company is chosen for the administrator").containsEntry("company_id", "");
+		assertThat(form.required()).as("and a browser will not submit the form without one").contains("company_id");
+
+		form.fields().put("company_id", String.valueOf(this.companyB));
+		form.fields().put("first_name", "Nadia");
+		form.fields().put("employee_code", "2001");
+		form.fields().put("branch_id", String.valueOf(this.branchB));
+		form.fields().put("shift_id", String.valueOf(this.shiftB));
+		assertSaved(postFields(form));
+		assertThat(this.jdbc.queryForObject(
+				"SELECT company_id FROM employees WHERE employee_code = '2001'", Long.class))
+				.isEqualTo(this.companyB);
+	}
+
+	@Test
+	void aBrowserWillNotSubmitAnAddWithoutAShift() {
+		// Legacy's empty choice is value="", which required refuses. The port's was 0,
+		// which required accepts: the post reached the service, was refused, and lost
+		// everything typed into the form.
+		for (String path : List.of("/admin/employees?company_id=0&action=add",
+				"/admin/employees?company_id=" + this.companyA + "&action=add")) {
+			BrowserForm form = formFields(body(path), "add_employee");
+			assertThat(form.fields()).as(path).containsEntry("shift_id", "");
+			assertThat(form.required()).as(path).contains("shift_id");
+		}
+	}
+
+	@Test
+	void anEditOfAnEmployeeWithNoShiftCanStillBeSubmittedUnchanged() {
+		// The other side of the add's empty choice: an edit's is 0, so an employee who
+		// has no shift assignment is not held back by the required shift select.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+
+		BrowserForm form = formFields(body("/admin/employees?action=edit&id=" + id), "save_edit");
+
+		assertThat(form.fields()).containsEntry("shift_id", "0");
+		assertSaved(postFields(form));
+		assertThat(this.jdbc.queryForObject(
+				"SELECT COUNT(*) FROM employee_shift_assignments WHERE employee_id = " + id, Integer.class))
+				.as("and no assignment is invented").isZero();
+	}
+
+	@Test
+	void anUnfilteredAddCarriesEveryCompanysMapsAndShifts() {
+		// With no filter the administrator's reach is every company (R-051), and the
+		// shifts travel with the maps: legacy's form has none for a company chosen in it.
+		String html = body("/admin/employees?company_id=0&action=add");
+		String form = formOf(html, "add_employee");
+
+		assertThat(form).contains("data-employee-form", "id=\"emp_company\"");
+		assertThat(html.split("id=\"emp_company\"", -1))
+				.as("one element on the page owns the id employee-form.js looks up").hasSize(2);
+		assertThat(form).as("the hooks the two scripts find the selects by")
+				.contains("data-emp-branch", "data-emp-department", "data-emp-job", "data-emp-shift");
+		assertThat(html).contains("/admin/_assets/employee-form.js", "/admin/_assets/employee-shift.js");
+		assertThat(names(map(form, "data-branches-by-company"), this.companyA)).containsExactly("Alpha HQ");
+		assertThat(names(map(form, "data-branches-by-company"), this.companyB)).containsExactly("Beta HQ");
+		assertThat(names(map(form, "data-departments-by-company"), this.companyB)).containsExactly("Beta Ops");
+		assertThat(names(map(form, "data-job-titles-by-company"), this.companyB)).containsExactly("Beta Fitter");
+		assertThat(names(map(form, "data-shifts-by-company"), this.companyA)).containsExactly("Alpha Day");
+		assertThat(names(map(form, "data-shifts-by-company"), this.companyB)).containsExactly("Beta Day");
+	}
+
+	@Test
+	void aFilteredAddCarriesOnlyThatCompanysMapsAndItsCompanyHidden() {
+		String form = formOf(body("/admin/employees?company_id=" + this.companyA + "&action=add"), "add_employee");
+
+		assertThat(form).doesNotContain("id=\"emp_company\"")
+				.contains("<input type=\"hidden\" name=\"company_id\" value=\"" + this.companyA + "\">");
+		for (String attribute : List.of("data-branches-by-company", "data-departments-by-company",
+				"data-job-titles-by-company")) {
+			assertThat(map(form, attribute).keySet()).as(attribute).containsExactly(String.valueOf(this.companyA));
+		}
+		assertThat(map(form, "data-shifts-by-company")).as("its shifts are the server-rendered options").isEmpty();
+		assertThat(form).doesNotContain("Beta HQ", "Beta Ops", "Beta Fitter", "Beta Day");
+	}
+
+	@Test
+	void anEditsMapsKeepTheEmployeesOwnRetiredRowsAndListItsDepartmentUnderItsBranch() {
+		// D-250. employee-form.js lists only a branch's own departments and disables the
+		// select when there are none, and a disabled select posts nothing. This
+		// employee's department is linked to no branch, so with legacy's maps an
+		// unchanged save would clear it; and a retired row missing from the maps would
+		// show as its id.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		long linked = createDepartment(this.companyA, "Alpha Sales", true);
+		linkDepartment(linked, this.branchA);
+		this.jdbc.update("UPDATE employees SET department_id = ?, job_title_id = ? WHERE id = ?",
+				this.departmentA, this.jobTitleA, id);
+		this.jdbc.update("UPDATE departments SET is_active = 0 WHERE id = ?", this.departmentA);
+		this.jdbc.update("UPDATE job_titles SET is_active = 0 WHERE id = ?", this.jobTitleA);
+
+		String form = formOf(body("/admin/employees?company_id=0&action=edit&id=" + id), "save_edit");
+
+		assertThat(names(map(form, "data-departments-by-branch"), this.branchA))
+				.containsExactly("Alpha Ops", "Alpha Sales");
+		assertThat(names(map(form, "data-departments-by-company"), this.companyA))
+				.containsExactly("Alpha Ops", "Alpha Sales");
+		assertThat(names(map(form, "data-job-titles-by-company"), this.companyA)).containsExactly("Alpha Fitter");
+		assertThat(form).contains("data-selected-company=\"" + this.companyA + "\"",
+				"data-selected-branch=\"" + this.branchA + "\"",
+				"data-selected-department=\"" + this.departmentA + "\"",
+				"data-selected-job=\"" + this.jobTitleA + "\"",
+				"data-selected-job-label=\"Alpha Fitter\"");
+
+		linkDepartment(this.departmentA, this.branchA);
+		assertThat(names(map(formOf(body("/admin/employees?company_id=0&action=edit&id=" + id), "save_edit"),
+				"data-departments-by-branch"), this.branchA))
+				.as("listed once when it is linked as well")
+				.containsExactly("Alpha Ops", "Alpha Sales");
+	}
+
 	/**
 	 * A refused post also redirects, and leaves every column as it was, so an
 	 * unchanged-row assertion alone would pass on a save that never ran.
@@ -1014,9 +1178,7 @@ class AdminEmployeesEndToEndTest {
 	 * to). The CSRF field is left to the post.
 	 */
 	private static BrowserForm formFields(String html, String action) {
-		int marker = html.indexOf("name=\"action\" value=\"" + action + "\"");
-		assertThat(marker).as("the %s form renders", action).isPositive();
-		String form = html.substring(html.lastIndexOf("<form", marker), html.indexOf("</form>", marker));
+		String form = formOf(html, action);
 
 		Map<String, String> fields = new LinkedHashMap<>();
 		java.util.Set<String> required = new java.util.LinkedHashSet<>();
@@ -1063,6 +1225,29 @@ class AdminEmployeesEndToEndTest {
 			}
 		}
 		return new BrowserForm(fields, required, inputAttribute(form, "pattern"), numberRanges(form));
+	}
+
+	/** The form whose hidden {@code action} is {@code action}, as markup. */
+	private static String formOf(String html, String action) {
+		int marker = html.indexOf("name=\"action\" value=\"" + action + "\"");
+		assertThat(marker).as("the %s form renders", action).isPositive();
+		return html.substring(html.lastIndexOf("<form", marker), html.indexOf("</form>", marker));
+	}
+
+	/** A map the form carries as JSON in {@code attribute}, unescaped as a browser reads it. */
+	@SuppressWarnings("unchecked")
+	private static Map<String, Object> map(String form, String attribute) {
+		Matcher json = Pattern.compile(attribute + "=\"([^\"]*)\"").matcher(form);
+		assertThat(json.find()).as("the form carries %s", attribute).isTrue();
+		String unescaped = json.group(1).replace("&#34;", "\"").replace("&#39;", "'").replace("&lt;", "<")
+				.replace("&gt;", ">").replace("&amp;", "&");
+		return (Map<String, Object>) new tools.jackson.databind.ObjectMapper().readValue(unescaped, Map.class);
+	}
+
+	private static List<String> names(Map<?, ?> map, long key) {
+		Object entries = map.get(String.valueOf(key));
+		return entries == null ? List.of()
+				: ((List<?>) entries).stream().map(entry -> (String) ((Map<?, ?>) entry).get("name")).toList();
 	}
 
 	/** Each named input's value for the attribute {@code key}, where it has one. */
@@ -1197,6 +1382,11 @@ class AdminEmployeesEndToEndTest {
 		return this.jdbc.queryForObject(
 				"SELECT id FROM shifts WHERE name = ?", Long.class, name);
 	}
+	private void linkDepartment(long departmentId, long branchId) {
+		this.jdbc.update("INSERT INTO department_branches (department_id, branch_id) VALUES (?, ?)",
+				departmentId, branchId);
+	}
+
 	private record Csrf(String name, String value) {
 	}
 

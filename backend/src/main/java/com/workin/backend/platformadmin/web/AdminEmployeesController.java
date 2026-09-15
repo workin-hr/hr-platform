@@ -15,6 +15,9 @@ import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.Employee;
 import com.workin.backend.platformadmin.hr.EmployeeAdminService;
 import com.workin.backend.platformadmin.hr.EmployeeStore;
+import com.workin.backend.platformadmin.org.ActiveCompanies;
+import com.workin.backend.platformadmin.org.OrgCascade;
+import com.workin.backend.platformadmin.org.OrgCascadeStore;
 
 /** {@code dashboard/pages/employees/page.php}. */
 @Controller
@@ -24,13 +27,22 @@ public class AdminEmployeesController {
 
 	private static final String PATH = PlatformAdminWebSecurityConfig.EMPLOYEES_PATH;
 
+	private static final tools.jackson.databind.ObjectMapper JSON = new tools.jackson.databind.ObjectMapper();
+
 	private final EmployeeStore store;
 
 	private final EmployeeAdminService service;
 
-	public AdminEmployeesController(EmployeeStore store, EmployeeAdminService service) {
+	private final ActiveCompanies companies;
+
+	private final OrgCascadeStore cascades;
+
+	public AdminEmployeesController(EmployeeStore store, EmployeeAdminService service,
+			ActiveCompanies companies, OrgCascadeStore cascades) {
 		this.store = store;
 		this.service = service;
+		this.companies = companies;
+		this.cascades = cascades;
 	}
 
 	@AuthenticatedUseCase(reason = "One company's employees, or every company's for an "
@@ -82,10 +94,33 @@ public class AdminEmployeesController {
 		model.addAttribute("jobTitleOptions", this.store.jobTitleOptions(
 				optionsCompanyId, editRow == null ? 0 : editRow.jobTitleId()));
 		model.addAttribute("shiftOptions", this.store.shiftOptions(optionsCompanyId));
+		boolean addOpen = "add".equals(action);
+		// _employee_form.php: an add with no company to add under asks for one in the
+		// form, employee-form.js fills the branch, department and job title selects for
+		// the company chosen, and employee-shift.js the shift select (D-250).
+		boolean pickCompany = addOpen && !current.isScopedToOneCompany() && filters.companyId() <= 0;
+		// R-051: the maps carry only the companies this form may use -- the edited
+		// employee's own, with the org rows they already have (D-176, D-250), the
+		// filtered company's on an add, and every company only for an administrator with
+		// no filter, whose reach that is. With no form open there is nothing to fill.
+		OrgCascade cascade = editRow != null
+				? this.cascades.cascade(editRow.companyId(), new OrgCascade.Kept(
+						editRow.branchId(), editRow.departmentId(), editRow.jobTitleId()))
+				: addOpen ? this.cascades.cascade(filters.companyId()) : OrgCascade.NONE;
+		model.addAttribute("companyOptions", pickCompany ? this.companies.all() : java.util.List.of());
+		model.addAttribute("branchesByCompany", JSON.writeValueAsString(cascade.branchesByCompany()));
+		model.addAttribute("departmentsByCompany", JSON.writeValueAsString(cascade.departmentsByCompany()));
+		model.addAttribute("departmentsByBranch", JSON.writeValueAsString(cascade.departmentsByBranch()));
+		model.addAttribute("jobTitlesByDepartment", JSON.writeValueAsString(cascade.jobTitlesByDepartment()));
+		model.addAttribute("jobTitlesByCompany", JSON.writeValueAsString(cascade.jobTitlesByCompany()));
+		model.addAttribute("shiftsByCompany", JSON.writeValueAsString(
+				pickCompany ? this.cascades.shiftsByCompany(filters.companyId()) : java.util.Map.of()));
+		model.addAttribute("selectedJobLabel",
+				editRow == null ? "" : cascade.jobTitleName(editRow.companyId(), editRow.jobTitleId()));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "employees"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
 		model.addAttribute("errorKey", error);
-		model.addAttribute("addOpen", "add".equals(action));
+		model.addAttribute("addOpen", addOpen);
 		model.addAttribute("editRow", editRow);
 		return VIEW;
 	}
