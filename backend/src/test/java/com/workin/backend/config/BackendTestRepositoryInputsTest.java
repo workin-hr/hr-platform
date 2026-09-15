@@ -44,8 +44,8 @@ class BackendTestRepositoryInputsTest {
 			}
 		}
 		assertThat(read).as("the scan finds the tests known to read outside backend/")
-				.contains("deploy/e2e", "contracts/legacy-dashboard-pages.txt",
-						"docs/operations/provisioning-phase1-tables.md");
+				.contains("deploy/e2e/playwright.config.js", "deploy/e2e/README.md", "deploy/e2e/tests",
+						"contracts/legacy-dashboard-pages.txt", "docs/operations/provisioning-phase1-tables.md");
 
 		Set<String> inputs = Pattern.compile("'\\.\\./([^']+)'").matcher(Files.readString(Path.of("build.gradle")))
 				.results().map(input -> input.group(1)).collect(Collectors.toCollection(TreeSet::new));
@@ -56,7 +56,7 @@ class BackendTestRepositoryInputsTest {
 		List<String> onPush = triggers(workflow.substring(push));
 
 		for (String path : read) {
-			assertThat(inputs).as("backend/build.gradle declares a test input at or under %s", path)
+			assertThat(inputs).as("backend/build.gradle declares a test input at or above %s", path)
 					.anyMatch(input -> covers(path, input));
 			assertThat(onPullRequest).as("backend-validate.yml runs on a pull request touching %s", path)
 					.anyMatch(trigger -> covers(path, trigger));
@@ -70,8 +70,14 @@ class BackendTestRepositoryInputsTest {
 				.map(line -> line.substring(line.indexOf('"') + 1, line.lastIndexOf('"'))).toList();
 	}
 
-	/** Whether a declared path is the file read, or lies inside the directory read. */
+	/**
+	 * Whether a declaration covers a path a test reads: it names that path, or a directory
+	 * holding it ({@code dir} as a task input, {@code dir/**} as a trigger). A file declared
+	 * inside a directory the test reads does not cover the directory, so a test names each
+	 * file it opens and every one of them must be declared.
+	 */
 	private static boolean covers(String read, String declared) {
-		return declared.equals(read) || declared.startsWith(read + "/");
+		String path = declared.endsWith("/**") ? declared.substring(0, declared.length() - "/**".length()) : declared;
+		return read.equals(path) || read.startsWith(path + "/");
 	}
 }

@@ -27,17 +27,24 @@ import org.junit.jupiter.api.Test;
  */
 class AdminBrowserSpecInventoryTest {
 
-	private static final Path E2E = Path.of("..", "deploy", "e2e");
+	// Each path this test opens is named in full rather than resolved from deploy/e2e:
+	// BackendTestRepositoryInputsTest then requires every one of them, not just one
+	// file somewhere under that directory, to be a task input and a workflow trigger.
+	private static final Path CONFIG = Path.of("..", "deploy", "e2e", "playwright.config.js");
+
+	private static final Path README = Path.of("..", "deploy", "e2e", "README.md");
+
+	private static final Path SPECS = Path.of("..", "deploy", "e2e", "tests");
 
 	@Test
 	void theReadmeNamesEverySpecTheBrowserProjectRuns() throws IOException {
-		String config = Files.readString(E2E.resolve("playwright.config.js"));
+		String config = Files.readString(CONFIG);
 		Matcher project = Pattern.compile(
 				"name: 'browser',\\s*testMatch: /\\(([a-z0-9|-]+)\\)\\\\\\.spec\\\\\\.js/").matcher(config);
 		assertThat(project.find()).as("the browser project's testMatch is one alternation of spec names").isTrue();
 		Set<String> run = new TreeSet<>(Arrays.asList(project.group(1).split("\\|")));
 
-		String readme = Files.readString(E2E.resolve("README.md"));
+		String readme = Files.readString(README);
 		Matcher row = Pattern.compile("(?m)^\\| ((?:`[a-z0-9-]+`(?:, )?)+) \\|[^\\n]*--project=browser").matcher(readme);
 		assertThat(row.find()).as("the README's row for the browser project").isTrue();
 		Set<String> documented = Pattern.compile("`([a-z0-9-]+)`").matcher(row.group(1)).results()
@@ -46,7 +53,7 @@ class AdminBrowserSpecInventoryTest {
 
 		assertThat(documented).as("deploy/e2e/README.md names what the browser project runs").isEqualTo(run);
 		for (String spec : run) {
-			assertThat(E2E.resolve("tests").resolve(spec + ".spec.js")).as("a spec file for %s", spec).exists();
+			assertThat(SPECS.resolve(spec + ".spec.js")).as("a spec file for %s", spec).exists();
 		}
 	}
 }
