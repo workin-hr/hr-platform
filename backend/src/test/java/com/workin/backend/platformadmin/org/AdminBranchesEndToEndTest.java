@@ -422,6 +422,27 @@ class AdminBranchesEndToEndTest {
 				.contains("<input type=\"hidden\" name=\"company_id\" value=\"" + this.companyA + "\">");
 	}
 
+	@Test
+	void theToolbarNamesTheCompanyFromAListOfActiveCompanies() {
+		// D-252, org_render_admin_company_filter_field(): a select of the active companies,
+		// "All companies" first, with the filtered company chosen, where the port had a number
+		// box an administrator typed a company id into.
+		long suspended = createCompany("Zeta Suspended");
+		this.jdbc.update("UPDATE companies SET status = 'suspended' WHERE id = ?", suspended);
+
+		String page = body("/admin/branches?company_id=" + this.companyB);
+		Matcher select = Pattern.compile(
+				"<select name=\"company_id\" id=\"org_company\" data-filter-company>(.*?)</select>", Pattern.DOTALL).matcher(page);
+		assertThat(select.find()).as("the toolbar names the company from a list").isTrue();
+		assertThat(select.group(1).strip()).as("every company first").startsWith("<option value=\"\">");
+		assertThat(select.group(1))
+				.as("the active companies, with the filtered one chosen, and no other")
+				.contains("<option value=\"" + this.companyA + "\">Alpha Co</option>")
+				.contains("<option value=\"" + this.companyB + "\" selected>Beta Co</option>")
+				.doesNotContain("value=\"" + suspended + "\"");
+		assertThat(page).doesNotContain("<input type=\"number\" id=\"br_company\"");
+	}
+
 	/** The add form alone, so a hidden input elsewhere on the page (the pager's) cannot answer for it. */
 	private static String addForm(String html, String action) {
 		int field = html.indexOf("value=\"" + action + "\"");
