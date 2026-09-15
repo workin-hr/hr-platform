@@ -10,6 +10,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.AttendanceAdminService;
@@ -122,7 +123,8 @@ public class AdminAttendanceController {
 			@RequestParam(name = "exception_type_id", required = false, defaultValue = "0")
 					long exceptionTypeId,
 			@RequestParam(required = false, defaultValue = "") String from,
-			@RequestParam(required = false, defaultValue = "") String to) {
+			@RequestParam(required = false, defaultValue = "") String to,
+			Model model, RedirectAttributes redirect) {
 
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
@@ -136,11 +138,22 @@ public class AdminAttendanceController {
 				case "edit_attendance" -> this.service.saveEdit(
 						session, adminId, id, checkIn, checkOut, exceptionType);
 				case "delete" -> this.service.delete(session, adminId, id);
-				case "delete_range" -> this.service.deleteRange(
-						session, adminId, companyId, from, to,
-						this.clock.today().toString());
+				case "delete_range" -> {
+					AttendanceAdminService.RangeDeletion range = this.service.deleteRange(
+							session, adminId, companyId, from, to,
+							this.clock.today().toString());
+					// Legacy flashes the count it removed as an error, as it does a single delete.
+					AdminFlash.error(redirect, AdminFlash.t(model).apply("att_range_deleted")
+							.replace("{count}", String.valueOf(range.deleted())));
+				}
 				default -> throw new AttendanceAdminService.RefusedException(
 						AttendanceAdminService.Refusal.INVALID);
+			}
+			switch (action) {
+				case "add_attendance", "edit_attendance" -> AdminFlash.saved(redirect, model);
+				case "delete" -> AdminFlash.deleted(redirect, model);
+				default -> {
+				}
 			}
 			// `payroll_redirect('attendance', $cid)` passes the filter already in
 			// force, not the company just written to -- so unlike its sibling

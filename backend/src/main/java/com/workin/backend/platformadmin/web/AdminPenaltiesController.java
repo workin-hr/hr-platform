@@ -8,6 +8,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.PenaltyAdminService;
@@ -77,7 +78,8 @@ public class AdminPenaltiesController {
 			@RequestParam(name = "penalty_type", required = false, defaultValue = "") String penaltyType,
 			@RequestParam(name = "penalty_days", required = false, defaultValue = "") String penaltyDays,
 			@RequestParam(required = false, defaultValue = "") String reason,
-			@RequestParam(name = "penalty_date", required = false, defaultValue = "") String penaltyDate) {
+			@RequestParam(name = "penalty_date", required = false, defaultValue = "") String penaltyDate,
+			Model model, RedirectAttributes redirect) {
 
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
@@ -95,6 +97,7 @@ public class AdminPenaltiesController {
 						PenaltyAdminService.Refusal.INVALID);
 			};
 			DashboardOrgScope.rememberAfterWrite(session, request, wrote);
+			AdminFlash.saved(redirect, model);
 			return "redirect:" + PATH;
 		} catch (PenaltyAdminService.RefusedException refused) {
 			return "redirect:" + PATH + "?error=" + messageKey(refused);

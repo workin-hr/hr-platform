@@ -16,6 +16,8 @@
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
+@param String flash = null
+@param String flashType = "success"
 @param Function<String, Boolean> available
 @param HomeSummary summary = null
 @param SequencedMap<String, HomeChart> charts = null
@@ -42,6 +44,8 @@
 	lang = lang,
 	session = session,
 	t = t,
+	flash = flash,
+	flashType = flashType,
 	available = available,
 	contentClass = "home-page",
 	pageStyles = java.util.List.of("home.css"),

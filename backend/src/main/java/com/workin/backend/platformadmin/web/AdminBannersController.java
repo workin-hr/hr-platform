@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.content.Banner;
@@ -88,7 +89,8 @@ public class AdminBannersController {
 			@RequestParam(required = false) String whatsappCountryCode,
 			@RequestParam(required = false) String whatsappPhone,
 			@RequestParam(required = false) String isActive,
-			@RequestParam(required = false) String sortOrder) {
+			@RequestParam(required = false) String sortOrder,
+			Model model, RedirectAttributes redirect) {
 
 		long adminId = principal.platformAdminId();
 		BannerAdminService.Submission submission = new BannerAdminService.Submission(
@@ -104,7 +106,14 @@ public class AdminBannersController {
 			default -> notFound();
 		};
 
-		return result.ok() ? REDIRECT : REDIRECT + "?error=" + result.errorKey();
+		if (!result.ok()) {
+			return REDIRECT + "?error=" + result.errorKey();
+		}
+		switch (action) {
+			case "delete" -> AdminFlash.deleted(redirect, model);
+			default -> AdminFlash.saved(redirect, model);
+		}
+		return REDIRECT;
 	}
 
 	private static BannerAdminService.Result notFound() {

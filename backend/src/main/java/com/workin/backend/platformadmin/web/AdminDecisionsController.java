@@ -8,6 +8,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.AdministrativeDecision;
@@ -91,7 +92,8 @@ public class AdminDecisionsController {
 			@RequestParam(name = "company_id", required = false, defaultValue = "0") long companyId,
 			@RequestParam(required = false, defaultValue = "") String title,
 			@RequestParam(required = false, defaultValue = "") String body,
-			@RequestParam(name = "is_active", required = false) String isActive) {
+			@RequestParam(name = "is_active", required = false) String isActive,
+			Model model, RedirectAttributes redirect) {
 
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
@@ -112,6 +114,7 @@ public class AdminDecisionsController {
 						AdministrativeDecisionAdminService.Refusal.INVALID);
 			};
 			DashboardOrgScope.rememberAfterWrite(session, request, wrote);
+			AdminFlash.saved(redirect, model);
 			return "redirect:" + PATH;
 		} catch (AdministrativeDecisionAdminService.RefusedException refused) {
 			return "redirect:" + PATH + "?error=" + messageKey(refused);

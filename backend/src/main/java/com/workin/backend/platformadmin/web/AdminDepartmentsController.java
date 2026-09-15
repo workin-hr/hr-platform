@@ -10,6 +10,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.org.ActiveCompanies;
@@ -125,7 +126,8 @@ public class AdminDepartmentsController {
 			// Also binds branch_ids[], the name department-form.js's cards post: Spring's
 			// resolver reads name + "[]" when the plain name is absent.
 			@RequestParam(name = "branch_ids", required = false) String[] branchIds,
-			@RequestParam(name = "is_active", required = false) String isActive) {
+			@RequestParam(name = "is_active", required = false) String isActive,
+			Model model, RedirectAttributes redirect) {
 
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
@@ -142,6 +144,10 @@ public class AdminDepartmentsController {
 						DepartmentAdminService.Refusal.NO_COMPANY);
 			};
 			DashboardOrgScope.rememberAfterWrite(session, request, wrote);
+			switch (action) {
+				case "delete" -> AdminFlash.deleted(redirect, model);
+				default -> AdminFlash.saved(redirect, model);
+			}
 			return "redirect:" + PATH;
 		} catch (DepartmentAdminService.RefusedException refused) {
 			return "redirect:" + PATH + failureTail(action, id) + "&error=" + messageKey(refused);
