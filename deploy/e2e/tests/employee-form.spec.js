@@ -236,6 +236,36 @@ test("an edit keeps another company's stored department by id and posts it, whic
 	expect(await posted(browserPage)).toMatchObject({ department_id: '999' });
 });
 
+test("an edit holding another company's department disables the select when it has no departments to list, so the save clears it", async ({ page: browserPage }) => {
+	// Branch 102 lists no departments, and department 999 is another company's, so no map places it under the branch.
+	// The script disables the select before it could keep #999, and a disabled select posts nothing (D-250).
+	await load(browserPage, page({
+		company: EDIT,
+		shiftNone: '0',
+		selected: { company: '11', branch: '102', department: '999', job: '0', jobLabel: '' },
+		branchOptions: '<option value="102" selected>Alpha North</option>',
+	}));
+
+	await expect(browserPage.locator('#department_id')).toBeDisabled();
+	expect(await posted(browserPage)).not.toHaveProperty('department_id');
+});
+
+test("an edit holding another company's job title with no department disables the select when it has no job titles to list", async ({ page: browserPage }) => {
+	// The company has no job titles and branch 102 lists no departments, so the job title list is empty and 998, another
+	// company's, has no name to be kept under: the script disables the select, which posts nothing (D-250).
+	const maps = { ...MAPS, jobsByCompany: { ...MAPS.jobsByCompany, 11: [] } };
+	await load(browserPage, page({
+		company: EDIT,
+		shiftNone: '0',
+		selected: { company: '11', branch: '102', department: '0', job: '998', jobLabel: '' },
+		maps,
+		branchOptions: '<option value="102" selected>Alpha North</option>',
+	}));
+
+	await expect(browserPage.locator('#job_title_id')).toBeDisabled();
+	expect(await posted(browserPage)).not.toHaveProperty('job_title_id');
+});
+
 test("with legacy's maps, an edit whose branch lists no departments disables the department select, which posts nothing", async ({ page: browserPage }) => {
 	// Why D-250 lists the employee's department under their branch: the port reads a missing department_id as none,
 	// so an unchanged save from this form would clear the department, as legacy's does.
