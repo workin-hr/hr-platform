@@ -157,7 +157,7 @@
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 												<input type="hidden" name="action" value="mark_applied">
 												<input type="hidden" name="id" value="${row.id()}">
-												<button type="submit" role="menuitem" class="row-actions__item">${t.apply("applied_payroll")}</button>
+												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--success">${t.apply("applied_payroll")}</button>
 											</form>
 										@endif
 										<form method="POST" class="row-actions__form" role="none"

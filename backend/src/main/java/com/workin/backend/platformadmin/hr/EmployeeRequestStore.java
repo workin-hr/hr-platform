@@ -161,6 +161,13 @@ public class EmployeeRequestStore {
 		return found.isEmpty() ? null : found.get(0);
 	}
 
+	/** A request's status, or null when there is no such request. */
+	public String statusOf(long id) {
+		List<String> found = this.jdbcTemplate.queryForList(
+				"SELECT status FROM requests WHERE id = ?", String.class, id);
+		return found.isEmpty() ? null : found.get(0);
+	}
+
 	public List<EmployeeRequest.TypeOption> typeOptions(long companyId) {
 		if (companyId > 0) {
 			return this.jdbcTemplate.query(

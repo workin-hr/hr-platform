@@ -282,6 +282,24 @@ class AdminRequestsEndToEndTest {
 	}
 
 	@Test
+	void anAlreadyDecidedRequestCannotBeRejected() {
+		// Legacy's reject updates by id whatever the status (requests/page.php:43-48).
+		// A reject dialog left open while someone else approves would turn the
+		// approval into a rejection, and keep the leave the approval deducted.
+		long id = seedRequest(this.employeeA, this.plainTypeA, "2026-03-02", "2026-03-04");
+		this.jdbc.update("UPDATE requests SET status = 'approved', reply = 'ok' WHERE id = ?", id);
+
+		assertThat(post("/admin/requests", this.cookie,
+				page("/admin/requests?status=all", this.cookie).csrf(),
+				"action", "reject", "id", String.valueOf(id), "comment", "no")
+				.getHeaders().getLocation()).asString().contains("error=error_required");
+		assertThat(statusOf(id)).as("the approval stands").isEqualTo("approved");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT reply FROM requests WHERE id = ?", String.class, id))
+				.as("and so does its reply").isEqualTo("ok");
+	}
+
+	@Test
 	void rejectingChangesTheStatusAndNothingElse() {
 		seedBalance(this.employeeA, 2026, "21", "0");
 		long id = seedRequest(this.employeeA, this.deductingTypeA, "2026-03-02", "2026-03-04");
@@ -296,6 +314,38 @@ class AdminRequestsEndToEndTest {
 				"SELECT used_days FROM leave_balance WHERE employee_id = ? AND year = 2026",
 				java.math.BigDecimal.class, this.employeeA).signum())
 				.as("a rejection deducts nothing").isZero();
+	}
+
+	@Test
+	void rejectingOpensADialogWithAnOptionalReplyRatherThanPostingAtOnce() {
+		// Legacy's reject opens the decision modal with an optional reply
+		// (requests/page.php:143-157, requests-actions.js); it never posts on
+		// the first click. The reply stays optional: an empty one is stored as
+		// NULL (anEmptyCommentIsStoredAsNullNotAnEmptyString).
+		long typeId = createType(this.companyA, "Errand", false, false);
+		long id = seedRequest(this.employeeA, typeId, "2026-03-02", "2026-03-02");
+
+		String html = body("/admin/requests?status=pending");
+		String menu = rowMenu(html, id);
+
+		assertThat(menu).as("reject opens its dialog for this row")
+				.containsPattern("data-dialog=\"request-reject\"\\s+data-dialog-id=\"" + id + "\"");
+		assertThat(menu).as("and does not post from the menu").doesNotContain("value=\"reject\"");
+
+		int dialog = html.indexOf("<dialog class=\"row-dialog\" id=\"request-reject\"");
+		assertThat(dialog).as("the reject dialog renders").isPositive();
+		String markup = html.substring(dialog, html.indexOf("</dialog>", dialog));
+		assertThat(markup).contains("name=\"action\" value=\"reject\"");
+		java.util.regex.Matcher comment = java.util.regex.Pattern.compile("<textarea\\b[^>]*name=\"comment\"[^>]*>").matcher(markup);
+		assertThat(comment.find()).as("a reply box").isTrue();
+		assertThat(comment.group()).as("the reply is optional, as in legacy").doesNotContain("required");
+	}
+
+	/** One row's action menu. */
+	private static String rowMenu(String html, long rowId) {
+		int start = html.indexOf("id=\"row-actions-menu-" + rowId + "\"");
+		assertThat(start).as("the row menu for request %s", rowId).isPositive();
+		return html.substring(start, html.indexOf("</div>", start));
 	}
 
 	@Test

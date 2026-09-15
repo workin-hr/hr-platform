@@ -159,13 +159,10 @@
 													data-dialog="request-approve"
 													data-dialog-id="${row.id()}"
 													data-dialog-subject="${row.employeeName()}">${t.apply("approve")}</button>
-											<form method="POST" class="row-actions__form" role="none">
-												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-												<input type="hidden" name="action" value="reject">
-												<input type="hidden" name="id" value="${row.id()}">
-												<button type="submit" role="menuitem"
-														class="row-actions__item">${t.apply("reject")}</button>
-											</form>
+											<button type="button" role="menuitem" class="row-actions__item row-actions__item--danger"
+													data-dialog="request-reject"
+													data-dialog-id="${row.id()}"
+													data-dialog-subject="${row.employeeName()}">${t.apply("reject")}</button>
 										@endif
 										<form method="POST" class="row-actions__form" role="none"
 										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
@@ -201,6 +198,16 @@
 					title = t.apply("approve"), csrfParameterName = csrfParameterName,
 					csrfToken = csrfToken, t = t, submitLabel = t.apply("approve"),
 					submitVariant = "blue",
+					fields = @`
+						<label>${t.apply("reply")}
+							<textarea name="comment" rows="3"></textarea></label>
+					`)
+			<%-- Legacy's reject opens the same decision modal, with an optional
+			     reply (requests/page.php:143-157); it never posts on the first click. --%>
+			@template.admin.rowDialog(id = "request-reject", action = "reject",
+					title = t.apply("reject"), csrfParameterName = csrfParameterName,
+					csrfToken = csrfToken, t = t, submitLabel = t.apply("reject"),
+					submitVariant = "red",
 					fields = @`
 						<label>${t.apply("reply")}
 							<textarea name="comment" rows="3"></textarea></label>
