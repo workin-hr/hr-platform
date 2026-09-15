@@ -150,6 +150,16 @@ test("an edit selects the row's branch, department and job title, and its save i
 	await expect(save(browserPage)).toBeEnabled();
 });
 
+test("an edit with no department shows a job title outside the branch's departments by id, as legacy's does", async ({ page: browserPage }) => {
+	// Branch 101's departments hold only 401 and 402. With no department chosen the script lists those, and
+	// falls back to the company's job titles only when the branch's list is empty, so an active 403 is not listed.
+	await load(browserPage, page({ company: EDIT, selected: { branch: '101', department: '0', job: '403' }, planned: '3' }));
+
+	await expect(browserPage.locator('#wp_job')).toHaveValue('403');
+	expect(await options(browserPage, '#wp_job')).toEqual(
+		[['', 'Job title...'], ['401', 'Alpha Fitter'], ['402', 'Alpha Seller'], ['403', '#403']]);
+});
+
 test("an edit whose branch is no longer active shows it by id, as legacy's does", async ({ page: browserPage }) => {
 	await load(browserPage, page({ company: EDIT, selected: { branch: '109', department: '0', job: '403' }, planned: '3' }));
 
