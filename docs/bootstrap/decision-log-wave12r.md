@@ -4179,6 +4179,19 @@ Posted as a single comment before the merge, containing: the head SHA; which una
 | Rollback | Revert the merge. Nothing is stored differently. |
 | Related | **#211**, **#213**, **#214** (item 3, the shared cascades), **R-051**, **R-055**, D-176, D-249. |
 
+## D-251: The Dashboard Renders In Legacy's System Font Stack And Ships No Web Font
+
+| Field | Value |
+|---|---|
+| Status | Proposed 2026-09-15 in the pull request for #214 item 8; accepted when the repository owner merges it. |
+| Decision | The admin dashboard stops loading `fonts.css`, and the self-hosted IBM Plex Sans Arabic files and their licence text are removed. Every page renders in the stack the copied `style.css` names on `body`, `'Segoe UI', Tahoma, Arial, sans-serif`, as legacy's dashboard does; the login page already did, through `login.css`. |
+| Owner decision | #214 item 8 records the repository owner's choice to use PHP's system font stack instead of the self-hosted typeface. This reverses D-197's "typeface" row. |
+| What goes with the file | `fonts.css` did more than name the family. It applied the family to `button`, `input`, `select` and `textarea` as well as `body`; it set `font-variant-numeric: tabular-nums` and font smoothing on `body`; and it gave `.tbl` cells a line height of 1.55. All of that goes too, so the dashboard's typography is legacy's `style.css` alone: form controls take the font legacy's rules give them, the body no longer asks for tabular numerals or smoothing, and table cells take legacy's line height. |
+| What D-197 recorded | D-197 chose Plex because `style.css`'s stack has no Arabic face, so off Windows a browser falls back glyph by glyph and Arabic can render thinner and spaced differently beside Latin. That is how legacy's dashboard renders, and the owner chose it for parity. D-202's vendored OFL licence text leaves with the font files it covered. |
+| Regression coverage | **`AdminLayoutWiringTest`** gains **`theDashboardShipsNoWebFontAndKeepsLegacysSystemStack`**: no stylesheet under `_assets` declares a font face, no font file ships there, no template links `fonts.css`, and the copied `style.css` still names legacy's stack on `body`. Before the change, on `main`'s layout and font files, exactly the new test failed of 6. Four mutants, each run on its own with every file restored and `git status` unchanged, failed exactly the new test: the layout linking `fonts.css` again, one font file shipped again, a font face declared in `admin-extra.css`, and `style.css`'s body stack changed. After the change, in one run: `AdminLayoutWiringTest` 6, `AdminPageStylesheetTest` 1, `PlatformAdminAssetsExposureTest` 5 and `AdminTemplateMessageKeyTest` 3, with 0 failures. |
+| Rollback | Revert the merge. Nothing is stored. |
+| Related | **#211**, **#214** (item 8), **D-197**, **D-202**. |
+
 ## D-252: The Toolbar's Company Filter Is Legacy's Select Of Active Companies
 
 | Field | Value |
