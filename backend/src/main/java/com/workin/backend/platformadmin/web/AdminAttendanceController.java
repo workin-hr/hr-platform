@@ -84,6 +84,7 @@ public class AdminAttendanceController {
 				today.toString()));
 		model.addAttribute("employeeOptions", this.store.employeeOptions(optionsCompanyId));
 		model.addAttribute("exceptionTypes", this.store.exceptionTypeOptions(optionsCompanyId));
+		model.addAttribute("editExceptionTypes", this.store.editableExceptionTypeOptions(optionsCompanyId));
 		model.addAttribute("branchOptions", this.employeeStore.branchOptions(optionsCompanyId));
 		model.addAttribute("departmentOptions", this.employeeStore.departmentOptions(optionsCompanyId));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "attendance"));

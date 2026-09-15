@@ -312,16 +312,34 @@ public class AttendanceStore {
 
 	public List<AttendanceRecord.ExceptionTypeOption> exceptionTypeOptions(long companyId) {
 		// Legacy lists every company's active types when no company is chosen
-		// (payroll_list_helper.php:118-128). That is the list R-059 recorded legacy
-		// writing without a company check, and D-176(b) refuses a foreign type, so
-		// offering it would only offer choices the save refuses.
+		// (payroll_list_helper.php:118-128). Legacy since 505004f, which closed R-059,
+		// and the port (D-176(b)) both refuse a type from another company on save, so
+		// that list would only offer choices the save refuses.
 		if (companyId <= 0) {
 			return List.of();
 		}
 		return this.jdbcTemplate.query(
 				"SELECT id, name FROM exception_types WHERE company_id = ? AND is_active = 1 ORDER BY name ASC, id ASC",
 				(rs, rowNum) -> new AttendanceRecord.ExceptionTypeOption(
-						rs.getLong("id"), rs.getString("name")),
+						rs.getLong("id"), rs.getString("name"), true),
+				companyId);
+	}
+
+	/**
+	 * Every one of the company's types, retired ones included, for the edit
+	 * dialog. A punch keeps the type it was saved with after that type is
+	 * retired; offering only active types would leave the dialog's select with
+	 * no option for it, and saving would clear it.
+	 */
+	public List<AttendanceRecord.ExceptionTypeOption> editableExceptionTypeOptions(long companyId) {
+		if (companyId <= 0) {
+			return List.of();
+		}
+		return this.jdbcTemplate.query(
+				"SELECT id, name, is_active FROM exception_types WHERE company_id = ?"
+						+ " ORDER BY is_active DESC, name ASC, id ASC",
+				(rs, rowNum) -> new AttendanceRecord.ExceptionTypeOption(
+						rs.getLong("id"), rs.getString("name"), rs.getInt("is_active") == 1),
 				companyId);
 	}
 

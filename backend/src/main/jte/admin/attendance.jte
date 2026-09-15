@@ -16,6 +16,7 @@
 @param DashboardListFilters filters
 @param List<LeaveBalance.EmployeeOption> employeeOptions
 @param List<AttendanceRecord.ExceptionTypeOption> exceptionTypes
+@param List<AttendanceRecord.ExceptionTypeOption> editExceptionTypes
 @param List<Employee.Option> branchOptions
 @param List<Employee.Option> departmentOptions
 @param String from
@@ -293,8 +294,9 @@
 							<label>${t.apply("exception")}
 								<select name="exception_type_id" data-dialog-field="exception_type_id">
 									<option value="0">—</option>
-									@for(AttendanceRecord.ExceptionTypeOption option : exceptionTypes)
-										<option value="${option.id()}">${option.name()}</option>
+									<%-- Every type, retired ones marked: a punch keeps its type after it is retired. --%>
+									@for(AttendanceRecord.ExceptionTypeOption option : editExceptionTypes)
+										<option value="${option.id()}">${option.name()}@if(!option.active()) — ${t.apply("status_inactive")}@endif</option>
 									@endfor
 								</select></label>
 						</div>

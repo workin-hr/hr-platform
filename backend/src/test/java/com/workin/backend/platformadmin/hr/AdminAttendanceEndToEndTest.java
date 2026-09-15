@@ -161,6 +161,13 @@ class AdminAttendanceEndToEndTest {
 		return this.jdbc.queryForObject("SELECT MAX(id) FROM exception_types", Long.class);
 	}
 
+	/** The markup from one select's opening tag to its closing tag. */
+	private static String selectMarkup(String html, String openingTag) {
+		int start = html.indexOf(openingTag);
+		assertThat(start).as("the select %s", openingTag).isGreaterThanOrEqualTo(0);
+		return html.substring(start, html.indexOf("</select>", start));
+	}
+
 	private String range() {
 		return "?from=2026-03-01&to=2026-03-31";
 	}
@@ -274,8 +281,9 @@ class AdminAttendanceEndToEndTest {
 		long inactive = exceptionType(this.companyA, "Retired leave kind");
 		this.jdbc.update("UPDATE exception_types SET is_active = 0 WHERE id = ?", inactive);
 
-		String scoped = body("/admin/attendance?company_id=" + this.companyA);
-		assertThat(scoped).as("an active type is offered")
+		String scoped = selectMarkup(body("/admin/attendance?company_id=" + this.companyA),
+				"<select id=\"exception_type_id\" name=\"exception_type_id\">");
+		assertThat(scoped).as("the add form offers an active type")
 				.contains("<option value=\"" + active + "\">Field mission</option>");
 		assertThat(scoped).as("an inactive type is not")
 				.doesNotContain("<option value=\"" + inactive + "\">");
@@ -284,6 +292,36 @@ class AdminAttendanceEndToEndTest {
 		assertThat(unfiltered).as("with no company chosen, no type is offered")
 				.doesNotContain("<option value=\"" + active + "\">")
 				.doesNotContain("<option value=\"" + inactive + "\">");
+	}
+
+	@Test
+	void editingAPunchKeepsAnExceptionTypeRetiredSinceItWasSaved() {
+		// The add form offers only active types. The edit dialog must still offer
+		// a row's own type once it is retired: a select with no option for the
+		// stored value submits nothing, and the save would clear the type. Legacy
+		// loses it that way (attendance-form.js:196-198).
+		long retired = exceptionType(this.companyA, "Field mission");
+		long id = attendance(this.employeeA, "2026-03-02 09:00:00", null, retired);
+		this.jdbc.update("UPDATE exception_types SET is_active = 0 WHERE id = ?", retired);
+
+		String html = body("/admin/attendance?company_id=" + this.companyA);
+		int dialog = html.indexOf("<dialog class=\"row-dialog\" id=\"attendance-edit\"");
+		assertThat(dialog).as("the edit dialog renders").isPositive();
+		assertThat(selectMarkup(html.substring(dialog), "<select name=\"exception_type_id\""))
+				.as("the edit dialog offers the row's retired type")
+				.contains("<option value=\"" + retired + "\">Field mission");
+		assertThat(selectMarkup(html, "<select id=\"exception_type_id\" name=\"exception_type_id\">"))
+				.as("the add form still does not")
+				.doesNotContain("<option value=\"" + retired + "\">");
+
+		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+				"action", "edit_attendance", "id", String.valueOf(id),
+				"check_in", "2026-03-02 08:30:00", "check_out", "2026-03-02 18:00:00",
+				"exception_type_id", String.valueOf(retired));
+		assertThat(this.jdbc.queryForObject(
+				"SELECT exception_type_id FROM attendance WHERE id = ?", Long.class, id))
+				.as("saving what the dialog now submits keeps the type")
+				.isEqualTo(retired);
 	}
 
 	@Test

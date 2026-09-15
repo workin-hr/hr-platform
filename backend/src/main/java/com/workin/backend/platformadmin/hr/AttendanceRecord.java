@@ -62,7 +62,7 @@ public final class AttendanceRecord {
 	}
 
 	/** An exception type the add/edit form can pick, scoped to one company. */
-	public record ExceptionTypeOption(long id, String name) {
+	public record ExceptionTypeOption(long id, String name, boolean active) {
 	}
 
 }
