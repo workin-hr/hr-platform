@@ -119,36 +119,87 @@ class AdminLayoutWiringTest {
 	/**
 	 * Legacy's dashboard renders in the stack its {@code style.css} names on {@code body},
 	 * {@code 'Segoe UI', Tahoma, Arial}, and ships no web font. At the owner's choice the port
-	 * does the same (D-251), and a template linking a font sheet, or a sheet declaring a face,
-	 * would undo that without any page's own test noticing.
+	 * does the same (D-251). A face, a font file, an imported or linked font sheet, or a later
+	 * {@code font-family} would each undo that without any page's own test noticing, in any
+	 * letter case CSS accepts.
 	 */
 	@Test
 	void theDashboardShipsNoWebFontAndKeepsLegacysSystemStack() throws IOException {
-		List<String> faces = new ArrayList<>();
-		List<String> fontFiles = new ArrayList<>();
+		String stack = "'Segoe UI', Tahoma, Arial, sans-serif";
+		// JTE's own `@import java...` directives are not CSS imports, so an import must name a URL or a string.
+		Pattern webFont = Pattern.compile("(?i)@font-face|@import\\s+(url\\(|[\"'])|fonts\\.(googleapis|gstatic)\\.com");
+		Pattern family = Pattern.compile("(?i)font-family\\s*:\\s*([^;}]+)");
+		Set<String> stackSheets = Set.of("style.css", "login.css");
+		// `inherit`, and the emoji stack on the one icon rule in app-content.css.
+		Set<String> otherFamilies = Set.of(
+				"inherit", "\"Apple Color Emoji\", \"Segoe UI Emoji\", \"Noto Color Emoji\", sans-serif");
+		List<String> offenders = new ArrayList<>();
 		try (var files = Files.walk(ASSETS)) {
-			for (Path file : files.filter(Files::isRegularFile).toList()) {
-				String name = file.getFileName().toString();
-				if (name.matches(".*\\.(woff2?|ttf|otf|eot)")) {
-					fontFiles.add(ASSETS.relativize(file).toString());
+			for (Path file : files.filter(Files::isRegularFile).sorted().toList()) {
+				String name = ASSETS.relativize(file).toString();
+				String lower = name.toLowerCase(java.util.Locale.ROOT);
+				if (lower.matches(".*\\.(woff2?|ttf|otf|eot)")) {
+					offenders.add(name + " is a font file");
 				}
-				if (name.endsWith(".css") && Files.readString(file, StandardCharsets.UTF_8).contains("@font-face")) {
-					faces.add(ASSETS.relativize(file).toString());
+				if (!lower.endsWith(".css")) {
+					continue;
+				}
+				String css = Files.readString(file, StandardCharsets.UTF_8);
+				if (webFont.matcher(css).find()) {
+					offenders.add(name + " declares or imports a font");
+				}
+				Matcher families = family.matcher(css);
+				while (families.find()) {
+					String value = families.group(1).trim();
+					if (!otherFamilies.contains(value) && !(stackSheets.contains(name) && value.equals(stack))) {
+						offenders.add(name + " sets font-family " + value);
+					}
 				}
 			}
 		}
-		assertThat(faces).as("stylesheets declaring a font face").isEmpty();
-		assertThat(fontFiles).as("font files under _assets").isEmpty();
+		Pattern stylesheet = Pattern.compile("(?i)<link\\b[^>]*rel=\"stylesheet\"[^>]*>");
+		Pattern href = Pattern.compile("(?i)href=\"([^\"]*)\"");
 		try (var templates = Files.walk(TEMPLATES)) {
-			for (Path template : templates.filter(file -> file.toString().endsWith(".jte")).toList()) {
-				assertThat(Files.readString(template, StandardCharsets.UTF_8))
-						.as("%s links a font stylesheet", fileName(template))
-						.doesNotContain("fonts.css");
+			for (Path template : templates.filter(file -> file.toString().endsWith(".jte")).sorted().toList()) {
+				String body = Files.readString(template, StandardCharsets.UTF_8);
+				if (webFont.matcher(body).find() || family.matcher(body).find()) {
+					offenders.add(fileName(template) + " carries a font of its own");
+				}
+				Matcher links = stylesheet.matcher(body);
+				while (links.find()) {
+					Matcher target = href.matcher(links.group());
+					if (!target.find() || !target.group(1).startsWith("/admin/_assets/")) {
+						offenders.add(fileName(template) + " links a stylesheet from outside /admin/_assets/");
+					}
+				}
 			}
 		}
+		assertThat(offenders).as("ways a web font or another body font would come back").isEmpty();
 		assertThat(Files.readString(ASSETS.resolve("style.css"), StandardCharsets.UTF_8))
 				.as("the copied style.css still names legacy's stack on body")
-				.contains("font-family: 'Segoe UI', Tahoma, Arial, sans-serif;");
+				.contains("font-family: " + stack + ";");
+	}
+
+	/**
+	 * Legacy's layout and sign-in page name its logo as their favicon and touch icon, and the
+	 * sign-in page shows it twice (D-254). The file is legacy's own {@code logo.png}.
+	 */
+	@Test
+	void theLayoutAndTheSignInPageCarryLegacysLogo() throws Exception {
+		for (String page : List.of("layout", "login")) {
+			assertThat(Files.readString(TEMPLATES.resolve(page + ".jte"), StandardCharsets.UTF_8))
+					.as("%s names the logo as its icons", page)
+					.contains("<link rel=\"icon\" type=\"image/png\" href=\"/admin/_assets/logo.png\">")
+					.contains("<link rel=\"apple-touch-icon\" href=\"/admin/_assets/logo.png\">");
+		}
+		assertThat(Files.readString(TEMPLATES.resolve("login.jte"), StandardCharsets.UTF_8))
+				.contains("<img src=\"/admin/_assets/logo.png\" alt=\"\" class=\"login-hero-logo\" width=\"40\" height=\"40\">")
+				.contains("<img src=\"/admin/_assets/logo.png\" alt=\"${t.apply(\"app_name\")}\" "
+						+ "class=\"login-card-logo\" width=\"48\" height=\"48\">");
+		byte[] logo = Files.readAllBytes(ASSETS.resolve("logo.png"));
+		assertThat(java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(logo)))
+				.as("legacy's logo.png, byte for byte")
+				.isEqualTo("7bc29d3139d0dd87675ce9852155d9c467379b4e879894c6c2a009c9a0895bd9");
 	}
 
 	@Test

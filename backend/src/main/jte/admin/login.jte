@@ -21,6 +21,8 @@
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>${t.apply("login_title")} — ${t.apply("app_name")}</title>
+	<link rel="icon" type="image/png" href="/admin/_assets/logo.png">
+	<link rel="apple-touch-icon" href="/admin/_assets/logo.png">
 	<link rel="stylesheet" href="/admin/_assets/login.css">
 </head>
 <body class="login-body${hasAlert ? " login-has-alert" : ""}${errorKey != null ? " login-shake" : ""}">
@@ -31,6 +33,7 @@
 		<div class="login-hero-skyline" aria-hidden="true"></div>
 		<div class="login-hero-content">
 			<div class="login-hero-brand">
+				<img src="/admin/_assets/logo.png" alt="" class="login-hero-logo" width="40" height="40">
 				<div>
 					<strong class="login-hero-brand-name">${t.apply("app_name")}</strong>
 					<span class="login-hero-brand-desc">${t.apply("app_desc")}</span>
@@ -68,6 +71,7 @@
 			</div>
 
 			<header class="login-card-head login-anim" style="--d: 1">
+				<img src="/admin/_assets/logo.png" alt="${t.apply("app_name")}" class="login-card-logo" width="48" height="48">
 				<div>
 					<h1>${t.apply("login_welcome_back")}</h1>
 					<p>${t.apply("login_welcome_sub")}</p>

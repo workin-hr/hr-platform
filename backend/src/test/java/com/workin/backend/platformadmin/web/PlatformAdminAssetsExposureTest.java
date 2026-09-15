@@ -58,6 +58,17 @@ class PlatformAdminAssetsExposureTest extends AbstractIntegrationTest {
 				.isEqualTo(HttpStatus.OK);
 	}
 
+	/** The sign-in page and its favicon load the logo before there is a session (D-254). */
+	@Test
+	void theLogoIsServedWithoutASessionAsAPng() {
+		ResponseEntity<byte[]> response =
+				this.restTemplate.getForEntity(url("/admin/_assets/logo.png"), byte[].class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getHeaders().getContentType()).isEqualTo(org.springframework.http.MediaType.IMAGE_PNG);
+		assertThat(response.getBody()).hasSize(1_364_971);
+	}
+
 	/** The negative control the permitAll exists to be bounded by. */
 	@Test
 	void anAdminPageIsStillProtected() {

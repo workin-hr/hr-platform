@@ -135,9 +135,9 @@
 									<td class="text-muted">${result.from() + index}</td>
 									<td>
 										<%-- Legacy falls back to ui-avatars.com here. Drawn locally
-										     instead, for the reason D-197 self-hosts the typeface: an
-										     admin panel should not need a third party to render, and
-										     no viewer's IP should reach one to see a placeholder. --%>
+										     instead: an admin panel should not need a third party to
+										     render, and no viewer's IP should reach one to see a
+										     placeholder. --%>
 										@if(row.hasLogo())
 											<img src="${row.logoUrl()}" alt="" class="tbl-photo company-tbl-logo"
 											     width="40" height="40" loading="lazy"

@@ -29,6 +29,8 @@
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>${title} — ${t.apply("app_name")}</title>
+	<link rel="icon" type="image/png" href="/admin/_assets/logo.png">
+	<link rel="apple-touch-icon" href="/admin/_assets/logo.png">
 	<link rel="stylesheet" href="/admin/_assets/style.css">
 	<link rel="stylesheet" href="/admin/_assets/app-ui.css">
 	<link rel="stylesheet" href="/admin/_assets/sidebar.css">
