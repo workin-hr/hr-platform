@@ -171,7 +171,7 @@
 												<button type="submit" role="menuitem"
 														class="row-actions__item row-actions__item--success">${t.apply("approve")}</button>
 											</form>
-											<button type="button" role="menuitem" class="row-actions__item"
+											<button type="button" role="menuitem" class="row-actions__item row-actions__item--danger"
 													data-dialog="advance-reject"
 													data-dialog-id="${row.id()}"
 													data-dialog-subject="${row.employeeName()}">${t.apply("reject")}</button>

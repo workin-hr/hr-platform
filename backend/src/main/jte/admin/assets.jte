@@ -150,7 +150,7 @@
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 												<input type="hidden" name="action" value="mark_returned">
 												<input type="hidden" name="id" value="${row.id()}">
-												<button type="submit" role="menuitem" class="row-actions__item">${t.apply("is_returned")}</button>
+												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--success">${t.apply("is_returned")}</button>
 											</form>
 										@endif
 										<form method="POST" class="row-actions__form" role="none"

@@ -282,6 +282,24 @@ class AdminRequestsEndToEndTest {
 	}
 
 	@Test
+	void anAlreadyDecidedRequestCannotBeRejected() {
+		// Legacy's reject updates by id whatever the status (requests/page.php:43-48).
+		// A reject dialog left open while someone else approves would turn the
+		// approval into a rejection, and keep the leave the approval deducted.
+		long id = seedRequest(this.employeeA, this.plainTypeA, "2026-03-02", "2026-03-04");
+		this.jdbc.update("UPDATE requests SET status = 'approved', reply = 'ok' WHERE id = ?", id);
+
+		assertThat(post("/admin/requests", this.cookie,
+				page("/admin/requests?status=all", this.cookie).csrf(),
+				"action", "reject", "id", String.valueOf(id), "comment", "no")
+				.getHeaders().getLocation()).asString().contains("error=error_required");
+		assertThat(statusOf(id)).as("the approval stands").isEqualTo("approved");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT reply FROM requests WHERE id = ?", String.class, id))
+				.as("and so does its reply").isEqualTo("ok");
+	}
+
+	@Test
 	void rejectingChangesTheStatusAndNothingElse() {
 		seedBalance(this.employeeA, 2026, "21", "0");
 		long id = seedRequest(this.employeeA, this.deductingTypeA, "2026-03-02", "2026-03-04");

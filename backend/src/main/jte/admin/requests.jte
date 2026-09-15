@@ -159,7 +159,7 @@
 													data-dialog="request-approve"
 													data-dialog-id="${row.id()}"
 													data-dialog-subject="${row.employeeName()}">${t.apply("approve")}</button>
-											<button type="button" role="menuitem" class="row-actions__item"
+											<button type="button" role="menuitem" class="row-actions__item row-actions__item--danger"
 													data-dialog="request-reject"
 													data-dialog-id="${row.id()}"
 													data-dialog-subject="${row.employeeName()}">${t.apply("reject")}</button>

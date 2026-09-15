@@ -216,13 +216,19 @@ public class EmployeeRequestAdminService {
 	 * {@code reject}: a status change and a reply, with <b>no</b> side effects
 	 * -- nothing to deduct, nothing to write.
 	 *
-	 * <p>Unguarded in legacy (R-046); guarded here.
+	 * <p>Unguarded in legacy (R-046); guarded here. Legacy also rejects
+	 * whatever the status; here, as with approve, a request that is no longer
+	 * pending is refused, so a stale reject cannot overturn an approval whose
+	 * side effects are already written.
 	 */
 	@Transactional
 	public long reject(
 			DashboardSession session, long adminId, long id, String reply) {
 		gate();
 		long companyId = assertRowVisible(session, id);
+		if (!PENDING.equals(this.store.statusOf(id))) {
+			throw new RefusedException(Refusal.NOT_PENDING);
+		}
 
 		this.store.decide(id, REJECTED, blankToNull(reply), now());
 		audit(adminId, PlatformAdminAuditEventType.ORG_UPDATED, id,
