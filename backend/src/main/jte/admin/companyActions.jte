@@ -13,6 +13,10 @@
 	<a href="/admin/companies/${companyId}" class="row-actions__item"
 	   role="menuitem">${t.apply("details")}</a>
 	@if(actionsEnabled)
+		<%-- company_helper.php:190-197: Edit right after Details. The controller
+		     opens the prefilled form at ?edit=<id>, not legacy's ?action=edit&id=. --%>
+		<a href="/admin/companies?edit=${companyId}" class="row-actions__item"
+		   role="menuitem">${t.apply("edit")}</a>
 		@if("pending".equals(status) || "rejected".equals(status))
 			<form method="post" action="/admin/companies/action" class="row-actions__form" role="none">
 				<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">

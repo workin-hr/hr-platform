@@ -109,6 +109,66 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void eachCompanyRowOffersEditRightAfterDetails() {
+		// company_helper.php:190-197: Details, then Edit. The controller already
+		// opens the prefilled form at ?edit=<id>; only the way in was missing.
+		String cookie = signIn();
+		long companyId = createCompany();
+
+		Page companies = get("/admin/companies", cookie);
+		String html = companies.response().getBody();
+		int start = html.indexOf("id=\"row-actions-menu-" + companyId + "\"");
+		assertThat(start).as("the row menu for company %s", companyId).isPositive();
+		String menu = html.substring(start, html.indexOf("</div>", start));
+
+		int details = menu.indexOf("href=\"/admin/companies/" + companyId + "\"");
+		int edit = menu.indexOf("href=\"/admin/companies?edit=" + companyId + "\"");
+		assertThat(details).as("the menu still links to the detail page").isPositive();
+		assertThat(edit).as("the menu links to this company's edit form").isPositive();
+		assertThat(edit).as("Edit comes right after Details, as in legacy").isGreaterThan(details);
+
+		String form = get("/admin/companies?edit=" + companyId, cookie).response().getBody();
+		assertThat(form).as("the link opens the company form").contains("class=\"modal-bg open\" id=\"companyModal\"");
+		// ?action=add opens the same modal, so the markup must also be this company's edit form.
+		String name = new JdbcTemplate(this.legacyDataSource).queryForObject(
+				"SELECT company_name FROM companies WHERE id = ?", String.class, companyId);
+		assertThat(form).as("the form saves an edit, not an add")
+				.containsPattern("name=\"action\"\\s+value=\"save_edit\"");
+		assertThat(form).as("for this company").contains("name=\"id\" value=\"" + companyId + "\"");
+		assertThat(form).as("prefilled with its name")
+				.containsPattern("id=\"co_name\"[^>]*value=\"" + Pattern.quote(name) + "\"");
+	}
+
+	@Test
+	void aCompanyWithoutLookupsOpensItsFormWithNothingChosen() {
+		// _company_form.php:74-93 starts each required lookup select with an empty
+		// "choose" option. Without it, a company whose lookups are NULL (a
+		// registration stopped after step one) shows, and would save, the first
+		// activity, title and size as if they were stored.
+		String cookie = signIn();
+		long companyId = createCompany();
+		// Real options, so a select without its empty choice would show the first of them.
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		jdbc.update("INSERT INTO company_activities (id, name) VALUES (24301, 'Flow activity')");
+		jdbc.update("INSERT INTO company_titles (id, name) VALUES (24311, 'Flow title')");
+		jdbc.update("INSERT INTO company_sizes (id, name, min_employees, max_employees) VALUES (24321, 'Flow size', 1, 10)");
+
+		String form = get("/admin/companies?edit=" + companyId, cookie).response().getBody();
+		java.util.Map<String, Long> seeded = java.util.Map.of("co_act", 24301L, "co_title", 24311L, "co_size", 24321L);
+		for (String select : List.of("co_act", "co_title", "co_size")) {
+			int start = form.indexOf("<select id=\"" + select + "\"");
+			assertThat(start).as("the %s select renders", select).isPositive();
+			String markup = form.substring(start, form.indexOf("</select>", start));
+			assertThat(markup).as("%s lists the stored options", select)
+					.contains("value=\"" + seeded.get(select) + "\"");
+			assertThat(markup).as("%s starts with an empty choice", select)
+					.containsPattern("^<select[^>]*>\\s*<option value=\"\">");
+			assertThat(markup).as("%s preselects nothing for a company without one", select)
+					.doesNotContain("selected");
+		}
+	}
+
+	@Test
 	void aWrongPasswordIsRefusedAndOpensNothing() {
 		Page loginForm = get("/admin/login", null);
 		ResponseEntity<String> refused = post("/admin/login", loginForm.cookie(), loginForm.csrf(),
