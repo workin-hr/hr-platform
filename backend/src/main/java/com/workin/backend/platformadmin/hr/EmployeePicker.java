@@ -13,7 +13,8 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p>Labels follow legacy's {@code hr_employee_option_label}: the name, the code
  * in brackets when there is one, then " — " and the company when the list spans
- * companies, which is when an option carries one.
+ * companies, which is when an option carries one. An employee with no name is
+ * shown by the code alone, where legacy prints a leading space and " (CODE)".
  */
 public final class EmployeePicker {
 
@@ -41,10 +42,10 @@ public final class EmployeePicker {
 	 * employee without one ({@code hr_advances_row_actions}).
 	 */
 	public static String label(String name, String code, String companyName) {
-		StringBuilder label = new StringBuilder(trimmed(name));
-		if (!trimmed(code).isEmpty()) {
-			label.append(" (").append(trimmed(code)).append(')');
-		}
+		String shownName = trimmed(name);
+		String shownCode = trimmed(code);
+		StringBuilder label = new StringBuilder(shownName.isEmpty() ? shownCode
+				: shownCode.isEmpty() ? shownName : shownName + " (" + shownCode + ")");
 		if (companyName != null && !companyName.isEmpty()) {
 			label.append(" — ").append(companyName);
 		}

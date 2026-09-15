@@ -1,6 +1,7 @@
 @import java.util.List
 @import java.util.function.Function
 @import com.workin.backend.platformadmin.hr.LeaveBalance
+@import com.workin.backend.platformadmin.hr.EmployeePicker
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -35,6 +36,7 @@
 	t = t,
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css", "leave-balance-form.css"),
+	pageScripts = java.util.List.of("emp-picker.js"),
 	body = @`
 		@if(errorKey != null)
 			<div class="flash flash-error">${t.apply(errorKey)}</div>
@@ -167,6 +169,8 @@
 					`)
 		@endif
 		@if(canWrite)
+			<%-- The page's one copy of the list the add form's employee picker searches. --%>
+			<div hidden id="employee-picker-list" data-employees="${EmployeePicker.json(employeeOptions)}"></div>
 			<%-- Legacy opens this form in a modal, behind the "+" button above.
 			     Rendered inline it sat open over the table on every visit, whether
 			     or not anyone was adding anything. Same form, same fields, same
@@ -183,14 +187,8 @@
 					<div class="org-form-grid">
 					<div class="form-row">
 						<label for="employee_id">${t.apply("employee_name")}</label>
-						<select id="employee_id" name="employee_id" required>
-							<option value="0">—</option>
-							@for(LeaveBalance.EmployeeOption option : employeeOptions)
-								<option value="${option.id()}">${option.companyName() == null
-									? option.code() + " — " + option.name()
-									: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
-							@endfor
-						</select>
+						@template.admin.employeePicker(inputId = "employee_id",
+								source = "employee-picker-list", t = t)
 					</div>
 					<div class="form-row">
 						<label for="add_year">${t.apply("year")}</label>

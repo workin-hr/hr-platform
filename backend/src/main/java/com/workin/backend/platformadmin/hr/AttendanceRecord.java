@@ -61,10 +61,6 @@ public final class AttendanceRecord {
 			long overtimeMinutes) {
 	}
 
-	/** An employee the add/edit form can pick. */
-	public record EmployeeOption(long id, String label) {
-	}
-
 	/** An exception type the add/edit form can pick, scoped to one company. */
 	public record ExceptionTypeOption(long id, String name) {
 	}

@@ -2,6 +2,8 @@
 @import java.util.function.Function
 @import com.workin.backend.platformadmin.hr.AttendanceDisplay
 @import com.workin.backend.platformadmin.hr.AttendanceRecord
+@import com.workin.backend.platformadmin.hr.EmployeePicker
+@import com.workin.backend.platformadmin.hr.LeaveBalance
 @import com.workin.backend.platformadmin.hr.Employee
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
@@ -12,7 +14,7 @@
 @param DashboardPage<AttendanceRecord.Row> result
 @param DashboardPage<AttendanceRecord.AggregateRow> aggregateResult
 @param DashboardListFilters filters
-@param List<AttendanceRecord.EmployeeOption> employeeOptions
+@param List<LeaveBalance.EmployeeOption> employeeOptions
 @param List<AttendanceRecord.ExceptionTypeOption> exceptionTypes
 @param List<Employee.Option> branchOptions
 @param List<Employee.Option> departmentOptions
@@ -56,6 +58,7 @@
 	available = available,
 	pageStyles = java.util.List.of("payroll-pages.css", "hr-pages.css",
 			"leave-balance-form.css"),
+	pageScripts = java.util.List.of("emp-picker.js"),
 	body = @`
 		@if(errorKey != null)
 			<div class="flash flash-error">${t.apply(errorKey)}</div>
@@ -297,6 +300,8 @@
 						</div>
 					`)
 
+			<%-- The page's one copy of the list the add form's employee picker searches. --%>
+			<div hidden id="employee-picker-list" data-employees="${EmployeePicker.json(employeeOptions)}"></div>
 			<%-- Legacy opens this form in a modal, behind the "+" button above.
 			     Rendered inline it sat open over the table on every visit, whether
 			     or not anyone was adding anything. Same form, same fields, same
@@ -312,12 +317,8 @@
 					<input type="hidden" name="action" value="add_attendance">
 					<div class="form-row">
 						<label for="employee_id">${t.apply("employee_name")}</label>
-						<select id="employee_id" name="employee_id" required>
-							<option value="0">—</option>
-							@for(AttendanceRecord.EmployeeOption option : employeeOptions)
-								<option value="${option.id()}">${option.label()}</option>
-							@endfor
-						</select>
+						@template.admin.employeePicker(inputId = "employee_id",
+								source = "employee-picker-list", t = t)
 					</div>
 					<div class="form-row">
 						<label for="check_in">${t.apply("att_check_in_time")}</label>

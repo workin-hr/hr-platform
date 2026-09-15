@@ -161,15 +161,15 @@ public class LeaveBalanceStore {
 							rs.getString("employee_name"), null),
 					companyId);
 		}
-		// Unfiltered, this is every active employee on the platform. It is the
-		// administrator's view only, and it is capped: the picker is a dropdown
-		// and 3,783 options is not one.
+		// Unfiltered, this is every active employee on the platform, as legacy's
+		// hr_employees_picker_list: the administrator's view only, rendered once
+		// into the page for the searchable picker to filter.
 		return this.jdbcTemplate.query(
 				"SELECT e.id, " + EMP_CODE + " AS emp_code, " + DISPLAY_NAME + " AS employee_name,"
 						+ " c.company_name FROM employees e"
 						+ " JOIN companies c ON c.id = e.company_id"
 						+ " WHERE e.is_active = 1 AND " + ROSTER
-						+ " ORDER BY c.company_name, employee_name LIMIT 500",
+						+ " ORDER BY c.company_name, employee_name",
 				(rs, rowNum) -> new LeaveBalance.EmployeeOption(
 						rs.getLong("id"), rs.getString("emp_code"),
 						rs.getString("employee_name"), rs.getString("company_name")));
