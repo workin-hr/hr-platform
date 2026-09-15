@@ -393,6 +393,9 @@
 							<td class="col-actions">
 								@if(canManage)
 									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										<%-- employee_helper.php:666-667: Details first, then Edit. --%>
+										<a href="/admin/employee_detail?id=${row.id()}"
+										   role="menuitem" class="row-actions__item">${t.apply("details")}</a>
 										<a href="/admin/employees?action=edit&id=${row.id()}"
 										   role="menuitem" class="row-actions__item">${t.apply("edit")}</a>
 										@if(canWrite)
