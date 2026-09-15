@@ -61,7 +61,11 @@ class AdminPageStylesheetTest {
 			"account-form", "org-form", "pager", "row-dialog__form",
 			"checkbox-grid", "checkbox-item", "setting-templates-tab",
 			"settings-form", "home-panel-icon--clock", "home-panel-icon--people",
-			"emp-checkbox-label");
+			"emp-checkbox-label",
+			// _department_form.php renders both. Legacy's org-form.css styles only
+			// .dept-branches-field__label-row, and .form-hint is styled only under
+			// banner, company-add and employee-form scopes the departments page never loads.
+			"dept-branches-field", "form-hint");
 
 	private static final Pattern CLASS_ATTRIBUTE = Pattern.compile("class=\"([^\"]*)\"");
 
