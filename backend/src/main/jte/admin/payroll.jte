@@ -1,5 +1,6 @@
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.hr.PayrollDisplay
 @import com.workin.backend.platformadmin.hr.PayrollRecord
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
@@ -176,9 +177,9 @@
 						<tbody>
 							<tr>
 								<td>${batchTotals.employeeCount()}</td>
-								<td>${batchTotals.totalEntitlements().toPlainString()}</td>
-								<td>${batchTotals.totalDeductions().toPlainString()}</td>
-								<td class="bold">${batchTotals.netSalary().toPlainString()}</td>
+								<td>${PayrollDisplay.money(batchTotals.totalEntitlements())}</td>
+								<td>${PayrollDisplay.money(batchTotals.totalDeductions())}</td>
+								<td class="bold">${PayrollDisplay.money(batchTotals.netSalary())}</td>
 								<td>${currentBatch.periodFrom()}</td>
 								<td>${currentBatch.periodTo()}</td>
 								<td>@template.admin.statusBadge(status = currentBatch.status(), t = t)</td>
@@ -196,7 +197,8 @@
 			     stored but not shown here -- it surfaces in the totals strip
 			     above and the list's total_net. That is the source's behaviour.
 			     payroll-detail-card is page.php:241's: one line per cell, 12px,
-			     scrolling sideways past 1400px rather than wrapping. --%>
+			     in a table at least 1400px wide that .table-wrap scrolls sideways
+			     rather than wrapping. --%>
 			<div class="data-table-card payroll-detail-card">
 				<div class="table-wrap">
 				<table class="tbl">
@@ -244,27 +246,27 @@
 								<td class="col-center">${cell.apply(row, "days_present_ratio")}</td>
 								<td class="col-center">${cell.apply(row, "days_absent")}</td>
 								<td class="col-center">${cell.apply(row, "days_leave")}</td>
-								<td class="col-center">${cell.apply(row, "overtime_hours")}</td>
-								<td class="col-center">${cell.apply(row, "contract_basic_salary")}</td>
-								<td class="col-center">${cell.apply(row, "daily_basic_rate")}</td>
-								<td class="col-center">${cell.apply(row, "salary_by_present_days")}</td>
-								<td class="col-center">${cell.apply(row, "salary_by_paid_leave_days")}</td>
-								<td class="col-center">${cell.apply(row, "allowances")}</td>
-								<td class="col-center">${cell.apply(row, "overtime_pay")}</td>
-								<td class="col-center">${cell.apply(row, "transport_allowance")}</td>
-								<td class="col-center">${cell.apply(row, "food_allowance")}</td>
-								<td class="col-center">${cell.apply(row, "risk_allowance")}</td>
-								<td class="col-center">${cell.apply(row, "incentives")}</td>
-								<td class="col-center bold">${cell.apply(row, "total_entitlements")}</td>
-								<td class="col-center text-red">${cell.apply(row, "insurance_deduction")}</td>
-								<td class="col-center text-red">${cell.apply(row, "tax_deduction")}</td>
-								<td class="col-center text-red">${cell.apply(row, "advances_deduction")}</td>
-								<td class="col-center text-red">${cell.apply(row, "advance_deduction")}</td>
-								<td class="col-center text-red">${cell.apply(row, "fund_deduction")}</td>
-								<td class="col-center text-red">${cell.apply(row, "penalties_total")}</td>
-								<td class="col-center text-red">${cell.apply(row, "other_deductions")}</td>
-								<td class="col-center text-red">${cell.apply(row, "total_deductions")}</td>
-								<td class="col-center bold">${cell.apply(row, "net_salary")}</td>
+								<td class="col-center">${PayrollDisplay.oneDecimal(row.get("overtime_hours"))}</td>
+								<td class="col-center">${PayrollDisplay.money(row.get("contract_basic_salary"))}</td>
+								<td class="col-center">${PayrollDisplay.money(row.get("daily_basic_rate"))}</td>
+								<td class="col-center">${PayrollDisplay.money(row.get("salary_by_present_days"))}</td>
+								<td class="col-center">${PayrollDisplay.money(row.get("salary_by_paid_leave_days"))}</td>
+								<td class="col-center">${PayrollDisplay.money(row.get("allowances"))}</td>
+								<td class="col-center">${PayrollDisplay.money(row.get("overtime_pay"))}</td>
+								<td class="col-center">${PayrollDisplay.money(row.get("transport_allowance"))}</td>
+								<td class="col-center">${PayrollDisplay.money(row.get("food_allowance"))}</td>
+								<td class="col-center">${PayrollDisplay.money(row.get("risk_allowance"))}</td>
+								<td class="col-center">${PayrollDisplay.money(row.get("incentives"))}</td>
+								<td class="col-center bold">${PayrollDisplay.money(row.get("total_entitlements"))}</td>
+								<td class="col-center text-red">${PayrollDisplay.money(row.get("insurance_deduction"))}</td>
+								<td class="col-center text-red">${PayrollDisplay.money(row.get("tax_deduction"))}</td>
+								<td class="col-center text-red">${PayrollDisplay.money(row.get("advances_deduction"))}</td>
+								<td class="col-center text-red">${PayrollDisplay.money(row.get("advance_deduction"))}</td>
+								<td class="col-center text-red">${PayrollDisplay.money(row.get("fund_deduction"))}</td>
+								<td class="col-center text-red">${PayrollDisplay.money(row.get("penalties_total"))}</td>
+								<td class="col-center text-red">${PayrollDisplay.money(row.get("other_deductions"))}</td>
+								<td class="col-center text-red bold">${PayrollDisplay.money(row.get("total_deductions"))}</td>
+								<td class="col-center bold text-green">${PayrollDisplay.money(row.get("net_salary"))}</td>
 								<td class="col-actions">
 									@if(canWrite && !currentBatch.finalized())
 										@template.admin.rowActions(rowId = cell.apply(row, "id"), t = t, items = @`
@@ -410,7 +412,7 @@
 								<td>${row.periodFrom()}</td>
 								<td>${row.periodTo()}</td>
 								<td>${row.employeeCount()}</td>
-								<td class="bold">${row.totalNet().toPlainString()}</td>
+								<td class="bold">${PayrollDisplay.money(row.totalNet())} ج.م</td>
 								<td>@template.admin.statusBadge(status = row.status(), t = t)</td>
 								<td class="col-actions">
 									@template.admin.rowActions(rowId = row.id(), t = t, items = @`

@@ -32,7 +32,7 @@ Use this area for attendance-device vendor analysis, protocol notes, certificati
 - `on-prem-agent.md` — added 2026-09-16. The agent that reads terminals which
   cannot push (ZKTeco over 4370, Hikvision over ISAPI): what it does and
   refuses to do, installing it on Windows and Linux, its configuration and
-  commands (D-257).
+  commands (D-258).
 - `devices-lab.md` — added 2026-09-16. Every terminal path simulated on one
   laptop against the sanitised seed: `scripts/devices-lab.sh`.
 
@@ -43,7 +43,7 @@ vendor-neutral core, which ADR-0006 Part A already authorises, nor building
 the ZKTeco adapter against the documented protocol, which D-164 (accepted
 2026-09-02) authorises; it blocks declaring the adapter verified.
 
-As of 2026-09-16 (D-257) every path a punch can take has code and a simulated
+As of 2026-09-16 (D-258) every path a punch can take has code and a simulated
 end-to-end run: a ZKTeco push, a ZKTeco read over 4370 by the on-premises
 agent, a Hikvision read over ISAPI by the agent, and a USB export imported
 from the dashboard or the agent. None has met real hardware. The first site

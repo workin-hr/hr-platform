@@ -122,7 +122,7 @@
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
 							<td>${row.penaltyType()}</td>
-							<td><span class="badge badge-gray">${row.daysDisplay()}</span></td>
+							<td class="text-red bold">${row.daysLabel(t)}</td>
 							<td class="text-muted" title="${row.reason() == null ? "" : row.reason()}">${ListDisplay.notes(row.reason(), 40)}</td>
 							<td>${row.penaltyDate() == null ? "—" : row.penaltyDate()}</td>
 							<td>
@@ -203,13 +203,13 @@
 						<div class="form-row">
 							<label>${t.apply("penalty_days")}
 								<select name="penalty_days" required data-dialog-field="penalty_days">
-									<option value="0.25">0.25</option>
-									<option value="0.5">0.5</option>
-									<option value="1">1</option>
-									<option value="2">2</option>
-									<option value="3">3</option>
-									<option value="4">4</option>
-									<option value="5">5</option>
+									<option value="0.25">${Penalty.daysLabel(0.25, t)}</option>
+									<option value="0.5">${Penalty.daysLabel(0.5, t)}</option>
+									<option value="1">${Penalty.daysLabel(1.0, t)}</option>
+									<option value="2">${Penalty.daysLabel(2.0, t)}</option>
+									<option value="3">${Penalty.daysLabel(3.0, t)}</option>
+									<option value="4">${Penalty.daysLabel(4.0, t)}</option>
+									<option value="5">${Penalty.daysLabel(5.0, t)}</option>
 								</select></label>
 						</div>
 						<div class="form-row">
@@ -252,13 +252,13 @@
 					<div class="form-row">
 						<label for="penalty_days">${t.apply("penalty_days")}</label>
 						<select id="penalty_days" name="penalty_days" required>
-							<option value="0.25">0.25</option>
-							<option value="0.5">0.5</option>
-							<option value="1" selected="true">1</option>
-							<option value="2">2</option>
-							<option value="3">3</option>
-							<option value="4">4</option>
-							<option value="5">5</option>
+							<option value="0.25">${Penalty.daysLabel(0.25, t)}</option>
+							<option value="0.5">${Penalty.daysLabel(0.5, t)}</option>
+							<option value="1" selected="true">${Penalty.daysLabel(1.0, t)}</option>
+							<option value="2">${Penalty.daysLabel(2.0, t)}</option>
+							<option value="3">${Penalty.daysLabel(3.0, t)}</option>
+							<option value="4">${Penalty.daysLabel(4.0, t)}</option>
+							<option value="5">${Penalty.daysLabel(5.0, t)}</option>
 						</select>
 					</div>
 					<div class="form-row">

@@ -3,7 +3,7 @@
 A small program on a computer at the branch that reads attendance terminals
 which cannot send punches themselves, and delivers those punches to the
 platform over HTTPS. Its code is `devices-agent/`; the platform side is
-`/api/v1/device-agents` (D-257).
+`/api/v1/device-agents` (D-258).
 
 ## Which Terminals Need It
 

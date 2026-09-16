@@ -130,11 +130,11 @@
 						label = t.apply("total_branches"), icon = "🏬", tone = "blue")
 				@template.admin.statCard(href = "/admin/payroll", value = String.valueOf(summary.payrollDraft()),
 						label = t.apply("payroll_draft"), icon = "🧾", tone = "yellow")
-				@template.admin.statCard(href = null, value = summary.gross(),
+				@template.admin.statCard(href = null, value = summary.gross() + " " + t.apply("currency_egp"),
 						label = t.apply("total_gross_salaries"), icon = "💵", tone = "yellow")
-				@template.admin.statCard(href = null, value = summary.basic(),
+				@template.admin.statCard(href = null, value = summary.basic() + " " + t.apply("currency_egp"),
 						label = t.apply("total_basic_salaries"), icon = "📊", tone = "violet")
-				@template.admin.statCard(href = "/admin/payroll", value = summary.net(),
+				@template.admin.statCard(href = "/admin/payroll", value = summary.net() + " " + t.apply("currency_egp"),
 						label = t.apply("monthly_net"), icon = "✅", tone = "green")
 				@template.admin.statCard(href = "/admin/employees?filter=inactive", value = String.valueOf(summary.resignations()),
 						label = t.apply("resignations_year"), icon = "↩", tone = "gray")

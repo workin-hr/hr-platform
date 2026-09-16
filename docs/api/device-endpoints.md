@@ -50,9 +50,9 @@ predicate on every query. Errors render the platform `{code, message}` body
 | `GET /api/v1/devices/unclaimed?serial_number=` | Has this exact serial contacted the receiver? | `{serial_number, seen, claimed}` and nothing more — no timestamps, address, push version or device type. `claimed` is true only for the caller's own device; a serial owned by another company answers exactly as one never seen. No list form exists, by design. `400 devices.serial_number_query_required`, `devices.serial_number_invalid` |
 | `GET /api/v1/devices/identities` | Device PIN bindings for the company | `{ "identities": [ {employee_id, pin, card_no, source, updated_at, employee_name} ] }`. Where no binding exists a PIN falls back to the `employee_code` of an **active** employee |
 | `PUT /api/v1/devices/identities` | Bind (or rebind) an employee's PIN | body `{employee_id, pin, card_no?}`; `404 devices.employee_not_found` (also for another tenant's employee); `400 devices.pin_required`, `devices.pin_invalid` (1–32 digits, the same rule the receiver's parser applies); `409 devices.pin_already_bound`, `devices.employee_already_bound` |
-| `GET /api/v1/devices/punches?device_id=&state=&limit=` | Raw punches, newest first, for shadow-mode visibility | `limit` defaults to 100, capped at 500; `state` is `RECEIVED`, `UNMATCHED`, `PAIRED` or `IGNORED`. `branch_id` is the branch the punch happened at, snapshotted at ingestion, so moving a device does not relabel its history. `delivered_via` is `PUSH`, `AGENT` or `FILE` (D-257) |
+| `GET /api/v1/devices/punches?device_id=&state=&limit=` | Raw punches, newest first, for shadow-mode visibility | `limit` defaults to 100, capped at 500; `state` is `RECEIVED`, `UNMATCHED`, `PAIRED` or `IGNORED`. `branch_id` is the branch the punch happened at, snapshotted at ingestion, so moving a device does not relabel its history. `delivered_via` is `PUSH`, `AGENT` or `FILE` (D-258) |
 
-## Agent-facing: `/api/v1/device-agents/**` (D-257)
+## Agent-facing: `/api/v1/device-agents/**` (D-258)
 
 JSON answers for a program, not the platform `{code,message}` body. Exists
 only when `app.devices.agents.enabled=true` (asserted by
@@ -71,7 +71,7 @@ Punches are parsed by the receiver's own ATTLOG parser and stored with the
 same dedup key, so a punch that a terminal pushes and an agent reads again is
 one row, credited to whichever arrived first.
 
-## Platform administrator: `/admin/devices` (D-257)
+## Platform administrator: `/admin/devices` (D-258)
 
 The JTE dashboard page, administrator-only (`DashboardAccess`): every
 company's terminals, the unclaimed-serial list, allocation of a serial to a
