@@ -10,6 +10,8 @@
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
+@param String flash = null
+@param String flashType = "success"
 @param Function<String, Boolean> available
 <%-- detail.php renders inside pages/companies, whose page.php:139 names
      these two. The port named none, so this page had the shared sheets and
@@ -23,6 +25,8 @@
 	lang = lang,
 	session = session,
 	t = t,
+	flash = flash,
+	flashType = flashType,
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css", "company-add.css"),
 	contentClass = "",

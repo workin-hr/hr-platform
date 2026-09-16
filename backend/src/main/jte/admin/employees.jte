@@ -40,6 +40,8 @@
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
+@param String flash = null
+@param String flashType = "success"
 @param Function<String, Boolean> available
 <%-- Today as legacy reckons it, supplied by AdminViewModelAdvice: the JVM
      default zone is not the one CURDATE() runs in, so a tenure computed here
@@ -59,6 +61,8 @@
 	lang = lang,
 	session = session,
 	t = t,
+	flash = flash,
+	flashType = flashType,
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css", "company-add.css", "org-form.css", "employee-form.css"),
 	pageScripts = java.util.List.of("employee-form.js", "employee-shift.js"),

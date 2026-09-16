@@ -15,6 +15,8 @@
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
+@param String flash = null
+@param String flashType = "success"
 @param Function<String, Boolean> available
 <%-- Legacy has no page here: pages/companies/page.php deletes on a browser
      confirm(). This one counts what goes with the company and asks for its
@@ -28,6 +30,8 @@
 	lang = lang,
 	session = session,
 	t = t,
+	flash = flash,
+	flashType = flashType,
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css", "company-add.css"),
 	contentClass = "",

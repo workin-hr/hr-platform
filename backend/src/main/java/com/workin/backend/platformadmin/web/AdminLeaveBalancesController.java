@@ -8,6 +8,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.LeaveBalanceAdminService;
@@ -99,7 +100,8 @@ public class AdminLeaveBalancesController {
 			@RequestParam(name = "employee_id", required = false, defaultValue = "0") long employeeId,
 			@RequestParam(required = false, defaultValue = "") String year,
 			@RequestParam(name = "total_days", required = false, defaultValue = "") String totalDays,
-			@RequestParam(name = "used_days", required = false, defaultValue = "") String usedDays) {
+			@RequestParam(name = "used_days", required = false, defaultValue = "") String usedDays,
+			Model model, RedirectAttributes redirect) {
 
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
@@ -116,6 +118,7 @@ public class AdminLeaveBalancesController {
 						LeaveBalanceAdminService.Refusal.NO_COMPANY);
 			};
 			DashboardOrgScope.rememberAfterWrite(session, request, wrote);
+			AdminFlash.saved(redirect, model);
 			return "redirect:" + PATH;
 		} catch (LeaveBalanceAdminService.RefusedException refused) {
 			return "redirect:" + PATH + "?error=" + messageKey(refused);

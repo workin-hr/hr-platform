@@ -1,5 +1,7 @@
 package com.workin.backend.platformadmin.web;
 
+import java.util.function.Function;
+
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -8,6 +10,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.content.BroadcastAdminService;
@@ -38,7 +41,6 @@ public class AdminNotificationsController {
 	public String list(@AuthenticationPrincipal PlatformAdminWebPrincipal principal, Model model,
 			HttpServletRequest request,
 			@RequestParam(required = false) String error,
-			@RequestParam(required = false) Integer sent,
 			@RequestParam(required = false, defaultValue = "") String recipient,
 			@RequestParam(name = "date_from", required = false, defaultValue = "") String dateFrom,
 			@RequestParam(name = "date_to", required = false, defaultValue = "") String dateTo) {
@@ -54,7 +56,6 @@ public class AdminNotificationsController {
 				recipient, dateFrom, dateTo, filters.page(), filters.perPage()));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
 		model.addAttribute("errorKey", error);
-		model.addAttribute("sentCount", sent);
 		return VIEW;
 	}
 
@@ -62,10 +63,15 @@ public class AdminNotificationsController {
 			+ "does. Gated in the service by the surface flag and a bound second factor, and audited.")
 	@PostMapping(path = PlatformAdminWebSecurityConfig.NOTIFICATIONS_PATH, params = "action=delete")
 	public String delete(@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
-			@RequestParam long id) {
+			@RequestParam long id,
+			Model model, RedirectAttributes redirect) {
 		BroadcastAdminService.Result result = this.service.delete(
 				principal.platformAdminId(), id);
-		return result.ok() ? REDIRECT : REDIRECT + "?error=" + result.errorKey();
+		if (!result.ok()) {
+			return REDIRECT + "?error=" + result.errorKey();
+		}
+		AdminFlash.deleted(redirect, model);
+		return REDIRECT;
 	}
 
 	@AuthenticatedUseCase(reason = "Sends one broadcast. Gated in the service by the surface "
@@ -76,15 +82,27 @@ public class AdminNotificationsController {
 			@RequestParam(required = false) String title,
 			@RequestParam(required = false) String body,
 			@RequestParam(required = false) Long companyId,
-			@RequestParam(required = false) String confirmBroadcast) {
+			@RequestParam(required = false) String confirmBroadcast,
+			Model model, RedirectAttributes redirect) {
 
 		BroadcastAdminService.Result result = this.service.send(
 				principal.platformAdminId(), audience, title, body,
 				companyId, confirmBroadcast != null && !confirmBroadcast.isBlank());
 
-		return result.ok()
-				? REDIRECT + "?sent=" + result.recipients()
-				: REDIRECT + "?error=" + result.errorKey();
+		// Legacy's dispatch answers `'ok' => $count > 0`: a send that reached nobody is its
+		// error_required, not a success.
+		if (!result.ok() || result.recipients() == 0) {
+			return REDIRECT + "?error=" + (result.ok() ? "error_required" : result.errorKey());
+		}
+		// `__('sent_ok') . ' — ' . $result['label'] . ' (' . $result['count'] . ')'`, with the label
+		// legacy's notifications/helper.php gives each audience.
+		String label = switch (BroadcastAudience.of(audience)) {
+			case ALL_EMPLOYEES -> "send_all_employees_system";
+			case COMPANY_EMPLOYEES -> "send_to_all";
+		};
+		Function<String, String> t = AdminFlash.t(model);
+		AdminFlash.success(redirect, t.apply("sent_ok") + " — " + t.apply(label) + " (" + result.recipients() + ")");
+		return REDIRECT;
 	}
 
 }

@@ -6,6 +6,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.content.GuideVideoAdminService;
@@ -49,7 +50,8 @@ public class AdminGuideVideosController {
 			@RequestParam(name = "title_en", required = false) String titleEn,
 			@RequestParam(required = false) String video,
 			@RequestParam(name = "sort_order", required = false) String sortOrder,
-			@RequestParam(name = "is_active", required = false) String isActive) {
+			@RequestParam(name = "is_active", required = false) String isActive,
+			Model model, RedirectAttributes redirect) {
 
 		long adminId = principal.platformAdminId();
 		// `!empty($post['is_active'])` -- the checkbox is absent when unticked.
@@ -64,7 +66,14 @@ public class AdminGuideVideosController {
 			default -> new GuideVideoAdminService.Result(false, "error_not_found");
 		};
 
-		return result.ok() ? REDIRECT : REDIRECT + "?error=" + result.errorKey();
+		if (!result.ok()) {
+			return REDIRECT + "?error=" + result.errorKey();
+		}
+		switch (action) {
+			case "delete" -> AdminFlash.deleted(redirect, model);
+			default -> AdminFlash.saved(redirect, model);
+		}
+		return REDIRECT;
 	}
 
 }

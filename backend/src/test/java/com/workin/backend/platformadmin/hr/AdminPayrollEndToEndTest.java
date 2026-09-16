@@ -26,7 +26,7 @@ class AdminPayrollEndToEndTest extends AdminPayrollTestSupport {
 
 	@Test
 	void creatingARunWritesADraftWithItsFiscalBounds() {
-		submit("action", "create_run", "company_id", String.valueOf(this.companyA),
+		ResponseEntity<String> response = submit("action", "create_run", "company_id", String.valueOf(this.companyA),
 				"month", "3", "year", "2026");
 
 		Map<String, Object> row = this.jdbc.queryForMap(
@@ -36,6 +36,8 @@ class AdminPayrollEndToEndTest extends AdminPayrollTestSupport {
 		assertThat(row.get("status")).as("PAY_DRAFT").isEqualTo("draft");
 		assertThat(row.get("period_from").toString()).isEqualTo("2026-03-01");
 		assertThat(row.get("period_to").toString()).isEqualTo("2026-03-31");
+		assertThat(body(response.getHeaders().getLocation().getRawPath()))
+				.as("flash(__('saved_ok'))").contains("<div class=\"flash flash-success\">تم الحفظ بنجاح ✓</div>");
 	}
 
 	@Test
@@ -61,6 +63,8 @@ class AdminPayrollEndToEndTest extends AdminPayrollTestSupport {
 		assertThat(response.getHeaders().getLocation()).asString().doesNotContain("error");
 		assertThat(this.jdbc.queryForObject(
 				"SELECT COUNT(*) FROM payroll_batches", Integer.class)).isZero();
+		assertThat(body(response.getHeaders().getLocation().getRawPath()))
+				.as("and flashes nothing, as PHP (D-253)").doesNotContain("flash-success");
 	}
 
 	@Test

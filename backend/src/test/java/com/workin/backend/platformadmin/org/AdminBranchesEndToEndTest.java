@@ -290,6 +290,38 @@ class AdminBranchesEndToEndTest {
 				"SELECT is_active FROM branches WHERE id = " + id, Integer.class)).isZero();
 	}
 
+	/**
+	 * Legacy's {@code flash()}: a write leaves its message for the page it returns to, shown
+	 * once, and a delete's as an error (D-253). A refused write leaves none.
+	 */
+	@Test
+	void aWriteFlashesLegacysMessageOnceOnThePageItReturnsTo() {
+		Page form = page("/admin/branches?action=add", this.cookie);
+		assertThat(post("/admin/branches", this.cookie, form.csrf(),
+				"action", "add", "company_id", String.valueOf(this.companyA),
+				"name", "Flashed", "address", "Somewhere",
+				"lat", "30.044", "lng", "31.235", "radius_meters", "150")
+				.getHeaders().getLocation()).asString().doesNotContain("error");
+
+		assertThat(body("/admin/branches")).contains("<div class=\"flash flash-success\">تم الحفظ بنجاح ✓</div>");
+		assertThat(body("/admin/branches")).as("shown once, then gone").doesNotContain("flash-success");
+
+		long id = this.jdbc.queryForObject("SELECT id FROM branches WHERE name = 'Flashed'", Long.class);
+		post("/admin/branches", this.cookie, page("/admin/branches", this.cookie).csrf(),
+				"action", "delete", "id", String.valueOf(id), "company_id", String.valueOf(this.companyA));
+		assertThat(body("/admin/branches")).contains("<div class=\"flash flash-error\">تم الحذف</div>");
+
+		// A refusal the remembered filter cannot turn into a success: an expiry in the past.
+		long coded = seedBranch(this.companyA, "Coded");
+		java.net.URI refused = post("/admin/branches", this.cookie, page("/admin/branches", this.cookie).csrf(),
+				"action", "generate_qr", "id", String.valueOf(coded), "company_id", String.valueOf(this.companyA),
+				"expires_at", "2020-01-01T00:00").getHeaders().getLocation();
+		assertThat(refused).asString().contains("error=branch_qr_invalid_expiry");
+		assertThat(body(refused.getRawPath() + "?" + refused.getRawQuery()))
+				.as("a refusal shows its error and flashes nothing")
+				.contains("flash-error").doesNotContain("flash-success");
+	}
+
 	@Test
 	void generatingACodeStoresThirtyTwoHexCharactersAndItsExpiry() {
 		long id = seedBranch(this.companyA, "Coded");
