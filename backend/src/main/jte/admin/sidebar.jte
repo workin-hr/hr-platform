@@ -13,6 +13,7 @@
      render.php); the copied sidebar.css lays this out and nothing else will. --%>
 <aside class="sidebar" id="admin-sidebar">
 	<div class="logo">
+		<img src="/admin/_assets/logo.png" alt="${t.apply("app_name")}" class="logo-icon" width="28" height="28">
 		<span class="logo-text">${t.apply("app_name")}</span>
 	</div>
 	<nav>
