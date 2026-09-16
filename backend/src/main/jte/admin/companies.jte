@@ -15,6 +15,8 @@
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
+@param String flash = null
+@param String flashType = "success"
 @param Function<String, Boolean> available
 <%-- The directory: the dashboard's fourteen columns, its five filters and
      its pager. Always supplied -- the controller has one store to read. --%>
@@ -37,6 +39,8 @@
 	lang = lang,
 	session = session,
 	t = t,
+	flash = flash,
+	flashType = flashType,
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css", "company-add.css"),
 	body = @`

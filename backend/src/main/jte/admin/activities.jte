@@ -25,6 +25,8 @@
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
+@param String flash = null
+@param String flashType = "success"
 @param Function<String, Boolean> available
 <%-- dashboard/pages/activities/page.php. A read-only feed: two tables joined
      by a UNION, so every row carries the columns of whichever side it came
@@ -38,6 +40,8 @@
 	lang = lang,
 	session = session,
 	t = t,
+	flash = flash,
+	flashType = flashType,
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css"),
 	contentClass = "hr-page activities-page",

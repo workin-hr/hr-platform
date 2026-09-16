@@ -12,6 +12,8 @@
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
+@param String flash = null
+@param String flashType = "success"
 @param Function<String, Boolean> available
 <%-- dashboard/pages/salary_calculator/page.php. Class names and stylesheets
      are the dashboard's own, and the content class is the page's, not the
@@ -26,6 +28,8 @@
 	lang = lang,
 	session = session,
 	t = t,
+	flash = flash,
+	flashType = flashType,
 	available = available,
 	pageStyles = java.util.List.of("payroll-pages.css", "salary-calculator.css"),
 	contentClass = "payroll-page org-page-salary-calculator",

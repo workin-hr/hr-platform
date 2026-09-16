@@ -10,6 +10,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.Employee;
@@ -143,7 +144,8 @@ public class AdminEmployeesController {
 			@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
 			HttpServletRequest request,
 			@RequestParam String action,
-			@RequestParam(required = false, defaultValue = "0") long id) {
+			@RequestParam(required = false, defaultValue = "0") long id,
+			Model model, RedirectAttributes redirect) {
 
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
@@ -161,6 +163,12 @@ public class AdminEmployeesController {
 						EmployeeAdminService.Refusal.FOREIGN_ROW);
 			};
 			DashboardOrgScope.rememberAfterWrite(session, request, wrote);
+			switch (action) {
+				case "deactivate" -> AdminFlash.warning(redirect, AdminFlash.t(model).apply("deactivate"));
+				case "reactivate" -> AdminFlash.success(redirect, AdminFlash.t(model).apply("reactivate") + " ✓");
+				case "delete" -> AdminFlash.deleted(redirect, model);
+				default -> AdminFlash.saved(redirect, model);
+			}
 			return "redirect:" + PATH;
 		} catch (EmployeeAdminService.RefusedException refused) {
 			return "redirect:" + PATH + "?error=" + messageKey(refused);

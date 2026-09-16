@@ -22,6 +22,8 @@
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
+@param String flash = null
+@param String flashType = "success"
 @param Function<String, Boolean> available
 !{boolean canWrite = actionsEnabled;}
 <%-- dashboard/pages/settings/page.php. Three tabs over three platform-level
@@ -36,6 +38,8 @@
 	lang = lang,
 	session = session,
 	t = t,
+	flash = flash,
+	flashType = flashType,
 	available = available,
 	pageStyles = "app_content".equals(tab)
 		? java.util.List.of("hr-pages.css", "settings.css", "app-content.css")
