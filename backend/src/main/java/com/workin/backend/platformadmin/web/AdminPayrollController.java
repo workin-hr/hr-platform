@@ -198,14 +198,21 @@ public class AdminPayrollController {
 			}
 
 			switch (action) {
-				case "create_run" -> this.service.createRun(
-						session, adminId, companyId, month, year);
+				case "create_run" -> {
+					// `if ($co) { ... flash(__('saved_ok')); }`: an unknown company writes and flashes nothing.
+					if (this.service.createRun(session, adminId, companyId, month, year)) {
+						AdminFlash.saved(redirect, model);
+					}
+				}
 				case "calculate" -> {
 					PayrollAdminService.Calculation calculation = this.service.calculate(
 							session, adminId, id, weeklyRestLabel(request));
-					Function<String, String> t = AdminFlash.t(model);
-					AdminFlash.success(redirect,
-							t.apply("calculate") + " — " + calculation.calculated() + " " + t.apply("employee"));
+					// Legacy's flash sits inside the check that skips a finalized batch.
+					if (calculation.ran()) {
+						Function<String, String> t = AdminFlash.t(model);
+						AdminFlash.success(redirect,
+								t.apply("calculate") + " — " + calculation.calculated() + " " + t.apply("employee"));
+					}
 				}
 				case "finalize" -> this.service.finalizeRun(session, adminId, id);
 				case "reopen" -> this.service.reopenRun(session, adminId, id);
@@ -214,7 +221,6 @@ public class AdminPayrollController {
 						PayrollAdminService.Refusal.INVALID);
 			}
 			switch (action) {
-				case "create_run" -> AdminFlash.saved(redirect, model);
 				case "finalize" -> AdminFlash.success(redirect, AdminFlash.t(model).apply("finalize") + " ✓");
 				case "reopen" -> AdminFlash.warning(redirect, AdminFlash.t(model).apply("reopen"));
 				case "delete_run" -> AdminFlash.deleted(redirect, model);

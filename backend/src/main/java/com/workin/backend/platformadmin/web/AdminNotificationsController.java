@@ -89,14 +89,19 @@ public class AdminNotificationsController {
 				principal.platformAdminId(), audience, title, body,
 				companyId, confirmBroadcast != null && !confirmBroadcast.isBlank());
 
-		if (!result.ok()) {
-			return REDIRECT + "?error=" + result.errorKey();
+		// Legacy's dispatch answers `'ok' => $count > 0`: a send that reached nobody is its
+		// error_required, not a success.
+		if (!result.ok() || result.recipients() == 0) {
+			return REDIRECT + "?error=" + (result.ok() ? "error_required" : result.errorKey());
 		}
-		// `__('sent_ok') . ' — ' . $result['label'] . ' (' . $result['count'] . ')'`, with this surface's
-		// own audience label.
+		// `__('sent_ok') . ' — ' . $result['label'] . ' (' . $result['count'] . ')'`, with the label
+		// legacy's notifications/helper.php gives each audience.
+		String label = switch (BroadcastAudience.of(audience)) {
+			case ALL_EMPLOYEES -> "send_all_employees_system";
+			case COMPANY_EMPLOYEES -> "send_to_all";
+		};
 		Function<String, String> t = AdminFlash.t(model);
-		AdminFlash.success(redirect, t.apply("sent_ok") + " — "
-				+ t.apply(BroadcastAudience.of(audience).labelKey()) + " (" + result.recipients() + ")");
+		AdminFlash.success(redirect, t.apply("sent_ok") + " — " + t.apply(label) + " (" + result.recipients() + ")");
 		return REDIRECT;
 	}
 

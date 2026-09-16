@@ -28,8 +28,30 @@ class AdminNotificationsFlashTest {
 				.send(ADMIN, "all_employees", "Title", "Body", null, "1", model(), redirect);
 
 		assertThat(view).as("the count travels in the flash now, not the query").isEqualTo(REDIRECT);
-		assertThat(redirect.getFlashAttributes().get("flash")).isEqualTo("sent_ok — notif_audience_all_employees (7)");
+		assertThat(redirect.getFlashAttributes().get("flash")).isEqualTo("sent_ok — send_all_employees_system (7)");
 		assertThat(redirect.getFlashAttributes().get("flashType")).isEqualTo("success");
+	}
+
+	@Test
+	void aCompanySendCarriesLegacysLabelForThatAudience() {
+		RedirectAttributesModelMap redirect = new RedirectAttributesModelMap();
+
+		controller(new BroadcastAdminService.Result(true, 3, null))
+				.send(ADMIN, "company_employees", "Title", "Body", 5L, null, model(), redirect);
+
+		assertThat(redirect.getFlashAttributes().get("flash")).isEqualTo("sent_ok — send_to_all (3)");
+	}
+
+	/** Legacy's dispatch answers `'ok' => $count > 0`, and the page flashes error_required. */
+	@Test
+	void aSendThatReachesNobodyIsLegacysErrorNotASuccess() {
+		RedirectAttributesModelMap redirect = new RedirectAttributesModelMap();
+
+		String view = controller(new BroadcastAdminService.Result(true, 0, null))
+				.send(ADMIN, "all_employees", "Title", "Body", null, "1", model(), redirect);
+
+		assertThat(view).isEqualTo(REDIRECT + "?error=error_required");
+		assertThat(redirect.getFlashAttributes()).isEmpty();
 	}
 
 	@Test
