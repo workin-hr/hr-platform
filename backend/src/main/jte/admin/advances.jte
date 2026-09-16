@@ -125,7 +125,7 @@
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
 							<td class="bold">${row.amountDisplay()}</td>
-							<td><span class="badge badge-blue">${row.remainingDisplay()}</span></td>
+							<td class="${row.stillOwed() ? "text-red" : "text-green"}">${row.remainingDisplay()}</td>
 							<td>${row.requestDate() == null ? "—" : row.requestDate()}</td>
 							<%-- Both reasons are free text and can be long; the cell
 							     shows the start and the title carries the whole of it,

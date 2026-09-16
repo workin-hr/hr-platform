@@ -86,6 +86,10 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 		String cookie = signIn();
 		Page home = get("/admin", cookie);
 		assertThat(home.response().getStatusCode()).isEqualTo(HttpStatus.OK);
+		// home_format_money(): the three salary totals carry the currency in the page's language.
+		assertThat(java.util.regex.Pattern.compile("<div class=\"num\">\\d{1,3}(,\\d{3})* \u062c\\.\u0645</div>")
+				.matcher(home.response().getBody()).results().count())
+				.as("gross, basic and net salaries").isEqualTo(3);
 		Page sessions = get("/admin/sessions", cookie);
 		// The current session is the row carrying the badge. Asserted as markup
 		// rather than as its label: this surface renders in Arabic by default

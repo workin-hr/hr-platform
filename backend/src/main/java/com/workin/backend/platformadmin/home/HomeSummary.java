@@ -40,7 +40,10 @@ public record HomeSummary(
 		BigDecimal grossSalaries, BigDecimal basicSalaries,
 		long payrollDraft, BigDecimal monthlyNet, long resignations) {
 
-	/** {@code home_format_money()}: {@code number_format($n, 0)}, no currency suffix. */
+	/**
+	 * The number half of {@code home_format_money()}, {@code number_format($n, 0)}. Legacy appends
+	 * {@code ' ' . __('currency_egp')}, and the template does that, since the word is the page's language.
+	 */
 	public String gross() {
 		return money(this.grossSalaries);
 	}

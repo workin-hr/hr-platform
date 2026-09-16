@@ -422,6 +422,22 @@ class AdminAdvancesEndToEndTest {
 				.isEqualTo(this.employeeA);
 	}
 
+	/**
+	 * page.php:209-210: number_format($amount, 0), and the remaining amount red while any is owed,
+	 * green once it is repaid.
+	 */
+	@Test
+	void theAmountsAreWholePoundsAndTheRemainingIsColouredByWhetherItIsOwed() {
+		seedAdvance(this.employeeA, "12345.50", "600", "approved");
+		seedAdvance(this.employeeA, "1000", "0", "approved");
+
+		assertThat(body("/admin/advances"))
+				.contains("<td class=\"bold\">12,346</td>")
+				.contains("<td class=\"text-red\">600</td>")
+				.contains("<td class=\"bold\">1,000</td>")
+				.contains("<td class=\"text-green\">0</td>");
+	}
+
 	@Test
 	void thePickerListsEveryActiveEmployeeUnderLegacysLabels() {
 		insertActiveEmployees(this.companyB, 520);
