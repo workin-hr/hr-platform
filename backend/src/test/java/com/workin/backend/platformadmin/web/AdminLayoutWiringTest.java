@@ -129,6 +129,8 @@ class AdminLayoutWiringTest {
 		// JTE's own `@import java...` directives are not CSS imports, so an import must name a URL or a string.
 		Pattern webFont = Pattern.compile("(?i)@font-face|@import\\s+(url\\(|[\"'])|fonts\\.(googleapis|gstatic)\\.com");
 		Pattern family = Pattern.compile("(?i)font-family\\s*:\\s*([^;}]+)");
+		// The shorthand carries the family too: `font: 14px "Cairo", sans-serif`.
+		Pattern shorthand = Pattern.compile("(?i)(?:^|[;{\\s\"'])font\\s*:\\s*([^;}]+)");
 		Set<String> stackSheets = Set.of("style.css", "login.css");
 		// `inherit`, and the emoji stack on the one icon rule in app-content.css.
 		Set<String> otherFamilies = Set.of(
@@ -155,20 +157,34 @@ class AdminLayoutWiringTest {
 						offenders.add(name + " sets font-family " + value);
 					}
 				}
+				Matcher shorthands = shorthand.matcher(css);
+				while (shorthands.find()) {
+					String value = shorthands.group(1).trim();
+					if (!"inherit".equals(value)) {
+						offenders.add(name + " sets font " + value);
+					}
+				}
 			}
 		}
-		Pattern stylesheet = Pattern.compile("(?i)<link\\b[^>]*rel=\"stylesheet\"[^>]*>");
-		Pattern href = Pattern.compile("(?i)href=\"([^\"]*)\"");
+		// Any quoting HTML accepts, because a `rel=stylesheet` without quotes loads just as well.
+		Pattern link = Pattern.compile("(?i)<link\\b[^>]*>");
+		Pattern styles = Pattern.compile("(?i)rel\\s*=\\s*[\"']?[^\"'>]*\\bstylesheet\\b");
+		Pattern href = Pattern.compile("(?i)href\\s*=\\s*([\"']?)([^\"'>\\s]+)\\1");
 		try (var templates = Files.walk(TEMPLATES)) {
 			for (Path template : templates.filter(file -> file.toString().endsWith(".jte")).sorted().toList()) {
 				String body = Files.readString(template, StandardCharsets.UTF_8);
-				if (webFont.matcher(body).find() || family.matcher(body).find()) {
+				if (webFont.matcher(body).find() || family.matcher(body).find()
+						|| shorthand.matcher(body).find()) {
 					offenders.add(fileName(template) + " carries a font of its own");
 				}
-				Matcher links = stylesheet.matcher(body);
+				Matcher links = link.matcher(body);
 				while (links.find()) {
-					Matcher target = href.matcher(links.group());
-					if (!target.find() || !target.group(1).startsWith("/admin/_assets/")) {
+					String tag = links.group();
+					if (!styles.matcher(tag).find()) {
+						continue;
+					}
+					Matcher target = href.matcher(tag);
+					if (!target.find() || !target.group(2).startsWith("/admin/_assets/")) {
 						offenders.add(fileName(template) + " links a stylesheet from outside /admin/_assets/");
 					}
 				}
@@ -196,6 +212,10 @@ class AdminLayoutWiringTest {
 				.contains("<img src=\"/admin/_assets/logo.png\" alt=\"\" class=\"login-hero-logo\" width=\"40\" height=\"40\">")
 				.contains("<img src=\"/admin/_assets/logo.png\" alt=\"${t.apply(\"app_name\")}\" "
 						+ "class=\"login-card-logo\" width=\"48\" height=\"48\">");
+		assertThat(Files.readString(TEMPLATES.resolve("sidebar.jte"), StandardCharsets.UTF_8))
+				.as("legacy's sidebar shows it beside the name (sidebar/view.php:15-18)")
+				.contains("<img src=\"/admin/_assets/logo.png\" alt=\"${t.apply(\"app_name\")}\" "
+						+ "class=\"logo-icon\" width=\"28\" height=\"28\">");
 		byte[] logo = Files.readAllBytes(ASSETS.resolve("logo.png"));
 		assertThat(java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(logo)))
 				.as("legacy's logo.png, byte for byte")
