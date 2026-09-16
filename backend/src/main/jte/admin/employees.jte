@@ -434,7 +434,7 @@
 							<td class="text-muted">${EmployeeDisplay.workTenure(row.hireDate(), arabic, today)}</td>
 							<td class="text-muted">${EmployeeDisplay.contractDuration(row.contractDurationMonths(), arabic)}</td>
 							<td>
-								@template.admin.statusBadge(status = row.active() ? "active" : "inactive", t = t)
+								@template.admin.statusBadge(status = row.active() ? "active" : "suspended", t = t)
 							</td>
 							<td class="col-actions">
 								@if(canManage)

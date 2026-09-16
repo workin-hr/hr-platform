@@ -240,7 +240,7 @@
 							<td><span class="badge badge-blue">${row.employeeCount()}</span></td>
 							<td><span class="badge badge-gray">${row.jobTitleCount()}</span></td>
 							<td>
-								@template.admin.statusBadge(status = row.active() ? "active" : "inactive", t = t)
+								@template.admin.statusBadge(status = row.active() ? "active" : "suspended", t = t)
 							</td>
 							<td>${row.createdDate()}</td>
 							<td class="col-actions">

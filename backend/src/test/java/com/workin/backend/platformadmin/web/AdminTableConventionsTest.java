@@ -252,6 +252,96 @@ class AdminTableConventionsTest {
 				.contains("\"status_\" + status");
 	}
 
+	/**
+	 * The status each page hands the partial, from legacy's own call at the same place. Five org
+	 * pages say {@code 'suspended'} where the rest say {@code 'inactive'}, and the employee detail
+	 * page says {@code '1'/'0'} -- different words, same grey -- so a partial that maps correctly
+	 * can still render the wrong label if a page passes the wrong status.
+	 *
+	 * <p>Empty means the page passes the row's own status, as legacy's {@code badge($row['status'])}
+	 * does.
+	 */
+	private static final Map<String, List<String>> LEGACY_STATUS = Map.ofEntries(
+			Map.entry("administrative-decisions.jte", List.of("active", "inactive")),
+			Map.entry("advances.jte", List.of()),
+			Map.entry("assets.jte", List.of("1", "0")),
+			Map.entry("banners.jte", List.of("active", "inactive")),
+			Map.entry("branches.jte", List.of("active", "suspended")),
+			Map.entry("companies.jte", List.of()),
+			Map.entry("company-detail.jte", List.of()),
+			Map.entry("complaints.jte", List.of()),
+			Map.entry("departments.jte", List.of("active", "suspended")),
+			Map.entry("employee-detail.jte", List.of("1", "0")),
+			Map.entry("employees.jte", List.of("active", "suspended")),
+			Map.entry("faqs.jte", List.of("active", "inactive", "active", "inactive")),
+			Map.entry("guide-videos.jte", List.of("active", "inactive")),
+			Map.entry("job-titles.jte", List.of("active", "suspended")),
+			Map.entry("join-requests.jte", List.of("approved", "approved", "rejected", "rejected", "pending")),
+			Map.entry("notifications.jte", List.of("1", "0")),
+			Map.entry("payroll.jte", List.of()),
+			Map.entry("penalties.jte", List.of("1", "0")),
+			Map.entry("phone-countries.jte", List.of("active", "inactive")),
+			Map.entry("requests.jte", List.of()),
+			Map.entry("shifts.jte", List.of("active", "suspended")));
+
+	@Test
+	void everyBadgePassesTheStatusLegacyPassesAtThatPlace() throws IOException {
+		Pattern call = Pattern.compile("(?s)@template\\.admin\\.statusBadge\\(status = (.+?), t = t\\)");
+		Pattern literal = Pattern.compile("\"([^\"]*)\"");
+		Map<String, List<String>> passed = new java.util.TreeMap<>();
+		for (Path template : templates()) {
+			String name = template.getFileName().toString();
+			Matcher calls = call.matcher(Files.readString(template, StandardCharsets.UTF_8));
+			while (calls.find()) {
+				Matcher literals = literal.matcher(calls.group(1));
+				List<String> statuses = new ArrayList<>(passed.getOrDefault(name, List.of()));
+				while (literals.find()) {
+					statuses.add(literals.group(1));
+				}
+				passed.put(name, statuses);
+			}
+		}
+		assertThat(passed)
+				.as("the partial maps a status to a colour and a label; passing the wrong status "
+						+ "renders the wrong word in the right colour, which no other check sees")
+				.containsExactlyInAnyOrderEntriesOf(LEGACY_STATUS);
+	}
+
+	/**
+	 * The partial builds its keys ({@code "status_" + status} and the rest), so the template
+	 * message-key gate, which reads literal {@code t.apply("...")} calls, no longer covers any badge
+	 * label. A missing key renders as its own name, in production, with every test green.
+	 */
+	@Test
+	void everyLabelTheStatusBadgeCanAskForResolves() throws IOException {
+		java.util.Set<String> known = new java.util.TreeSet<>();
+		for (String bundle : List.of("admin-messages.properties", "admin-own.properties")) {
+			Path path = Path.of("src/main/resources/i18n", bundle);
+			for (String line : Files.readAllLines(path, StandardCharsets.UTF_8)) {
+				String trimmed = line.trim();
+				int equals = trimmed.indexOf('=');
+				if (!trimmed.isEmpty() && !trimmed.startsWith("#") && equals > 0) {
+					known.add(trimmed.substring(0, equals).trim());
+				}
+			}
+		}
+		List<String> statuses = List.of("active", "pending", "rejected", "suspended", "approved", "draft",
+				"finalized", "open", "in_review", "closed", "done", "paid", "inactive");
+		List<String> missing = new ArrayList<>();
+		for (String status : statuses) {
+			if (!known.contains("status_" + status)) {
+				missing.add("status_" + status);
+			}
+		}
+		for (String key : List.of("yes", "no", "gender_male", "gender_female", "method_app", "method_excel",
+				"method_qr", "role_admin", "role_hr", "role_manager", "role_employee")) {
+			if (!known.contains(key)) {
+				missing.add(key);
+			}
+		}
+		assertThat(missing).as("a label the badge can ask for but no catalogue defines").isEmpty();
+	}
+
 	private static int count(String line, String token) {
 		int total = 0;
 		for (int at = line.indexOf(token); at >= 0; at = line.indexOf(token, at + 1)) {

@@ -51,7 +51,11 @@ public final class ListDisplay {
 	 * {@code mb_strimwidth($text, 0, $width, '…')}: the FAQ list's own cut
 	 * ({@code pages/faqs/page.php:131-132}), which is not {@code hr_request_notes_display()}.
 	 *
-	 * <p>Two differences matter. The marker counts towards the width, so a cut answer is 59
+	 * <p>{@code mb_strimwidth} budgets display width, where an East Asian wide character counts
+	 * two; this counts code points. The two agree for every character this dashboard carries --
+	 * Arabic, Latin and digits are all width one -- and a CJK question would cut wider here.
+	 *
+	 * <p>Two differences from {@link #notes} matter. The marker counts towards the width, so a cut answer is 59
 	 * characters and an ellipsis rather than 60 and one. And nothing is trimmed, and empty text
 	 * stays empty rather than becoming an em dash.
 	 */
