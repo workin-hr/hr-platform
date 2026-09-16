@@ -30,6 +30,10 @@
 <%-- Null when the page's own handler takes the post; jte's smart attributes
      omit the attribute then rather than emitting action="". --%>
 @param String formAction = null
+<%-- Legacy's complaint and company-reject windows carry a Cancel beside Save
+     (complaints/page.php:240, companies/page.php:288); its decision windows do
+     not. crud.js closes on .modal-close, so Cancel is that class and no submit. --%>
+@param String cancelLabel = null
 <div class="modal-bg" id="${id}" aria-hidden="true">
 	<div class="modal" role="dialog" aria-modal="true" aria-labelledby="${id}-title">
 		<button type="button" class="modal-close" aria-label="${t.apply("close")}">&times;</button>
@@ -47,6 +51,9 @@
 			     is type="button": Enter in a field submits through Save rather
 			     than dismissing what was typed. --%>
 			<div class="form-footer">
+				@if(cancelLabel != null)
+					<button type="button" class="btn btn-gray modal-close">${cancelLabel}</button>
+				@endif
 				<button type="submit" class="btn btn-${submitVariant}">${submitLabel}</button>
 			</div>
 		</form>

@@ -165,6 +165,85 @@ test('opening focuses the first field, and closing returns focus to the row', as
 	await expect(trigger, 'back to the row that opened it').toBeFocused();
 });
 
+// Shaped like a real list page: the layout's shell and stylesheets, in the layout's order,
+// a table card taller than the viewport holding the window, and the rows' ⋮ menus. A
+// window written straight under <body> cannot show what the page's containers do to it:
+// an animated card kept a transform, became the containing block of the fixed window, and
+// laid it out against itself -- off-centre, scrolling the page, its title off-screen.
+const SHEETS = ['style.css', 'app-ui.css', 'sidebar.css', 'admin-extra.css', 'app-responsive.css', 'hr-pages.css'];
+
+function listPage(rows) {
+	const body = Array.from({ length: rows }, (_, i) => `<tr><td>row ${i}</td><td class="col-actions">
+  <div class="row-actions" data-row-actions>
+    <button type="button" class="row-actions__trigger" aria-label="actions" aria-haspopup="menu"
+            aria-expanded="false" aria-controls="menu-${i}">⋮</button>
+    <div class="row-actions__menu" id="menu-${i}" role="menu">
+      <button type="button" role="menuitem" class="row-actions__item" data-dialog="edit"
+              data-dialog-id="${i}" data-dialog-subject="Row ${i}" data-dialog-nameEn="Row ${i}">edit</button>
+    </div>
+  </div></td></tr>`).join('');
+	return `<!doctype html><html lang="ar" dir="rtl"><body class="lang-ar">
+<div class="shell"><main class="main" id="main-content">
+  <div class="topbar"><h1 class="page-title">list</h1></div>
+  <div class="content hr-page"><div class="data-table-card">
+    <div class="table-wrap"><table class="tbl"><tbody>${body}</tbody></table></div>
+    ${WINDOW('edit', '<div class="form-row"><label for="f">name</label><input type="text" id="f" name="nameEn" data-dialog-field="nameEn"></div>')}
+  </div></div>
+</main></div></body></html>`;
+}
+
+async function loadListPage(page, rows) {
+	await page.setViewportSize({ width: 1280, height: 720 });
+	await page.setContent(listPage(rows));
+	for (const sheet of SHEETS) {
+		await page.addStyleTag({ content: asset(sheet) });
+	}
+	for (const script of ['row-actions.js', 'crud.js', 'row-dialog.js', 'modal-a11y.js']) {
+		await page.addScriptTag({ content: asset(script) });
+	}
+	// Let the entrance animations settle into the state they keep.
+	await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+}
+
+async function openFromMenu(page, row) {
+	await page.locator(`[aria-controls="menu-${row}"]`).click();
+	await page.locator(`[role="menu"] [data-dialog-id="${row}"]`).click();
+	await expect(page.locator('#edit'), 'the window opens').toBeVisible();
+}
+
+const scrolls = (page) => page.evaluate(() => [window.scrollY, document.querySelector('.main').scrollTop]);
+
+for (const rows of [40, 2]) {
+	test(`in a table card of ${rows} rows, the window covers the viewport and the page stays put`, async ({ page }) => {
+		await loadListPage(page, rows);
+		const before = await scrolls(page);
+		await openFromMenu(page, 1);
+
+		expect(await page.locator('#edit').boundingBox(), 'the backdrop is the viewport, not the card')
+			.toEqual({ x: 0, y: 0, width: 1280, height: 720 });
+		const box = await page.locator('#edit .modal').boundingBox();
+		expect(box.y, 'the title and × are on screen').toBeGreaterThanOrEqual(0);
+		expect(box.y + box.height, 'and so is Save').toBeLessThanOrEqual(720);
+		expect(await scrolls(page), 'opening does not scroll the page').toEqual(before);
+
+		await page.mouse.click(5, 5);
+		await expect(page.locator('#edit'), 'a click on the backdrop, over the topbar, closes it').toBeHidden();
+	});
+}
+
+test('a window opened from a row menu returns focus to that row\'s ⋮ button', async ({ page }) => {
+	await loadListPage(page, 5);
+	const menuButton = page.locator('[aria-controls="menu-3"]');
+	await menuButton.focus();
+	await page.keyboard.press('Enter');
+	await page.locator('[role="menu"] [data-dialog-id="3"]').focus();
+	await page.keyboard.press('Enter');
+	await expect(page.locator('#edit [name="nameEn"]'), 'the window takes focus').toBeFocused();
+	await page.keyboard.press('Escape');
+	await expect(page.locator('#edit')).toBeHidden();
+	await expect(menuButton, 'focus is back on the row acted on').toBeFocused();
+});
+
 test('a current-only option is disabled for any row that does not already carry it', async ({ page }) => {
 	// A retired exception type appears in the shared attendance edit window for every
 	// row on the page. It stays available only to the row that already has it.

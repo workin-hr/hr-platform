@@ -6,7 +6,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.List;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
 
@@ -46,5 +52,77 @@ class AdminRowDialogButtonsTest {
 				.as("the close button closes the window without submitting the form")
 				.contains("<button type=\"button\" class=\"modal-close\"")
 				.doesNotContain("formmethod=\"dialog\"");
+	}
+
+	private static final Path TEMPLATES = Path.of("src/main/jte/admin");
+
+	private static final Pattern CALL = Pattern.compile(
+			"(?s)@template\\.admin\\.rowDialog\\((.*?)fields = @`(.*?)`\\)");
+
+	private static final Pattern TAG = Pattern.compile("<div\\b[^>]*>|</div>|<label\\b");
+
+	/**
+	 * Legacy's windows write each field as {@code <div class="form-row"><label>…}, and
+	 * {@code .form-row label} is the only rule that styles a label. A label outside a form-row
+	 * renders inline, at the body's size, butting against the field below it.
+	 */
+	@Test
+	void everyLabelInARowWindowSitsInAFormRow() throws IOException {
+		List<String> outside = new ArrayList<>();
+		int windows = 0;
+		for (Path template : templates()) {
+			Matcher call = CALL.matcher(Files.readString(template, StandardCharsets.UTF_8));
+			while (call.find()) {
+				windows++;
+				Deque<Boolean> open = new ArrayDeque<>();
+				Matcher tag = TAG.matcher(call.group(2));
+				while (tag.find()) {
+					String token = tag.group();
+					if (token.startsWith("<div")) {
+						open.push(token.matches("(?s).*class=\"([^\"]*\\s)?form-row(\\s[^\"]*)?\".*"));
+					}
+					else if (token.equals("</div>")) {
+						assertThat(open).as("%s closes a div it did not open", template.getFileName()).isNotEmpty();
+						open.pop();
+					}
+					else if (!open.contains(true)) {
+						outside.add(template.getFileName() + ": " + call.group(1).replaceAll("\\s+", " ").trim());
+					}
+				}
+			}
+		}
+		assertThat(windows).as("the sweep found the row windows").isGreaterThanOrEqualTo(14);
+		assertThat(outside).as("row windows with a label outside a .form-row").isEmpty();
+	}
+
+	/**
+	 * {@code btn-danger} rendered three reject buttons as plain grey text: no stylesheet defines it.
+	 * The variant is built at runtime, so the page stylesheet gate cannot see it.
+	 */
+	@Test
+	void everyRowWindowsSubmitButtonIsAButtonTheStylesheetsDefine() throws IOException {
+		String sheets = Files.readString(Path.of("src/main/resources/static/admin/_assets/style.css"), StandardCharsets.UTF_8)
+				+ Files.readString(Path.of("src/main/resources/static/admin/_assets/app-ui.css"), StandardCharsets.UTF_8);
+		Matcher fallback = Pattern.compile("@param String submitVariant = \"(\\w+)\"")
+				.matcher(Files.readString(ROW_DIALOG, StandardCharsets.UTF_8));
+		assertThat(fallback.find()).as("rowDialog.jte declares a default variant").isTrue();
+		List<String> undefined = new ArrayList<>();
+		for (Path template : templates()) {
+			Matcher call = CALL.matcher(Files.readString(template, StandardCharsets.UTF_8));
+			while (call.find()) {
+				Matcher variant = Pattern.compile("submitVariant = \"(\\w+)\"").matcher(call.group(1));
+				String name = variant.find() ? variant.group(1) : fallback.group(1);
+				if (!Pattern.compile("\\.btn-" + name + "\\b").matcher(sheets).find()) {
+					undefined.add(template.getFileName() + ": btn-" + name);
+				}
+			}
+		}
+		assertThat(undefined).as("submit buttons whose class no stylesheet defines").isEmpty();
+	}
+
+	private static List<Path> templates() throws IOException {
+		try (Stream<Path> paths = Files.list(TEMPLATES)) {
+			return paths.filter(path -> path.toString().endsWith(".jte")).sorted().toList();
+		}
 	}
 }

@@ -65,6 +65,13 @@
     // body click.
     document.dispatchEvent(new CustomEvent('row-actions:close'));
 
+    // modal-a11y.js returns focus to whatever had it when the window opened.
+    // A menu item has just been put back inside its closed menu, where focus
+    // cannot land, so the row's ⋮ button takes it: closing the window then
+    // leaves a keyboard user on the row they acted on, not at the top of the page.
+    const menuButton = trigger.closest('[data-row-actions]')?.querySelector('.row-actions__trigger');
+    (menuButton || trigger).focus();
+
     fill(modal, trigger);
     // A field with state of its own beyond its value -- emp-picker.js's label
     // and results -- redraws from what fill() just wrote.

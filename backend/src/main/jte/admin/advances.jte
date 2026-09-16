@@ -205,10 +205,12 @@
 			@template.admin.rowDialog(id = "advance-reject", action = "reject",
 					title = t.apply("reject"), csrfParameterName = csrfParameterName,
 					csrfToken = csrfToken, t = t, submitLabel = t.apply("reject"),
-					submitVariant = "danger",
+					submitVariant = "red",
 					fields = @`
-						<label>${t.apply("rejection_reason")}
-							<textarea name="rejection_reason" rows="3" required></textarea></label>
+						<div class="form-row">
+							<label for="adv_rejection_reason">${t.apply("rejection_reason")} *</label>
+							<textarea id="adv_rejection_reason" name="rejection_reason" rows="4" required></textarea>
+						</div>
 					`)
 		@endif
 		@if(canWrite)

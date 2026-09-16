@@ -131,7 +131,7 @@
 	display: none;
 }
 
-/* —— The content pane must not be a containing block ——
+/* —— The content pane and the table card must not be containing blocks ——
    `.content` animates with `appFadeUp`, whose last keyframe is
    `transform: translateY(0)` rather than `none`. With `animation-fill-mode:
    both` the element keeps that transform for good, and a transformed ancestor
@@ -146,8 +146,18 @@
    this file, leaving the copied sheet alone. The fade is kept; only the
    translate goes, because the translate is the part that costs a containing
    block. Overriding `animation-name` alone leaves the duration, easing, delay
-   and fill exactly as the copy set them. */
-.content {
+   and fill exactly as the copy set them.
+
+   The table card animates the same way (app-ui.css:377-384), and legacy
+   escapes it only because it writes its modals after the card closes. Here a
+   page's windows sit inside the card -- the add modals and every row action's
+   window -- so the card gets the same fix, under app-ui.css's own selectors so
+   that it wins at their specificity. */
+.content,
+.data-table-card,
+.org-page .data-table-card,
+.hr-page .data-table-card,
+.payroll-page .data-table-card {
 	animation-name: appFadeIn;
 }
 
