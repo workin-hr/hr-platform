@@ -196,30 +196,28 @@
 									source = "employee-picker-list", t = t, fromRow = true)
 						</div>
 						<div class="form-row">
-							<label>${t.apply("penalty_type")}
-								<input type="text" name="penalty_type" required maxlength="255"
-								       data-dialog-field="penalty_type"></label>
+							<label for="pen_edit_type">${t.apply("penalty_type")}</label>
+							<input type="text" id="pen_edit_type" name="penalty_type" required maxlength="255" data-dialog-field="penalty_type">
 						</div>
 						<div class="form-row">
-							<label>${t.apply("penalty_days")}
-								<select name="penalty_days" required data-dialog-field="penalty_days">
-									<option value="0.25">${Penalty.daysLabel(0.25, t)}</option>
-									<option value="0.5">${Penalty.daysLabel(0.5, t)}</option>
-									<option value="1">${Penalty.daysLabel(1.0, t)}</option>
-									<option value="2">${Penalty.daysLabel(2.0, t)}</option>
-									<option value="3">${Penalty.daysLabel(3.0, t)}</option>
-									<option value="4">${Penalty.daysLabel(4.0, t)}</option>
-									<option value="5">${Penalty.daysLabel(5.0, t)}</option>
-								</select></label>
+							<label for="pen_edit_days">${t.apply("penalty_days")}</label>
+							<select id="pen_edit_days" name="penalty_days" required data-dialog-field="penalty_days">
+								<option value="0.25">${Penalty.daysLabel(0.25, t)}</option>
+								<option value="0.5">${Penalty.daysLabel(0.5, t)}</option>
+								<option value="1">${Penalty.daysLabel(1.0, t)}</option>
+								<option value="2">${Penalty.daysLabel(2.0, t)}</option>
+								<option value="3">${Penalty.daysLabel(3.0, t)}</option>
+								<option value="4">${Penalty.daysLabel(4.0, t)}</option>
+								<option value="5">${Penalty.daysLabel(5.0, t)}</option>
+							</select>
 						</div>
 						<div class="form-row">
-							<label>${t.apply("penalty_date")}
-								<input type="date" name="penalty_date" data-dialog-field="penalty_date"></label>
+							<label for="pen_edit_date">${t.apply("penalty_date")}</label>
+							<input type="date" id="pen_edit_date" name="penalty_date" data-dialog-field="penalty_date">
 						</div>
 						<div class="form-row">
-							<label>${t.apply("penalty_reason")}
-								<input type="text" name="reason" maxlength="500"
-								       data-dialog-field="reason"></label>
+							<label for="pen_edit_reason">${t.apply("penalty_reason")}</label>
+							<input type="text" id="pen_edit_reason" name="reason" maxlength="500" data-dialog-field="reason">
 						</div>
 					`)
 

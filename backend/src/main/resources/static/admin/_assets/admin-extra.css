@@ -192,16 +192,19 @@
    forms differ inside: some wrap their fields in a grid and some do not, and
    this needs no structure to be true of any of them.
 
-   The negative margins pull the strip across the modal's 28px padding so the
-   background covers the full width as content passes under it. */
+   The negative margins pull the strip across the modal's padding -- 28px inline
+   and 26px at the block end, app-ui.css's -- so the background covers the full
+   width as content passes under it. It sticks at the modal's own bottom edge,
+   not at its content edge: a sticky element stops short of the scroller's
+   padding, so a footer stuck at bottom: 0 rode up over the last field. */
 .modal .form-footer,
 .modal .account-form__footer {
 	position: sticky;
-	bottom: 0;
+	bottom: -26px;
 	z-index: 1;
 	margin-inline: -28px;
-	margin-bottom: -28px;
-	padding: 14px 28px 28px;
+	margin-bottom: -26px;
+	padding: 14px 28px 26px;
 	background: var(--app-surface, #fff);
 }
 

@@ -282,24 +282,24 @@
 					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
 					fields = @`
 						<div class="form-row">
-							<label>${t.apply("att_check_in_time")}
-								<input type="datetime-local" name="check_in" required
-								       data-dialog-field="check_in"></label>
-							<label>${t.apply("att_check_out_time")}
-								<input type="datetime-local" name="check_out"
-								       data-dialog-field="check_out"></label>
+							<label for="att_edit_check_in">${t.apply("att_check_in_time")}</label>
+							<input type="datetime-local" id="att_edit_check_in" name="check_in" required data-dialog-field="check_in">
+						</div>
+						<div class="form-row">
+							<label for="att_edit_check_out">${t.apply("att_check_out_time")}</label>
+							<input type="datetime-local" id="att_edit_check_out" name="check_out" data-dialog-field="check_out">
 						</div>
 						<div class="form-row">
 							@if(editChoosesType)
-							<label>${t.apply("exception")}
-								<select name="exception_type_id" data-dialog-field="exception_type_id">
-									<option value="0">—</option>
-									<%-- Active types, plus a retired type a listed row carries, marked. row-dialog.js
-									     disables a retired option unless the opened row already carries it. --%>
-									@for(AttendanceRecord.ExceptionTypeOption option : editExceptionTypes)
-										<option value="${option.id()}" data-dialog-current-only="${option.active() ? null : "1"}">${option.name()}@if(!option.active()) — ${t.apply("status_inactive")}@endif</option>
-									@endfor
-								</select></label>
+							<label for="att_edit_exception">${t.apply("exception")}</label>
+							<select name="exception_type_id" id="att_edit_exception" data-dialog-field="exception_type_id">
+								<option value="0">—</option>
+								<%-- Active types, plus a retired type a listed row carries, marked. row-dialog.js
+								     disables a retired option unless the opened row already carries it. --%>
+								@for(AttendanceRecord.ExceptionTypeOption option : editExceptionTypes)
+									<option value="${option.id()}" data-dialog-current-only="${option.active() ? null : "1"}">${option.name()}@if(!option.active()) — ${t.apply("status_inactive")}@endif</option>
+								@endfor
+							</select>
 							@else
 							<%-- No company chosen: every company's rows are listed and a type belongs to one
 							     company, so the row keeps its type and changing it needs a company. --%>

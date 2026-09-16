@@ -173,7 +173,9 @@ test('opening focuses the first field, and closing returns focus to the row', as
 // laid it out against itself -- off-centre, scrolling the page, its title off-screen.
 const SHEETS = ['style.css', 'app-ui.css', 'sidebar.css', 'admin-extra.css', 'app-responsive.css', 'hr-pages.css'];
 
-function listPage(rows, cancel = '') {
+const NAME_FIELD = '<div class="form-row"><label for="f">name</label><input type="text" id="f" name="nameEn" data-dialog-field="nameEn"></div>';
+
+function listPage(rows, cancel = '', fields = NAME_FIELD) {
 	const body = Array.from({ length: rows }, (_, i) => `<tr><td>row ${i}</td><td class="col-actions">
   <div class="row-actions" data-row-actions>
     <button type="button" class="row-actions__trigger" aria-label="actions" aria-haspopup="menu"
@@ -188,14 +190,14 @@ function listPage(rows, cancel = '') {
   <div class="topbar"><h1 class="page-title">list</h1></div>
   <div class="content hr-page"><div class="data-table-card">
     <div class="table-wrap"><table class="tbl"><tbody>${body}</tbody></table></div>
-    ${WINDOW('edit', '<div class="form-row"><label for="f">name</label><input type="text" id="f" name="nameEn" data-dialog-field="nameEn"></div>', cancel)}
+    ${WINDOW('edit', fields, cancel)}
   </div></div>
 </main></div></body></html>`;
 }
 
-async function loadListPage(page, rows, { width = 1280, height = 720, cancel = '' } = {}) {
+async function loadListPage(page, rows, { width = 1280, height = 720, cancel = '', fields = NAME_FIELD } = {}) {
 	await page.setViewportSize({ width, height });
-	await page.setContent(listPage(rows, cancel));
+	await page.setContent(listPage(rows, cancel, fields));
 	for (const sheet of SHEETS) {
 		await page.addStyleTag({ content: asset(sheet) });
 	}
@@ -262,6 +264,54 @@ for (const [width, height] of [[1280, 720], [390, 844]]) {
 		await modal.locator('[data-dialog-cancel]').click();
 		await expect(modal, 'Cancel closes it').toBeHidden();
 		expect(await page.evaluate(() => window.submitted), 'without submitting').toBe(1);
+	});
+}
+
+// The footer sticks to the bottom of the scrolling .modal. Cut for 28px of padding against the
+// 26px (and, on a phone, 20px) the sheets give the modal, it rode up over the last field: the
+// field's bottom edge sat under the footer, and a click there landed on the footer.
+const REPLY_FIELDS = `<div class="form-row"><label for="r">reply</label><textarea id="r" name="reply" rows="4" data-dialog-field="reply"></textarea></div>
+<div class="form-row"><label for="s">status</label><select id="s" name="status" data-dialog-field="status"><option>open</option></select></div>`;
+for (const [width, height] of [[1280, 720], [390, 844]]) {
+	test(`at ${width}px the footer does not cover the window's last field`, async ({ page }) => {
+		await loadListPage(page, 3, { width, height, cancel: 'إلغاء', fields: REPLY_FIELDS });
+		await openFromMenu(page, 1);
+		await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+		const modal = page.locator('#edit');
+
+		const last = await modal.locator('#s').boundingBox();
+		const footer = await modal.locator('.form-footer').boundingBox();
+		expect(last.y + last.height, 'the last field ends above the footer').toBeLessThanOrEqual(footer.y);
+		expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.getAttribute('id'),
+			[last.x + last.width / 2, last.y + last.height - 2]), 'its bottom edge is the field\'s').toBe('s');
+	});
+}
+
+const LONG_FIELDS = Array.from({ length: 14 }, (_, i) => `<div class="form-row"><label for="l${i}">field ${i}</label><input type="text" id="l${i}" name="l${i}"></div>`).join('')
+	+ '<div class="form-row"><label for="s">status</label><select id="s" name="status"><option>open</option></select></div>';
+for (const [width, height] of [[1280, 720], [390, 844]]) {
+	test(`at ${width}px a window longer than the screen keeps Save in view, and its last field clears the footer`, async ({ page }) => {
+		await loadListPage(page, 3, { width, height, fields: LONG_FIELDS });
+		await openFromMenu(page, 1);
+		await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+		const modal = page.locator('#edit .modal');
+		expect(await modal.evaluate((box) => box.scrollHeight > box.clientHeight), 'the window scrolls').toBe(true);
+
+		const inView = async (when) => {
+			const box = await modal.boundingBox();
+			const save = await modal.locator('button[type="submit"]').boundingBox();
+			const footer = await modal.locator('.form-footer').boundingBox();
+			expect(save.y >= box.y && save.y + save.height <= Math.min(box.y + box.height, height), `Save is in view ${when}`).toBe(true);
+			expect(footer.y + footer.height, `the stuck footer ends at the window's edge ${when}, not clipped past it`)
+				.toBeLessThanOrEqual(box.y + box.height + 0.5);
+		};
+		await inView('before scrolling');
+
+		await modal.evaluate((box) => { box.scrollTop = box.scrollHeight; });
+		await inView('after scrolling');
+		const last = await modal.locator('#s').boundingBox();
+		const footer = await modal.locator('.form-footer').boundingBox();
+		expect(last.y + last.height, 'the last field ends above the footer').toBeLessThanOrEqual(footer.y);
 	});
 }
 
