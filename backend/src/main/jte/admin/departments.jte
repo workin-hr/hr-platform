@@ -11,6 +11,7 @@
 @param DashboardPage<Department> result
 @param DashboardListFilters filters
 @param java.util.function.Supplier<java.util.List<com.workin.backend.platformadmin.org.ActiveCompanies.CompanyOption>> companyFilterOptions
+@param java.util.function.Supplier<com.workin.backend.platformadmin.web.OrgFilterCascade> orgFilterCascade
 @param List<Department.BranchOption> branchOptions
 @param List<Department.BranchOption> formBranches = List.of()
 @param boolean pickCompany = false
@@ -58,7 +59,21 @@
 		@endif
 
 		<div class="toolbar page-toolbar page-toolbar-filters">
-			<form method="GET" class="toolbar-form toolbar-form--labeled">
+			<%-- org_filter_cascade_form_attrs() (org_helper.php:450-466), for org-filter-cascade.js. --%>
+			!{var cascade = orgFilterCascade.get();}
+			<form method="GET" class="toolbar-form toolbar-form--labeled"
+			      data-org-filters="${cascade.attached() ? "1" : null}"
+			      data-branches-by-company="${cascade.branchesByCompany()}"
+			      data-departments-by-company="${cascade.departmentsByCompany()}"
+			      data-departments-by-branch="${cascade.departmentsByBranch()}"
+			      data-job-titles-by-dept="${cascade.jobTitlesByDepartment()}"
+			      data-filter-all="${t.apply("filter_all")}"
+			      data-select-company-msg="${t.apply("filter_all_companies")}"
+			      data-pick-branch-first-msg="${t.apply("pick_branch")}"
+			      data-pick-dept-first-msg="${t.apply("pick_department")}"
+			      data-selected-branch="${filters.filterBranch()}"
+			      data-selected-department="0"
+			      data-selected-job-title="0">
 				@if(!session.isScopedToOneCompany())
 					@template.admin.companyFilterField(companyId = filters.companyId(), companies = companyFilterOptions, t = t)
 				@endif

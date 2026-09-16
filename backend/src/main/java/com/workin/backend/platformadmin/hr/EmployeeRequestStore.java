@@ -1,9 +1,12 @@
 package com.workin.backend.platformadmin.hr;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
@@ -168,20 +171,37 @@ public class EmployeeRequestStore {
 		return found.isEmpty() ? null : found.get(0);
 	}
 
+	/**
+	 * {@code hr_request_types_for_company()} ({@code hr_list_helper.php:958-968}): one
+	 * company's active types, and none with no company. A type is one company's row, so a
+	 * list across companies would offer ids that filter only the company each belongs to.
+	 */
 	public List<EmployeeRequest.TypeOption> typeOptions(long companyId) {
-		if (companyId > 0) {
-			return this.jdbcTemplate.query(
-					"SELECT id, name FROM request_types WHERE company_id = ? AND is_active = 1"
-							+ " ORDER BY name",
-					(rs, rowNum) -> new EmployeeRequest.TypeOption(
-							rs.getLong("id"), rs.getString("name")),
-					companyId);
+		if (companyId <= 0) {
+			return List.of();
 		}
 		return this.jdbcTemplate.query(
-				"SELECT DISTINCT name, MIN(id) AS id FROM request_types WHERE is_active = 1"
-						+ " GROUP BY name ORDER BY name",
+				"SELECT id, name FROM request_types WHERE company_id = ? AND is_active = 1"
+						+ " ORDER BY name",
 				(rs, rowNum) -> new EmployeeRequest.TypeOption(
-						rs.getLong("id"), rs.getString("name")));
+						rs.getLong("id"), rs.getString("name")),
+				companyId);
+	}
+
+	/**
+	 * {@code hr_request_types_grouped_by_company()} ({@code hr_list_helper.php:940-955}):
+	 * every company's active types, by company, for {@code request-filter-cascade.js} to
+	 * list the chosen company's from. Every company's because the administrator's
+	 * company select changes without a request, and their reach is every company.
+	 */
+	public Map<Long, List<EmployeeRequest.TypeOption>> activeTypesByCompany() {
+		Map<Long, List<EmployeeRequest.TypeOption>> grouped = new LinkedHashMap<>();
+		this.jdbcTemplate.query(
+				"SELECT id, company_id, name FROM request_types WHERE is_active = 1 ORDER BY company_id, name",
+				(RowCallbackHandler) rs -> grouped
+						.computeIfAbsent(rs.getLong("company_id"), key -> new ArrayList<>())
+						.add(new EmployeeRequest.TypeOption(rs.getLong("id"), rs.getString("name"))));
+		return grouped;
 	}
 
 	public int decide(long id, String status, String reply, String decidedAt) {

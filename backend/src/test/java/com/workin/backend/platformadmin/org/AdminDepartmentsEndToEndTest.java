@@ -291,7 +291,14 @@ class AdminDepartmentsEndToEndTest {
 				"action", "add", "company_id", String.valueOf(this.companyA), "name", "South Only",
 				"branch_ids", String.valueOf(this.branchA2));
 
-		assertThat(body("/admin/departments?filter_branch=" + this.branchA1))
+		String html = body("/admin/departments?filter_branch=" + this.branchA1);
+		// The toolbar's filter cascade lists every department under its branches (D-260); the
+		// list itself is what the filter narrows.
+		Matcher toolbar = Pattern.compile(
+				"<form method=\"GET\" class=\"toolbar-form toolbar-form--labeled\"((?:[^>\"]|\"[^\"]*\")*)>").matcher(html);
+		assertThat(toolbar.find()).as("the toolbar's filter form").isTrue();
+		assertThat(toolbar.group(1)).contains("South Only");
+		assertThat(html.substring(0, toolbar.start()) + html.substring(toolbar.end()))
 				.contains("North Only").doesNotContain("South Only");
 	}
 

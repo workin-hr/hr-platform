@@ -12,6 +12,7 @@
 @param DashboardListFilters filters
 @param java.util.function.Supplier<java.util.List<com.workin.backend.platformadmin.org.ActiveCompanies.CompanyOption>> companyFilterOptions
 @param List<EmployeeRequest.TypeOption> typeOptions
+@param String typesByCompany
 @param String status
 @param long typeId
 @param String dateFrom
@@ -43,6 +44,7 @@
 	flashType = flashType,
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css"),
+	pageScripts = java.util.List.of("request-filter-cascade.js"),
 	body = @`
 		@if(errorKey != null)
 			<div class="flash flash-error">${t.apply(errorKey)}</div>
@@ -52,7 +54,14 @@
 		@endif
 
 		<div class="toolbar page-toolbar page-toolbar-filters">
-			<form method="GET" class="toolbar-form toolbar-form--labeled">
+			<%-- hr_request_filter_form_attrs() (hr_list_helper.php:970-979): request-filter-cascade.js
+			     lists the chosen company's request types, and asks for a company without one. --%>
+			<form method="GET" class="toolbar-form toolbar-form--labeled"
+			      data-request-filters="${typesByCompany == null ? null : "1"}"
+			      data-request-types-by-company="${typesByCompany}"
+			      data-filter-all="${t.apply("filter_all")}"
+			      data-select-company-msg="${t.apply("select_company_first_branches")}"
+			      data-selected-request-type="${typeId}">
 				@if(!session.isScopedToOneCompany())
 					@template.admin.companyFilterField(companyId = filters.companyId(), companies = companyFilterOptions, t = t)
 				@endif
@@ -73,11 +82,18 @@
 				</div>
 				<div class="filter-field">
 					<label class="filter-field__label" for="rq_type">${t.apply("request_type")}</label>
-					<select id="rq_type" name="type_id">
+					<%-- hr_render_request_type_filter_field() (hr_list_helper.php:981-999): a type is one
+					     company's, so with no company chosen the select asks for one. --%>
+					!{boolean needsCompany = !session.isScopedToOneCompany() && filters.companyId() <= 0;}
+					<select id="rq_type" name="type_id" data-filter-request-type disabled="${needsCompany}">
 						<option value="0">${t.apply("filter_all")}</option>
-						@for(EmployeeRequest.TypeOption option : typeOptions)
-							<option value="${option.id()}" selected="${typeId == option.id()}">${option.name()}</option>
-						@endfor
+						@if(needsCompany)
+							<option value="0" disabled>${t.apply("select_company_first_branches")}</option>
+						@else
+							@for(EmployeeRequest.TypeOption option : typeOptions)
+								<option value="${option.id()}" selected="${typeId == option.id()}">${option.name()}</option>
+							@endfor
+						@endif
 					</select>
 				</div>
 				<div class="filter-field">
