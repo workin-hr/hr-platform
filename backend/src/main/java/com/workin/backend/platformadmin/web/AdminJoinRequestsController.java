@@ -10,6 +10,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.JoinRequestAdminService;
@@ -83,7 +84,8 @@ public class AdminJoinRequestsController {
 			@RequestParam String action,
 			@RequestParam(required = false, defaultValue = "0") long id,
 			@RequestParam(name = "redirect_status", required = false, defaultValue = "pending")
-					String redirectStatus) {
+					String redirectStatus,
+					Model model, RedirectAttributes redirect) {
 
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
@@ -100,6 +102,12 @@ public class AdminJoinRequestsController {
 		}
 		catch (JoinRequestAdminService.RefusedException refused) {
 			return "redirect:" + PATH + "?status=" + back + "&error=" + messageFor(refused);
+		}
+		switch (action) {
+			case "accept_join" -> AdminFlash.approved(redirect, model);
+			case "reject_join" -> AdminFlash.rejected(redirect, model);
+			default -> {
+			}
 		}
 		return "redirect:" + PATH + "?status=" + back;
 	}

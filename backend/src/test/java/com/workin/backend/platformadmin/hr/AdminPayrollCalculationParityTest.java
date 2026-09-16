@@ -104,6 +104,9 @@ class AdminPayrollCalculationParityTest extends AdminPayrollTestSupport {
 		assertThat(this.jdbc.queryForObject(
 				"SELECT COUNT(*) FROM payslips WHERE batch_id = " + batchId, Integer.class))
 				.as("and nothing was calculated").isZero();
+		// Legacy's flash sits inside the same check, so the page it returns to says nothing (D-253).
+		assertThat(body(response.getHeaders().getLocation().getRawPath()))
+				.as("and no success is flashed").doesNotContain("flash-success");
 	}
 
 	/**

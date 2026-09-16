@@ -8,6 +8,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.CompanyAssetAdminService;
@@ -76,7 +77,8 @@ public class AdminAssetsController {
 			@RequestParam(name = "employee_id", required = false, defaultValue = "0") long employeeId,
 			@RequestParam(name = "asset_text", required = false, defaultValue = "") String assetText,
 			@RequestParam(name = "asset_date", required = false, defaultValue = "") String assetDate,
-			@RequestParam(name = "asset_end_date", required = false, defaultValue = "") String assetEndDate) {
+			@RequestParam(name = "asset_end_date", required = false, defaultValue = "") String assetEndDate,
+			Model model, RedirectAttributes redirect) {
 
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
@@ -94,6 +96,7 @@ public class AdminAssetsController {
 						CompanyAssetAdminService.Refusal.INVALID);
 			};
 			DashboardOrgScope.rememberAfterWrite(session, request, wrote);
+			AdminFlash.saved(redirect, model);
 			return "redirect:" + PATH;
 		} catch (CompanyAssetAdminService.RefusedException refused) {
 			return "redirect:" + PATH + "?error=" + messageKey(refused);

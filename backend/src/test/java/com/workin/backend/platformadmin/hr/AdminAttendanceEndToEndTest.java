@@ -259,6 +259,19 @@ class AdminAttendanceEndToEndTest {
 				Integer.class)).as("another company is untouched").isEqualTo(1);
 	}
 
+	/** {@code str_replace('{count}', $deleted, __('att_range_deleted'))}, flashed as an error (D-253). */
+	@Test
+	void aRangeDeleteFlashesTheCountItRemovedAsAnError() {
+		attendance(this.employeeA, "2026-03-02 09:00:00", null, null);
+		attendance(this.employeeA, "2026-03-20 09:00:00", null, null);
+
+		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+				"action", "delete_range", "company_id", String.valueOf(this.companyA),
+				"from", "2026-03-01", "to", "2026-03-31");
+
+		assertThat(body(PATH)).contains("<div class=\"flash flash-error\">تم حذف 2 بصمة");
+	}
+
 	@Test
 	void aReversedRangeDeletesNothing() {
 		attendance(this.employeeA, "2026-03-02 09:00:00", null, null);

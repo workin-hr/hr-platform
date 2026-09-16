@@ -8,6 +8,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.AdvanceAdminService;
@@ -77,7 +78,8 @@ public class AdminAdvancesController {
 			@RequestParam(required = false, defaultValue = "") String amount,
 			@RequestParam(required = false, defaultValue = "") String reason,
 			@RequestParam(name = "request_date", required = false, defaultValue = "") String requestDate,
-			@RequestParam(name = "rejection_reason", required = false, defaultValue = "") String rejectionReason) {
+			@RequestParam(name = "rejection_reason", required = false, defaultValue = "") String rejectionReason,
+			Model model, RedirectAttributes redirect) {
 
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
@@ -97,6 +99,11 @@ public class AdminAdvancesController {
 						AdvanceAdminService.Refusal.INVALID);
 			};
 			DashboardOrgScope.rememberAfterWrite(session, request, wrote);
+			switch (action) {
+				case "approve" -> AdminFlash.approved(redirect, model);
+				case "reject" -> AdminFlash.rejected(redirect, model);
+				default -> AdminFlash.saved(redirect, model);
+			}
 			return "redirect:" + PATH;
 		} catch (AdvanceAdminService.RefusedException refused) {
 			return "redirect:" + PATH + "?error=" + messageKey(refused);

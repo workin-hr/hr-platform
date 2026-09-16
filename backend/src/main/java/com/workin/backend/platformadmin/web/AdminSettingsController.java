@@ -12,6 +12,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.settings.ConfigValues;
@@ -91,7 +92,8 @@ public class AdminSettingsController {
 			@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
 			HttpServletRequest request,
 			Model model,
-			@RequestParam String action) {
+			@RequestParam String action,
+			RedirectAttributes redirect) {
 
 		DashboardSession session = (DashboardSession) model.getAttribute("session");
 		if (session == null || !session.isAdmin()) {
@@ -107,6 +109,7 @@ public class AdminSettingsController {
 					this.service.saveContent(adminId, key,
 							param(request, "content_value_ar"),
 							param(request, "content_value_en"));
+					AdminFlash.saved(redirect, model);
 					return redirect("app_content",
 							key.isEmpty() ? null : "&section=" + key, null);
 				}
@@ -115,6 +118,7 @@ public class AdminSettingsController {
 							param(request, "label_ar"), param(request, "label_en"),
 							param(request, "description_ar"), param(request, "description_en"),
 							(int) number(request, "sort_order"));
+					AdminFlash.saved(redirect, model);
 					return redirect("setting_templates", null, null);
 				}
 				case "add_option" -> {
@@ -122,16 +126,19 @@ public class AdminSettingsController {
 							number(request, "setting_definition_id"),
 							param(request, "value"), param(request, "label_ar"),
 							param(request, "label_en"), (int) number(request, "sort_order"));
+					AdminFlash.saved(redirect, model);
 					return redirect("setting_templates", null, null);
 				}
 				case "edit_option" -> {
 					this.service.editOption(adminId, number(request, "id"),
 							param(request, "value"), param(request, "label_ar"),
 							param(request, "label_en"), (int) number(request, "sort_order"));
+					AdminFlash.saved(redirect, model);
 					return redirect("setting_templates", null, null);
 				}
 				case "delete_option" -> {
 					this.service.deleteOption(adminId, number(request, "id"));
+					AdminFlash.deleted(redirect, model);
 					return redirect("setting_templates", null, null);
 				}
 				case "save_configs" -> {
@@ -139,6 +146,7 @@ public class AdminSettingsController {
 					SettingsCatalog.CONFIGS.keySet()
 							.forEach(key -> posted.put(key, request.getParameter(key)));
 					this.service.saveConfigs(adminId, posted);
+					AdminFlash.saved(redirect, model);
 					return redirect("system", null, null);
 				}
 				default -> {

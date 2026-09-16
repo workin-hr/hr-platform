@@ -8,6 +8,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.ComplaintAdminService;
@@ -74,7 +75,8 @@ public class AdminComplaintsController {
 			@RequestParam String action,
 			@RequestParam(required = false, defaultValue = "0") long id,
 			@RequestParam(required = false, defaultValue = "") String reply,
-			@RequestParam(required = false, defaultValue = "") String status) {
+			@RequestParam(required = false, defaultValue = "") String status,
+			Model model, RedirectAttributes redirect) {
 
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
@@ -89,6 +91,10 @@ public class AdminComplaintsController {
 						ComplaintAdminService.Refusal.FOREIGN_ROW);
 			};
 			DashboardOrgScope.rememberAfterWrite(session, request, wrote);
+			switch (action) {
+				case "delete" -> AdminFlash.deleted(redirect, model);
+				default -> AdminFlash.saved(redirect, model);
+			}
 			return "redirect:" + PATH;
 		} catch (ComplaintAdminService.RefusedException refused) {
 			return "redirect:" + PATH + "?error=" + messageKey(refused);

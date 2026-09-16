@@ -12,6 +12,8 @@
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
+@param String flash = null
+@param String flashType = "success"
 @param Function<String, Boolean> available
 <%-- dashboard/pages/phone_countries/page.php: a table of the existing rows
      and one add form, both inside the dashboard's own .data-table-card. --%>
@@ -24,6 +26,8 @@
 	lang = lang,
 	session = session,
 	t = t,
+	flash = flash,
+	flashType = flashType,
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css"),
 	body = @`

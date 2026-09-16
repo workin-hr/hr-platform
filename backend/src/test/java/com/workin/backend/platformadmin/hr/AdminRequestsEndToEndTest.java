@@ -316,6 +316,21 @@ class AdminRequestsEndToEndTest {
 				.as("a rejection deducts nothing").isZero();
 	}
 
+	/** {@code flash(__('rejected_ok'), 'warning')}, then {@code approved_ok} (D-253). */
+	@Test
+	void aDecisionFlashesLegacysMessageInLegacysColour() {
+		seedBalance(this.employeeA, 2026, "21", "0");
+		long rejected = seedRequest(this.employeeA, this.deductingTypeA, "2026-03-02", "2026-03-04");
+		post("/admin/requests", this.cookie, page("/admin/requests", this.cookie).csrf(),
+				"action", "reject", "id", String.valueOf(rejected), "comment", "no");
+		assertThat(body("/admin/requests")).contains("<div class=\"flash flash-warning\">تم الرفض</div>");
+
+		long approved = seedRequest(this.employeeA, this.deductingTypeA, "2026-04-06", "2026-04-06");
+		post("/admin/requests", this.cookie, page("/admin/requests", this.cookie).csrf(),
+				"action", "approve", "id", String.valueOf(approved), "comment", "");
+		assertThat(body("/admin/requests")).contains("<div class=\"flash flash-success\">تم القبول ✓</div>");
+	}
+
 	@Test
 	void rejectingOpensADialogWithAnOptionalReplyRatherThanPostingAtOnce() {
 		// Legacy's reject opens the decision modal with an optional reply

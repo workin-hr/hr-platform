@@ -9,6 +9,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.content.PhoneCountryAdminService;
@@ -62,7 +63,8 @@ public class AdminPhoneCountriesController {
 			@RequestParam(required = false) String prefixes,
 			@RequestParam(required = false) String isActive,
 			@RequestParam(required = false) String sortOrder,
-			HttpServletRequest request) {
+			HttpServletRequest request,
+			Model model, RedirectAttributes redirect) {
 
 		boolean active = isActive != null && !isActive.isBlank();
 		PhoneCountryAdminService.Result result = switch (action) {
@@ -83,7 +85,14 @@ public class AdminPhoneCountriesController {
 					PhoneCountryAdminService.Outcome.NOT_FOUND, "error_not_found");
 		};
 
-		return result.ok() ? REDIRECT : REDIRECT + "?error=" + result.errorKey();
+		if (!result.ok()) {
+			return REDIRECT + "?error=" + result.errorKey();
+		}
+		switch (action) {
+			case "delete" -> AdminFlash.deleted(redirect, model);
+			default -> AdminFlash.saved(redirect, model);
+		}
+		return REDIRECT;
 	}
 
 	private void render(Model model, PlatformAdminWebPrincipal principal, String errorKey) {

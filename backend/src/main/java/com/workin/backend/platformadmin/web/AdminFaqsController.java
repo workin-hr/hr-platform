@@ -6,6 +6,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.content.FaqAdminService;
@@ -58,7 +59,8 @@ public class AdminFaqsController {
 			@RequestParam(required = false) String answerEn,
 			@RequestParam(required = false) String platform,
 			@RequestParam(required = false) String sortOrder,
-			@RequestParam(required = false) String isActive) {
+			@RequestParam(required = false) String isActive,
+			Model model, RedirectAttributes redirect) {
 
 		long adminId = principal.platformAdminId();
 		boolean active = isActive != null && !isActive.isBlank();
@@ -82,7 +84,14 @@ public class AdminFaqsController {
 			default -> notFound();
 		};
 
-		return result.ok() ? REDIRECT : REDIRECT + "?error=" + result.errorKey();
+		if (!result.ok()) {
+			return REDIRECT + "?error=" + result.errorKey();
+		}
+		switch (action) {
+			case "delete_category", "delete_item" -> AdminFlash.deleted(redirect, model);
+			default -> AdminFlash.saved(redirect, model);
+		}
+		return REDIRECT;
 	}
 
 	private static FaqAdminService.Result notFound() {

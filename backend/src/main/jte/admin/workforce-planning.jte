@@ -25,6 +25,8 @@
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
+@param String flash = null
+@param String flashType = "success"
 @param Function<String, Boolean> available
 !{boolean canWrite = canManage && actionsEnabled;}
 <%-- dashboard/pages/workforce_planning/page.php. Seven columns, and no
@@ -39,6 +41,8 @@
 	lang = lang,
 	session = session,
 	t = t,
+	flash = flash,
+	flashType = flashType,
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css", "org-form.css"),
 	pageScripts = java.util.List.of("workforce-form.js"),

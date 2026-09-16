@@ -19,6 +19,8 @@
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
+@param String flash = null
+@param String flashType = "success"
 @param Function<String, Boolean> available
 !{boolean arabic = "ar".equals(lang);}
 !{boolean canWrite = actionsEnabled;}
@@ -34,6 +36,8 @@
 	lang = lang,
 	session = session,
 	t = t,
+	flash = flash,
+	flashType = flashType,
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css", "banners.css"),
 	body = @`

@@ -152,9 +152,11 @@ public class PayrollAdminService {
 	 * <p>Already correct in the source: a company-scoped session's own company
 	 * wins over the posted one, and an unfiltered administrator's posted
 	 * {@code company_id} is R-044's deliberate reach rather than a hole.
+	 *
+	 * <p>Answers whether it wrote a batch, because legacy flashes {@code saved_ok} only then (D-253).
 	 */
 	@Transactional
-	public long createRun(DashboardSession session, long adminId, long postedCompanyId, int month, int year) {
+	public boolean createRun(DashboardSession session, long adminId, long postedCompanyId, int month, int year) {
 		gate();
 		long companyId = session.isScopedToOneCompany() ? session.companyId() : postedCompanyId;
 		if (companyId <= 0 || month <= 0 || month > 12 || year <= 0) {
@@ -166,7 +168,7 @@ public class PayrollAdminService {
 		// insert would fail on the foreign key and surface as a 500, which is
 		// worse than either.
 		if (!this.store.companyExists(companyId)) {
-			return companyId;
+			return false;
 		}
 		if (this.batchStore.existsForPeriod(companyId, month, year)) {
 			throw new RefusedException(Refusal.DUPLICATE_PERIOD);
@@ -176,11 +178,14 @@ public class PayrollAdminService {
 		long batchId = this.batchStore.insert(companyId, month, year, bounds[0], bounds[1], "draft");
 		audit(adminId, PlatformAdminAuditEventType.ORG_CREATED, batchId,
 				"payroll batch " + month + "/" + year + " created in company " + companyId);
-		return companyId;
+		return true;
 	}
 
-	/** What a calculate reports back: the company it ran in, and how many payslips it wrote. */
-	public record Calculation(long companyId, int calculated) {
+	/**
+	 * What a calculate reports back: the company it ran in, how many payslips it wrote, and whether it
+	 * ran at all. A finalized batch is skipped, and legacy flashes nothing for it (D-253).
+	 */
+	public record Calculation(long companyId, int calculated, boolean ran) {
 	}
 
 	/**
@@ -202,13 +207,13 @@ public class PayrollAdminService {
 			audit(adminId, PlatformAdminAuditEventType.ORG_UPDATED, batchId,
 					"payroll batch " + batchId + " calculated in company " + owner
 							+ " (" + result.calculatedCount() + " payslips)");
-			return new Calculation(owner, result.calculatedCount());
+			return new Calculation(owner, result.calculatedCount(), true);
 		}
 		catch (LegacyApiException alreadyFinalized) {
 			// `if ($run && $run['status'] !== PAY_FINALIZED)`: PHP falls
 			// straight through to the redirect with no flash at all.
 			if ("batch_already_finalized".equals(alreadyFinalized.getMessageKey())) {
-				return new Calculation(owner, 0);
+				return new Calculation(owner, 0, false);
 			}
 			throw alreadyFinalized;
 		}
