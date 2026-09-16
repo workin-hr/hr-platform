@@ -143,9 +143,7 @@
 							<td class="text-muted" title="${row.notes() == null ? "" : row.notes()}">${ListDisplay.notes(row.notes(), 60)}</td>
 							<td class="text-muted" title="${row.reply() == null ? "" : row.reply()}">${ListDisplay.notes(row.reply(), 60)}</td>
 							<td>
-								<span class="badge ${"approved".equals(row.status()) ? "badge-green"
-									: "rejected".equals(row.status()) ? "badge-red" : "badge-gray"}">
-									${t.apply("status_" + row.status())}</span>
+								@template.admin.statusBadge(status = row.status(), t = t)
 							</td>
 							<td>${row.createdDate()}</td>
 							<%-- Approving is not a status change alone: it deducts leave
@@ -189,8 +187,6 @@
 			!{java.util.SequencedMap<String, String> carry =
 					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
 			!{carry.put("status", status);}
-			@template.admin.pager(basePath = "/admin/requests", result = result,
-					carry = carry, t = t)
 		@if(canWrite)
 			<%-- The comment box used to sit in every row. It is optional -- legacy
 			     accepts an empty one -- so the dialog exists to say what approving
@@ -215,4 +211,6 @@
 					`)
 		@endif
 		</div>
+		@template.admin.pager(basePath = "/admin/requests", result = result,
+				carry = carry, t = t)
 	`)

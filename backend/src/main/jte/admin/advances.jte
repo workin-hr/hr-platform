@@ -133,9 +133,7 @@
 							<td class="text-muted" title="${row.reason() == null ? "" : row.reason()}">${ListDisplay.notes(row.reason(), 40)}</td>
 							<td class="text-muted" title="${row.rejectionReason() == null ? "" : row.rejectionReason()}">${ListDisplay.notes(row.rejectionReason(), 40)}</td>
 							<td>
-								<span class="badge ${row.isApproved() ? "badge-green"
-									: row.isRejected() ? "badge-red" : "badge-gray"}">
-									${t.apply("status_" + row.status())}</span>
+								@template.admin.statusBadge(status = row.status(), t = t)
 							</td>
 							<td class="col-actions">
 								@if(canWrite)
@@ -201,8 +199,6 @@
 			!{java.util.SequencedMap<String, String> carry =
 					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
 			!{carry.put("status", status);}
-			@template.admin.pager(basePath = "/admin/advances", result = result,
-					carry = carry, t = t)
 		@if(canWrite)
 			<%-- A rejection must say why: the reason is not optional, and it used
 			     to be a required text box inside every row of the table. --%>
@@ -281,4 +277,6 @@
 			</div>
 		@endif
 		</div>
+		@template.admin.pager(basePath = "/admin/advances", result = result,
+				carry = carry, t = t)
 	`)

@@ -434,8 +434,7 @@
 							<td class="text-muted">${EmployeeDisplay.workTenure(row.hireDate(), arabic, today)}</td>
 							<td class="text-muted">${EmployeeDisplay.contractDuration(row.contractDurationMonths(), arabic)}</td>
 							<td>
-								<span class="badge ${row.active() ? "badge-green" : "badge-red"}">
-									${t.apply(row.active() ? "status_active" : "status_inactive")}</span>
+								@template.admin.statusBadge(status = row.active() ? "active" : "inactive", t = t)
 							</td>
 							<td class="col-actions">
 								@if(canManage)
@@ -484,7 +483,7 @@
 			!{if (filterJobTitle > 0) { carry.put("filter_job_title", String.valueOf(filterJobTitle)); }}
 			!{if (!dateFrom.isEmpty()) { carry.put("date_from", dateFrom); }}
 			!{if (!dateTo.isEmpty()) { carry.put("date_to", dateTo); }}
-			@template.admin.pager(basePath = "/admin/employees", result = result,
-					carry = carry, t = t)
 		</div>
+		@template.admin.pager(basePath = "/admin/employees", result = result,
+				carry = carry, t = t)
 	`)

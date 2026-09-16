@@ -180,7 +180,7 @@
 								<td class="bold">${batchTotals.netSalary().toPlainString()}</td>
 								<td>${currentBatch.periodFrom()}</td>
 								<td>${currentBatch.periodTo()}</td>
-								<td><span class="badge ${currentBatch.finalized() ? "badge-green" : "badge-yellow"}">${t.apply("status_" + currentBatch.status())}</span></td>
+								<td>@template.admin.statusBadge(status = currentBatch.status(), t = t)</td>
 							</tr>
 						</tbody>
 					</table>
@@ -284,9 +284,9 @@
 				     the size form; without it, turning the page loses the batch. --%>
 				!{java.util.SequencedMap<String, String> detailCarry = new java.util.LinkedHashMap<>();}
 				!{detailCarry.put("run_id", String.valueOf(viewRunId));}
-				@template.admin.pager(basePath = "/admin/payroll", result = detailResult,
-						carry = detailCarry, t = t)
 			</div>
+			@template.admin.pager(basePath = "/admin/payroll", result = detailResult,
+					carry = detailCarry, t = t)
 		@else
 			<div class="toolbar page-toolbar page-toolbar-filters">
 				<form method="GET" class="toolbar-form toolbar-form--labeled">
@@ -408,7 +408,7 @@
 								<td>${row.periodTo()}</td>
 								<td>${row.employeeCount()}</td>
 								<td class="bold">${row.totalNet().toPlainString()}</td>
-								<td><span class="badge ${"finalized".equals(row.status()) ? "badge-green" : "badge-yellow"}">${t.apply("status_" + row.status())}</span></td>
+								<td>@template.admin.statusBadge(status = row.status(), t = t)</td>
 								<td class="col-actions">
 									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
 										<a role="menuitem" class="row-actions__item" href="/admin/payroll?run_id=${row.id()}">${t.apply("edit")}</a>
@@ -460,8 +460,8 @@
 						new java.util.LinkedHashMap<>(filters.asQueryParameters());}
 				!{if (month > 0) { batchCarry.put("month", String.valueOf(month)); }}
 				!{if (year > 0) { batchCarry.put("year", String.valueOf(year)); }}
-				@template.admin.pager(basePath = "/admin/payroll", result = batchResult,
-						carry = batchCarry, t = t)
 			</div>
+			@template.admin.pager(basePath = "/admin/payroll", result = batchResult,
+					carry = batchCarry, t = t)
 		@endif
 	`)

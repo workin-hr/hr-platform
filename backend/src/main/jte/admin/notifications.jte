@@ -129,8 +129,7 @@
 								<%-- badge('1'/'0') in the PHP: the dashboard's yes/no pair,
 								     not a status word. --%>
 								<td>
-									<span class="badge ${row.read() ? "badge-green" : "badge-gray"}">
-										${t.apply(row.read() ? "yes" : "no")}</span>
+									@template.admin.statusBadge(status = row.read() ? "1" : "0", t = t)
 								</td>
 								<td class="text-muted" dir="ltr">${row.createdAtDisplay()}</td>
 								<td class="col-actions">
@@ -168,8 +167,6 @@
 			@if(!dateTo.isEmpty())
 				!{carry.put("date_to", dateTo);}
 			@endif
-			@template.admin.pager(basePath = "/admin/notifications", result = result,
-					carry = carry, t = t)
 		@if(canWrite)
 			<%-- Legacy opens this form in a modal, behind the "+" button above.
 			     Rendered inline it sat open over the table on every visit, whether
@@ -220,4 +217,6 @@
 			</div>
 		@endif
 		</div>
+		@template.admin.pager(basePath = "/admin/notifications", result = result,
+				carry = carry, t = t)
 	`)

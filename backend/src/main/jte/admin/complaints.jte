@@ -125,7 +125,7 @@
 							@endif
 							<td class="bold">${row.name() == null ? "—" : row.name()}</td>
 							<td class="text-muted">${row.phone() == null ? "—" : row.phone()}</td>
-							<td title="${row.message() == null ? "" : row.message()}">${ListDisplay.notes(row.message(), 50)}</td>
+							<td class="text-muted" title="${row.message() == null ? "" : row.message()}">${ListDisplay.notes(row.message(), 50)}</td>
 							<td class="text-muted" title="${row.reply() == null ? "" : row.reply()}">${ListDisplay.notes(row.reply(), 40)}</td>
 							<td>
 								<span class="badge badge-gray" title="${t.apply(row.fromEmployee()
@@ -156,9 +156,7 @@
 										</select>
 									</form>
 								@else
-									<span class="badge ${"done".equals(row.status()) ? "badge-green"
-										: "closed".equals(row.status()) ? "badge-gray" : "badge-blue"}">
-										${t.apply("status_" + row.status())}</span>
+									@template.admin.statusBadge(status = row.status(), t = t)
 								@endif
 							</td>
 							<td class="text-muted">${row.createdDate()}</td>
@@ -201,8 +199,6 @@
 			!{if (!"all".equals(status) && !status.isEmpty()) { carry.put("status", status); }}
 			!{if (!dateFrom.isEmpty()) { carry.put("date_from", dateFrom); }}
 			!{if (!dateTo.isEmpty()) { carry.put("date_to", dateTo); }}
-			@template.admin.pager(basePath = "/admin/complaints", result = result,
-					carry = carry, t = t)
 		@if(canWrite)
 			<%-- The reply used to be a text box and a status select inside every
 			     row, which is what kept this page's actions out of the menu.
@@ -227,4 +223,6 @@
 					`)
 		@endif
 		</div>
+		@template.admin.pager(basePath = "/admin/complaints", result = result,
+				carry = carry, t = t)
 	`)

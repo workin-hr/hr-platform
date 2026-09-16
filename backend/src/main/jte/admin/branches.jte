@@ -172,8 +172,7 @@
 							<td><span class="badge badge-blue">${row.employeeCount()}</span></td>
 							<td><span class="badge badge-gray">${row.departmentCount()}</span></td>
 							<td>
-								<span class="badge ${row.active() ? "badge-green" : "badge-red"}">
-									${t.apply(row.active() ? "status_active" : "status_suspended")}</span>
+								@template.admin.statusBadge(status = row.active() ? "active" : "inactive", t = t)
 							</td>
 							<td>${row.createdDate()}</td>
 							<td class="col-actions">
@@ -206,7 +205,7 @@
 				</tbody>
 			</table>
 			</div>
-			@template.admin.pager(basePath = "/admin/branches", result = result,
-					carry = filters.asQueryParameters(), t = t)
 		</div>
+		@template.admin.pager(basePath = "/admin/branches", result = result,
+				carry = filters.asQueryParameters(), t = t)
 	`)

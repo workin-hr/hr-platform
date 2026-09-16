@@ -158,8 +158,7 @@
 							<td class="bold">${row.title()}</td>
 							<td class="text-muted" title="${row.body() == null ? "" : row.body()}">${ListDisplay.notes(row.body(), 60)}</td>
 							<td>
-								<span class="badge ${row.active() ? "badge-green" : "badge-gray"}">
-									${t.apply(row.active() ? "decision_status_active" : "decision_status_inactive")}</span>
+								@template.admin.statusBadge(status = row.active() ? "active" : "inactive", t = t)
 							</td>
 							<td>${row.createdDate()}</td>
 							<td class="col-actions">
@@ -189,7 +188,7 @@
 				</tbody>
 			</table>
 			</div>
-			@template.admin.pager(basePath = "/admin/administrative_decisions", result = result,
-					carry = filters.asQueryParameters(), t = t)
 		</div>
+		@template.admin.pager(basePath = "/admin/administrative_decisions", result = result,
+				carry = filters.asQueryParameters(), t = t)
 	`)

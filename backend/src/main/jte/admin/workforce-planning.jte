@@ -196,7 +196,7 @@
 				</tbody>
 			</table>
 			</div>
-			@template.admin.pager(basePath = "/admin/workforce_planning", result = result,
-					carry = filters.asQueryParameters(), t = t)
 		</div>
+		@template.admin.pager(basePath = "/admin/workforce_planning", result = result,
+				carry = filters.asQueryParameters(), t = t)
 	`)

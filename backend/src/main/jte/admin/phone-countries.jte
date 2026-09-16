@@ -80,9 +80,7 @@
 								<td class="text-muted" dir="ltr">${String.join(", ", country.prefixes())}</td>
 								<td>${country.sortOrder()}</td>
 								<td>
-									<span class="badge ${country.active() ? "badge-green" : "badge-gray"}">
-										${t.apply(country.active() ? "status_active" : "status_inactive")}
-									</span>
+									@template.admin.statusBadge(status = country.active() ? "active" : "inactive", t = t)
 								</td>
 								<td class="col-actions">
 									<%-- A trigger with nothing behind it opens an empty popover,

@@ -124,8 +124,7 @@
 							<td>${row.assetDate() == null ? "—" : row.assetDate()}</td>
 							<td>${row.assetEndDate() == null ? "—" : row.assetEndDate()}</td>
 							<td>
-								<span class="badge ${row.returned() ? "badge-green" : "badge-gray"}">
-									${t.apply(row.returned() ? "yes" : "no")}</span>
+								@template.admin.statusBadge(status = row.returned() ? "1" : "0", t = t)
 							</td>
 							<td class="col-actions">
 								<%-- The dash belongs beside the row, not inside a popover the
@@ -177,8 +176,6 @@
 			!{java.util.SequencedMap<String, String> carry =
 					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
 			!{carry.put("returned", returned);}
-			@template.admin.pager(basePath = "/admin/assets", result = result,
-					carry = carry, t = t)
 		@if(canWrite)
 			<%-- The page's one copy of the list both employee pickers search. --%>
 			<div hidden id="employee-picker-list" data-employees="${EmployeePicker.json(employeeOptions)}"></div>
@@ -245,4 +242,6 @@
 			</div>
 		@endif
 		</div>
+		@template.admin.pager(basePath = "/admin/assets", result = result,
+				carry = carry, t = t)
 	`)

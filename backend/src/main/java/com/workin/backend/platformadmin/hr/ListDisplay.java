@@ -25,7 +25,7 @@ public final class ListDisplay {
 	 * character up to {@code U+0020}, which includes the form feed PHP leaves alone, and
 	 * {@code strip()} removes every Unicode space, which is wider still.
 	 */
-	private static final String PHP_TRIM = " \t\n\r\0";
+	private static final String PHP_TRIM = " \t\n\r\0\u000B";
 
 	private ListDisplay() {
 	}
@@ -45,6 +45,22 @@ public final class ListDisplay {
 			return trimmed;
 		}
 		return trimmed.substring(0, trimmed.offsetByCodePoints(0, max)) + "…";
+	}
+
+	/**
+	 * {@code mb_strimwidth($text, 0, $width, '…')}: the FAQ list's own cut
+	 * ({@code pages/faqs/page.php:131-132}), which is not {@code hr_request_notes_display()}.
+	 *
+	 * <p>Two differences matter. The marker counts towards the width, so a cut answer is 59
+	 * characters and an ellipsis rather than 60 and one. And nothing is trimmed, and empty text
+	 * stays empty rather than becoming an em dash.
+	 */
+	public static String strimwidth(String text, int width) {
+		String value = text == null ? "" : text;
+		if (value.codePointCount(0, value.length()) <= width) {
+			return value;
+		}
+		return value.substring(0, value.offsetByCodePoints(0, width - 1)) + "…";
 	}
 
 	private static String trim(String text) {

@@ -97,8 +97,7 @@
 									@endif
 								</td>
 								<td>${banner.sortOrder()}</td>
-								<td><span class="badge ${banner.active() ? "badge-green" : "badge-gray"}">
-									${t.apply(banner.active() ? "status_active" : "status_inactive")}</span></td>
+								<td>@template.admin.statusBadge(status = banner.active() ? "active" : "inactive", t = t)</td>
 								<td class="text-muted">${banner.createdDate()}</td>
 								<td class="col-actions">
 									<%-- A trigger with nothing behind it opens an empty popover,

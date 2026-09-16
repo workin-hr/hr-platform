@@ -151,8 +151,6 @@
 			!{java.util.SequencedMap<String, String> carry =
 					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
 			!{carry.put("year", String.valueOf(year));}
-			@template.admin.pager(basePath = "/admin/leave_balances", result = result,
-					carry = carry, t = t)
 		@if(canWrite)
 			<%-- Two number boxes per row is what kept this page's actions out of
 			     the menu. Same two fields, same action, one dialog. --%>
@@ -208,4 +206,6 @@
 			</div>
 		@endif
 		</div>
+		@template.admin.pager(basePath = "/admin/leave_balances", result = result,
+				carry = carry, t = t)
 	`)

@@ -126,8 +126,7 @@
 							<td class="text-muted" title="${row.reason() == null ? "" : row.reason()}">${ListDisplay.notes(row.reason(), 40)}</td>
 							<td>${row.penaltyDate() == null ? "—" : row.penaltyDate()}</td>
 							<td>
-								<span class="badge ${row.appliedToPayroll() ? "badge-green" : "badge-gray"}">
-									${t.apply(row.appliedToPayroll() ? "yes" : "no")}</span>
+								@template.admin.statusBadge(status = row.appliedToPayroll() ? "1" : "0", t = t)
 							</td>
 							<td class="col-actions">
 								<%-- The dash belongs beside the row, not inside a popover the
@@ -184,8 +183,6 @@
 			!{java.util.SequencedMap<String, String> carry =
 					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
 			!{carry.put("applied", applied);}
-			@template.admin.pager(basePath = "/admin/penalties", result = result,
-					carry = carry, t = t)
 		@if(canWrite)
 			<%-- The page's one copy of the list both employee pickers search. --%>
 			<div hidden id="employee-picker-list" data-employees="${EmployeePicker.json(employeeOptions)}"></div>
@@ -281,4 +278,6 @@
 			</div>
 		@endif
 		</div>
+		@template.admin.pager(basePath = "/admin/penalties", result = result,
+				carry = carry, t = t)
 	`)

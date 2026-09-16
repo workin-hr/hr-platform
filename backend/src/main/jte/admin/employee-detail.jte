@@ -56,8 +56,7 @@
 		<div class="data-table-card">
 			<div class="data-table-head">
 				<h2 class="data-table-title">${detail.employee().employeeName()}
-					<span class="badge ${detail.employee().active() ? "badge-green" : "badge-red"}">
-						${t.apply(detail.employee().active() ? "status_active" : "status_inactive")}</span>
+					@template.admin.statusBadge(status = detail.employee().active() ? "active" : "inactive", t = t)
 				</h2>
 			</div>
 			<div class="detail-grid">
