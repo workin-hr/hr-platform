@@ -157,7 +157,7 @@
 						<th>${t.apply("employees")}</th>
 						<th>${t.apply("status")}</th>
 						<th>${t.apply("reg_date")}</th>
-						<th>${t.apply("actions")}</th>
+						@template.admin.actionsHeader(t = t)
 					</tr>
 				</thead>
 				<tbody>
@@ -173,8 +173,7 @@
 							<td><span class="badge badge-gray">${row.endForInput()}</span></td>
 							<td><span class="badge badge-blue">${row.employeeCount()}</span></td>
 							<td>
-								<span class="badge ${row.active() ? "badge-green" : "badge-red"}">
-									${t.apply(row.active() ? "status_active" : "status_suspended")}</span>
+								@template.admin.statusBadge(status = row.active() ? "active" : "suspended", t = t)
 							</td>
 							<td>${row.createdDate()}</td>
 							<td class="col-actions">
@@ -205,7 +204,7 @@
 				</tbody>
 			</table>
 			</div>
-			@template.admin.pager(basePath = "/admin/shifts", result = result,
-					carry = filters.asQueryParameters(), t = t)
 		</div>
+		@template.admin.pager(basePath = "/admin/shifts", result = result,
+				carry = filters.asQueryParameters(), t = t)
 	`)

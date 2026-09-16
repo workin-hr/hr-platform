@@ -2,6 +2,7 @@
 @import com.workin.backend.platformadmin.web.DashboardSession
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.hr.ListDisplay
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
@@ -62,7 +63,7 @@
 							<th>${t.apply("sort_order")}</th>
 							<th>${t.apply("faq_items_count")}</th>
 							<th>${t.apply("status")}</th>
-							<th class="col-actions"><span class="sr-only">${t.apply("actions")}</span></th>
+							@template.admin.actionsHeader(t = t)
 						</tr>
 					</thead>
 					<tbody>
@@ -74,8 +75,7 @@
 								<td>${category.nameEn()}</td>
 								<td>${category.sortOrder()}</td>
 								<td>${category.itemCount()}</td>
-								<td><span class="badge ${category.active() ? "badge-green" : "badge-gray"}">
-									${t.apply(category.active() ? "status_active" : "status_inactive")}</span></td>
+								<td>@template.admin.statusBadge(status = category.active() ? "active" : "inactive", t = t)</td>
 								<td class="col-actions">
 									<%-- The confirm names the item count: deleting a category
 									     cascades, and the number is the part that surprises.
@@ -142,7 +142,7 @@
 							<th>${t.apply("sort_order")}</th>
 							<th>${t.apply("app_platform")}</th>
 							<th>${t.apply("status")}</th>
-							<th class="col-actions"><span class="sr-only">${t.apply("actions")}</span></th>
+							@template.admin.actionsHeader(t = t)
 						</tr>
 					</thead>
 					<tbody>
@@ -155,12 +155,11 @@
 								     somebody checks that the Arabic and the English say the
 								     same thing, and one column cannot answer that. The answer
 								     is long, so it rides in the title. --%>
-								<td class="tbl-clip" title="${item.answerAr()}">${item.questionAr()}</td>
-								<td class="tbl-clip" title="${item.answerEn()}">${item.questionEn()}</td>
+								<td class="bold">${ListDisplay.strimwidth(item.questionAr(), 60)}</td>
+								<td class="text-muted">${ListDisplay.strimwidth(item.questionEn(), 60)}</td>
 								<td>${item.sortOrder()}</td>
 								<td><span class="badge badge-blue">${item.platform().stored()}</span></td>
-								<td><span class="badge ${item.active() ? "badge-green" : "badge-gray"}">
-									${t.apply(item.active() ? "status_active" : "status_inactive")}</span></td>
+								<td>@template.admin.statusBadge(status = item.active() ? "active" : "inactive", t = t)</td>
 								<td class="col-actions">
 									@if(canWrite)
 										@template.admin.rowActions(rowId = item.id(), t = t,

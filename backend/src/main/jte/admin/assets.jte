@@ -3,6 +3,7 @@
 @import com.workin.backend.platformadmin.hr.CompanyAsset
 @import com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption
 @import com.workin.backend.platformadmin.hr.EmployeePicker
+@import com.workin.backend.platformadmin.hr.ListDisplay
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -106,7 +107,7 @@
 						<th>${t.apply("asset_date")}</th>
 						<th>${t.apply("asset_end_date")}</th>
 						<th>${t.apply("is_returned")}</th>
-						<th>${t.apply("actions")}</th>
+						@template.admin.actionsHeader(t = t)
 					</tr>
 				</thead>
 				<tbody>
@@ -119,12 +120,11 @@
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
-							<td class="bold">${row.assetText()}</td>
+							<td class="bold" title="${row.assetText() == null ? "" : row.assetText()}">${ListDisplay.notes(row.assetText(), 60)}</td>
 							<td>${row.assetDate() == null ? "—" : row.assetDate()}</td>
 							<td>${row.assetEndDate() == null ? "—" : row.assetEndDate()}</td>
 							<td>
-								<span class="badge ${row.returned() ? "badge-green" : "badge-gray"}">
-									${t.apply(row.returned() ? "yes" : "no")}</span>
+								@template.admin.statusBadge(status = row.returned() ? "1" : "0", t = t)
 							</td>
 							<td class="col-actions">
 								<%-- The dash belongs beside the row, not inside a popover the
@@ -176,8 +176,6 @@
 			!{java.util.SequencedMap<String, String> carry =
 					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
 			!{carry.put("returned", returned);}
-			@template.admin.pager(basePath = "/admin/assets", result = result,
-					carry = carry, t = t)
 		@if(canWrite)
 			<%-- The page's one copy of the list both employee pickers search. --%>
 			<div hidden id="employee-picker-list" data-employees="${EmployeePicker.json(employeeOptions)}"></div>
@@ -244,4 +242,6 @@
 			</div>
 		@endif
 		</div>
+		@template.admin.pager(basePath = "/admin/assets", result = result,
+				carry = carry, t = t)
 	`)

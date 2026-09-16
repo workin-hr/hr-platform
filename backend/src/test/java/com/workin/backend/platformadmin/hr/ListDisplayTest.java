@@ -1,0 +1,76 @@
+package com.workin.backend.platformadmin.hr;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import org.junit.jupiter.api.Test;
+
+/** {@code hr_request_notes_display()}, character for character. */
+class ListDisplayTest {
+
+	@Test
+	void nothingAtAllIsTheEmDashLegacyShows() {
+		assertThat(ListDisplay.notes(null)).isEqualTo("—");
+		assertThat(ListDisplay.notes("")).isEqualTo("—");
+		assertThat(ListDisplay.notes("   \t\r\n")).as("trim() leaves nothing").isEqualTo("—");
+	}
+
+	@Test
+	void whatFitsIsShownWhole() {
+		assertThat(ListDisplay.notes("  a short note  ")).as("trimmed, not cut").isEqualTo("a short note");
+		assertThat(ListDisplay.notes("x".repeat(60))).as("exactly the limit is not cut").isEqualTo("x".repeat(60));
+	}
+
+	@Test
+	void whatDoesNotFitIsCutAtTheLimitWithAnEllipsis() {
+		assertThat(ListDisplay.notes("x".repeat(61))).isEqualTo("x".repeat(60) + "…");
+		assertThat(ListDisplay.notes("abcdef", 3)).isEqualTo("abc…");
+	}
+
+	/**
+	 * {@code mb_strlen} counts characters. Arabic is one character each here as it is in PHP,
+	 * where a byte count would cut in the middle of a letter.
+	 */
+	@Test
+	void arabicIsCountedByItsLettersNotItsBytes() {
+		String ten = "أبجدهوزحطي";
+		assertThat(ten.codePointCount(0, ten.length())).isEqualTo(10);
+		assertThat(ListDisplay.notes(ten, 10)).isEqualTo(ten);
+		assertThat(ListDisplay.notes(ten, 4)).isEqualTo("أبجد…");
+	}
+
+	/**
+	 * An emoji is one character to {@code mb_substr} and two UTF-16 units here. Counting units
+	 * would cut this text a character early and, at the boundary, split the pair into rubbish.
+	 */
+	@Test
+	void anEmojiIsOneCharacterAndIsNeverSplit() {
+		String text = "ab😀cd";
+		assertThat(text.length()).as("six UTF-16 units").isEqualTo(6);
+		assertThat(ListDisplay.notes(text, 5)).as("five characters, all of it").isEqualTo(text);
+		assertThat(ListDisplay.notes(text, 3)).as("the emoji is the third character").isEqualTo("ab😀…");
+		assertThat(ListDisplay.notes(text, 2)).as("cut before it").isEqualTo("ab…");
+	}
+
+	/**
+	 * {@code mb_strimwidth($s, 0, 60, '…')} is the FAQ list's own cut: the marker counts towards
+	 * the width, nothing is trimmed, and empty text stays empty rather than becoming an em dash.
+	 */
+	@Test
+	void theFaqCutCountsItsEllipsisAndLeavesEverythingElseAlone() {
+		assertThat(ListDisplay.strimwidth("x".repeat(60), 60)).as("exactly the width is whole").isEqualTo("x".repeat(60));
+		assertThat(ListDisplay.strimwidth("x".repeat(61), 60))
+				.as("59 characters and the marker, not 60 and the marker").isEqualTo("x".repeat(59) + "…");
+		assertThat(ListDisplay.strimwidth("  padded  ", 60)).as("no trim").isEqualTo("  padded  ");
+		assertThat(ListDisplay.strimwidth("", 60)).as("empty stays empty").isEmpty();
+		assertThat(ListDisplay.strimwidth(null, 60)).as("null reads as empty").isEmpty();
+		assertThat(ListDisplay.strimwidth("ab😀cd", 4)).as("an emoji is one character here too").isEqualTo("ab😀…");
+	}
+
+	/** PHP's {@code trim()} does not remove a form feed; {@code String.trim()} would. */
+	@Test
+	void onlyPhpsOwnWhitespaceIsTrimmed() {
+		assertThat(ListDisplay.notes("\u000Ckept\u000C")).isEqualTo("\u000Ckept\u000C");
+		assertThat(ListDisplay.notes("\u000B\u0000 gone \u0000\u000B")).isEqualTo("gone");
+	}
+
+}

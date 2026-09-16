@@ -1,6 +1,7 @@
 @import java.util.function.Function
 @import com.workin.backend.platformadmin.org.ActiveCompanies
 @import com.workin.backend.platformadmin.hr.AdministrativeDecision
+@import com.workin.backend.platformadmin.hr.ListDisplay
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -141,7 +142,7 @@
 						<th>${t.apply("decision_body")}</th>
 						<th>${t.apply("status")}</th>
 						<th>${t.apply("reg_date")}</th>
-						<th>${t.apply("actions")}</th>
+						@template.admin.actionsHeader(t = t)
 					</tr>
 				</thead>
 				<tbody>
@@ -155,10 +156,9 @@
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
 							<td class="bold">${row.title()}</td>
-							<td class="text-muted tbl-clip" title="${row.body() == null ? "" : row.body()}">${row.body() == null || row.body().isBlank() ? "—" : row.body()}</td>
+							<td class="text-muted" title="${row.body() == null ? "" : row.body()}">${ListDisplay.notes(row.body(), 60)}</td>
 							<td>
-								<span class="badge ${row.active() ? "badge-green" : "badge-gray"}">
-									${t.apply(row.active() ? "decision_status_active" : "decision_status_inactive")}</span>
+								@template.admin.statusBadge(status = row.active() ? "active" : "inactive", t = t)
 							</td>
 							<td>${row.createdDate()}</td>
 							<td class="col-actions">
@@ -188,7 +188,7 @@
 				</tbody>
 			</table>
 			</div>
-			@template.admin.pager(basePath = "/admin/administrative_decisions", result = result,
-					carry = filters.asQueryParameters(), t = t)
 		</div>
+		@template.admin.pager(basePath = "/admin/administrative_decisions", result = result,
+				carry = filters.asQueryParameters(), t = t)
 	`)

@@ -66,7 +66,7 @@
 							<th>${t.apply("guide_video_file")}</th>
 							<th>${t.apply("sort_order")}</th>
 							<th>${t.apply("status")}</th>
-							<th class="col-actions">${t.apply("actions")}</th>
+							@template.admin.actionsHeader(t = t)
 						</tr>
 					</thead>
 					<tbody>
@@ -78,8 +78,7 @@
 								<td>${row.titleEn()}</td>
 								<td dir="ltr">${row.video().isEmpty() ? "—" : row.video()}</td>
 								<td class="col-center">${row.sortOrder()}</td>
-								<td><span class="badge ${row.active() ? "badge-green" : "badge-gray"}">
-									${t.apply(row.active() ? "status_active" : "status_inactive")}</span></td>
+								<td>@template.admin.statusBadge(status = row.active() ? "active" : "inactive", t = t)</td>
 								<td class="col-actions">
 									@if(canWrite)
 										@template.admin.rowActions(rowId = row.id(), t = t, items = @`

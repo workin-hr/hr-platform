@@ -50,10 +50,7 @@
 			     value and not a word to show anyone. --%>
 			<div class="stat-card green">
 				<div class="stat-num">
-					<span class="badge ${"active".equals(detail.company().status()) ? "badge-green"
-							: "pending".equals(detail.company().status()) ? "badge-yellow"
-							: "rejected".equals(detail.company().status()) ? "badge-red" : "badge-gray"}">
-						${t.apply("status_" + detail.company().status())}</span>
+					@template.admin.statusBadge(status = detail.company().status(), t = t)
 				</div>
 				<div class="stat-label">${t.apply("status")}</div>
 			</div>

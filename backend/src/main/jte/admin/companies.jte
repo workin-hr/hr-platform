@@ -129,7 +129,7 @@
 								<th class="col-center">${t.apply("branches")}</th>
 								<th class="col-center">${t.apply("departments")}</th>
 								<th>${t.apply("reg_date")}</th>
-								<th class="col-actions"><span class="sr-only">${t.apply("actions")}</span></th>
+								@template.admin.actionsHeader(t = t)
 							</tr>
 						</thead>
 						<tbody>
@@ -165,10 +165,7 @@
 									     in a right-to-left cell, which turns the range inside out. --%>
 									<td class="text-muted" dir="ltr">${row.sizeLabel()}</td>
 									<td>
-										<span class="badge ${"active".equals(row.status()) ? "badge-green"
-												: "pending".equals(row.status()) ? "badge-yellow"
-												: "rejected".equals(row.status()) ? "badge-red" : "badge-gray"}">
-											${t.apply("status_" + row.status())}</span>
+										@template.admin.statusBadge(status = row.status(), t = t)
 									</td>
 									<td class="col-center"><span class="badge badge-blue">${row.employeeCount()}</span></td>
 									<td class="col-center"><span class="badge badge-gray">${row.branchCount()}</span></td>
@@ -187,9 +184,9 @@
 						</tbody>
 					</table>
 				</div>
-				@template.admin.pager(basePath = "/admin/companies", result = result,
-						carry = filters.asQueryParameters(), t = t)
 			</div>
+			@template.admin.pager(basePath = "/admin/companies", result = result,
+					carry = filters.asQueryParameters(), t = t)
 		@if(actionsEnabled)
 			<%-- A rejection must say why. The other actions post from the menu
 			     directly; this one needs a box, and one dialog serves every row. --%>

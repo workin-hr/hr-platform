@@ -66,7 +66,7 @@
 						<th>${t.apply("name_en")}</th>
 						<th>${t.apply("sort_order")}</th>
 						<th>${t.apply("setting_option_companies_using")}</th>
-						<th>${t.apply("actions")}</th>
+						@template.admin.actionsHeader(t = t)
 					</tr>
 				</thead>
 				<tbody>

@@ -75,7 +75,7 @@
 					<th>${t.apply("phone")}</th>
 					<th>${t.apply("join_request_status")}</th>
 					<th>${t.apply("request_date")}</th>
-					<th>${t.apply("actions")}</th>
+					@template.admin.actionsHeader(t = t)
 				</tr>
 			</thead>
 			<tbody>
@@ -89,11 +89,8 @@
 					<td class="bold">${row.label()}</td>
 					<td>${row.phone() == null || row.phone().isBlank() ? "—" : row.phone()}</td>
 					<td>
-						<span class="badge ${"approved".equals(row.badge()) ? "badge-green"
-							: "rejected".equals(row.badge()) ? "badge-red" : "badge-blue"}">
-							${t.apply("approved".equals(row.badge()) ? "status_approved"
-								: "rejected".equals(row.badge()) ? "status_rejected" : "status_pending")}
-						</span>
+						@template.admin.statusBadge(status = "approved".equals(row.badge()) ? "approved"
+				: "rejected".equals(row.badge()) ? "rejected" : "pending", t = t)
 					</td>
 					<td>${row.createdAt() == null ? "—" : row.createdAt().toString().replace("T", " ")}</td>
 					<td class="col-actions">

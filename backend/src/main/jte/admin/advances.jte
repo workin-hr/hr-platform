@@ -3,6 +3,7 @@
 @import com.workin.backend.platformadmin.hr.Advance
 @import com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption
 @import com.workin.backend.platformadmin.hr.EmployeePicker
+@import com.workin.backend.platformadmin.hr.ListDisplay
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -109,7 +110,7 @@
 						<th>${t.apply("advance_reason")}</th>
 						<th>${t.apply("rejection_reason")}</th>
 						<th>${t.apply("status")}</th>
-						<th>${t.apply("actions")}</th>
+						@template.admin.actionsHeader(t = t)
 					</tr>
 				</thead>
 				<tbody>
@@ -129,12 +130,10 @@
 							<%-- Both reasons are free text and can be long; the cell
 							     shows the start and the title carries the whole of it,
 							     as legacy does. --%>
-							<td class="text-muted tbl-clip" title="${row.reason() == null ? "" : row.reason()}">${row.reason() == null || row.reason().isBlank() ? "—" : row.reason()}</td>
-							<td class="text-muted tbl-clip" title="${row.rejectionReason() == null ? "" : row.rejectionReason()}">${row.rejectionReason() == null || row.rejectionReason().isBlank() ? "—" : row.rejectionReason()}</td>
+							<td class="text-muted" title="${row.reason() == null ? "" : row.reason()}">${ListDisplay.notes(row.reason(), 40)}</td>
+							<td class="text-muted" title="${row.rejectionReason() == null ? "" : row.rejectionReason()}">${ListDisplay.notes(row.rejectionReason(), 40)}</td>
 							<td>
-								<span class="badge ${row.isApproved() ? "badge-green"
-									: row.isRejected() ? "badge-red" : "badge-gray"}">
-									${t.apply("status_" + row.status())}</span>
+								@template.admin.statusBadge(status = row.status(), t = t)
 							</td>
 							<td class="col-actions">
 								@if(canWrite)
@@ -200,8 +199,6 @@
 			!{java.util.SequencedMap<String, String> carry =
 					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
 			!{carry.put("status", status);}
-			@template.admin.pager(basePath = "/admin/advances", result = result,
-					carry = carry, t = t)
 		@if(canWrite)
 			<%-- A rejection must say why: the reason is not optional, and it used
 			     to be a required text box inside every row of the table. --%>
@@ -280,4 +277,6 @@
 			</div>
 		@endif
 		</div>
+		@template.admin.pager(basePath = "/admin/advances", result = result,
+				carry = carry, t = t)
 	`)

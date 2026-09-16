@@ -1,5 +1,6 @@
 @import java.util.function.Function
 @import com.workin.backend.platformadmin.hr.Complaint
+@import com.workin.backend.platformadmin.hr.ListDisplay
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -111,7 +112,7 @@
 						<th>${t.apply("complaint_source")}</th>
 						<th>${t.apply("status")}</th>
 						<th>${t.apply("date")}</th>
-						<th>${t.apply("actions")}</th>
+						@template.admin.actionsHeader(t = t)
 					</tr>
 				</thead>
 				<tbody>
@@ -124,8 +125,8 @@
 							@endif
 							<td class="bold">${row.name() == null ? "—" : row.name()}</td>
 							<td class="text-muted">${row.phone() == null ? "—" : row.phone()}</td>
-							<td class="tbl-clip" title="${row.message() == null ? "" : row.message()}">${row.message() == null || row.message().isBlank() ? "—" : row.message()}</td>
-							<td class="text-muted tbl-clip" title="${row.reply() == null ? "" : row.reply()}">${row.reply() == null || row.reply().isBlank() ? "—" : row.reply()}</td>
+							<td class="text-muted" title="${row.message() == null ? "" : row.message()}">${ListDisplay.notes(row.message(), 50)}</td>
+							<td class="text-muted" title="${row.reply() == null ? "" : row.reply()}">${ListDisplay.notes(row.reply(), 40)}</td>
 							<td>
 								<span class="badge badge-gray" title="${t.apply(row.fromEmployee()
 									? "complaint_source_employee_to_company_hint"
@@ -155,9 +156,7 @@
 										</select>
 									</form>
 								@else
-									<span class="badge ${"done".equals(row.status()) ? "badge-green"
-										: "closed".equals(row.status()) ? "badge-gray" : "badge-blue"}">
-										${t.apply("status_" + row.status())}</span>
+									@template.admin.statusBadge(status = row.status(), t = t)
 								@endif
 							</td>
 							<td class="text-muted">${row.createdDate()}</td>
@@ -200,8 +199,6 @@
 			!{if (!"all".equals(status) && !status.isEmpty()) { carry.put("status", status); }}
 			!{if (!dateFrom.isEmpty()) { carry.put("date_from", dateFrom); }}
 			!{if (!dateTo.isEmpty()) { carry.put("date_to", dateTo); }}
-			@template.admin.pager(basePath = "/admin/complaints", result = result,
-					carry = carry, t = t)
 		@if(canWrite)
 			<%-- The reply used to be a text box and a status select inside every
 			     row, which is what kept this page's actions out of the menu.
@@ -226,4 +223,6 @@
 					`)
 		@endif
 		</div>
+		@template.admin.pager(basePath = "/admin/complaints", result = result,
+				carry = carry, t = t)
 	`)

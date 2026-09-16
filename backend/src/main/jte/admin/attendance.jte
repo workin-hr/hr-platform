@@ -157,7 +157,7 @@
 						<th>${t.apply("att_check_out_time")}</th>
 						<th>${t.apply("hours_worked")}</th>
 						<th>${t.apply("exception")}</th>
-						<th class="col-actions">${t.apply("actions")}</th>
+						@template.admin.actionsHeader(t = t)
 					</tr>
 				</thead>
 				<tbody>
@@ -217,9 +217,9 @@
 				</tbody>
 			</table>
 			</div>
-			@template.admin.pager(basePath = "/admin/attendance", result = result,
-					carry = carry, t = t)
 		</div>
+		@template.admin.pager(basePath = "/admin/attendance", result = result,
+				carry = carry, t = t)
 
 		<%-- The same range, per employee. Its hours come from raw SQL rather
 		     than the engine above, so the two tables can disagree. --%>
@@ -276,9 +276,6 @@
 				</tbody>
 			</table>
 			</div>
-			@template.admin.pager(basePath = "/admin/attendance", result = aggregateResult,
-					carry = carry, t = t,
-					pageParam = "agg_page")
 		@if(canWrite)
 			@template.admin.rowDialog(id = "attendance-edit", action = "edit_attendance",
 					title = t.apply("edit"), csrfParameterName = csrfParameterName,
@@ -363,4 +360,7 @@
 			</div>
 		@endif
 		</div>
+		@template.admin.pager(basePath = "/admin/attendance", result = aggregateResult,
+				carry = carry, t = t,
+				pageParam = "agg_page")
 	`)
