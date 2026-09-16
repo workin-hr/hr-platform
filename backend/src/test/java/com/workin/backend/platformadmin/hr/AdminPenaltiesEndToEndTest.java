@@ -280,7 +280,13 @@ class AdminPenaltiesEndToEndTest {
 				.contains("<td class=\"text-red bold\">\u0646\u0635 \u064a\u0648\u0645</td>")
 				.contains("<td class=\"text-red bold\">2 \u0623\u064a\u0627\u0645</td>")
 				.doesNotContain("badge badge-gray\">0.5<");
-		assertThat(html).as("both pickers, the add form choosing one day as legacy does")
+		// Each picker read on its own: the two render the same options, so a check
+		// against the whole page would pass with either one left as bare numbers.
+		assertThat(picker(html, "data-dialog-field=\"penalty_days\"")).as("the edit window's picker")
+				.contains("<option value=\"0.25\">\u0631\u0628\u0639 \u064a\u0648\u0645</option>")
+				.contains("<option value=\"1\">\u064a\u0648\u0645</option>")
+				.contains("<option value=\"5\">5 \u0623\u064a\u0627\u0645</option>");
+		assertThat(picker(html, "id=\"penalty_days\"")).as("the add form's picker, choosing one day as legacy does")
 				.contains("<option value=\"0.25\">\u0631\u0628\u0639 \u064a\u0648\u0645</option>")
 				.contains("<option value=\"1\" selected=\"true\">\u064a\u0648\u0645</option>")
 				.contains("<option value=\"5\">5 \u0623\u064a\u0627\u0645</option>");
@@ -454,6 +460,13 @@ class AdminPenaltiesEndToEndTest {
 				+ " VALUES (?, ?, ?, ?, ?, ?, 'employee', 1, 1, 0, 'accepted', 1, NOW(), NOW())",
 				id, companyId, branchId, code, first, last);
 		return id;
+	}
+
+	/** One select's options: from the tag carrying {@code marker} to its closing tag. */
+	private static String picker(String html, String marker) {
+		int start = html.indexOf(marker);
+		assertThat(start).as("the select marked %s", marker).isGreaterThanOrEqualTo(0);
+		return html.substring(start, html.indexOf("</select>", start));
 	}
 
 	private long seedPenalty(long employeeId, String type, String days, boolean applied) {
