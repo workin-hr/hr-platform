@@ -1,0 +1,45 @@
+# The devices lab: the local stack with its TLS edge, the terminal receiver and
+# the on-premises agent endpoint switched on -- so the simulators, the agent and
+# the dashboard run exactly as they will at a site visit, against the sanitised
+# seed and never against production.
+#
+# Layered on the local stack and the TLS overlay, on ports of its own so it can
+# run beside the other stacks on a developer's machine:
+#
+#   scripts/devices-lab.sh up
+#
+# which runs, with APP_DOMAIN=localhost, APP_DEVICES_DOMAIN=devices.localhost
+# and a lab TLS_EMAIL exported:
+#
+#   docker compose -p workin-devices-lab -f deploy/compose.local.yaml \
+#     -f deploy/compose.tls.yaml -f deploy/compose.devices-lab.yaml up -d --build
+#
+#   https://localhost:18443/admin          the dashboard (password: devpassword)
+#   http://127.0.0.1:18080 + Host header   the terminal receiver, plain HTTP
+#   https://localhost:18443/api/v1/device-agents   the agent endpoint
+#
+# LAB_DEVICES_BIND=0.0.0.0 publishes the receiver port on the LAN, for pointing
+# a real terminal at this laptop (docs/devices/field-visit-runbook.md). Leave it
+# at loopback otherwise: the receiver is unauthenticated.
+
+services:
+  db:
+    ports: !override
+      - "127.0.0.1:${LAB_DB_PORT:-13316}:3306"
+  app:
+    environment:
+      APP_DEVICES_INGEST_ENABLED: "true"
+      APP_DEVICES_INGEST_HOST: devices.localhost
+      APP_DEVICES_AGENTS_ENABLED: "true"
+      # Allocating a terminal and issuing an agent token are dashboard writes.
+      APP_PLATFORM_ADMIN_ACTIONS_ENABLED: "true"
+      # The edge is published on 18443, not 443. Tomcat's native handling
+      # rebuilds redirects from the protocol alone, so a sign-in landed on
+      # https://localhost/admin -- port 443, which on a developer's machine is
+      # often another stack, the one that can point at production. Spring's
+      # own handling keeps the port X-Forwarded-Host carries. Lab only.
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+  proxy:
+    ports: !override
+      - "127.0.0.1:${LAB_HTTPS_PORT:-18443}:443"
+      - "${LAB_DEVICES_BIND:-127.0.0.1}:${LAB_HTTP_PORT:-18080}:80"

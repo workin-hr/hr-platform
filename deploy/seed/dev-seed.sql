@@ -80730,6 +80730,11 @@ SET AUTOCOMMIT=@OLD_AUTOCOMMIT;
 -- between device_punches.pin and employees.employee_code then fails with
 -- `Illegal mix of collations`.
 --
+-- device_agents, device_punches.delivered_via and the widened vendor check were
+-- added on 2026-09-16 the same way: phase1_extensions.sql applied to a throwaway
+-- MariaDB 11.8 started with those flags, and those three definitions dumped with
+-- --no-data and spliced in place of the old two.
+--
 -- DROP TABLE IF EXISTS is mariadb-dump's default and is kept, like the other 50
 -- tables: deploy/e2e/run.sh restores this seed by hand under E2E_SEED_PROD=1
 -- without a `down -v`, so a seed that cannot be applied twice fails that run
@@ -80767,7 +80772,7 @@ CREATE TABLE `attendance_devices` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `serial_number` (`serial_number`),
   KEY `attendance_devices_company_idx` (`company_id`,`branch_id`),
-  CONSTRAINT `attendance_devices_vendor_chk` CHECK (`vendor` = 'zkteco')
+  CONSTRAINT `attendance_devices_vendor_chk` CHECK (`vendor` in ('zkteco','hikvision'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `employee_device_identities`;
@@ -80816,6 +80821,7 @@ CREATE TABLE `device_punches` (
   `paired_at` datetime DEFAULT NULL,
   `review_flag` varchar(64) DEFAULT NULL,
   `pair_attempts` smallint(5) unsigned NOT NULL DEFAULT 0,
+  `delivered_via` varchar(8) NOT NULL DEFAULT 'PUSH',
   PRIMARY KEY (`id`),
   UNIQUE KEY `dedup_key` (`dedup_key`),
   KEY `device_punches_pairing_idx` (`processing_state`,`company_id`,`pair_attempts`,`employee_id`,`punched_at_utc`),
@@ -80824,7 +80830,8 @@ CREATE TABLE `device_punches` (
   KEY `device_punches_state_idx` (`processing_state`),
   CONSTRAINT `device_punches_runtime_offset_resolution_chk` CHECK (`runtime_offset_resolution` in ('EXACT','PRE_HISTORY')),
   CONSTRAINT `device_punches_assignment_resolution_chk` CHECK (`assignment_resolution` in ('EXACT','INFERRED_EARLIEST','UNRESOLVED')),
-  CONSTRAINT `device_punches_state_chk` CHECK (`processing_state` in ('RECEIVED','UNMATCHED','PAIRED','IGNORED'))
+  CONSTRAINT `device_punches_state_chk` CHECK (`processing_state` in ('RECEIVED','UNMATCHED','PAIRED','IGNORED')),
+  CONSTRAINT `device_punches_delivered_via_chk` CHECK (`delivered_via` in ('PUSH','AGENT','FILE'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `unclaimed_device_sightings`;
@@ -80898,6 +80905,27 @@ CREATE TABLE `device_assignment_history` (
   KEY `device_assignment_history_timeline_idx` (`device_id`,`effective_from_utc`,`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `device_agents`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `device_agents` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `company_id` int(10) unsigned NOT NULL,
+  `name` varchar(100) NOT NULL,
+  `token_sha256` char(64) NOT NULL,
+  `token_hint` varchar(8) NOT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `agent_version` varchar(32) DEFAULT NULL,
+  `last_seen_at` datetime DEFAULT NULL,
+  `last_seen_ip` varchar(45) DEFAULT NULL,
+  `last_report` text DEFAULT NULL,
+  `created_at` datetime NOT NULL,
+  `updated_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `token_sha256` (`token_sha256`),
+  KEY `device_agents_company_idx` (`company_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
@@ -80909,9 +80937,9 @@ CREATE TABLE `device_assignment_history` (
 -- ---------------------------------------------------------------------------
 -- Phase 1, the two statements that are not CREATE TABLE.
 --
--- A seed carrying the fourteen tables but neither the widened enum nor the
+-- A seed carrying the fifteen tables but neither the widened enum nor the
 -- triggers is the one combination the startup check reports as healthy:
--- Phase1SchemaCheck compares table names only, so it logs "all 14 owned tables
+-- Phase1SchemaCheck compares table names only, so it logs "all 15 owned tables
 -- are present", while PunchPairingService.pairCompany refuses to pair on it
 -- whenever anything calls it. This file was generated before the builder
 -- applied all three phase1-mysql DDL files, so the two non-CREATE-TABLE

@@ -28,18 +28,23 @@ Three gates, all set by D-165, none of which the pilot satisfies by itself:
 - The deployment sets `APP_DEVICES_INGEST_ENABLED=true`
   (`app.devices.ingest.enabled`). Without it there is no `/iclock` surface.
 - A public hostname for devices (recommended: a dedicated one, e.g.
-  `devices.<platform-host>`), TLS terminated at the edge, forwarding
-  `/iclock/**` to the application. Per-IP rate limiting belongs at this edge
-  for the pilot.
-- All **fourteen** Phase-1 tables from
+  `devices.<platform-host>`), forwarding `/iclock/**` to the application.
+  The shipped edge (`deploy/Caddyfile`) serves this name over **both HTTP and
+  HTTPS without redirecting**, because many ZKTeco firmwares have no TLS
+  option and do not follow a redirect; `APP_DEVICES_INGEST_HOST` must be the
+  same name (the compose files pass `APP_DEVICES_DOMAIN` for both). Per-IP
+  rate limiting belongs at this edge for the pilot.
+- All **fifteen** Phase-1 tables from
   `backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql` exist on
   the target MariaDB — the same provisioning gate `legacy_refresh_tokens`
   sits behind (ADR-0013 open question; specification §12 Q7). The startup check
-  logs *all 14 owned tables are present* when they do.
+  logs *all 15 owned tables are present* when they do. A database provisioned
+  with the earlier fourteen takes `upgrade_device_agents_and_delivery.sql`
+  instead ([provisioning-phase1-tables.md](../operations/provisioning-phase1-tables.md)).
 - The runtime-offset triggers from
   `backend/src/main/resources/db/phase1-mysql/legacy_runtime_offset_hooks.sql`
   are installed. **Nothing detects their absence**: `Phase1SchemaCheck` compares
-  table names only, so a database with all fourteen tables and no triggers looks
+  table names only, so a database with all fifteen tables and no triggers looks
   correct, while `PunchPairingService` refuses to pair on it whenever anything
   calls it -- nothing does yet, so nothing else reports the gap. Confirm with the
   `information_schema.TRIGGERS` query in
@@ -70,6 +75,15 @@ server address and port.
    Device Info`.
 
 ## 3. On the platform
+
+**Allocate before the handshake matters.** An unclaimed terminal is sent no
+time zone. Once it belongs to a company, every handshake carries
+`TimeZone=<hours>` from `device_time_zone`, and some firmware apply it to the
+clock -- so allocate with the zone the terminal is already set to. The
+platform administrator allocates from the dashboard (`/admin/devices`,
+*Allocate to a branch*), which is the production path D-165 asks for; the
+tenant API below is the pilot's. A site visit follows
+[field-visit-runbook.md](field-visit-runbook.md).
 
 Use a `company_admin` or `hr` session's bearer token for the company that
 owns the branch.

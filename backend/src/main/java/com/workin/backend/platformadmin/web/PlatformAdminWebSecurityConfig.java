@@ -115,6 +115,9 @@ public class PlatformAdminWebSecurityConfig {
 	 */
 	public static final String BRANCHES_PATH = PATH_PREFIX + "/branches";
 
+	/** Attendance terminals, unclaimed serials and on-premises agents, across companies. No PHP counterpart. */
+	public static final String DEVICES_PATH = PATH_PREFIX + "/devices";
+
 	public static final String DEPARTMENTS_PATH = PATH_PREFIX + "/departments";
 
 	public static final String JOB_TITLES_PATH = PATH_PREFIX + "/job_titles";

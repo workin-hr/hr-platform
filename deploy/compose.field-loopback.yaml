@@ -1,0 +1,15 @@
+# For a site visit in the production-database mode (docs/devices/field-visit-runbook.md,
+# section 12): the TLS edge publishes 80 and 443 on every interface, which on a customer's LAN
+# puts the platform's sign-in and API -- against production data -- in reach of every machine on
+# that network. Docker's published ports bypass the host firewall, so this binds them to the
+# laptop itself instead. Terminals reach the receiver through the recorder
+# (`workin_devices capture`), which forwards /iclock only.
+#
+#   docker compose -f compose.remote-db.yaml -f compose.tls.yaml -f compose.field-loopback.yaml \
+#     --env-file .env.remote-db up -d --build
+
+services:
+  proxy:
+    ports: !override
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"

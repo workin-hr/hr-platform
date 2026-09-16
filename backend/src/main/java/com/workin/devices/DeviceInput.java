@@ -53,6 +53,29 @@ public final class DeviceInput {
 		return value != null && PIN.matcher(value).matches();
 	}
 
+	/**
+	 * Whether a line-per-record body holds more than {@code max} records.
+	 * Counted before parsing, so an oversized upload is refused before any of
+	 * its work is done; blank lines and a batch's trailing terminator are not
+	 * records.
+	 */
+	public static boolean exceedsRecordCount(String body, int max) {
+		int records = 0;
+		int lineLength = 0;
+		for (int index = 0; index < body.length(); index++) {
+			char character = body.charAt(index);
+			if (character == '\n') {
+				if (lineLength > 0 && ++records > max) {
+					return true;
+				}
+				lineLength = 0;
+			} else if (character != '\r') {
+				lineLength++;
+			}
+		}
+		return lineLength > 0 && records + 1 > max;
+	}
+
 	/** Stripped, bounded to {@code max}, and null rather than empty. */
 	public static String bounded(String value, int max) {
 		if (value == null) {

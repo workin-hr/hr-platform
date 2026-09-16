@@ -12,6 +12,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import com.workin.devices.DeviceAttendanceEvent;
+import com.workin.devices.DeviceDelivery;
 import com.workin.devices.DeviceInput;
 import com.workin.legacy.LegacyJdbcValues;
 
@@ -62,21 +63,21 @@ public class DevicePunchStore {
 	public InsertOutcome insert(
 			long deviceId, long companyId, Long branchId, Long employeeId, DeviceAttendanceEvent event,
 			LocalDateTime punchedAtUtc, LocalDateTime receivedAt, String state,
-			Long assignmentId, String assignmentResolution) {
+			Long assignmentId, String assignmentResolution, DeviceDelivery delivery) {
 		try {
 			jdbcTemplate.update("""
 					INSERT INTO device_punches
 					  (device_id, company_id, branch_id, employee_id, pin, punched_at_local, punched_at_utc,
 					   status_code, verify_code, work_code, received_at, dedup_key, raw_line, processing_state,
-					   device_assignment_id, assignment_resolution)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+					   device_assignment_id, assignment_resolution, delivered_via)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
 					deviceId, companyId, branchId, employeeId, event.pin(),
 					DeviceAttendanceEvent.SQL_DATE_TIME.format(event.punchedAtLocal()),
 					punchedAtUtc == null ? null : DeviceAttendanceEvent.SQL_DATE_TIME.format(punchedAtUtc),
 					event.statusCode(), event.verifyCode(), event.workCode(),
 					DeviceAttendanceEvent.SQL_DATE_TIME.format(receivedAt),
 					event.dedupKey(), DeviceInput.bounded(event.rawLine(), MAX_RAW_LINE), state,
-					assignmentId, assignmentResolution);
+					assignmentId, assignmentResolution, delivery.name());
 			return InsertOutcome.STORED;
 		} catch (DuplicateKeyException ex) {
 			return InsertOutcome.DUPLICATE;
@@ -189,7 +190,7 @@ public class DevicePunchStore {
 				-- only inferred.
 				SELECT p.id, p.device_id, d.name AS device_name, p.branch_id, p.employee_id, p.pin,
 				       p.punched_at_local, p.punched_at_utc, p.status_code, p.verify_code, p.work_code,
-				       p.received_at, p.processing_state, p.review_flag, p.assignment_resolution
+				       p.received_at, p.processing_state, p.review_flag, p.assignment_resolution, p.delivered_via
 				FROM device_punches p
 				JOIN attendance_devices d ON d.id = p.device_id
 				WHERE p.company_id = ?""");

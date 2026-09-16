@@ -139,4 +139,32 @@ class DevicesModuleIsolationTest {
 				.describedAs("an unauthenticated device bean that a deployment cannot turn off")
 				.isEmpty();
 	}
+
+	/**
+	 * The agent surface's own flag, for the same reason the receiver has one:
+	 * a deployment that has not turned agents on must map no route, register no
+	 * chain and read no body. Its registry ({@code agent}) stays on, so tokens
+	 * can be issued before ingestion is enabled and revoked after.
+	 */
+	@Test
+	void everyBeanOfTheAgentSurfaceIsGatedByTheAgentsFlag() {
+		List<JavaClass> agentBeans = module().stream()
+				.filter(clazz -> clazz.getPackageName().equals(MODULE + ".agentapi"))
+				.filter(clazz -> clazz.isMetaAnnotatedWith(Configuration.class)
+						|| clazz.isMetaAnnotatedWith(Controller.class)
+						|| clazz.isMetaAnnotatedWith(org.springframework.stereotype.Component.class))
+				.toList();
+		assertThat(agentBeans).describedAs("no agent surface bean found -- this rule would pass vacuously")
+				.hasSizeGreaterThanOrEqualTo(4);
+
+		List<String> unguarded = agentBeans.stream()
+				.filter(clazz -> !clazz.isAnnotatedWith(ConditionalOnProperty.class)
+						|| !"app.devices.agents.enabled".equals(
+								clazz.reflect().getAnnotation(ConditionalOnProperty.class).name()[0]))
+				.map(JavaClass::getName)
+				.toList();
+		assertThat(unguarded)
+				.describedAs("an agent surface bean that a deployment cannot turn off")
+				.isEmpty();
+	}
 }

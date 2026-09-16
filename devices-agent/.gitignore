@@ -1,0 +1,11 @@
+# Runtime state and secrets the agent and the lab write next to themselves.
+lab/
+captures/
+field-report/
+*.sqlite3
+*.sqlite3-*
+*.token
+*.password
+__pycache__/
+build/
+dist/

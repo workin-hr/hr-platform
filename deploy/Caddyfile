@@ -41,15 +41,35 @@
 	respond @management_private 404
 }
 
-{$APP_DEVICES_DOMAIN:devices.localhost} {
+# BOTH schemes, and no redirect between them. Caddy's automatic HTTPS would
+# otherwise answer every plain-HTTP request on this name with a redirect, and a
+# terminal whose firmware has no TLS option (many ZKTeco models) does not follow
+# one: its punches would never arrive. The design accepts HTTP-only firmware and
+# records its in-branch interception risk per device
+# (docs/devices/attendance-device-model-and-firmware-inventory.md); naming an
+# http:// address for the host is what tells Caddy not to redirect it. HTTPS
+# stays available for the firmware that has it.
+http://{$APP_DEVICES_DOMAIN:devices.localhost}, https://{$APP_DEVICES_DOMAIN:devices.localhost} {
 	import refuse_management
 
 	request_body {
 		max_size 2MB
 	}
-	reverse_proxy app:8080 {
-		header_up X-Forwarded-Proto {scheme}
+
+	# ONLY the receiver, and health. Every other path the application serves
+	# -- the admin sign-in, the client API, the agent endpoint with its bearer
+	# token -- would otherwise answer on this name too, and now in clear text.
+	# Nothing but a terminal has a reason to use this name.
+	@device path /iclock /iclock/* /actuator/health
+	handle @device {
+		reverse_proxy app:8080 {
+			header_up X-Forwarded-Proto {scheme}
+		}
 	}
+	handle {
+		respond 404
+	}
+
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"

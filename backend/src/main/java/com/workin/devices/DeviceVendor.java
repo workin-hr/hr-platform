@@ -7,7 +7,10 @@ package com.workin.devices;
  */
 public enum DeviceVendor {
 
-	ZKTECO("zkteco");
+	ZKTECO("zkteco"),
+
+	/** Pulled over ISAPI by an on-premises agent; it has no push adapter here. */
+	HIKVISION("hikvision");
 
 	private final String code;
 
@@ -17,5 +20,15 @@ public enum DeviceVendor {
 
 	public String code() {
 		return code;
+	}
+
+	/** The vendor a stored or submitted code names, if it names one. */
+	public static java.util.Optional<DeviceVendor> fromCode(String code) {
+		for (DeviceVendor vendor : values()) {
+			if (vendor.code.equals(code)) {
+				return java.util.Optional.of(vendor);
+			}
+		}
+		return java.util.Optional.empty();
 	}
 }

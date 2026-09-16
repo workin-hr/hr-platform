@@ -1,6 +1,6 @@
 # Provisioning The Phase 1 Tables
 
-Closes the mechanical half of **R-023**: Phase 1 adds fourteen tables to the
+Closes the mechanical half of **R-023**: Phase 1 adds fifteen tables to the
 existing MariaDB, and until they exist the deployment is silently
 incomplete. Nothing creates them at runtime — the application carries no
 Flyway (ADR-0013 amendment 3; ADR-0017) — so this is a deliberate, human
@@ -26,7 +26,7 @@ their sections below say what that means.
 | `SPRING_SESSION_ATTRIBUTES` | That session's contents |
 
 `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`
-adds eight more for the device work -- fourteen in total, which is what step 1
+adds eight more for the device work, and the on-premises agent work one more (`device_agents`) -- fifteen in total, which is what step 1
 below checks for. The six-row table above is not maintained by hand: `Phase1SchemaCheckTest` fails the build if it stops matching the
 DDL.
 
@@ -101,6 +101,38 @@ it yet, so today a database without the triggers shows no symptom at all, and
 step 4 is where you find out; once pairing runs, it pairs nothing and device
 punches stay `RECEIVED`.
 
+### A database provisioned with fourteen tables
+
+Before 2026-09-16 `phase1_extensions.sql` created fourteen tables. The
+on-premises agent work added `device_agents`, a `delivered_via` column at the
+end of `device_punches`, and `hikvision` to the vendor check on
+`attendance_devices`. A database provisioned from the older file is not a
+partial apply, and `--force` does not repair it: that creates the missing table
+and leaves `device_punches` without the column every device insert now writes,
+so each upload fails. `verify_phase1_tables.sql` names this state `PRE-AGENTS`,
+and `Phase1SchemaCheck` logs the missing column at startup.
+
+Apply `upgrade_device_agents_and_delivery.sql` from the same jar path instead.
+Every statement in it is guarded, so a second run changes nothing and an
+interrupted run is finished by running it again. It produces the same
+`SHOW CREATE TABLE` as a fresh apply (proven on MariaDB 10.6 and 11.8), so
+step 1's definition comparison still holds afterwards. Adding the check
+constraint copies `device_punches`; on a database where ingestion was never
+enabled that table is empty.
+
+```bash
+unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/upgrade_device_agents_and_delivery.sql \
+  > upgrade_device_agents_and_delivery.sql
+mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" < upgrade_device_agents_and_delivery.sql
+```
+
+Rolling it back is `DROP TABLE device_agents`; dropping
+`device_punches_delivered_via_chk` and then the `delivered_via` column; and
+re-creating `attendance_devices_vendor_chk` as `vendor IN ('zkteco')`, which
+fails while a Hikvision device is registered -- deactivate and delete those
+rows first. The column holds only how a punch arrived, so dropping it loses no
+attendance.
+
 ## Procedure
 
 **1. Check what is already there.** Read-only; safe to run any time.
@@ -116,7 +148,7 @@ WHERE TABLE_SCHEMA = DATABASE()
     'attendance_devices', 'employee_device_identities', 'device_punches',
     'unclaimed_device_sightings', 'device_operation_logs',
     'device_malformed_punches', 'device_assignment_history',
-    'legacy_runtime_offset_history');
+    'legacy_runtime_offset_history', 'device_agents');
 ```
 
 Expect zero rows on a database that has never been provisioned. Anything
@@ -127,7 +159,7 @@ changes the schema. Then run `verify_phase1_tables.sql`, which names the state
 and what to do about it. For a partial apply, re-apply `phase1_extensions.sql`
 with `mysql --force`, which creates only what is absent and reports one
 `ERROR 1050` per existing table and one `ERROR 1061` per existing index. Where
-all fourteen already exist, there is nothing for `--force` to create. Either
+all fifteen already exist, there is nothing for `--force` to create. Either
 way, the tables that were already there were not made by this procedure, and
 neither `--force` nor the script's column counts check their shape. So before
 step 3, run `verify_phase1_tables.sql` again, then compare every owned table's
@@ -146,7 +178,7 @@ unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/verify_phase1_tables.sql \
 mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" < verify_phase1_tables.sql
 ```
 
-Whenever step 1's query found any of the fourteen, section 4's column counts are not
+Whenever step 1's query found any of the fifteen, section 4's column counts are not
 enough: a table with the right number of columns and a wrong type, default,
 key, foreign key or engine still reads `ok (count only)`. So compare the definitions
 themselves, on a machine with Docker. The query below is read-only; run it
@@ -155,7 +187,7 @@ version that holds only `phase1_extensions.sql`. It runs only against MariaDB
 10.6 or later: it reads whether each index is `IGNORED`, which older MariaDB and
 MySQL do not report (it stops at `ERROR 1054` and compares nothing), and its
 throwaway server is a `mariadb` image. On any other server, compare by hand: run
-`SHOW CREATE TABLE` for each of the fourteen, and the same on a scratch database
+`SHOW CREATE TABLE` for each of the fifteen, and the same on a scratch database
 of that server holding only `phase1_extensions.sql`, and stop on any difference
 other than collation, table-name case, or the `AUTO_INCREMENT=` value, which
 counts rows rather than describing the table. The query below compares table
@@ -177,7 +209,7 @@ object, such as an index, a default, a foreign key or an engine, and needs a
 repair for that object alone: an `ALTER` that gives it the definition
 `phase1_extensions.sql` creates, written and reviewed before it runs, followed
 by this comparison again. It is never an edit to the DDL, and never
-[Rollback](#rollback), which drops all fourteen tables and whatever a partial
+[Rollback](#rollback), which drops all fifteen tables and whatever a partial
 deployment has already stored in them.
 
 A difference in `row_format` alone, on one of the twelve tables that
@@ -189,7 +221,7 @@ create `platform_admins` (`ERROR 1709`) or, after it,
 
 The commands run in a subshell that stops at the first command to fail,
 including a failed query on either side. They report a match only when the
-throwaway database described all fourteen tables. A run that ends with an
+throwaway database described all fifteen tables. A run that ends with an
 error, and no verdict, compared nothing: do not continue to step 3. The
 throwaway container has a name of its own and is removed when the subshell
 exits, including after Ctrl-C.
@@ -199,7 +231,7 @@ names="'legacy_refresh_tokens','platform_admins','platform_admin_audit_events',
   'platform_admin_login_attempts','SPRING_SESSION','SPRING_SESSION_ATTRIBUTES',
   'attendance_devices','employee_device_identities','device_punches',
   'unclaimed_device_sightings','device_operation_logs','device_malformed_punches',
-  'device_assignment_history','legacy_runtime_offset_history'"
+  'device_assignment_history','legacy_runtime_offset_history','device_agents'"
 cat > phase1-shape.sql <<SQL
 SELECT 'table', LOWER(table_name), engine, row_format, table_collation, '', '', '', ''
   FROM information_schema.tables
@@ -251,8 +283,8 @@ SQL
   done
   docker exec -i "$name" mariadb shape < phase1_extensions.sql
   docker exec -i "$name" mariadb -N -B shape < phase1-shape.sql | LC_ALL=C sort > expected-shape.txt
-  [ "$(grep -c '^table' expected-shape.txt)" = 14 ] ||
-    { echo "STOPPED: the throwaway database did not describe the fourteen tables; nothing was compared" >&2; exit 1; }
+  [ "$(grep -c '^table' expected-shape.txt)" = 15 ] ||
+    { echo "STOPPED: the throwaway database did not describe the fifteen tables; nothing was compared" >&2; exit 1; }
   if diff -q expected-shape.txt live-shape.txt > /dev/null; then
     echo "every owned table matches phase1_extensions.sql"
     exit 0
@@ -333,7 +365,7 @@ statement run alongside it can still break that snapshot, so do not start step
 # legacy_runtime_offset_history, so both must exist first. The file ends by
 # seeding the current offset -- that row is where trustworthy coverage BEGINS
 # and asserts nothing about what was in force before it.
-# Where the fourteen tables already exist (after step 1's recovery, or when
+# Where the fifteen tables already exist (after step 1's recovery, or when
 # step 4 sends you back here), set SKIP_TABLES=1 first: phase1_extensions.sql
 # would stop this loop at its first CREATE TABLE.
 rc=0
@@ -368,7 +400,7 @@ refuses to install its triggers when their target table is missing, but only
 for a client that stops on error; under `--force` the order above is the only
 control.
 
-`SKIP_TABLES=1` belongs wherever the fourteen tables already exist: after step
+`SKIP_TABLES=1` belongs wherever the fifteen tables already exist: after step
 1's recovery, or when step 4 sends you back to step 3. Left set on a database
 step 1 found empty, it skips the tables, `slice_b_attendance_method.sql` still
 widens the enum, and the loop then stops at `legacy_runtime_offset_hooks.sql`,
@@ -396,7 +428,7 @@ only an empty history, so reinstalling would report success and leave pairing
 resolving those punches against the old offset. There is no repair procedure
 yet; issue #208 tracks it.
 
-**4. Confirm.** Re-run step 1's query; expect all fourteen names. Then
+**4. Confirm.** Re-run step 1's query; expect all fifteen names. Then
 confirm the runtime-offset writers are installed -- pairing is written to
 refuse without them, because a seeded history with no writers looks
 authoritative while silently going stale, and nothing else here checks for
@@ -447,7 +479,7 @@ WHERE TABLE_SCHEMA = DATABASE()
     'attendance_devices', 'employee_device_identities', 'device_punches',
     'unclaimed_device_sightings', 'device_operation_logs',
     'device_malformed_punches', 'device_assignment_history',
-    'legacy_runtime_offset_history')
+    'legacy_runtime_offset_history', 'device_agents')
 ORDER BY TABLE_NAME;
 ```
 
@@ -468,7 +500,7 @@ WHERE TABLE_SCHEMA = DATABASE()
     'attendance_devices', 'employee_device_identities', 'device_punches',
     'unclaimed_device_sightings', 'device_operation_logs',
     'device_malformed_punches', 'device_assignment_history',
-    'legacy_runtime_offset_history')
+    'legacy_runtime_offset_history', 'device_agents')
 ORDER BY TABLE_NAME, COLUMN_NAME;
 ```
 
@@ -525,7 +557,7 @@ runs at startup and logs one line per missing table
 naming the feature it disables. A correctly provisioned deployment logs:
 
 ```text
-Phase 1 schema check: all 14 owned tables are present.
+Phase 1 schema check: all 15 owned tables are present.
 ```
 
 This is the authoritative check — it reads the same list the tests pin to
@@ -538,7 +570,7 @@ The check logs at `ERROR`, once per missing table, in the first seconds
 of startup:
 
 ```text
-Phase 1 schema check: 14 of 14 owned tables are MISSING from this database.
+Phase 1 schema check: 15 of 15 owned tables are MISSING from this database.
   missing table platform_admins -- disables the platform-admin surface at /admin -- nobody can sign in
 ```
 
@@ -589,11 +621,11 @@ to return the database to PHP would be what breaks it. Confirm with the
 
 Then `DROP TABLE` each name, innermost first: `SPRING_SESSION_ATTRIBUTES`
 before `SPRING_SESSION`, and `platform_admin_audit_events` before
-`platform_admins`. Those are the two foreign keys among the fourteen; naming
-all fourteen in one statement in the wrong order fails with
+`platform_admins`. Those are the two foreign keys among the fifteen; naming
+all fifteen in one statement in the wrong order fails with
 `ERROR 1451 (23000): Cannot delete or update a parent row` part-way through,
-leaving the rollback half-done. Legacy PHP never referenced any of the fourteen
-TABLES, so once the triggers are gone those fourteen are back to their
+leaving the rollback half-done. Legacy PHP never referenced any of the fifteen
+TABLES, so once the triggers are gone those fifteen are back to their
 pre-Phase-1 state.
 
 That is not the whole database. Step 3 also applied

@@ -43,8 +43,10 @@ class AdminNavTest {
 		assertThat(pagesOf(ADMIN, "hr")).containsExactly(
 				"employees", "requests", "leave_balances", "penalties",
 				"administrative_decisions", "assets", "advances", "workforce_planning");
+		// devices is not PHP's: the administrator's attendance terminals, placed
+		// beside attendance. No other audience's menu has it (below).
 		assertThat(pagesOf(ADMIN, "payroll_group"))
-				.containsExactly("salary_calculator", "attendance", "payroll");
+				.containsExactly("salary_calculator", "attendance", "devices", "payroll");
 		assertThat(pagesOf(ADMIN, "comms_group")).containsExactly(
 				"notifications", "complaints", "banners", "faqs", "guide_videos",
 				"phone_countries", "settings");
