@@ -458,11 +458,6 @@ class AdminLayoutWiringTest {
 	}
 
 	/**
-	 * A page is a template that renders the shell. The rest -- the layout
-	 * itself, the sidebar, and form fragments like {@code branch-form} that a
-	 * page includes -- have no stylesheets of their own to name.
-	 */
-	/**
 	 * The classes beside {@code .content} on legacy's page, from each page's own
 	 * {@code <div class="content ...">}. A stylesheet scopes rules to them --
 	 * {@code payroll-pages.css} writes {@code .payroll-page .page-toolbar},
@@ -532,6 +527,11 @@ class AdminLayoutWiringTest {
 		assertThat(wrong).as("pages whose .content classes differ from legacy's").isEmpty();
 	}
 
+	/**
+	 * A page is a template that renders the shell. The rest -- the layout
+	 * itself, the sidebar, and form fragments like {@code branch-form} that a
+	 * page includes -- have no stylesheets of their own to name.
+	 */
 	private static List<Path> pageTemplates() throws IOException {
 		try (var paths = Files.list(TEMPLATES)) {
 			List<Path> pages = new ArrayList<>();

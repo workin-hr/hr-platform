@@ -194,8 +194,10 @@
 			     the payslip: days present/absent/leave, penalties_total, and the
 			     three totals. An edit_detail write to net_salary is therefore
 			     stored but not shown here -- it surfaces in the totals strip
-			     above and the list's total_net. That is the source's behaviour. --%>
-			<div class="data-table-card">
+			     above and the list's total_net. That is the source's behaviour.
+			     payroll-detail-card is page.php:241's: one line per cell, 12px,
+			     scrolling sideways past 1400px rather than wrapping. --%>
+			<div class="data-table-card payroll-detail-card">
 				<div class="table-wrap">
 				<table class="tbl">
 					<thead>

@@ -101,8 +101,9 @@ public final class AttendanceDisplay {
 	/**
 	 * The text of {@code payroll_render_overtime_delta_badge()}: "+30 دقيقة" over the shift.
 	 *
-	 * <p>Under it, legacy prints the bare count and leaves the red of {@code --minus} to say it is a
-	 * shortfall. This keeps the minus sign, so the column does not rest on colour alone.
+	 * <p>Under it, legacy prints the bare count and leaves the grey of {@code --minus}, against the
+	 * yellow of {@code --plus}, to say it is a shortfall. This keeps the minus sign, so the column
+	 * does not rest on colour alone.
 	 */
 	public static String overtime(long minutes, Function<String, String> t) {
 		return (minutes > 0 ? "+" : minutes < 0 ? "-" : "") + Math.abs(minutes) + " " + t.apply("minute_unit");
@@ -112,9 +113,11 @@ public final class AttendanceDisplay {
 	 * {@code hr_parse_datetime()}: trimmed, a {@code T} read as a space, then the first 19
 	 * characters as a date and time with seconds, or else the first 16 without.
 	 *
-	 * <p>PHP rolls an impossible value over where this refuses it. A column read back from MariaDB
-	 * holds only real dates or the zero date, which legacy renders as "30 November -0001" and this
-	 * renders as a dash.
+	 * <p>PHP rolls a zero part over where this refuses it, and such values are stored: under
+	 * {@code sql_mode=''} the API writes an unparseable check-out as {@code 0000-00-00 00:00:00}
+	 * ({@code LegacyAttendanceStore}), and a zero month or day is kept as written
+	 * ({@code LegacyJdbcValues}). Legacy shows the zero date as "30 November -0001", "Tuesday" and
+	 * "00:00", and {@code 2026-00-10} as "10 December 2025"; each cell here is a dash.
 	 */
 	static LocalDateTime parse(String stored) {
 		String normalized = ListDisplay.trim(stored).replace('T', ' ');

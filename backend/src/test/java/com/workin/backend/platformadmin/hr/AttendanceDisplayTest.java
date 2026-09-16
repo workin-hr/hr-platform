@@ -56,12 +56,17 @@ class AttendanceDisplayTest {
 		assertThat(AttendanceDisplay.dayName("  ", false)).isEqualTo("—");
 	}
 
-	/** Legacy prints "30 November -0001" for the zero date; that is the one place this differs. */
+	/**
+	 * Stored, and rolled over by PHP: the zero date is "30 November -0001", "Tuesday" and "00:00" in
+	 * legacy, and a zero month or day becomes the neighbouring real date. Each is a dash here.
+	 */
 	@Test
-	void theZeroDateIsADashRatherThanLegacysRollover() {
+	void aDateWithAZeroPartIsADashRatherThanLegacysRollover() {
 		assertThat(AttendanceDisplay.date("0000-00-00 00:00:00", false)).isEqualTo("—");
 		assertThat(AttendanceDisplay.dayName("0000-00-00 00:00:00", true)).isEqualTo("—");
 		assertThat(AttendanceDisplay.time("0000-00-00 00:00:00")).isEqualTo("—");
+		assertThat(AttendanceDisplay.date("2026-00-10 09:00:00", false)).as("legacy: 10 December 2025").isEqualTo("—");
+		assertThat(AttendanceDisplay.time("2026-03-00 09:00:00")).as("legacy: 09:00").isEqualTo("—");
 	}
 
 	@Test
