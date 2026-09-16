@@ -14,7 +14,7 @@ carries the site-visit kit and the lab simulators. Python 3.11+, standard librar
 
 ```bash
 cd devices-agent
-python3 -m unittest discover -s tests -t .      # 35 tests, no packages needed
+python3 -m unittest discover -s tests -t .      # 40 tests, no packages needed
 python3 -m pip install "pyzk==0.9"               # optional: cross-check the emulator against pyzk
 python3 -m unittest tests.test_zk4370
 python3 -m workin_devices --help
