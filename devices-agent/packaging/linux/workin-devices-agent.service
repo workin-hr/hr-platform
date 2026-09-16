@@ -1,0 +1,23 @@
+# /etc/systemd/system/workin-devices-agent.service
+# Install steps: docs/devices/on-prem-agent.md ("Linux, including a Raspberry Pi").
+[Unit]
+Description=WorkIn devices agent (reads attendance terminals on this LAN)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=workin-agent
+Group=workin-agent
+WorkingDirectory=/var/lib/workin-agent
+Environment=PYTHONPATH=/opt/workin-devices-agent
+ExecStart=/usr/bin/python3 -m workin_devices run --config /etc/workin-agent/agent.toml
+Restart=always
+RestartSec=30
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/workin-agent
+
+[Install]
+WantedBy=multi-user.target

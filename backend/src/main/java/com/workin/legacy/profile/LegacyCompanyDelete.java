@@ -129,7 +129,9 @@ public class LegacyCompanyDelete {
 	 * would be a real one, because a deleted company's device registry, PIN
 	 * bindings, raw punches and operation logs would outlive it. The
 	 * globally-unique serial matters too: without this, a terminal whose
-	 * company was deleted could never be claimed again.
+	 * company was deleted could never be claimed again. An agent goes with its
+	 * company for the same reason a device does, and more urgently: its token
+	 * would otherwise go on authenticating for a company that no longer exists.
 	 *
 	 * <p>Deleted through {@code ignoringFailure} like the other company-scoped
 	 * batches, because a deployment that has not provisioned these tables yet
@@ -139,7 +141,8 @@ public class LegacyCompanyDelete {
 	 */
 	private static final List<String> DEVICE_OWNED = List.of(
 			"device_punches", "device_operation_logs", "device_malformed_punches",
-			"device_assignment_history", "employee_device_identities", "attendance_devices");
+			"device_assignment_history", "employee_device_identities", "attendance_devices",
+			"device_agents");
 
 	/** The final company-scoped batch; failures ignored. */
 	private static final List<String> COMPANY_OWNED_LATE = List.of(

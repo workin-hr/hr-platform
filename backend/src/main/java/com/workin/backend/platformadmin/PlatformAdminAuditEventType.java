@@ -67,5 +67,16 @@ public enum PlatformAdminAuditEventType {
 	// record) and not behind step-up, for the same reason.
 	ORG_CREATED,
 	ORG_UPDATED,
-	ORG_DELETED
+	ORG_DELETED,
+
+	// --- attendance terminals and on-premises agents. A device allocated to
+	// the wrong company would deliver one tenant's attendance into another's,
+	// and an agent token is a credential that submits punches, so both carry
+	// their own types rather than hiding among the org edits. Gated like the
+	// org pages (surface flag and this record), not behind step-up.
+	DEVICE_ALLOCATED,
+	DEVICE_UPDATED,
+	DEVICE_PUNCHES_IMPORTED,
+	DEVICE_AGENT_ISSUED,
+	DEVICE_AGENT_UPDATED
 }

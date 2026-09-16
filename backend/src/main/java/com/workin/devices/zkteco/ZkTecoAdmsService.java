@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
+import com.workin.devices.DeviceDelivery;
 import com.workin.devices.DeviceInput;
 import com.workin.devices.DeviceVendor;
 import com.workin.devices.ingest.DeviceMalformedPunchStore;
@@ -233,7 +234,7 @@ public class ZkTecoAdmsService {
 			return tooManyRecords(device, "ATTLOG");
 		}
 		ZkTecoAttlogParser.Result parsed = ZkTecoAttlogParser.parse(device.serialNumber(), body, device.zone());
-		DevicePunchIngestionService.Outcome outcome = ingestion.ingest(device, parsed.events());
+		DevicePunchIngestionService.Outcome outcome = ingestion.ingest(device, parsed.events(), DeviceDelivery.PUSH);
 		if (parsed.malformed() > 0) {
 			// Persisted BEFORE the 200 OK below, because that acknowledgement is
 			// what makes the terminal drop its copy. Counting these was losing a
@@ -285,31 +286,14 @@ public class ZkTecoAdmsService {
 	}
 
 	/**
-	 * Counts line breaks rather than parsing first: the point is to refuse the
-	 * work before doing it. Refused, not truncated -- silently keeping the
-	 * first N records of a batch the device believes was delivered in full is
-	 * how punches disappear.
+	 * Refused, not truncated -- silently keeping the first N records of a batch
+	 * the device believes was delivered in full is how punches disappear.
+	 * Counting the trailing terminator as a record instead would refuse a
+	 * device that always sends exactly the maximum, and it would then retry
+	 * that same batch forever.
 	 */
 	private boolean exceedsRecordCap(String body) {
-		int records = 0;
-		int lineLength = 0;
-		for (int index = 0; index < body.length(); index++) {
-			char character = body.charAt(index);
-			if (character == '\n') {
-				// A line's own terminator does not make it two records, and the
-				// trailing one at the end of a batch makes it none: counting
-				// separators instead would refuse a device that always sends
-				// exactly the maximum, and it would then retry that same batch
-				// forever.
-				if (lineLength > 0 && ++records > maxRecordsPerUpload) {
-					return true;
-				}
-				lineLength = 0;
-			} else if (character != '\r') {
-				lineLength++;
-			}
-		}
-		return lineLength > 0 && records + 1 > maxRecordsPerUpload;
+		return DeviceInput.exceedsRecordCount(body, maxRecordsPerUpload);
 	}
 
 	private Upload tooManyRecords(AttendanceDevice device, String table) {

@@ -24,14 +24,14 @@ SELECT 'database' AS check_name,
        CONCAT(DATABASE(), ' / ', @@character_set_database, ' / ', @@collation_database) AS value,
        IF(@@default_storage_engine = 'InnoDB', 'ok', CONCAT('NOT InnoDB: ', @@default_storage_engine)) AS verdict;
 
--- 3. Which of the fourteen already exist.
+-- 3. Which of the fifteen already exist.
 --    `--force` below means `mysql --force < phase1_extensions.sql`: the script
 --    is deliberately not idempotent, so re-applying it prints one ERROR 1050
 --    per existing table and one ERROR 1061 per existing index, creates only
 --    what is absent, and EXITS 0. Those errors are the expected output, not a
 --    failure. Re-run this script afterwards: section 3 should start `applied`.
 --
---    `none` means apply the script as it is. All fourteen means it has been
+--    `none` means apply the script as it is. All fifteen means it has been
 --    applied -- do not re-run it. If any of them was there before this
 --    provisioning began, (4) is not enough either: compare the full
 --    definitions as docs/operations/provisioning-phase1-tables.md step 1
@@ -39,7 +39,7 @@ SELECT 'database' AS check_name,
 --
 --    ANYTHING BETWEEN IS A PARTIAL APPLY, AND THE VERDICT SAYS WHAT TO DO. Do
 --    NOT "drop the ones listed": the listed value is every owned table present,
---    which at counts 7-13 includes platform_admin_audit_events (retained
+--    which at counts 7-14 includes platform_admin_audit_events (retained
 --    evidence, D-161) and SPRING_SESSION (every live administrator session).
 --    Re-apply with --force alone, which creates what is absent and touches
 --    nothing that exists. This script never tells anyone to drop anything:
@@ -53,16 +53,27 @@ SELECT 'phase1 tables present' AS check_name,
        COALESCE(GROUP_CONCAT(table_name ORDER BY table_name SEPARATOR ', '), 'none') AS value,
        CASE COUNT(*)
          WHEN 0 THEN 'not applied -- apply it'
-         WHEN 14 THEN 'applied -- if any table was here before this provisioning, compare definitions: runbook step 1'
+         WHEN 15 THEN 'applied -- if any table was here before this provisioning, compare definitions: runbook step 1'
+         -- Fourteen WITHOUT device_agents is a database provisioned before the
+         -- on-premises agent existed, not a torn apply: --force would create
+         -- the agent table and leave device_punches without delivered_via, so
+         -- every device upload would then fail. The upgrade file makes all three
+         -- changes and is safe to re-run.
+         WHEN 14 THEN IF(SUM(table_name = 'device_agents') = 0,
+                         'PRE-AGENTS -- apply upgrade_device_agents_and_delivery.sql (not --force), then re-run this script',
+                         CONCAT('PARTIAL. Re-apply with --force, which creates only what ',
+                                'is absent and touches nothing that exists. Do NOT drop ',
+                                'anything to recover: see docs/operations/provisioning-phase1-tables.md#rollback. ',
+                                'Then compare definitions: runbook step 1.'))
          -- Exactly the six originals means a database provisioned before the
          -- device tables existed. Apply the script with --force so only the
-         -- absent eight are created; do NOT drop these. Two of them are not
+         -- absent nine are created; do NOT drop these. Two of them are not
          -- yours to drop: platform_admin_audit_events is retained evidence
          -- (D-161) and SPRING_SESSION is every live administrator session.
          WHEN 6 THEN 'PRE-DEVICE-TABLES -- re-apply with --force, do NOT drop, then compare definitions: runbook step 1'
          -- NOT "drop the listed tables": the list includes the six originals,
          -- and an interrupted --force apply (which WHEN 6 above sends operators
-         -- to run) lands here at 7-13. Dropping platform_admin_audit_events
+         -- to run) lands here at 7-14. Dropping platform_admin_audit_events
          -- loses retained evidence (D-161) and dropping SPRING_SESSION ends
          -- every live administrator session.
          -- The count cannot tell a torn apply from a LIVE stack that lost one
@@ -87,12 +98,13 @@ SELECT 'phase1 tables present' AS check_name,
                       'attendance_devices', 'employee_device_identities',
                       'device_punches', 'unclaimed_device_sightings',
                       'device_operation_logs', 'device_malformed_punches',
-                      'legacy_runtime_offset_history', 'device_assignment_history');
+                      'legacy_runtime_offset_history', 'device_assignment_history',
+                      'device_agents');
 
 -- 4. After applying: each table's column count, which (3) cannot see. It
 --    catches a missing or extra column and nothing finer: a table with the
 --    right count and a wrong type, default, key, foreign key or engine still
---    reads `ok (count only)`. Whenever any of the fourteen existed before provisioning
+--    reads `ok (count only)`. Whenever any of the fifteen existed before provisioning
 --    began, compare the full definitions as
 --    docs/operations/provisioning-phase1-tables.md step 1 describes before
 --    applying anything else.
@@ -107,12 +119,16 @@ SELECT 'column counts' AS check_name,
          WHEN table_name = 'SPRING_SESSION_ATTRIBUTES'      AND COUNT(*) = 3 THEN 'ok (count only)'
          WHEN table_name = 'attendance_devices'             AND COUNT(*) = 18 THEN 'ok (count only)'
          WHEN table_name = 'employee_device_identities'     AND COUNT(*) = 8 THEN 'ok (count only)'
-         WHEN table_name = 'device_punches'                 AND COUNT(*) = 24 THEN 'ok (count only)'
+         WHEN table_name = 'device_punches'                 AND COUNT(*) = 25 THEN 'ok (count only)'
          WHEN table_name = 'unclaimed_device_sightings'     AND COUNT(*) = 7 THEN 'ok (count only)'
          WHEN table_name = 'device_operation_logs'          AND COUNT(*) = 6 THEN 'ok (count only)'
          WHEN table_name = 'device_malformed_punches'       AND COUNT(*) = 6 THEN 'ok (count only)'
          WHEN table_name = 'legacy_runtime_offset_history'  AND COUNT(*) = 3 THEN 'ok (count only)'
          WHEN table_name = 'device_assignment_history'      AND COUNT(*) = 7 THEN 'ok (count only)'
+         WHEN table_name = 'device_agents'                  AND COUNT(*) = 12 THEN 'ok (count only)'
+         -- 24 is the shape before delivered_via: upgrade_device_agents_and_delivery.sql.
+         WHEN table_name = 'device_punches'                 AND COUNT(*) = 24
+              THEN 'PRE-AGENTS -- apply upgrade_device_agents_and_delivery.sql'
          ELSE 'UNEXPECTED -- compare against phase1_extensions.sql'
        END AS verdict
   FROM information_schema.columns
@@ -123,7 +139,8 @@ SELECT 'column counts' AS check_name,
                       'attendance_devices', 'employee_device_identities',
                       'device_punches', 'unclaimed_device_sightings',
                       'device_operation_logs', 'device_malformed_punches',
-                      'legacy_runtime_offset_history', 'device_assignment_history')
+                      'legacy_runtime_offset_history', 'device_assignment_history',
+                      'device_agents')
  GROUP BY table_name
  ORDER BY table_name;
 
@@ -141,7 +158,8 @@ SELECT 'legacy tables' AS check_name,
                           'attendance_devices', 'employee_device_identities',
                           'device_punches', 'unclaimed_device_sightings',
                           'device_operation_logs', 'device_malformed_punches',
-                          'legacy_runtime_offset_history', 'device_assignment_history');
+                          'legacy_runtime_offset_history', 'device_assignment_history',
+                          'device_agents');
 
 -- 6. The COLLATION of each owned table, which (3) and (4) are both blind to.
 --    `phase1_extensions.sql` declared no collation until 2026-09-11, so a
@@ -189,7 +207,8 @@ SELECT 'phase1 collation' AS check_name,
                       'attendance_devices', 'employee_device_identities',
                       'device_punches', 'unclaimed_device_sightings',
                       'device_operation_logs', 'device_malformed_punches',
-                      'legacy_runtime_offset_history', 'device_assignment_history')
+                      'legacy_runtime_offset_history', 'device_assignment_history',
+                      'device_agents')
  ORDER BY (table_collation = 'utf8mb4_unicode_ci'), table_name;
 
 -- The columns too. A table's default can read utf8mb4_unicode_ci while its
@@ -211,4 +230,5 @@ SELECT 'phase1 column collation' AS check_name,
                       'attendance_devices', 'employee_device_identities',
                       'device_punches', 'unclaimed_device_sightings',
                       'device_operation_logs', 'device_malformed_punches',
-                      'legacy_runtime_offset_history', 'device_assignment_history');
+                      'legacy_runtime_offset_history', 'device_assignment_history',
+                      'device_agents');

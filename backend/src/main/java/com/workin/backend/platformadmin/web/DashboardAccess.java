@@ -73,6 +73,7 @@ public final class DashboardAccess {
 				put("job_titles", PERM_JOB_TITLES);
 				put("shifts", PERM_SHIFTS);
 				put("attendance", PERM_ATTENDANCE);
+				put("devices", null);
 				put("salary_calculator", PERM_SALARY_CALC);
 				put("requests", PERM_REQUESTS);
 				put("payroll", PERM_PAYROLL);
@@ -93,10 +94,14 @@ public final class DashboardAccess {
 				put("change_password", null);
 			}});
 
-	/** The nine {@code null}-flagged pages that are administrator-only. */
+	/**
+	 * The {@code null}-flagged pages that are administrator-only: legacy's nine,
+	 * and {@code devices}, which has no PHP counterpart and reads every
+	 * company's terminals.
+	 */
 	private static final java.util.Set<String> ADMIN_ONLY_PAGES = java.util.Set.of(
 			"companies", "content", "app_content", "banners", "faqs", "guide_videos",
-			"settings", "phone_countries", "setting_templates");
+			"settings", "phone_countries", "setting_templates", "devices");
 
 	private DashboardAccess() {
 	}

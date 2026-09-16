@@ -89,6 +89,53 @@ class Phase1SchemaCheckTest extends AbstractLegacyMySqlTest {
 		assertThat(missing).isEmpty();
 	}
 
+	/**
+	 * A database provisioned from the fourteen-table DDL has every table name a
+	 * later {@code --force} re-apply can give it, and still lacks the column
+	 * every device insert writes. The name check alone called that database
+	 * complete.
+	 */
+	@Test
+	void aDatabaseProvisionedBeforeTheDeliveryColumnIsReportedAndTheUpgradeRepairsIt() throws Exception {
+		String database = "phase1_check_pre_agents";
+		createDatabase(database);
+		applyShippedDdlTo(database);
+		try (Connection connection = connectTo(database); Statement st = connection.createStatement()) {
+			st.execute("ALTER TABLE device_punches DROP CONSTRAINT device_punches_delivered_via_chk");
+			st.execute("ALTER TABLE device_punches DROP COLUMN delivered_via");
+		}
+		Phase1SchemaCheck check = new Phase1SchemaCheck(dataSourceFor(database));
+
+		assertThat(check.missingTables()).isEmpty();
+		assertThat(check.missingColumns(List.of())).containsExactly("device_punches.delivered_via");
+
+		applyResourceTo(database, "db/phase1-mysql/upgrade_device_agents_and_delivery.sql");
+		assertThat(check.missingColumns(List.of())).isEmpty();
+	}
+
+	@Test
+	void aColumnOfAMissingTableIsNotReportedTwice() throws Exception {
+		String database = "phase1_check_columns_empty";
+		createDatabase(database);
+		Phase1SchemaCheck check = new Phase1SchemaCheck(dataSourceFor(database));
+
+		assertThat(check.missingColumns(check.missingTables())).isEmpty();
+	}
+
+	@Test
+	void theUpgradeIsHarmlessOnADatabaseAlreadyAtTheCurrentShape() throws Exception {
+		String database = "phase1_check_upgrade_rerun";
+		createDatabase(database);
+		applyShippedDdlTo(database);
+
+		applyResourceTo(database, "db/phase1-mysql/upgrade_device_agents_and_delivery.sql");
+		applyResourceTo(database, "db/phase1-mysql/upgrade_device_agents_and_delivery.sql");
+
+		Phase1SchemaCheck check = new Phase1SchemaCheck(dataSourceFor(database));
+		assertThat(check.missingTables()).isEmpty();
+		assertThat(check.missingColumns(List.of())).isEmpty();
+	}
+
 	private static List<String> tablesDeclaredIn(String ddl) {
 		Matcher matcher = CREATE_TABLE.matcher(ddl);
 		return matcher.results().map(result -> result.group(1)).toList();
@@ -103,9 +150,20 @@ class Phase1SchemaCheckTest extends AbstractLegacyMySqlTest {
 	}
 
 	private static void applyShippedDdlTo(String database) throws Exception {
+		applySqlTo(database, shippedDdl());
+	}
+
+	private static void applyResourceTo(String database, String resource) throws Exception {
+		try (InputStream in = Phase1SchemaCheckTest.class.getClassLoader().getResourceAsStream(resource)) {
+			assertThat(in).as("%s must ship on the classpath", resource).isNotNull();
+			applySqlTo(database, new String(in.readAllBytes(), StandardCharsets.UTF_8));
+		}
+	}
+
+	private static void applySqlTo(String database, String sql) throws Exception {
 		try (Connection connection = connectTo(database); Statement st = connection.createStatement()) {
-			for (String statement : shippedDdl().split(";\\s*\\R")) {
-				if (!statement.isBlank()) {
+			for (String statement : sql.split(";\\s*\\R")) {
+				if (!statement.strip().replaceAll("(?m)^--.*$", "").isBlank()) {
 					st.execute(statement);
 				}
 			}

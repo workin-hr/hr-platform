@@ -1,0 +1,33 @@
+# WorkIn devices agent. Copy to agent.toml next to the token file and edit.
+# Reference: docs/devices/on-prem-agent.md
+
+# The platform's API address. Must be https: the token is a bearer credential.
+server_url = "https://api.example.com"
+# One line, the wda_... token the dashboard showed once. Owner-readable only.
+token_file = "agent.token"
+spool_path = "spool.sqlite3"
+poll_interval_seconds = 60
+batch_size = 2000
+# Which of the two one-byte codes in a ZKTeco record is the in/out key. Confirm on site
+# (field-visit-runbook.md step 6): "punch" unless a Check-Out punch shows otherwise.
+in_out_field = "punch"
+
+# A ZKTeco terminal read over its 4370 protocol. Read-only: nothing on the terminal changes.
+[[devices]]
+serial = "CGE7203560125"      # exactly as allocated in the dashboard; checked against the terminal
+kind = "zk"
+host = "192.168.1.201"
+port = 4370
+comm_key = 0                  # Menu > Comm. > Connection > Comm Key
+udp = false                   # true for firmware that answers only over UDP
+timeout_seconds = 10
+
+# A Hikvision access terminal read over ISAPI.
+# [[devices]]
+# serial = "DS-K1T671TM-3XF20240101V030700ENK12345678"
+# kind = "hikvision"
+# host = "192.168.1.64"
+# username = "admin"
+# password_file = "hik-192.168.1.64.password"   # owner-readable only
+# window_hours = 48
+# attendance_minors = [1, 38, 75]               # card, fingerprint, face matches

@@ -17,7 +17,7 @@
      draw. It was a native <dialog> (D-198), which looked like no other window on
      the page -- an add opened legacy's modal and an edit of the same row opened
      this. crud.js closes it on the close button and the backdrop; modal-a11y.js
-     adds Escape, the Tab trap and focus back to the opener (D-258). --%>
+     adds Escape, the Tab trap and focus back to the opener (D-259). --%>
 @param String id
 @param String title
 @param String action

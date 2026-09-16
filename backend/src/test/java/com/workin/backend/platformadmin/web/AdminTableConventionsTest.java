@@ -271,6 +271,8 @@ class AdminTableConventionsTest {
 			Map.entry("company-detail.jte", List.of()),
 			Map.entry("complaints.jte", List.of()),
 			Map.entry("departments.jte", List.of("active", "suspended")),
+			// No legacy page: terminals and agents are on or off, and "inactive" says so.
+			Map.entry("devices.jte", List.of("active", "inactive", "active", "inactive", "active", "inactive")),
 			Map.entry("employee-detail.jte", List.of("1", "0")),
 			Map.entry("employees.jte", List.of("active", "suspended")),
 			Map.entry("faqs.jte", List.of("active", "inactive", "active", "inactive")),

@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import com.workin.devices.DeviceAttendanceEvent;
+import com.workin.devices.DeviceDelivery;
 import com.workin.devices.assignment.DeviceAssignmentHistoryStore;
 import com.workin.devices.assignment.DeviceAssignmentTimeline;
 import com.workin.devices.DeviceInput;
@@ -50,14 +51,13 @@ public class DevicePunchIngestionService {
 
 	private final MeterRegistry meters;
 
-	private final org.springframework.transaction.support.TransactionTemplate transactions;
+	private final com.workin.devices.DeviceTransactions transactions;
 
 	public DevicePunchIngestionService(
 			DevicePunchStore punches, EmployeeDeviceIdentityStore identities, LegacyClock clock,
 			MeterRegistry meters, DeviceAssignmentHistoryStore assignments,
 			javax.sql.DataSource legacyDataSource) {
-		this.transactions = new org.springframework.transaction.support.TransactionTemplate(
-				new org.springframework.jdbc.datasource.DataSourceTransactionManager(legacyDataSource));
+		this.transactions = com.workin.devices.DeviceTransactions.over(legacyDataSource);
 		this.punches = punches;
 		this.assignments = assignments;
 		this.identities = identities;
@@ -79,7 +79,7 @@ public class DevicePunchIngestionService {
 		}
 	}
 
-	public Outcome ingest(AttendanceDevice device, List<DeviceAttendanceEvent> events) {
+	public Outcome ingest(AttendanceDevice device, List<DeviceAttendanceEvent> events, DeviceDelivery delivery) {
 		if (events.isEmpty()) {
 			return new Outcome(0, 0, 0, 0);
 		}
@@ -110,13 +110,14 @@ public class DevicePunchIngestionService {
 						device.serialNumber(), device.companyId(), events.size());
 				return null;
 			}
-			return storeBatch(device, events, byPin, receivedAt, timeline);
+			return storeBatch(device, events, byPin, receivedAt, timeline, delivery);
 		});
 		return outcome != null ? outcome : new Outcome(0, 0, 0, 0);
 	}
 
 	private Outcome storeBatch(AttendanceDevice device, List<DeviceAttendanceEvent> events,
-			Map<String, Long> byPin, LocalDateTime receivedAt, DeviceAssignmentTimeline timeline) {
+			Map<String, Long> byPin, LocalDateTime receivedAt, DeviceAssignmentTimeline timeline,
+			DeviceDelivery delivery) {
 		int stored = 0;
 		int duplicates = 0;
 		int unmatched = 0;
@@ -138,7 +139,7 @@ public class DevicePunchIngestionService {
 			switch (punches.insert(
 					device.id(), device.companyId(), resolved.branchId(), employeeId, event,
 					resolved.instantUtc(), receivedAt, state,
-					resolved.assignmentId(), resolved.resolution().name())) {
+					resolved.assignmentId(), resolved.resolution().name(), delivery)) {
 				case STORED -> {
 					stored++;
 					if (employeeId == null) {

@@ -496,7 +496,7 @@ class AdminLayoutWiringTest {
 			Map.entry("workforce-planning", "hr-page"));
 
 	/** Pages with no legacy counterpart, so no legacy wrapper to match. */
-	private static final Set<String> NO_LEGACY_PAGE = Set.of("company-delete", "sessions");
+	private static final Set<String> NO_LEGACY_PAGE = Set.of("company-delete", "sessions", "devices");
 
 	@Test
 	void everyPageWrapsItsContentInLegacysClasses() throws IOException {

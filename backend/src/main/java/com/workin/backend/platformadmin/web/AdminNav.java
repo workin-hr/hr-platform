@@ -70,7 +70,7 @@ public final class AdminNav {
 			"administrative_decisions", "assets", "advances", "workforce_planning");
 
 	private static final List<String> PAYROLL_PAGES =
-			List.of("salary_calculator", "attendance", "payroll");
+			List.of("salary_calculator", "attendance", "devices", "payroll");
 
 	private static final List<String> COMMS_PAGES = List.of(
 			"notifications", "complaints", "app_content", "banners", "faqs", "guide_videos",
@@ -118,12 +118,20 @@ public final class AdminNav {
 		return List.copyOf(items);
 	}
 
-	/** {@code $payrollChildren}. */
+	/**
+	 * {@code $payrollChildren}, plus the attendance terminals beside attendance
+	 * for an administrator -- a page PHP does not have, so no other audience's
+	 * menu changes.
+	 */
 	private static List<Item> payrollChildren(DashboardSession session) {
 		List<Item> items = new ArrayList<>();
 		addIf(items, session, DashboardAccess::canViewPayrollSection, List.of(
 				new Item("salary_calculator", "nav_salary_calculator", "calculator"),
-				new Item("attendance", "nav_fingerprints", "attendance"),
+				new Item("attendance", "nav_fingerprints", "attendance")));
+		if (DashboardAccess.canViewPage(session, "devices")) {
+			items.add(new Item("devices", "nav_devices", "attendance"));
+		}
+		addIf(items, session, DashboardAccess::canViewPayrollSection, List.of(
 				new Item("payroll", "nav_payroll", "payroll")));
 		return List.copyOf(items);
 	}

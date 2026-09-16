@@ -176,7 +176,7 @@ CREATE TABLE attendance_devices (
     registered_by_employee_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
-    CONSTRAINT attendance_devices_vendor_chk CHECK (vendor IN ('zkteco'))
+    CONSTRAINT attendance_devices_vendor_chk CHECK (vendor IN ('zkteco', 'hikvision'))
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX attendance_devices_company_idx ON attendance_devices (company_id, branch_id);
@@ -301,12 +301,24 @@ CREATE TABLE device_punches (
     -- punch sinks below the work that can succeed, and is quarantined once it
     -- has had enough turns.
     pair_attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    -- How the punch reached us, which is not the vendor: one ZKTeco terminal
+    -- can push over ADMS and be pulled by an on-premises agent at the same
+    -- time, and the dedup key collapses the two copies onto whichever arrived
+    -- first. PUSH is the terminal itself, AGENT an on-premises agent reading
+    -- it over its LAN protocol, FILE an operator importing a USB export.
+    delivered_via VARCHAR(8) NOT NULL DEFAULT 'PUSH',
     CONSTRAINT device_punches_runtime_offset_resolution_chk
         CHECK (runtime_offset_resolution IN ('EXACT', 'PRE_HISTORY')),
     CONSTRAINT device_punches_assignment_resolution_chk
         CHECK (assignment_resolution IN ('EXACT', 'INFERRED_EARLIEST', 'UNRESOLVED')),
     CONSTRAINT device_punches_state_chk
-        CHECK (processing_state IN ('RECEIVED', 'UNMATCHED', 'PAIRED', 'IGNORED'))
+        CHECK (processing_state IN ('RECEIVED', 'UNMATCHED', 'PAIRED', 'IGNORED')),
+    -- Last, like its column: upgrade_device_agents_and_delivery.sql appends
+    -- both to a table created before they existed, and a fresh table has to
+    -- come out with the same SHOW CREATE TABLE or the runbook's definition
+    -- comparison reports a difference that is only ordering.
+    CONSTRAINT device_punches_delivered_via_chk
+        CHECK (delivered_via IN ('PUSH', 'AGENT', 'FILE'))
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- The pairing pass claims work with processing_state = 'RECEIVED' and walks a
@@ -429,6 +441,33 @@ CREATE TABLE device_operation_logs (
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX device_operation_logs_device_idx ON device_operation_logs (device_id, received_at);
+
+-- An on-premises agent: a program on a branch computer that reads terminals
+-- which cannot push (the ZKTeco 4370 protocol, Hikvision ISAPI) and submits
+-- their punches over HTTPS. It belongs to one company and can submit only for
+-- that company's registered devices. Only the SHA-256 of its bearer token is
+-- stored; the token itself is shown once, when a platform administrator
+-- issues it. token_hint is its last four characters, so an operator can tell
+-- two agents' tokens apart without the table holding anything usable.
+CREATE TABLE device_agents (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    company_id INT UNSIGNED NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    token_sha256 CHAR(64) NOT NULL UNIQUE,
+    token_hint VARCHAR(8) NOT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    agent_version VARCHAR(32) NULL,
+    last_seen_at DATETIME NULL,
+    last_seen_ip VARCHAR(45) NULL,
+    -- The agent's last heartbeat as it sent it (which terminals it reached,
+    -- their record counts and clocks), bounded by the application. Kept only
+    -- for the dashboard; nothing makes a decision from it.
+    last_report TEXT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX device_agents_company_idx ON device_agents (company_id);
 
 -- Every new serial an unclaimed terminal presents runs the retention delete,
 -- which is WHERE last_seen_at < ?. Without an index beginning on that column
