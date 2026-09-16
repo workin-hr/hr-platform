@@ -20,8 +20,11 @@ class AdminPayrollEndToEndTest extends AdminPayrollTestSupport {
 
 	@Test
 	void theBatchListRenders() {
-		batch(this.companyA, 3, 2026, "2026-03-01", "2026-03-31", "draft");
-		assertThat(body(PATH)).contains("Alpha Co").contains("2026");
+		long batchId = batch(this.companyA, 3, 2026, "2026-03-01", "2026-03-31", "draft");
+		payslip(batchId, this.employeeA);
+		assertThat(body(PATH)).contains("Alpha Co").contains("2026")
+				.as("page.php:203: the net in whole pounds, with legacy's literal currency")
+				.contains("<td class=\"bold\">5,180 \u062c.\u0645</td>");
 	}
 
 	@Test
@@ -76,7 +79,14 @@ class AdminPayrollEndToEndTest extends AdminPayrollTestSupport {
 		// The employee and the stored net, the latter from the totals strip --
 		// the detail row shows the recomputed figure instead, which
 		// AdminPayrollCalculationParityTest pins separately.
-		assertThat(html).contains("Aya").contains("5180");
+		assertThat(html).contains("Aya")
+				.as("the totals strip, through $fmtPay")
+				.contains("<td>5,950</td>").contains("<td>770</td>").contains("<td class=\"bold\">5,180</td>")
+				.as("overtime hours to one place")
+				.contains("<td class=\"col-center\">5.0</td>")
+				.as("the payslip's net and deductions in legacy's emphasis, grouped in threes")
+				.containsPattern("<td class=\"col-center bold text-green\">\\d{1,3}(,\\d{3})*</td>")
+				.containsPattern("<td class=\"col-center text-red bold\">\\d{1,3}(,\\d{3})*</td>");
 		assertThat(html).as("page.php:241's card, which keeps a payslip's cells on one line")
 				.contains("<div class=\"data-table-card payroll-detail-card\">");
 	}

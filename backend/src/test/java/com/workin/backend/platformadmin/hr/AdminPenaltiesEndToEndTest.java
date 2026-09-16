@@ -266,6 +266,34 @@ class AdminPenaltiesEndToEndTest {
 				"SELECT COUNT(*) FROM penalties WHERE id = " + id, Integer.class)).isZero();
 	}
 
+	/**
+	 * page.php:181 and :231 run the days through dashboard_penalty_days_option_label(): a list cell in
+	 * red bold, and the words in both day pickers. What a form posts back stays the number.
+	 */
+	@Test
+	void theDaysReadAsLegacysWords() {
+		long half = seedPenalty(this.employeeA, "Half", "0.5", false);
+		seedPenalty(this.employeeA, "Two", "2", false);
+
+		String html = body("/admin/penalties");
+		assertThat(html)
+				.contains("<td class=\"text-red bold\">\u0646\u0635 \u064a\u0648\u0645</td>")
+				.contains("<td class=\"text-red bold\">2 \u0623\u064a\u0627\u0645</td>")
+				.doesNotContain("badge badge-gray\">0.5<");
+		// Each picker read on its own: the two render the same options, so a check
+		// against the whole page would pass with either one left as bare numbers.
+		assertThat(picker(html, "data-dialog-field=\"penalty_days\"")).as("the edit window's picker")
+				.contains("<option value=\"0.25\">\u0631\u0628\u0639 \u064a\u0648\u0645</option>")
+				.contains("<option value=\"1\">\u064a\u0648\u0645</option>")
+				.contains("<option value=\"5\">5 \u0623\u064a\u0627\u0645</option>");
+		assertThat(picker(html, "id=\"penalty_days\"")).as("the add form's picker, choosing one day as legacy does")
+				.contains("<option value=\"0.25\">\u0631\u0628\u0639 \u064a\u0648\u0645</option>")
+				.contains("<option value=\"1\" selected=\"true\">\u064a\u0648\u0645</option>")
+				.contains("<option value=\"5\">5 \u0623\u064a\u0627\u0645</option>");
+		assertThat(html).as("the edit dialog still posts the number")
+				.containsPattern("data-dialog-id=\"" + half + "\"[^>]*data-dialog-penalty_days=\"0.5\"");
+	}
+
 	@Test
 	void theAppliedFilterNarrowsBothWays() {
 		seedPenalty(this.employeeA, "Unapplied", "1", false);
@@ -432,6 +460,13 @@ class AdminPenaltiesEndToEndTest {
 				+ " VALUES (?, ?, ?, ?, ?, ?, 'employee', 1, 1, 0, 'accepted', 1, NOW(), NOW())",
 				id, companyId, branchId, code, first, last);
 		return id;
+	}
+
+	/** One select's options: from the tag carrying {@code marker} to its closing tag. */
+	private static String picker(String html, String marker) {
+		int start = html.indexOf(marker);
+		assertThat(start).as("the select marked %s", marker).isGreaterThanOrEqualTo(0);
+		return html.substring(start, html.indexOf("</select>", start));
 	}
 
 	private long seedPenalty(long employeeId, String type, String days, boolean applied) {

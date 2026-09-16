@@ -2,6 +2,8 @@ package com.workin.backend.platformadmin.hr;
 
 import java.math.BigDecimal;
 
+import com.workin.legacy.PhpMath;
+
 /**
  * A row of {@code advances} as the dashboard's list and form need it
  * ({@code dashboard/pages/advances}).
@@ -109,16 +111,23 @@ public record Advance(
 		}
 	}
 
+	/** {@code number_format((float) $a['amount'], 0)} (advances/page.php:209). */
 	public String amountDisplay() {
-		return plain(this.amount);
+		return whole(this.amount);
 	}
 
+	/** {@code number_format((float) $a['remaining'], 0)} (advances/page.php:210). */
 	public String remainingDisplay() {
-		return plain(this.remaining);
+		return whole(this.remaining);
 	}
 
-	private static String plain(BigDecimal value) {
-		return value == null ? "0" : value.stripTrailingZeros().toPlainString();
+	/** Legacy colours the remaining amount red while any of it is owed, green once none is. */
+	public boolean stillOwed() {
+		return this.remaining != null && this.remaining.signum() > 0;
+	}
+
+	private static String whole(BigDecimal value) {
+		return PhpMath.numberFormat(value == null ? 0d : value.doubleValue());
 	}
 
 	public String createdDate() {
