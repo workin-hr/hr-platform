@@ -12,8 +12,12 @@
      per row: the trigger carries the row's values in data- attributes and the
      script copies them in, so a 200-row page has one dialog rather than 200.
 
-     Native <dialog>: the focus trap, the Escape key, the backdrop and the
-     inertness of everything behind it are the browser's, not ours. --%>
+     The window is legacy's: .modal-bg > .modal, with its close button and a
+     form-footer, the markup requests/page.php:143-163 and advances/page.php:270
+     draw. It was a native <dialog> (D-198), which looked like no other window on
+     the page -- an add opened legacy's modal and an edit of the same row opened
+     this. crud.js closes it on the close button and the backdrop; modal-a11y.js
+     adds Escape, the Tab trap and focus back to the opener (D-258). --%>
 @param String id
 @param String title
 @param String action
@@ -26,32 +30,25 @@
 <%-- Null when the page's own handler takes the post; jte's smart attributes
      omit the attribute then rather than emitting action="". --%>
 @param String formAction = null
-<dialog class="row-dialog" id="${id}" aria-labelledby="${id}-title">
-	<form method="POST" class="row-dialog__form" action="${formAction}">
-		<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-		<input type="hidden" name="action" value="${action}">
-		<%-- Filled from the trigger's data-dialog-id before the dialog opens. --%>
-		<input type="hidden" name="id" data-dialog-field="id">
-
-		<header class="row-dialog__head">
-			<h3 id="${id}-title">${title}</h3>
-			<%-- Who or what the action is about, so the dialog is not a form
-			     floating free of the row it came from. --%>
-			<p class="row-dialog__subject" data-dialog-field="subject"></p>
-		</header>
-
-		<div class="row-dialog__body">
+<div class="modal-bg" id="${id}" aria-hidden="true">
+	<div class="modal" role="dialog" aria-modal="true" aria-labelledby="${id}-title">
+		<button type="button" class="modal-close" aria-label="${t.apply("close")}">&times;</button>
+		<h2 id="${id}-title">${title}</h2>
+		<%-- Who or what the action is about, so the window is not a form
+		     floating free of the row it came from. Legacy has no such line. --%>
+		<p class="row-dialog__subject" data-dialog-field="subject"></p>
+		<form method="POST" action="${formAction}">
+			<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+			<input type="hidden" name="action" value="${action}">
+			<%-- Filled from the trigger's data-dialog-id before the window opens. --%>
+			<input type="hidden" name="id" data-dialog-field="id">
 			${fields}
-		</div>
-
-		<footer class="row-dialog__foot">
-			<%-- Cancel is a plain button that row-dialog.js closes the dialog with,
-			     so Save is the form's only submit button. Enter in a field submits
-			     through the first submit button, and while Cancel was a
-			     formmethod="dialog" submit ahead of Save, Enter closed the dialog
-			     and lost what had been typed. --%>
-			<button type="button" class="btn btn-gray" data-dialog-close>${t.apply("cancel")}</button>
-			<button type="submit" class="btn btn-${submitVariant}">${submitLabel}</button>
-		</footer>
-	</form>
-</dialog>
+			<%-- Save is the form's only submit button, and the close button above
+			     is type="button": Enter in a field submits through Save rather
+			     than dismissing what was typed. --%>
+			<div class="form-footer">
+				<button type="submit" class="btn btn-${submitVariant}">${submitLabel}</button>
+			</div>
+		</form>
+	</div>
+</div>

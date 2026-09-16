@@ -302,13 +302,6 @@
   .company-add-span-2 {
     grid-column: auto;
   }
-
-  /* The row dialog is a sheet here too; its own scroll area already keeps its
-     footer visible. */
-  .row-dialog {
-    width: calc(100vw - 20px);
-    max-width: none;
-  }
 }
 
 /* ============================================================

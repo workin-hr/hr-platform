@@ -213,9 +213,9 @@ class AdminActiveCheckboxEndToEndTest {
 	 */
 	private static List<String> dialogSubmission(String html, String dialogId, long rowId) {
 		Map<String, String> row = triggerValues(html, dialogId, rowId);
-		int start = html.indexOf("<dialog class=\"row-dialog\" id=\"" + dialogId + "\"");
+		int start = html.indexOf("<div class=\"modal-bg\" id=\"" + dialogId + "\"");
 		assertThat(start).as("the %s dialog renders", dialogId).isPositive();
-		String dialog = html.substring(start, html.indexOf("</dialog>", start));
+		String dialog = html.substring(start, html.indexOf("</form>", start));
 
 		List<String> fields = new ArrayList<>();
 		Matcher inputs = Pattern.compile("<input\\b([^>]*)>").matcher(dialog);

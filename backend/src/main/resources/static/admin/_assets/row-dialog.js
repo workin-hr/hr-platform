@@ -1,24 +1,28 @@
-// Opens a row action's dialog and fills it from the row that asked.
+// Opens a row action's window and fills it from the row that asked.
 //
-// One dialog per page rather than one per row: the trigger carries the row's
+// One window per page rather than one per row: the trigger carries the row's
 // values as `data-dialog-*`, and each is copied into the element declaring the
 // matching `data-dialog-field`. A checkbox is ticked when the value is "1" and
 // unticked otherwise; any other form input takes it as its value; anything
 // else takes it as text, which is how the subject line names the row. An
 // option marked data-dialog-current-only is disabled unless it is the value the
 // row carries: a retired choice stays with the rows that already have it.
+//
+// The window is legacy's `.modal-bg`, opened by its `open` class. crud.js
+// closes it on the close button and the backdrop, and modal-a11y.js gives it
+// Escape, the Tab trap and focus.
 (function () {
-  function fill(dialog, trigger) {
-    // Reset first. Closing a native <dialog> does not clear its form, and
-    // fill() only writes the fields that declare data-dialog-field -- so a
-    // rejection reason typed for one row, then cancelled, was still in the box
-    // when the dialog opened for the next one, and would have been submitted
-    // against that employee.
-    const form = dialog.querySelector('form');
+  function fill(modal, trigger) {
+    // Reset first. Closing the window does not clear its form, and fill() only
+    // writes the fields that declare data-dialog-field -- so a rejection reason
+    // typed for one row, then cancelled, was still in the box when the window
+    // opened for the next one, and would have been submitted against that
+    // employee.
+    const form = modal.querySelector('form');
     if (form && typeof form.reset === 'function') {
       form.reset();
     }
-    dialog.querySelectorAll('[data-dialog-field]').forEach(function (target) {
+    modal.querySelectorAll('[data-dialog-field]').forEach(function (target) {
       const key = target.getAttribute('data-dialog-field');
       const value = trigger.getAttribute('data-dialog-' + key);
       if (value === null) {
@@ -47,10 +51,10 @@
     if (!trigger) {
       return;
     }
-    const dialog = document.getElementById(trigger.getAttribute('data-dialog'));
-    if (!dialog || typeof dialog.showModal !== 'function') {
-      // No <dialog> support: leave the click alone rather than swallow it, so
-      // a link still navigates and a submit still submits.
+    const modal = document.getElementById(trigger.getAttribute('data-dialog'));
+    if (!modal || !modal.classList.contains('modal-bg')) {
+      // Nothing to open: leave the click alone rather than swallow it, so a
+      // link still navigates and a submit still submits.
       return;
     }
     event.preventDefault();
@@ -61,35 +65,10 @@
     // body click.
     document.dispatchEvent(new CustomEvent('row-actions:close'));
 
-    fill(dialog, trigger);
+    fill(modal, trigger);
     // A field with state of its own beyond its value -- emp-picker.js's label
     // and results -- redraws from what fill() just wrote.
-    dialog.dispatchEvent(new CustomEvent('row-dialog:filled', { bubbles: true }));
-    dialog.showModal();
-
-    const first = dialog.querySelector('.row-dialog__body input, .row-dialog__body textarea, .row-dialog__body select');
-    if (first) {
-      first.focus();
-      if (typeof first.select === 'function') {
-        first.select();
-      }
-    }
-  });
-
-  // Cancel: a plain button, so that Enter in a field submits through Save.
-  document.addEventListener('click', function (event) {
-    const closer = event.target.closest('[data-dialog-close]');
-    const dialog = closer && closer.closest('dialog');
-    if (dialog) {
-      dialog.close();
-    }
-  });
-
-  // Clicking the backdrop closes it, which is what every other modal on the
-  // web does and what people try first.
-  document.addEventListener('click', function (event) {
-    if (event.target.tagName === 'DIALOG' && event.target.classList.contains('row-dialog')) {
-      event.target.close();
-    }
+    modal.dispatchEvent(new CustomEvent('row-dialog:filled', { bubbles: true }));
+    modal.classList.add('open');
   });
 })();
