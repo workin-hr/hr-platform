@@ -181,6 +181,41 @@ class AdminAttendanceEndToEndTest {
 				.contains("\u0627\u0644\u062a\u0642\u0631\u064a\u0631 \u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a");
 	}
 
+	/**
+	 * Legacy's cell formats (page.php:202-206, 248-250) and its payroll-page wrapper, which
+	 * payroll-pages.css scopes the overtime badge to. With no shift, an employee is expected to
+	 * work eight hours, so each employee here lands on one side of that: over, under, exactly.
+	 */
+	@Test
+	void theRowsCarryLegacysDateTimeAndHoursFormats() {
+		long exact = createEmployee(this.companyA, "A200", "Amal", "Alpha");
+		attendance(this.employeeA, "2026-03-02 09:00:00", "2026-03-02 18:15:00", null);
+		attendance(this.employeeA, "2026-03-04 09:30:00", null, null);
+		attendance(this.employeeB, "2026-03-03 09:00:00", "2026-03-03 16:30:00", null);
+		attendance(exact, "2026-03-05 09:00:00", "2026-03-05 17:00:00", null);
+		String html = body(PATH + range());
+		assertThat(html).contains("<div class=\"content payroll-page hr-page\">");
+		assertThat(html).as("2 March 2026, a Monday, 09:00 to 18:15")
+				.contains("<td>2 \u0645\u0627\u0631\u0633 2026</td>")
+				.contains("<td>\u0627\u0644\u0627\u062b\u0646\u064a\u0646</td>")
+				.contains("<td dir=\"ltr\">09:00</td>")
+				.contains("<td dir=\"ltr\">18:15</td>")
+				.doesNotContain("2026-03-02 09:00:00</td>");
+		assertThat(html).as("an open punch: its time, and a muted dash for the check-out")
+				.contains("<td dir=\"ltr\">09:30</td>")
+				.contains("<td dir=\"ltr\"><span class=\"text-muted\">\u2014</span></td>");
+		assertThat(html).as("worked hours as legacy's zero-padded HH:MM")
+				.containsPattern("<td dir=\"ltr\">18:15</td>\\s*<td>\\d{2}:\\d{2}</td>");
+		assertThat(html).as("the summary's hours in words")
+				.contains("<td>9 \u0633\u0627\u0639\u0629 \u0648 15 \u062f\u0642\u064a\u0642\u0629</td>")
+				.contains("<td>7 \u0633\u0627\u0639\u0629 \u0648 30 \u062f\u0642\u064a\u0642\u0629</td>")
+				.contains("<td>8 \u0633\u0627\u0639\u0629</td>");
+		assertThat(html).as("overtime in minutes, over and under, and a muted dash for neither")
+				.contains("<span class=\"att-overtime-badge att-overtime-badge--plus\">+75 \u062f\u0642\u064a\u0642\u0629</span>")
+				.contains("<span class=\"att-overtime-badge att-overtime-badge--minus\">-30 \u062f\u0642\u064a\u0642\u0629</span>")
+				.containsPattern("<td class=\"col-center\">\\s*<span class=\"text-muted\">\u2014</span>\\s*</td>");
+	}
+
 	@Test
 	void addingAPunchWritesItAgainstTheEmployeesCompany() {
 		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),

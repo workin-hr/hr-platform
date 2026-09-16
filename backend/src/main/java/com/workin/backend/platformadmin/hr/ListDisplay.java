@@ -67,7 +67,8 @@ public final class ListDisplay {
 		return value.substring(0, value.offsetByCodePoints(0, width - 1)) + "…";
 	}
 
-	private static String trim(String text) {
+	/** PHP's {@code trim($text)}, with null read as empty. */
+	static String trim(String text) {
 		if (text == null) {
 			return "";
 		}

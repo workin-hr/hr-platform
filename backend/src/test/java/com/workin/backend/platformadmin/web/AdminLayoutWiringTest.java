@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -454,6 +455,76 @@ class AdminLayoutWiringTest {
 				return store;
 			}
 		};
+	}
+
+	/**
+	 * The classes beside {@code .content} on legacy's page, from each page's own
+	 * {@code <div class="content ...">}. A stylesheet scopes rules to them --
+	 * {@code payroll-pages.css} writes {@code .payroll-page .page-toolbar},
+	 * {@code .payroll-page .data-table-card} and {@code .payroll-page .att-overtime-badge} --
+	 * so a page that drops one renders without those rules, with nothing on the page
+	 * to say so.
+	 */
+	private static final Map<String, String> LEGACY_CONTENT_CLASS = Map.ofEntries(
+			Map.entry("activities", "hr-page activities-page"),
+			Map.entry("administrative-decisions", "hr-page"),
+			Map.entry("advances", "hr-page"),
+			Map.entry("assets", "hr-page"),
+			Map.entry("attendance", "payroll-page hr-page"),
+			Map.entry("banners", "hr-page"),
+			Map.entry("branches", "hr-page"),
+			Map.entry("companies", "hr-page"),
+			Map.entry("company-detail", ""),
+			Map.entry("complaints", "hr-page"),
+			Map.entry("departments", "hr-page"),
+			Map.entry("employee-detail", ""),
+			Map.entry("employees", "hr-page"),
+			Map.entry("faqs", "hr-page"),
+			Map.entry("guide-videos", "hr-page"),
+			Map.entry("home", "home-page"),
+			Map.entry("job-titles", "hr-page"),
+			Map.entry("join-requests", "hr-page"),
+			Map.entry("leave-balances", "hr-page"),
+			Map.entry("notifications", "hr-page"),
+			Map.entry("payroll", "payroll-page hr-page"),
+			Map.entry("penalties", "hr-page"),
+			Map.entry("phone-countries", "hr-page"),
+			Map.entry("requests", "hr-page"),
+			Map.entry("salary-calculator", "payroll-page org-page-salary-calculator"),
+			Map.entry("settings", "settings-hub-page hr-page"),
+			Map.entry("shifts", "hr-page"),
+			Map.entry("workforce-planning", "hr-page"));
+
+	/** Pages with no legacy counterpart, so no legacy wrapper to match. */
+	private static final Set<String> NO_LEGACY_PAGE = Set.of("company-delete", "sessions");
+
+	@Test
+	void everyPageWrapsItsContentInLegacysClasses() throws IOException {
+		Matcher fallback = Pattern.compile("@param String contentClass = \"([^\"]*)\"")
+				.matcher(Files.readString(TEMPLATES.resolve("layout.jte"), StandardCharsets.UTF_8));
+		assertThat(fallback.find()).as("layout.jte declares contentClass with a default").isTrue();
+		Pattern passed = Pattern.compile("contentClass = \"([^\"]*)\"");
+		List<String> wrong = new ArrayList<>();
+		List<String> unmapped = new ArrayList<>();
+		for (Path template : pageTemplates()) {
+			String name = fileName(template);
+			if (NO_LEGACY_PAGE.contains(name)) {
+				continue;
+			}
+			if (!LEGACY_CONTENT_CLASS.containsKey(name)) {
+				unmapped.add(name);
+				continue;
+			}
+			Matcher own = passed.matcher(Files.readString(template, StandardCharsets.UTF_8));
+			String actual = own.find() ? own.group(1) : fallback.group(1);
+			if (!actual.equals(LEGACY_CONTENT_CLASS.get(name))) {
+				wrong.add(name + ": \"" + actual + "\", legacy \"" + LEGACY_CONTENT_CLASS.get(name) + "\"");
+			}
+		}
+		assertThat(unmapped)
+				.as("a new page needs its legacy wrapper classes here, or a place in NO_LEGACY_PAGE")
+				.isEmpty();
+		assertThat(wrong).as("pages whose .content classes differ from legacy's").isEmpty();
 	}
 
 	/**

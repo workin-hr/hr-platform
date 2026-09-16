@@ -77,6 +77,8 @@ class AdminPayrollEndToEndTest extends AdminPayrollTestSupport {
 		// the detail row shows the recomputed figure instead, which
 		// AdminPayrollCalculationParityTest pins separately.
 		assertThat(html).contains("Aya").contains("5180");
+		assertThat(html).as("page.php:241's card, which keeps a payslip's cells on one line")
+				.contains("<div class=\"data-table-card payroll-detail-card\">");
 	}
 
 	@Test
