@@ -63,6 +63,7 @@
 	flash = flash,
 	flashType = flashType,
 	available = available,
+	contentClass = "payroll-page hr-page",
 	pageStyles = java.util.List.of("payroll-pages.css", "hr-pages.css",
 			"leave-balance-form.css"),
 	pageScripts = java.util.List.of("emp-picker.js"),
@@ -167,18 +168,18 @@
 							<td>${result.from() + index}</td>
 							<td class="text-muted">${row.empCode() == null ? "—" : row.empCode()}</td>
 							<td class="bold">${row.employeeName()}</td>
-							<td>${row.checkIn() == null || row.checkIn().length() < 10
-								? "—" : row.checkIn().substring(0, 10)}</td>
-							<%-- Whether a punch fell on a Friday is the difference between
-							     an absence and a weekend; legacy puts it in its own column
-							     rather than leaving the reader to work it out from a date. --%>
-							<td class="text-muted">${AttendanceDisplay.dayName(row.checkIn(), arabic)}</td>
-							<td>${row.checkIn() == null ? "—" : row.checkIn()}</td>
-							<td>${row.checkOut() == null ? "—" : row.checkOut()}</td>
-							<td>${row.workedMinutes() == null
-								? "—" : (row.workedMinutes() / 60) + ":"
-									+ (row.workedMinutes() % 60 < 10 ? "0" : "")
-									+ (row.workedMinutes() % 60)}</td>
+							<%-- page.php:202-206. Whether a punch fell on a Friday is the
+							     difference between an absence and a weekend; legacy puts it in
+							     its own column rather than leaving the reader to work it out. --%>
+							<td>${AttendanceDisplay.date(row.checkIn(), arabic)}</td>
+							<td>${AttendanceDisplay.dayName(row.checkIn(), arabic)}</td>
+							<td dir="ltr">${AttendanceDisplay.time(row.checkIn())}</td>
+							@if(row.checkOut() == null || row.checkOut().isEmpty())
+								<td dir="ltr"><span class="text-muted">—</span></td>
+							@else
+								<td dir="ltr">${AttendanceDisplay.time(row.checkOut())}</td>
+							@endif
+							<td>${AttendanceDisplay.hours(row.workedMinutes())}</td>
 							<td>${row.exceptionName() == null ? "—" : row.exceptionName()}</td>
 							<td class="col-actions">
 								@if(canWrite)
@@ -248,26 +249,25 @@
 					@for(int index = 0; index < aggregateResult.data().size(); index++)
 						!{AttendanceRecord.AggregateRow row = aggregateResult.data().get(index);}
 						<tr>
-							<td class="text-muted">${aggregateResult.from() + index}</td>
-							<td class="text-muted">${row.empCode()}</td>
+							<td>${aggregateResult.from() + index}</td>
+							<td class="text-muted">${row.empCode() == null || row.empCode().isEmpty() ? "—" : row.empCode()}</td>
 							<td class="bold">${row.employeeName()}</td>
 							<td>${row.jobTitleName().isEmpty() ? "—" : row.jobTitleName()}</td>
-							<td>${row.daysInPeriod()}</td>
-							<td>${row.presentDays()}</td>
-							<td>${row.absentDays()}</td>
-							<td>${row.exceptionDays()}</td>
-							<td>${(row.totalMinutes() / 60) + ":"
-								+ (row.totalMinutes() % 60 < 10 ? "0" : "") + (row.totalMinutes() % 60)}</td>
-							<td>${(row.paidRestMinutes() / 60) + ":"
-								+ (row.paidRestMinutes() % 60 < 10 ? "0" : "") + (row.paidRestMinutes() % 60)}</td>
-							<%-- Signed: the column is overtime AND shortfall, and a
-							     negative hour count is the half a payroll clerk is
-							     looking for. --%>
-							<td class="${row.overtimeMinutes() < 0 ? "text-red" : "text-green"}" dir="ltr">${
-								(row.overtimeMinutes() < 0 ? "-" : "")
-								+ (Math.abs(row.overtimeMinutes()) / 60) + ":"
-								+ (Math.abs(row.overtimeMinutes()) % 60 < 10 ? "0" : "")
-								+ (Math.abs(row.overtimeMinutes()) % 60)}</td>
+							<td class="col-center">${row.daysInPeriod()}</td>
+							<td class="col-center">${row.presentDays()}</td>
+							<td class="col-center">${row.absentDays()}</td>
+							<td class="col-center">${row.exceptionDays()}</td>
+							<td>${AttendanceDisplay.duration(row.totalMinutes(), t)}</td>
+							<td>${AttendanceDisplay.duration(row.paidRestMinutes(), t)}</td>
+							<%-- page.php:250. The column is overtime AND shortfall, and the
+							     shortfall is the half a payroll clerk is looking for. --%>
+							<td class="col-center">
+								@if(row.overtimeMinutes() == 0)
+									<span class="text-muted">—</span>
+								@else
+									<span class="att-overtime-badge att-overtime-badge--${row.overtimeMinutes() > 0 ? "plus" : "minus"}">${AttendanceDisplay.overtime(row.overtimeMinutes(), t)}</span>
+								@endif
+							</td>
 						</tr>
 					@endfor
 					@if(aggregateResult.isEmpty())

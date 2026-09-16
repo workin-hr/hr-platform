@@ -55,6 +55,7 @@
 	flash = flash,
 	flashType = flashType,
 	available = available,
+	contentClass = "payroll-page hr-page",
 	pageStyles = java.util.List.of("payroll-pages.css", "hr-pages.css"),
 	body = @`
 		@if(errorKey != null)
