@@ -32,7 +32,9 @@
 @param String formAction = null
 <%-- Legacy's complaint and company-reject windows carry a Cancel beside Save
      (complaints/page.php:240, companies/page.php:288); its decision windows do
-     not. crud.js closes on .modal-close, so Cancel is that class and no submit. --%>
+     not. Not .modal-close: that class is the ×'s, absolutely positioned, and on
+     a footer button it lays Cancel over Save -- a tap meant to save would close
+     the window and lose what was typed. row-dialog.js closes on data-dialog-cancel. --%>
 @param String cancelLabel = null
 <div class="modal-bg" id="${id}" aria-hidden="true">
 	<div class="modal" role="dialog" aria-modal="true" aria-labelledby="${id}-title">
@@ -52,7 +54,7 @@
 			     than dismissing what was typed. --%>
 			<div class="form-footer">
 				@if(cancelLabel != null)
-					<button type="button" class="btn btn-gray modal-close">${cancelLabel}</button>
+					<button type="button" class="btn btn-gray" data-dialog-cancel>${cancelLabel}</button>
 				@endif
 				<button type="submit" class="btn btn-${submitVariant}">${submitLabel}</button>
 			</div>

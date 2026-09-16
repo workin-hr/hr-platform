@@ -78,4 +78,14 @@
     modal.dispatchEvent(new CustomEvent('row-dialog:filled', { bubbles: true }));
     modal.classList.add('open');
   });
+
+  // A footer Cancel. It is not .modal-close, whose styles position the ×, so
+  // crud.js does not see it; closing is the same class removal crud.js does.
+  document.addEventListener('click', function (event) {
+    const cancel = event.target.closest('[data-dialog-cancel]');
+    const modal = cancel && cancel.closest('.modal-bg');
+    if (modal) {
+      modal.classList.remove('open');
+    }
+  });
 })();

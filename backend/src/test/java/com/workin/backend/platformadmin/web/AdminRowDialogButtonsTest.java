@@ -52,6 +52,10 @@ class AdminRowDialogButtonsTest {
 				.as("the close button closes the window without submitting the form")
 				.contains("<button type=\"button\" class=\"modal-close\"")
 				.doesNotContain("formmethod=\"dialog\"");
+		String footer = template.substring(template.indexOf("<div class=\"form-footer\">"));
+		assertThat(footer)
+				.as("no footer button takes the ×'s .modal-close, whose position would lay it over Save")
+				.doesNotContain("modal-close");
 	}
 
 	private static final Path TEMPLATES = Path.of("src/main/jte/admin");

@@ -17,7 +17,7 @@ const asset = (name) => readFileSync(
 	new URL(`../../../backend/src/main/resources/static/admin/_assets/${name}`, import.meta.url),
 	'utf8');
 
-const WINDOW = (id, body) => `<div class="modal-bg" id="${id}" aria-hidden="true">
+const WINDOW = (id, body, cancel = '') => `<div class="modal-bg" id="${id}" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="${id}-title">
     <button type="button" class="modal-close" aria-label="close">&times;</button>
     <h2 id="${id}-title">edit</h2>
@@ -27,7 +27,8 @@ const WINDOW = (id, body) => `<div class="modal-bg" id="${id}" aria-hidden="true
       <input type="hidden" name="id" data-dialog-field="id">
       ${body}
       <div class="form-footer">
-        <button type="submit">save</button>
+        ${cancel ? `<button type="button" class="btn btn-gray" data-dialog-cancel>${cancel}</button>` : ''}
+        <button type="submit" class="btn btn-blue">save</button>
       </div>
     </form>
   </div>
@@ -172,7 +173,7 @@ test('opening focuses the first field, and closing returns focus to the row', as
 // laid it out against itself -- off-centre, scrolling the page, its title off-screen.
 const SHEETS = ['style.css', 'app-ui.css', 'sidebar.css', 'admin-extra.css', 'app-responsive.css', 'hr-pages.css'];
 
-function listPage(rows) {
+function listPage(rows, cancel = '') {
 	const body = Array.from({ length: rows }, (_, i) => `<tr><td>row ${i}</td><td class="col-actions">
   <div class="row-actions" data-row-actions>
     <button type="button" class="row-actions__trigger" aria-label="actions" aria-haspopup="menu"
@@ -187,14 +188,14 @@ function listPage(rows) {
   <div class="topbar"><h1 class="page-title">list</h1></div>
   <div class="content hr-page"><div class="data-table-card">
     <div class="table-wrap"><table class="tbl"><tbody>${body}</tbody></table></div>
-    ${WINDOW('edit', '<div class="form-row"><label for="f">name</label><input type="text" id="f" name="nameEn" data-dialog-field="nameEn"></div>')}
+    ${WINDOW('edit', '<div class="form-row"><label for="f">name</label><input type="text" id="f" name="nameEn" data-dialog-field="nameEn"></div>', cancel)}
   </div></div>
 </main></div></body></html>`;
 }
 
-async function loadListPage(page, rows) {
-	await page.setViewportSize({ width: 1280, height: 720 });
-	await page.setContent(listPage(rows));
+async function loadListPage(page, rows, { width = 1280, height = 720, cancel = '' } = {}) {
+	await page.setViewportSize({ width, height });
+	await page.setContent(listPage(rows, cancel));
 	for (const sheet of SHEETS) {
 		await page.addStyleTag({ content: asset(sheet) });
 	}
@@ -228,6 +229,39 @@ for (const rows of [40, 2]) {
 
 		await page.mouse.click(5, 5);
 		await expect(page.locator('#edit'), 'a click on the backdrop, over the topbar, closes it').toBeHidden();
+	});
+}
+
+// complaints and company reject carry legacy's Cancel beside Save. Written with the ×'s
+// .modal-close class it was positioned as the × is -- absolutely, inside the sticky footer --
+// and lay over Save: a tap meant to save closed the window and lost what was typed.
+for (const [width, height] of [[1280, 720], [390, 844]]) {
+	test(`at ${width}px a footer Cancel sits beside Save, a tap on Save submits, and Cancel closes`, async ({ page }) => {
+		await loadListPage(page, 3, { width, height, cancel: 'إلغاء' });
+		await page.evaluate(() => {
+			window.submitted = 0;
+			document.querySelector('#edit form').addEventListener('submit', (event) => {
+				window.submitted++;
+				event.preventDefault();
+			});
+		});
+		await openFromMenu(page, 1);
+		const modal = page.locator('#edit');
+		await modal.locator('[name="nameEn"]').fill('typed');
+
+		const cancel = await modal.locator('[data-dialog-cancel]').boundingBox();
+		const save = await modal.locator('button[type="submit"]').boundingBox();
+		const overlap = !(cancel.x + cancel.width <= save.x || save.x + save.width <= cancel.x
+			|| cancel.y + cancel.height <= save.y || save.y + save.height <= cancel.y);
+		expect(overlap, 'Cancel and Save do not overlap').toBe(false);
+
+		await page.mouse.click(save.x + save.width / 2, save.y + save.height / 2);
+		expect(await page.evaluate(() => window.submitted), 'a tap on Save submits').toBe(1);
+		await expect(modal, 'and does not close the window').toBeVisible();
+
+		await modal.locator('[data-dialog-cancel]').click();
+		await expect(modal, 'Cancel closes it').toBeHidden();
+		expect(await page.evaluate(() => window.submitted), 'without submitting').toBe(1);
 	});
 }
 
