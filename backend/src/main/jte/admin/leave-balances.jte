@@ -94,7 +94,7 @@
 						<th>${t.apply("total_days")}</th>
 						<th>${t.apply("used_days")}</th>
 						<th>${t.apply("remaining_days")}</th>
-						<th>${t.apply("actions")}</th>
+						@template.admin.actionsHeader(t = t)
 					</tr>
 				</thead>
 				<tbody>

@@ -1,5 +1,6 @@
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.hr.ListDisplay
 @import com.workin.backend.platformadmin.hr.Penalty
 @import com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption
 @import com.workin.backend.platformadmin.hr.EmployeePicker
@@ -103,7 +104,7 @@
 						<th>${t.apply("penalty_reason")}</th>
 						<th>${t.apply("penalty_date")}</th>
 						<th>${t.apply("applied_payroll")}</th>
-						<th>${t.apply("actions")}</th>
+						@template.admin.actionsHeader(t = t)
 					</tr>
 				</thead>
 				<tbody>
@@ -118,7 +119,7 @@
 							@endif
 							<td>${row.penaltyType()}</td>
 							<td><span class="badge badge-gray">${row.daysDisplay()}</span></td>
-							<td class="text-muted tbl-clip" title="${row.reason() == null ? "" : row.reason()}">${row.reason() == null || row.reason().isBlank() ? "—" : row.reason()}</td>
+							<td class="text-muted" title="${row.reason() == null ? "" : row.reason()}">${ListDisplay.notes(row.reason(), 40)}</td>
 							<td>${row.penaltyDate() == null ? "—" : row.penaltyDate()}</td>
 							<td>
 								<span class="badge ${row.appliedToPayroll() ? "badge-green" : "badge-gray"}">

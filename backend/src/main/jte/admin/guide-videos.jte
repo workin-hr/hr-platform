@@ -62,7 +62,7 @@
 							<th>${t.apply("guide_video_file")}</th>
 							<th>${t.apply("sort_order")}</th>
 							<th>${t.apply("status")}</th>
-							<th class="col-actions">${t.apply("actions")}</th>
+							@template.admin.actionsHeader(t = t)
 						</tr>
 					</thead>
 					<tbody>

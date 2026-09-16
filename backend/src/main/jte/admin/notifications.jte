@@ -5,6 +5,7 @@
 @import com.workin.backend.platformadmin.web.DashboardSession
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.hr.ListDisplay
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
@@ -110,7 +111,7 @@
 							<th>${t.apply("notif_body")}</th>
 							<th>${t.apply("is_read")}</th>
 							<th>${t.apply("date")}</th>
-							<th>${t.apply("actions")}</th>
+							@template.admin.actionsHeader(t = t)
 						</tr>
 					</thead>
 					<tbody>
@@ -124,7 +125,7 @@
 								<td>${row.toCompany() ? t.apply("recipient_company")
 									: row.toName() == null || row.toName().isBlank() ? "—" : row.toName()}</td>
 								<td class="bold">${row.title()}</td>
-								<td class="text-muted tbl-clip" title="${row.body() == null ? "" : row.body()}">${row.body() == null || row.body().isBlank() ? "—" : row.body()}</td>
+								<td class="text-muted" title="${row.body() == null ? "" : row.body()}">${ListDisplay.notes(row.body(), 50)}</td>
 								<%-- badge('1'/'0') in the PHP: the dashboard's yes/no pair,
 								     not a status word. --%>
 								<td>

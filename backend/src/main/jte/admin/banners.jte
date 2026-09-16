@@ -70,7 +70,7 @@
 							<th>${t.apply("sort_order")}</th>
 							<th>${t.apply("status")}</th>
 							<th>${t.apply("reg_date")}</th>
-							<th class="col-actions"><span class="sr-only">${t.apply("actions")}</span></th>
+							@template.admin.actionsHeader(t = t)
 						</tr>
 					</thead>
 					<tbody>

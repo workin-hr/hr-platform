@@ -1,5 +1,6 @@
 @import java.util.function.Function
 @import com.workin.backend.platformadmin.hr.Complaint
+@import com.workin.backend.platformadmin.hr.ListDisplay
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -107,7 +108,7 @@
 						<th>${t.apply("complaint_source")}</th>
 						<th>${t.apply("status")}</th>
 						<th>${t.apply("date")}</th>
-						<th>${t.apply("actions")}</th>
+						@template.admin.actionsHeader(t = t)
 					</tr>
 				</thead>
 				<tbody>
@@ -120,8 +121,8 @@
 							@endif
 							<td class="bold">${row.name() == null ? "—" : row.name()}</td>
 							<td class="text-muted">${row.phone() == null ? "—" : row.phone()}</td>
-							<td class="tbl-clip" title="${row.message() == null ? "" : row.message()}">${row.message() == null || row.message().isBlank() ? "—" : row.message()}</td>
-							<td class="text-muted tbl-clip" title="${row.reply() == null ? "" : row.reply()}">${row.reply() == null || row.reply().isBlank() ? "—" : row.reply()}</td>
+							<td title="${row.message() == null ? "" : row.message()}">${ListDisplay.notes(row.message(), 50)}</td>
+							<td class="text-muted" title="${row.reply() == null ? "" : row.reply()}">${ListDisplay.notes(row.reply(), 40)}</td>
 							<td>
 								<span class="badge badge-gray" title="${t.apply(row.fromEmployee()
 									? "complaint_source_employee_to_company_hint"

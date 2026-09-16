@@ -71,7 +71,7 @@
 					<th>${t.apply("phone")}</th>
 					<th>${t.apply("join_request_status")}</th>
 					<th>${t.apply("request_date")}</th>
-					<th>${t.apply("actions")}</th>
+					@template.admin.actionsHeader(t = t)
 				</tr>
 			</thead>
 			<tbody>

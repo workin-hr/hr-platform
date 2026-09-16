@@ -153,7 +153,7 @@
 						<th>${t.apply("employees")}</th>
 						<th>${t.apply("status")}</th>
 						<th>${t.apply("reg_date")}</th>
-						<th>${t.apply("actions")}</th>
+						@template.admin.actionsHeader(t = t)
 					</tr>
 				</thead>
 				<tbody>

@@ -3,6 +3,7 @@
 @import com.workin.backend.platformadmin.hr.CompanyAsset
 @import com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption
 @import com.workin.backend.platformadmin.hr.EmployeePicker
+@import com.workin.backend.platformadmin.hr.ListDisplay
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -102,7 +103,7 @@
 						<th>${t.apply("asset_date")}</th>
 						<th>${t.apply("asset_end_date")}</th>
 						<th>${t.apply("is_returned")}</th>
-						<th>${t.apply("actions")}</th>
+						@template.admin.actionsHeader(t = t)
 					</tr>
 				</thead>
 				<tbody>
@@ -115,7 +116,7 @@
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
-							<td class="bold">${row.assetText()}</td>
+							<td class="bold" title="${row.assetText() == null ? "" : row.assetText()}">${ListDisplay.notes(row.assetText(), 60)}</td>
 							<td>${row.assetDate() == null ? "—" : row.assetDate()}</td>
 							<td>${row.assetEndDate() == null ? "—" : row.assetEndDate()}</td>
 							<td>

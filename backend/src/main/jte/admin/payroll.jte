@@ -223,7 +223,7 @@
 							<th class="col-center">${t.apply("other_fixed_deductions")}</th>
 							<th class="col-center">${t.apply("total_deductions")}</th>
 							<th class="col-center">${t.apply("net_salary")}</th>
-							<th class="col-actions">${t.apply("actions")}</th>
+							@template.admin.actionsHeader(t = t)
 						</tr>
 					</thead>
 					<tbody>
@@ -387,7 +387,7 @@
 							<th>${t.apply("employees")}</th>
 							<th>${t.apply("net_salary")}</th>
 							<th>${t.apply("status")}</th>
-							<th class="col-actions">${t.apply("actions")}</th>
+							@template.admin.actionsHeader(t = t)
 						</tr>
 					</thead>
 					<tbody>

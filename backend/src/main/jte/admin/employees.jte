@@ -391,7 +391,7 @@
 						<th>${t.apply("work_tenure")}</th>
 						<th>${t.apply("contract_duration")}</th>
 						<th>${t.apply("status")}</th>
-						<th>${t.apply("actions")}</th>
+						@template.admin.actionsHeader(t = t)
 					</tr>
 				</thead>
 				<tbody>

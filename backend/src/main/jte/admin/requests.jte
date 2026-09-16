@@ -1,6 +1,7 @@
 @import java.util.List
 @import java.util.function.Function
 @import com.workin.backend.platformadmin.hr.EmployeeRequest
+@import com.workin.backend.platformadmin.hr.ListDisplay
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -110,7 +111,7 @@
 						<th>${t.apply("admin_reply")}</th>
 						<th>${t.apply("status")}</th>
 						<th>${t.apply("reg_date")}</th>
-						<th>${t.apply("actions")}</th>
+						@template.admin.actionsHeader(t = t)
 					</tr>
 				</thead>
 				<tbody>
@@ -135,8 +136,8 @@
 								? "—" : row.fromTime()}</td>
 							<td class="text-muted" dir="ltr">${row.toTime() == null || row.toTime().isBlank()
 								? "—" : row.toTime()}</td>
-							<td class="text-muted tbl-clip" title="${row.notes() == null ? "" : row.notes()}">${row.notes() == null || row.notes().isBlank() ? "—" : row.notes()}</td>
-							<td class="text-muted tbl-clip" title="${row.reply() == null ? "" : row.reply()}">${row.reply() == null || row.reply().isBlank() ? "—" : row.reply()}</td>
+							<td class="text-muted" title="${row.notes() == null ? "" : row.notes()}">${ListDisplay.notes(row.notes(), 60)}</td>
+							<td class="text-muted" title="${row.reply() == null ? "" : row.reply()}">${ListDisplay.notes(row.reply(), 60)}</td>
 							<td>
 								<span class="badge ${"approved".equals(row.status()) ? "badge-green"
 									: "rejected".equals(row.status()) ? "badge-red" : "badge-gray"}">

@@ -153,7 +153,7 @@
 						<th>${t.apply("att_check_out_time")}</th>
 						<th>${t.apply("hours_worked")}</th>
 						<th>${t.apply("exception")}</th>
-						<th class="col-actions">${t.apply("actions")}</th>
+						@template.admin.actionsHeader(t = t)
 					</tr>
 				</thead>
 				<tbody>

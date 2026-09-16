@@ -152,7 +152,7 @@
 						<th>${t.apply("job_title")}</th>
 						<th>${t.apply("planned_count")}</th>
 						<th>${t.apply("actual_count")}</th>
-						<th>${t.apply("actions")}</th>
+						@template.admin.actionsHeader(t = t)
 					</tr>
 				</thead>
 				<tbody>
