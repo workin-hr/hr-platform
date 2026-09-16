@@ -50,14 +50,44 @@ predicate on every query. Errors render the platform `{code, message}` body
 | `GET /api/v1/devices/unclaimed?serial_number=` | Has this exact serial contacted the receiver? | `{serial_number, seen, claimed}` and nothing more — no timestamps, address, push version or device type. `claimed` is true only for the caller's own device; a serial owned by another company answers exactly as one never seen. No list form exists, by design. `400 devices.serial_number_query_required`, `devices.serial_number_invalid` |
 | `GET /api/v1/devices/identities` | Device PIN bindings for the company | `{ "identities": [ {employee_id, pin, card_no, source, updated_at, employee_name} ] }`. Where no binding exists a PIN falls back to the `employee_code` of an **active** employee |
 | `PUT /api/v1/devices/identities` | Bind (or rebind) an employee's PIN | body `{employee_id, pin, card_no?}`; `404 devices.employee_not_found` (also for another tenant's employee); `400 devices.pin_required`, `devices.pin_invalid` (1–32 digits, the same rule the receiver's parser applies); `409 devices.pin_already_bound`, `devices.employee_already_bound` |
-| `GET /api/v1/devices/punches?device_id=&state=&limit=` | Raw punches, newest first, for shadow-mode visibility | `limit` defaults to 100, capped at 500; `state` is `RECEIVED`, `UNMATCHED`, `PAIRED` or `IGNORED`. `branch_id` is the branch the punch happened at, snapshotted at ingestion, so moving a device does not relabel its history |
+| `GET /api/v1/devices/punches?device_id=&state=&limit=` | Raw punches, newest first, for shadow-mode visibility | `limit` defaults to 100, capped at 500; `state` is `RECEIVED`, `UNMATCHED`, `PAIRED` or `IGNORED`. `branch_id` is the branch the punch happened at, snapshotted at ingestion, so moving a device does not relabel its history. `delivered_via` is `PUSH`, `AGENT` or `FILE` (D-257) |
+
+## Agent-facing: `/api/v1/device-agents/**` (D-257)
+
+JSON answers for a program, not the platform `{code,message}` body. Exists
+only when `app.devices.agents.enabled=true` (asserted by
+`DevicesModuleIsolationTest`). Authenticated by its own security chain with
+`Authorization: Bearer wda_…`, a token the platform administrator issues in
+the dashboard; the token is stored as SHA-256 only, and a deactivated agent's
+token authenticates nothing. The agent speaks for one company. Callers are the
+on-premises agent (`devices-agent/`, `docs/devices/on-prem-agent.md`).
+
+| Method and path | Purpose | Answer |
+|---|---|---|
+| `POST /api/v1/device-agents/punches?serial=&delivery=` | Punches the agent read from a terminal, as ATTLOG lines (`PIN⇥time⇥in/out⇥verify`); `delivery=file` marks a USB export instead | `200 {accepted, stored, duplicates, unmatched, malformed}`, and the batch is delivered; `404 {"error":"device_not_registered"}` for a serial that is not an **active device of the agent's company** -- identical for unknown, deactivated and another company's serials; `400 invalid_serial`, `invalid_delivery`; `413 too_many_records` above `max-records-per-upload` (refused whole), or a plain-text `413` from the body filter above `app.devices.agents.max-body-bytes`; `401 {"error":"unauthorized"}` with `WWW-Authenticate: Bearer` |
+| `POST /api/v1/device-agents/heartbeat` | `{agent_version, devices: [{serial, vendor, reachable, model, firmware, platform, records, record_capacity, users, device_time, error}]}` | `200 {devices: [{serial, registered}]}`. A reachable terminal of the agent's own company has `last_seen_at`, model and firmware refreshed; a serial registered to nobody becomes a sighting (`device_type` `agent <id> of company <id> (<vendor>)`, so the dashboard shows whose report it is) for the administrator to allocate; another company's serial is left untouched and answers `registered: false`. The sanitised report is kept on the agent row for the dashboard |
+
+Punches are parsed by the receiver's own ATTLOG parser and stored with the
+same dedup key, so a punch that a terminal pushes and an agent reads again is
+one row, credited to whichever arrived first.
+
+## Platform administrator: `/admin/devices` (D-257)
+
+The JTE dashboard page, administrator-only (`DashboardAccess`): every
+company's terminals, the unclaimed-serial list, allocation of a serial to a
+branch (`DeviceManagementService.allocate`, the platform-mediated allocation
+D-165 requires for production), activating and deactivating a terminal,
+importing a USB export of up to 1 MB, and issuing and revoking agent tokens.
+Each write is audited (`DEVICE_ALLOCATED`, `DEVICE_UPDATED`,
+`DEVICE_PUNCHES_IMPORTED`, `DEVICE_AGENT_ISSUED`, `DEVICE_AGENT_UPDATED`) and
+refused while `app.platform-admin.actions.enabled` is off.
 
 **The claim route is a pilot arrangement (D-165, R-042).** Supervised tenant
 claiming is accepted while devices are installed under supervision. For
 production, tenant admins will not claim by serial number at all: platform
-staff pre-allocate a device to a company and tenant HR only assigns an owned
-device to a branch. There is also **no unclaim, transfer or replace-device
-route yet** — correcting ownership today means a manual database change, and
+staff pre-allocate a device to a company -- which `/admin/devices` now does --
+and tenant HR only assigns an owned device to a branch. There is still **no
+unclaim, transfer or replace-device route** — correcting ownership today means a manual database change, and
 an audited path for it is required before broad production rollout.
 
 Finer HR permission flags (`hr_permissions.can_attendance`) are not consulted:

@@ -74,7 +74,7 @@ class AdminDashboardPageInventoryTest {
 	 * legacy's since ADR-0018.
 	 */
 	private static final Set<String> JAVA_ONLY_PAGES = Set.of(
-			"logout", "sessions", "_assets");
+			"logout", "sessions", "_assets", "devices");
 
 	/**
 	 * Legacy pages this surface serves at a different URL.

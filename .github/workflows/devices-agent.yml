@@ -1,0 +1,42 @@
+name: Devices Agent
+
+# The on-premises agent and the site-visit kit (devices-agent/). Standard-library Python, so the
+# unit tests need nothing installed; pyzk is installed afterwards only to cross-check the
+# 4370 emulator against the library that has been run against real terminals.
+on:
+  pull_request:
+    paths:
+      - "devices-agent/**"
+      - ".github/workflows/devices-agent.yml"
+  push:
+    branches: [main]
+    paths:
+      - "devices-agent/**"
+      - ".github/workflows/devices-agent.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository (immutable action reference)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Python (immutable action reference; exact Python version, not checksum-verified)
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12.13"
+
+      - name: Unit tests, standard library only
+        working-directory: devices-agent
+        run: python3 -m unittest discover -s tests -t . -v
+
+      - name: Cross-check the 4370 emulator against pyzk (GPL-2.0, test-only, never bundled)
+        working-directory: devices-agent
+        run: |
+          python3 -m pip install "pyzk==0.9"
+          python3 -m unittest tests.test_zk4370 -v

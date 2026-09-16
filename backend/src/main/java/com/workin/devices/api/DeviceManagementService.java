@@ -16,12 +16,11 @@ import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionTemplate;
 
 import com.workin.backend.i18n.ApiException;
 import com.workin.devices.DeviceInput;
+import com.workin.devices.DeviceTransactions;
 import com.workin.devices.DeviceVendor;
 import com.workin.devices.identity.EmployeeDeviceIdentityStore;
 import com.workin.devices.ingest.DevicePunchStore;
@@ -71,7 +70,7 @@ public class DeviceManagementService {
 	private final EmployeeDeviceIdentityStore identities;
 	private final DevicePunchStore punches;
 	private final LegacyClock clock;
-	private final TransactionTemplate transactions;
+	private final DeviceTransactions transactions;
 
 	public DeviceManagementService(
 			AttendanceDeviceStore devices, UnclaimedDeviceSightingStore sightings,
@@ -82,7 +81,7 @@ public class DeviceManagementService {
 		this.identities = identities;
 		this.punches = punches;
 		this.clock = clock;
-		this.transactions = new TransactionTemplate(new DataSourceTransactionManager(legacyDataSource));
+		this.transactions = DeviceTransactions.over(legacyDataSource);
 	}
 
 	public List<AttendanceDevice> list(long companyId) {
@@ -102,6 +101,33 @@ public class DeviceManagementService {
 		String name = requiredText(body, "name", "devices.name_required", 255);
 		long branchId = requireOwnBranch(companyId, body.get("branch_id"));
 		String zone = zoneOrDefault(body.get("device_time_zone"));
+		return register(companyId, branchId, DeviceVendor.ZKTECO, serialNumber, name, zone,
+				actorEmployeeId > 0 ? actorEmployeeId : null);
+	}
+
+	/**
+	 * A platform administrator allocating a terminal to a company and branch --
+	 * the production path D-165 asks for, where the tenant does not claim by
+	 * serial at all. Same validation and the same transaction as a claim; the
+	 * vendor is chosen here because an agent-read terminal need not be ZKTeco,
+	 * and no employee is recorded because the actor is not one (the admin audit
+	 * trail records who it was).
+	 */
+	public AttendanceDevice allocate(
+			long companyId, long branchId, String vendorCode, String serialNumber, String name, String zone) {
+		String serial = requiredSerialNumber(serialNumber);
+		String deviceName = DeviceInput.bounded(name, 255);
+		if (deviceName == null) {
+			throw new ApiException(HttpStatus.BAD_REQUEST, "devices.name_required");
+		}
+		DeviceVendor vendor = DeviceVendor.fromCode(vendorCode)
+				.orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "devices.vendor_invalid"));
+		long branch = requireOwnBranch(companyId, branchId);
+		return register(companyId, branch, vendor, serial, deviceName, zoneOrDefault(zone), null);
+	}
+
+	private AttendanceDevice register(long companyId, long branchId, DeviceVendor vendor, String serialNumber,
+			String name, String zone, Long registeredByEmployeeId) {
 		// One transaction over the insert, the sighting cleanup and the read
 		// back. Previously the insert committed on its own, so a failure in
 		// either later step answered 500 while the serial was already owned --
@@ -118,8 +144,8 @@ public class DeviceManagementService {
 				throw new ApiException(HttpStatus.NOT_FOUND, "devices.branch_not_found");
 			}
 			Optional<Long> id = devices.claimWithHistory(
-					companyId, branchId, DeviceVendor.ZKTECO.code(), serialNumber, name, zone,
-					actorEmployeeId > 0 ? actorEmployeeId : null, clock.now());
+					companyId, branchId, vendor.code(), serialNumber, name, zone,
+					registeredByEmployeeId, clock.now());
 			if (id.isEmpty()) {
 				throw new ApiException(HttpStatus.CONFLICT, "devices.serial_already_claimed");
 			}

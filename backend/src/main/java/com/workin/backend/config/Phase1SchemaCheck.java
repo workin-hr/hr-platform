@@ -4,6 +4,7 @@ import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.SequencedMap;
@@ -98,6 +99,25 @@ public class Phase1SchemaCheck implements ApplicationRunner {
 				"what a device's branch and zone WERE -- without it a buffered punch delivered"
 						+ " after a reassignment is attributed to the wrong branch, and after a"
 						+ " zone change its stored instant is wrong outright");
+		OWNED_TABLES.put("device_agents",
+				"on-premises agents -- terminals that cannot push (ZKTeco 4370, Hikvision) have"
+						+ " no way to deliver punches, and no agent token can be issued");
+	}
+
+	/**
+	 * Columns added to a table after databases were already provisioned with
+	 * it. A name check cannot see these: a database provisioned from the
+	 * fourteen-table DDL and then re-applied with {@code --force} gains
+	 * {@code device_agents} and reports every table present, while
+	 * {@code device_punches} still has no {@code delivered_via} and every device
+	 * upload fails on its INSERT.
+	 */
+	static final SequencedMap<String, String> OWNED_COLUMNS = new LinkedHashMap<>();
+
+	static {
+		OWNED_COLUMNS.put("device_punches.delivered_via",
+				"every device punch insert -- terminals and agents are refused until"
+						+ " db/phase1-mysql/upgrade_device_agents_and_delivery.sql is applied");
 	}
 
 	private final DataSource dataSource;
@@ -116,6 +136,7 @@ public class Phase1SchemaCheck implements ApplicationRunner {
 					+ "See docs/operations/provisioning-phase1-tables.md", ex);
 			return;
 		}
+		reportMissingColumns(missing);
 		if (missing.isEmpty()) {
 			log.info("Phase 1 schema check: all {} owned tables are present.", OWNED_TABLES.size());
 			return;
@@ -150,6 +171,46 @@ public class Phase1SchemaCheck implements ApplicationRunner {
 			}
 		}
 		return OWNED_TABLES.keySet().stream().filter(table -> !present.contains(table)).toList();
+	}
+
+	private void reportMissingColumns(List<String> missingTables) {
+		List<String> missing;
+		try {
+			missing = missingColumns(missingTables);
+		} catch (SQLException ex) {
+			log.error("Could not check the Phase 1 columns; assume they are unverified.", ex);
+			return;
+		}
+		for (String column : missing) {
+			log.error("Phase 1 schema check: column {} is MISSING -- disables {}", column, OWNED_COLUMNS.get(column));
+		}
+	}
+
+	/**
+	 * Only for tables that exist: a missing table is already reported, and
+	 * naming each of its columns as well would bury the one line that says
+	 * which file to apply.
+	 */
+	List<String> missingColumns(List<String> missingTables) throws SQLException {
+		TreeSet<String> absentTables = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+		absentTables.addAll(missingTables);
+		List<String> missing = new ArrayList<>();
+		try (Connection connection = dataSource.getConnection()) {
+			DatabaseMetaData metaData = connection.getMetaData();
+			for (String qualified : OWNED_COLUMNS.keySet()) {
+				String table = qualified.substring(0, qualified.indexOf('.'));
+				String column = qualified.substring(qualified.indexOf('.') + 1);
+				if (absentTables.contains(table)) {
+					continue;
+				}
+				try (ResultSet columns = metaData.getColumns(connection.getCatalog(), null, table, column)) {
+					if (!columns.next()) {
+						missing.add(qualified);
+					}
+				}
+			}
+		}
+		return missing;
 	}
 
 	/** The owned table names, for the test that pins this list to the shipped DDL. */

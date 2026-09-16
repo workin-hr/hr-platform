@@ -98,6 +98,14 @@ services:
 
       APP_LEGACY_UPLOADS_PATH: /app/uploads
       APP_LEGACY_UPLOADS_URL: ${UPLOADS_URL:-/uploads/}
+
+      # Attendance terminals (docs/devices/README.md). Both off unless set. The
+      # receiver answers only on APP_DEVICES_DOMAIN -- the same name Caddy serves
+      # it on, so the two cannot disagree. Agents submit on the ordinary API
+      # name with a token the dashboard issues.
+      APP_DEVICES_INGEST_ENABLED: ${DEVICES_INGEST_ENABLED:-false}
+      APP_DEVICES_INGEST_HOST: ${APP_DEVICES_DOMAIN:-devices.localhost}
+      APP_DEVICES_AGENTS_ENABLED: ${DEVICES_AGENTS_ENABLED:-false}
     volumes:
       # Employee documents and company logos the legacy PHP wrote and the
       # clients still fetch. A named volume, so a redeploy does not take them.

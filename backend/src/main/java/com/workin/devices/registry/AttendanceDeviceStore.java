@@ -7,8 +7,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 import com.workin.devices.assignment.DeviceAssignmentHistoryStore;
 import com.workin.legacy.LegacyClock;
 import javax.sql.DataSource;
@@ -20,6 +18,7 @@ import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Component;
 
 import com.workin.devices.DeviceAttendanceEvent;
+import com.workin.devices.DeviceTransactions;
 import com.workin.legacy.LegacyJdbcValues;
 
 /**
@@ -49,13 +48,13 @@ public class AttendanceDeviceStore {
 
 	private final JdbcTemplate jdbcTemplate;
 
-	private final TransactionTemplate transactions;
+	private final DeviceTransactions transactions;
 	private final DeviceAssignmentHistoryStore history;
 	private final LegacyClock clock;
 
 	public AttendanceDeviceStore(DataSource legacyDataSource, DeviceAssignmentHistoryStore history,
 			LegacyClock clock) {
-		this.transactions = new TransactionTemplate(new DataSourceTransactionManager(legacyDataSource));
+		this.transactions = DeviceTransactions.over(legacyDataSource);
 		this.history = history;
 		this.clock = clock;
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
@@ -65,6 +64,12 @@ public class AttendanceDeviceStore {
 		return first(jdbcTemplate.query(
 				"SELECT " + COLUMNS + " FROM attendance_devices WHERE serial_number = ?",
 				LegacyJdbcValues.rowMapper(), serialNumber));
+	}
+
+	/** Any company's device: only the platform administrator's service asks this way. */
+	public Optional<AttendanceDevice> findById(long id) {
+		return first(jdbcTemplate.query(
+				"SELECT " + COLUMNS + " FROM attendance_devices WHERE id = ?", LegacyJdbcValues.rowMapper(), id));
 	}
 
 	public Optional<AttendanceDevice> findForCompany(long companyId, long id) {
