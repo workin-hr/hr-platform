@@ -176,35 +176,48 @@
 				<div class="modal" role="dialog" aria-modal="true" aria-labelledby="pcModal-title">
 					<button type="button" class="modal-close"
 							aria-label="${t.apply("cancel")}">&times;</button>
-					<h2 id="pcModal-title">${t.apply("add")}</h2>
+					<h2 id="pcModal-title">${t.apply("add_country")}</h2>
 					<form method="post">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="add">
+					<%-- pcAddModal (phone_countries/page.php:95-138): one field to a row, in its
+					     order, with its default length and its footer. --%>
 					<div class="form-row">
-						<label>${t.apply("country_code")}
-							<input type="text" name="countryCode" placeholder="+20" required></label>
-						<label>${t.apply("flag_emoji")}
-							<input type="text" name="flagEmoji" placeholder="🇪🇬"></label>
+						<label for="pc_add_code">${t.apply("country_code")}</label>
+						<input type="text" id="pc_add_code" name="countryCode" dir="ltr" placeholder="+20" required>
 					</div>
 					<div class="form-row">
-						<label>${t.apply("name_ar")}<input type="text" name="nameAr" required></label>
-						<label>${t.apply("name_en")}<input type="text" name="nameEn" required></label>
+						<label for="pc_add_name_ar">${t.apply("name_ar")}</label>
+						<input type="text" id="pc_add_name_ar" name="nameAr" required>
 					</div>
 					<div class="form-row">
-						<label>${t.apply("phone_length")}
-							<input type="number" name="phoneLength" min="4" max="15" required></label>
-						<label>${t.apply("sort_order")}
-							<input type="number" name="sortOrder" value="0"></label>
+						<label for="pc_add_name_en">${t.apply("name_en")}</label>
+						<input type="text" id="pc_add_name_en" name="nameEn" required>
+					</div>
+					<div class="form-row">
+						<label for="pc_add_flag">${t.apply("flag_emoji")}</label>
+						<input type="text" id="pc_add_flag" name="flagEmoji" placeholder="🇪🇬">
+					</div>
+					<div class="form-row">
+						<label for="pc_add_length">${t.apply("phone_length")}</label>
+						<input type="number" id="pc_add_length" name="phoneLength" min="4" max="15" value="11" required>
 					</div>
 					<div class="form-row">
 						<%-- Free text, comma or space separated, as the dashboard's field is. --%>
-						<label>${t.apply("phone_prefixes")}
-							<input type="text" name="prefixes" placeholder="10, 11, 12, 15"></label>
-						<label>
-							<input type="checkbox" name="isActive" value="1" checked>
+						<label for="pc_add_prefixes">${t.apply("phone_prefixes")}</label>
+						<input type="text" id="pc_add_prefixes" name="prefixes" dir="ltr" placeholder="10, 11, 12, 15">
+					</div>
+					<div class="form-row">
+						<label for="pc_add_sort">${t.apply("sort_order")}</label>
+						<input type="number" id="pc_add_sort" name="sortOrder" value="0">
+					</div>
+					<div class="form-row">
+						<label><input type="checkbox" name="isActive" value="1" checked>
 							<span>${t.apply("status_active")}</span></label>
 					</div>
-					<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+					<div class="form-footer">
+						<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+					</div>
 				</form>
 				</div>
 			</div>

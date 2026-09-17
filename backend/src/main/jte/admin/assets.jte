@@ -190,7 +190,7 @@
 						</div>
 						<div class="form-row">
 							<label for="ast_edit_text">${t.apply("asset")}</label>
-							<input type="text" id="ast_edit_text" name="asset_text" required maxlength="500" data-dialog-field="asset_text">
+							<textarea id="ast_edit_text" name="asset_text" rows="3" required maxlength="500" data-dialog-field="asset_text"></textarea>
 						</div>
 						<div class="form-row">
 							<label for="ast_edit_date">${t.apply("date")}</label>
@@ -223,7 +223,7 @@
 					</div>
 					<div class="form-row">
 						<label for="asset_text">${t.apply("asset")}</label>
-						<input type="text" id="asset_text" name="asset_text" required maxlength="500">
+						<textarea id="asset_text" name="asset_text" rows="3" required maxlength="500"></textarea>
 					</div>
 					<div class="form-row">
 						<label for="asset_date">${t.apply("asset_date")}</label>

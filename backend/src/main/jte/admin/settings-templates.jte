@@ -137,30 +137,30 @@
 			<input type="hidden" name="action" value="edit_definition">
 			<input type="hidden" name="id" id="settingDefinitionId" value="">
 			<div class="form-row">
-				<label>${t.apply("setting_definition_key")}</label>
+				<label for="settingDefinitionKey">${t.apply("setting_definition_key")}</label>
 				<%-- Shown, never posted: the key is the identity the rest of the
 				     platform selects on, and no edit path writes it. --%>
 				<input type="text" id="settingDefinitionKey" disabled dir="ltr">
 				<small class="text-muted">${t.apply("setting_definition_key_readonly")}</small>
 			</div>
 			<div class="form-row">
-				<label>${t.apply("name_ar")} *</label>
+				<label for="settingDefinitionLabelAr">${t.apply("name_ar")} *</label>
 				<input type="text" name="label_ar" id="settingDefinitionLabelAr" required>
 			</div>
 			<div class="form-row">
-				<label>${t.apply("name_en")} *</label>
+				<label for="settingDefinitionLabelEn">${t.apply("name_en")} *</label>
 				<input type="text" name="label_en" id="settingDefinitionLabelEn" required dir="ltr">
 			</div>
 			<div class="form-row">
-				<label>${t.apply("description_ar")}</label>
+				<label for="settingDefinitionDescAr">${t.apply("description_ar")}</label>
 				<textarea name="description_ar" id="settingDefinitionDescAr" rows="3"></textarea>
 			</div>
 			<div class="form-row">
-				<label>${t.apply("description_en")}</label>
+				<label for="settingDefinitionDescEn">${t.apply("description_en")}</label>
 				<textarea name="description_en" id="settingDefinitionDescEn" rows="3" dir="ltr"></textarea>
 			</div>
 			<div class="form-row">
-				<label>${t.apply("sort_order")}</label>
+				<label for="settingDefinitionSort">${t.apply("sort_order")}</label>
 				<input type="number" name="sort_order" id="settingDefinitionSort" value="0">
 			</div>
 			<div class="form-footer">
@@ -184,21 +184,21 @@
 			<input type="hidden" name="id" id="settingOptionId" value="">
 			<input type="hidden" name="setting_definition_id" id="settingOptionDefId" value="">
 			<div class="form-row">
-				<label>${t.apply("setting_option_value")} *</label>
+				<label for="settingOptionValue">${t.apply("setting_option_value")} *</label>
 				<input type="text" name="value" id="settingOptionValue" required dir="ltr" maxlength="120">
 				<small class="text-muted" id="settingOptionValueHint">${t.apply("setting_option_value_hint")}</small>
 				<small class="text-muted" id="settingOptionValueLockedHint" hidden>${t.apply("setting_option_value_locked_hint")}</small>
 			</div>
 			<div class="form-row">
-				<label>${t.apply("name_ar")}</label>
+				<label for="settingOptionLabelAr">${t.apply("name_ar")}</label>
 				<input type="text" name="label_ar" id="settingOptionLabelAr">
 			</div>
 			<div class="form-row">
-				<label>${t.apply("name_en")}</label>
+				<label for="settingOptionLabelEn">${t.apply("name_en")}</label>
 				<input type="text" name="label_en" id="settingOptionLabelEn" dir="ltr">
 			</div>
 			<div class="form-row">
-				<label>${t.apply("sort_order")}</label>
+				<label for="settingOptionSort">${t.apply("sort_order")}</label>
 				<input type="number" name="sort_order" id="settingOptionSort" value="0">
 			</div>
 			<div class="form-footer">

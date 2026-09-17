@@ -134,6 +134,16 @@ public record Banner(
 			return this.stored;
 		}
 
+		/** The label legacy's action type select shows for it ({@code banners/page.php}). */
+		public String labelKey() {
+			return "action_" + this.stored;
+		}
+
+		/** The select's options in legacy's order. */
+		public static List<Action> offered() {
+			return List.of(NONE, EXTERNAL_URL, WHATSAPP, INTERNAL_ROUTE);
+		}
+
 		/** Anything unrecognised becomes {@code none}, as the dashboard's own check does. */
 		public static Action of(String value) {
 			for (Action action : values()) {

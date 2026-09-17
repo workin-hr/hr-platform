@@ -138,56 +138,151 @@ class AdminRowDialogButtonsTest {
 	@Test
 	void eachFieldInARowWindowIsItsOwnFormRowWithALabelForItsControl() throws IOException {
 		List<String> offenders = new ArrayList<>();
-		int labels = 0;
+		int[] labels = {0};
 		for (Path template : templates()) {
 			Matcher call = CALL.matcher(Files.readString(template, StandardCharsets.UTF_8));
 			while (call.find()) {
 				String fields = JTE_COMMENT.matcher(call.group(2)).replaceAll("");
 				String where = template.getFileName() + " " + call.group(1).replaceAll("\\s+", " ").trim();
-				Deque<Integer> rows = new ArrayDeque<>();
-				Map<Integer, Integer> labelsPerRow = new HashMap<>();
-				Matcher tag = Pattern.compile("<div\\b[^>]*>|</div>|<label\\b").matcher(fields);
-				while (tag.find()) {
-					String token = tag.group();
-					if (token.startsWith("<div")) {
-						rows.push(token.matches("(?s).*class=\"([^\"]*\\s)?form-row(\\s[^\"]*)?\".*") ? tag.start() : -1);
-					}
-					else if (token.equals("</div>")) {
-						rows.pop();
-					}
-					else {
-						int row = rows.stream().filter(start -> start >= 0).findFirst().orElse(-1);
-						labelsPerRow.merge(row, 1, Integer::sum);
-					}
-				}
-				labelsPerRow.forEach((row, count) -> {
-					if (count > 1) {
-						offenders.add(where + ": " + count + " labels in one .form-row");
-					}
-				});
-				Matcher label = LABEL.matcher(fields);
-				while (label.find()) {
-					labels++;
-					String body = label.group(2);
-					if (body.contains("type=\"checkbox\"")) {
-						continue;
-					}
-					Matcher target = Pattern.compile("\\bfor=\"([\\w-]+)\"").matcher(label.group(1));
-					if (!target.find()) {
-						offenders.add(where + ": a label without for: " + body.trim());
-					}
-					else if (!fields.contains("id=\"" + target.group(1) + "\"")
-							&& !fields.contains("inputId = \"" + target.group(1) + "\"")) {
-						offenders.add(where + ": for=\"" + target.group(1) + "\" names no control in the window");
-					}
-					if (body.matches("(?s).*<(input|select|textarea)\\b.*")) {
-						offenders.add(where + ": a label wrapping its control: " + body.trim());
+				checkFormRows(where, fields, offenders, labels);
+			}
+		}
+		assertThat(labels[0]).as("the sweep found the row windows' labels").isGreaterThanOrEqualTo(30);
+		assertThat(offenders).isEmpty();
+	}
+
+	/**
+	 * The same rule for every window a page writes itself, its add modals included: legacy's add
+	 * windows write one field to a row too ({@code faqs/page.php:153-217},
+	 * {@code phone_countries/page.php:95-138}, {@code guide_videos/page.php:91-123},
+	 * {@code banners/page.php:111-232}, {@code notifications/page.php:233-296}), and a page's add
+	 * and edit windows should not look different. It reads every {@code .modal-bg} window, with an id
+	 * or without, to its closing tag, whether its form sits inside it or around it, and counts every
+	 * {@code modal-bg} the templates write, so a window whose tag it cannot read fails rather than
+	 * drops out.
+	 */
+	@Test
+	void eachFieldInAPagesOwnWindowIsItsOwnFormRowWithALabelForItsControl() throws IOException {
+		List<String> offenders = new ArrayList<>();
+		List<String> windows = new ArrayList<>();
+		int[] labels = {0};
+		int written = 0;
+		for (Path template : templates()) {
+			String source = JTE_COMMENT.matcher(Files.readString(template, StandardCharsets.UTF_8)).replaceAll("");
+			written += (int) Pattern.compile("\\bmodal-bg\\b").matcher(source).results().count();
+			for (int at = source.indexOf(WINDOW); at >= 0; at = source.indexOf(WINDOW, at + 1)) {
+				// A window's opening tag holds JTE expressions but no markup, so it ends before the next '<'.
+				String tag = source.substring(at, source.indexOf('<', at + 1));
+				Matcher id = WINDOW_ID.matcher(tag);
+				String where = template.getFileName() + " "
+						+ (id.find() ? "#" + id.group(1) : "line " + source.substring(0, at).lines().count());
+				windows.add(where);
+				// The window's own markup, to its closing tag: a form wrapped around the window, or none
+				// at all, still has its fields read.
+				checkFormRows(where, source.substring(at, windowEnd(source, at, where)), offenders, labels);
+			}
+		}
+		assertThat(windows).as("every window the templates write, each read by the sweep").hasSize(written);
+		assertThat(windows).as("the pages' own windows").contains(
+				"banners.jte #bannerModal", "faqs.jte #faqCatModal", "faqs.jte #faqItemModal",
+				"guide-videos.jte #gvModal", "notifications.jte #notifModal", "phone-countries.jte #pcModal",
+				"companies.jte #companyModal", "settings-templates.jte #settingDefinitionModal",
+				"settings-templates.jte #settingOptionModal");
+		assertThat(labels[0]).as("the sweep found their labels").isGreaterThanOrEqualTo(90);
+		assertThat(offenders).isEmpty();
+	}
+
+	/** Where a window's opening tag starts its class; a tag written any other way fails the count above. */
+	private static final String WINDOW = "<div class=\"modal-bg";
+
+	private static final Pattern WINDOW_ID = Pattern.compile("\\bid=\"([\\w-]+)\"");
+
+	private static final Pattern DIV = Pattern.compile("<div\\b|</div>");
+
+	private static int windowEnd(String source, int start, String where) {
+		Matcher div = DIV.matcher(source).region(start, source.length());
+		int depth = 0;
+		while (div.find()) {
+			depth += div.group().equals("</div>") ? -1 : 1;
+			if (depth == 0) {
+				return div.end();
+			}
+		}
+		throw new AssertionError(where + " never closes");
+	}
+
+	/**
+	 * Fields legacy writes as a {@code <textarea>} ({@code faqs/page.php:200-203} and {@code :233-236},
+	 * {@code assets/page.php:207}, {@code advances/page.php:261}, {@code penalties/page.php:242}), so
+	 * both the port's add window and its row window write them as one. As single-line inputs they cut
+	 * a long question or reason to one scrolling line.
+	 */
+	@Test
+	void theFieldsLegacyWritesAsTextareasAreTextareasInEveryWindow() throws IOException {
+		Map<String, List<String>> fields = Map.of(
+				"faqs.jte", List.of("questionAr", "questionEn", "answerAr", "answerEn"),
+				"assets.jte", List.of("asset_text"),
+				"advances.jte", List.of("reason"),
+				"penalties.jte", List.of("reason"));
+		List<String> found = new ArrayList<>();
+		List<String> inputs = new ArrayList<>();
+		for (Map.Entry<String, List<String>> page : fields.entrySet()) {
+			String source = Files.readString(TEMPLATES.resolve(page.getKey()), StandardCharsets.UTF_8);
+			for (String name : page.getValue()) {
+				Matcher control = Pattern.compile("<(input|select|textarea)\\b[^>]*\\bname=\"" + name + "\"").matcher(source);
+				while (control.find()) {
+					found.add(page.getKey() + " " + name);
+					if (!control.group(1).equals("textarea")) {
+						inputs.add(page.getKey() + ": " + control.group());
 					}
 				}
 			}
 		}
-		assertThat(labels).as("the sweep found the row windows' labels").isGreaterThanOrEqualTo(30);
-		assertThat(offenders).isEmpty();
+		assertThat(found).as("each field in its add window and its row window").hasSize(14);
+		assertThat(inputs).isEmpty();
+	}
+
+	private static void checkFormRows(String where, String fields, List<String> offenders, int[] labels) {
+		Deque<Integer> rows = new ArrayDeque<>();
+		Map<Integer, Integer> labelsPerRow = new HashMap<>();
+		Matcher tag = Pattern.compile("<div\\b[^>]*>|</div>|<label\\b").matcher(fields);
+		while (tag.find()) {
+			String token = tag.group();
+			if (token.startsWith("<div")) {
+				rows.push(token.matches("(?s).*class=\"([^\"]*\\s)?form-row(\\s[^\"]*)?\".*") ? tag.start() : -1);
+			}
+			else if (token.equals("</div>")) {
+				rows.pop();
+			}
+			else {
+				int row = rows.stream().filter(start -> start >= 0).findFirst().orElse(-1);
+				labelsPerRow.merge(row, 1, Integer::sum);
+			}
+		}
+		labelsPerRow.forEach((row, count) -> {
+			if (count > 1) {
+				offenders.add(where + ": " + count + " labels in one .form-row");
+			}
+		});
+		Matcher label = LABEL.matcher(fields);
+		while (label.find()) {
+			labels[0]++;
+			String body = label.group(2);
+			if (body.contains("type=\"checkbox\"")) {
+				continue;
+			}
+			Matcher target = Pattern.compile("\\bfor=\"([\\w-]+)\"").matcher(label.group(1));
+			if (!target.find()) {
+				offenders.add(where + ": a label without for: " + body.trim());
+			}
+			else if (!fields.contains("id=\"" + target.group(1) + "\"")
+					&& !fields.contains("inputId = \"" + target.group(1) + "\"")) {
+				offenders.add(where + ": for=\"" + target.group(1) + "\" names no control in the window");
+			}
+			if (body.matches("(?s).*<(input|select|textarea)\\b.*")) {
+				offenders.add(where + ": a label wrapping its control: " + body.trim());
+			}
+		}
 	}
 
 	/**

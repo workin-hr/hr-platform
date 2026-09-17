@@ -150,6 +150,24 @@ class AdminActiveCheckboxEndToEndTest {
 		assertThat(addFormTicked(body(PHONE_COUNTRIES), "add")).as("the add-country form").isTrue();
 	}
 
+	@Test
+	void theQuestionWindowsAndListLabelThePlatformAsLegacyDoesInItsOrder() {
+		// faqs/page.php:133, :207-209 and :240-242: the label, never the stored value, and "both"
+		// first, so it is what an add starts on.
+		seedItem(seedCategory("فئة", "Category", true), "A question", true);
+
+		String html = body(FAQS + "?lang=en");
+		assertThat(html).contains("<span class=\"badge badge-blue\">Desktop &amp; mobile</span>");
+		for (String select : List.of("faq_item_add_platform", "faq_item_edit_platform")) {
+			Matcher options = Pattern.compile("(?s)<select[^>]*\\bid=\"" + select + "\"[^>]*>(.*?)</select>").matcher(html);
+			assertThat(options.find()).as("the %s select", select).isTrue();
+			assertThat(Pattern.compile("(?s)<option value=\"(\\w+)\"[^>]*>(.*?)</option>").matcher(options.group(1)).results()
+					.map(option -> option.group(1) + "=" + option.group(2).trim()).toList())
+					.as(select)
+					.containsExactly("both=Desktop &amp; mobile", "desktop=Desktop app", "mobile=Mobile app");
+		}
+	}
+
 	// ------------------------------------------------------------------
 	// Seeds
 	// ------------------------------------------------------------------
