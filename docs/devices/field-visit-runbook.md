@@ -322,8 +322,11 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
   اللي بيتكرر كل 10 ثواني (ده ردّه `OK` بس). في Terminal 2 (غيّر `SN` للسيريال):
 
   ```bash
-  grep -l '"path": "/iclock/cdata' field-report/captures/SN/*-GET.json | xargs ls -t | head -n 1
+  grep -l '"path": "/iclock/cdata' field-report/captures/SN/*-GET.json | xargs -r ls -t | head -n 1
   ```
+
+  لو **مطبعش حاجة**: مفيش handshake متسجل في الفولدر ده. اتأكد إن `SN` هو اسم
+  الفولدر بالظبط زي ما هو في `ls field-report/captures/`.
 
   ده بيطبع اسم آخر handshake بالوقت (مش بالرقم اللي في أول الاسم: الرقم ده بيبدأ من
   1 كل مرة الـ capture يتشغّل)، مثلاً `00042-20260916-081502-GET.json`. افتح الملف
@@ -637,7 +640,8 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
 - [ ] `sudo ufw delete allow 8081/tcp`
 - [ ] شيل أي كابل أو switch إنت اللي حطيته.
 - [ ] **وضع B بس:** في الداشبورد افتح كل جهاز خصّصته ← **Deactivate device**
-      (بصماته بتفضل محفوظة، وبيبطل يستقبل جديد). وبعدها الخطوة 12.5.
+      (بصماته بتفضل محفوظة، وبيبطل يستقبل جديد). وبعدها الخطوة 12.5، وفيها مسح
+      نسخ `.env.remote-db` لو اللابتوب مش جهاز صاحب الريبو.
 
 **مشكلة:** العميل قال البرنامج بتاعهم مش بيستلم بعد ما رجّعت الإعدادات
 ← قارن الإعدادات بالصورة تاني حرف حرف، واعمل restart للجهاز. الجهاز محتفظ
@@ -676,7 +680,8 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
      يشغّله أو يوافق عليه صراحة. أي agent session (AI) **ممنوع** تشغّله؛ مسموحلها
      تقرأ بس، ولما يتطلب منها.
    - الخطوات في [provisioning-phase1-tables.md](../operations/provisioning-phase1-tables.md).
-   - أول حاجة شغّل `verify_phase1_tables.sql` (قراءة بس)، واقرأ **جزئين** من النتيجة:
+   - أول حاجة شغّل `verify_phase1_tables.sql` (قراءة بس). بيطبع 7 أنواع سطور
+     (`check_name`)، واقرأهم **كلهم**:
    - **(أ) سطر `phase1 tables present`:** الـ verdict بيبدأ بإيه؟
 
      الجدول ده بيقول **صاحب الريبو** يعمل إيه. لو إنت مش صاحب الريبو: ماتشغّلش
@@ -689,9 +694,16 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
      | `applied -- if any table was here before this provisioning, compare definitions` | يكمّل لـ (ب). ولو فيه جدول من الـ 15 كان موجود قبل الـ provisioning، قارن تعريفاته زي الخطوة 1 في الـ provisioning runbook |
      | أي حاجة تانية (`PARTIAL`، `PRE-DEVICE-TABLES`، ...) | **وقّف**. يعمل اللي مكتوب في الـ verdict نفسه، ووضع B مستني لحد ما يطلع `applied` |
 
-   - **(ب) سطور `column counts`:** **كل** سطر لازم الـ verdict بتاعه يكون
-     `ok (count only)`. لو فيه `PRE-AGENTS` أو `UNEXPECTED` ← **وقّف**. مثلاً
-     `device_punches=24` معناها الـ upgrade ماكملش، وكل رفع بصمات هيفشل.
+   - **(ب) كل السطور التانية:** الـ verdict لازم يبدأ بـ `ok`، ما عدا سطر
+     `legacy tables` (ده معلومة بس):
+
+     | `check_name` | الصح | لو غير كده |
+     |---|---|---|
+     | `server`، `database` | `ok` | **وقّف** (`CHECK MANUALLY` أو `NOT InnoDB`) |
+     | `column counts` (سطر لكل جدول) | `ok (count only)` | **وقّف**. مثلاً `device_punches=24` مع `PRE-AGENTS` معناها الـ upgrade ماكملش، وكل رفع بصمات هيفشل |
+     | `phase1 collation`، `phase1 column collation` | `ok` | **وقّف** (`WRONG -- CONVERT TO utf8mb4_unicode_ci`): الأسامي والأعداد صح بس مقارنة كود البصمة بكود الموظف هتفشل وإنت في الشركة. صاحب الريبو يصلّحه بالخطوة 4b في الـ provisioning runbook |
+
+     وبعد أي تصليح، الـ verify يتشغّل تاني من الأول.
 
 3. **ملف `deploy/.env.remote-db`:** المفاتيح دي **موجودة أصلاً** في الملف (جاية من
    `env.remote-db.example` بـ `false` و `devices.example.com`). **غيّر قيمها**،
@@ -703,8 +715,8 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
    APP_DEVICES_DOMAIN=devices.localhost
    ```
 
-   واتأكد إن كل مفتاح موجود **مرة واحدة** (الأمر ده بيطبع عدد بس، مش القيم). كل
-   سطر لازم يطلع `1`. في **Terminal 1** (`hr-platform`):
+   واتأكد إن كل مفتاح موجود **مرة واحدة** (الأمر ده بيطبع عدد بس، مش القيم). في
+   **Terminal 1** (`hr-platform`):
 
    ```bash
    for k in DEVICES_INGEST_ENABLED DEVICES_AGENTS_ENABLED APP_DEVICES_DOMAIN; do
@@ -712,8 +724,14 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
    done
    ```
 
+   - `1` ← تمام.
+   - `0` ← الملف أقدم من المفاتيح دي (اتعمل قبل 2026-09-16): **ضيف** السطر.
+   - `2` أو أكتر ← امسح الزيادة وسيب سطر واحد.
+
 4. **`deploy/.env.remote-db` هو ملف صاحب الريبو نفسه**، اللي شغّل بيه Java على
-   البرود آخر مرة، منقول زي ما هو. **ماتعملش واحد جديد من الـ example.** السبب:
+   البرود آخر مرة. الباسوردات والأسرار اللي فيه (`DB_*` و `JWT_SECRET` و
+   `ADMIN_PASSWORD`) **زي ما هي من غير تغيير**؛ التغيير الوحيد المسموح هو مفاتيح
+   رقم 3. **ماتعملش واحد جديد من الـ example.** السبب:
    - البرود لسه شغال بـ PHP، فمفيش سيرفر عليه الملف ده. الـ Java بيشتغل على
      البرود من جهاز صاحب الريبو بس ([checking-against-the-live-database.md](../operations/checking-against-the-live-database.md)).
    - Java أول ما يقوم بيقارن `ADMIN_PASSWORD` بالـ hash اللي في `platform_admins`
@@ -726,12 +744,15 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
    التاني لمكان ملف صاحب الريبو):
 
    ```bash
-   cmp -s <(grep '^ADMIN_PASSWORD=' deploy/.env.remote-db) \
-     <(grep '^ADMIN_PASSWORD=' /PATH/TO/OWNER/.env.remote-db) && echo same || echo DIFFERENT
+   L=deploy/.env.remote-db; O=/PATH/TO/OWNER/.env.remote-db
+   if [ "$(grep -c '^ADMIN_PASSWORD=' "$L")" = 1 ] && [ "$(grep -c '^ADMIN_PASSWORD=' "$O")" = 1 ] \
+     && cmp -s <(grep '^ADMIN_PASSWORD=' "$L") <(grep '^ADMIN_PASSWORD=' "$O")
+   then echo same; else echo 'DIFFERENT or unreadable'; fi
    ```
 
-   لو طبع `DIFFERENT`، أو مش متأكد إن ده الملف اللي اتشغّل بيه آخر مرة: **ماتشغّلش
-   وضع B**.
+   لازم يطبع `same`. لو طبع `DIFFERENT or unreadable` (باسورد مختلف، أو ملف مش
+   موجود، أو المسار لسه `/PATH/TO/OWNER`)، أو مش متأكد إن ده الملف اللي اتشغّل
+   بيه آخر مرة: **ماتشغّلش وضع B**.
 5. **شركة العميل وفرعها موجودين على البرود.** لو مش عملاء عندنا ← استخدم وضع A.
 
 ### 12.2 تشغيل السيستم في الشركة
@@ -787,7 +808,18 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
 
 ### 12.5 بعد الزيارة
 
-- رجّع `DEVICES_INGEST_ENABLED=false` و `DEVICES_AGENTS_ENABLED=false`، أو وقّف الـ stack.
+- رجّع `DEVICES_INGEST_ENABLED=false` و `DEVICES_AGENTS_ENABLED=false`، أو وقّف الـ stack
+  (Terminal 1):
+
+  ```bash
+  (cd deploy && docker compose -f compose.remote-db.yaml -f compose.tls.yaml \
+    -f compose.field-loopback.yaml --env-file .env.remote-db down)
+  ```
+
+- **لو اللابتوب مش جهاز صاحب الريبو:** وقّف الـ stack بالأمر اللي فوق **الأول**
+  (محتاج الملف)، وبعدين امسح **كل** نسخ ملف البرود من اللابتوب:
+  `rm -f deploy/.env.remote-db`، ونسخة صاحب الريبو اللي قارنت بيها في 12.1 رقم 4.
+  الملف ده فيه باسورد داتابيز البرود و `JWT_SECRET`.
 - اتأكد إن الأجهزة اللي خصّصتها **Deactivated**، والـ agent **Revoked** (الخطوة 10).
 - لو فيه بصمات اتسجلت مرتين (6.4 أو 7): اكتبها في الـ issue، وصاحب الريبو يقرر.
 - لو جهاز لسه متوجّه للابتوب بالغلط: السيستم هيرفضه، والجهاز هيحتفظ بسجلاته. مفيش حاجة هتضيع.
