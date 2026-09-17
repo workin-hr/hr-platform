@@ -6,9 +6,18 @@
 
 - **الهدف من الزيارة:** نتأكد إن الكود اللي عملناه شغال مع جهاز حقيقي، ونسجّل
   معلومات الجهاز (الموديل، الـ firmware، طريقة إرسال البيانات) عشان نكمّل عليها.
-- **الأوامر كلها** بتتكتب في terminal على اللابتوب من فولدر الريبو
-  (`hr-platform`). اللي بيبدأ بـ `python3 -m workin_devices` بيتكتب من جوه فولدر
-  `devices-agent`.
+- **الأوامر:** افتح 2 terminal على اللابتوب وسيبهم مفتوحين طول الزيارة:
+  - **Terminal 1** في فولدر الريبو `hr-platform`: للأوامر اللي بتبدأ بـ
+    `scripts/` أو `cd deploy` **بس**.
+  - **Terminal 2** في `hr-platform/devices-agent`: **لكل حاجة تانية**
+    (`python3 -m workin_devices`، و `cp` و `chmod` و `rm`، وأي حاجة فيها
+    `field-report/`).
+  - فولدر `field-report/` لازم يكون **جوه `devices-agent`**. git متظبط يتجاهله
+    هناك بس؛ لو اتعمل في `hr-platform` نفسه، التوكن والباسوردات هتظهر في
+    `git status` وممكن تدخل في commit بالغلط.
+- **مين بيعمل إيه:** إنت (اللي رايح الزيارة) بتنفذ الخطوات وبتكتب النتايج.
+  أي تغيير في داتابيز البرود **صاحب الريبو (repository owner) بس** اللي يعمله أو
+  يوافق عليه صراحة، وأي agent session (AI) ممنوع تعمله (الخطوة 12.1).
 - **تفاصيل الـ agent وأوامره:** [on-prem-agent.md](on-prem-agent.md).
   **السميولشن:** [devices-lab.md](devices-lab.md).
 
@@ -53,6 +62,8 @@
 
 ### 1.2 جهّز اللابتوب (في البيت، فيه نت)
 
+**Terminal 1** (`hr-platform`):
+
 ```bash
 # 1) السميولشن كامل مرة واحدة -- كده الـ images اتحملت واللاب هيشتغل من غير نت
 scripts/devices-lab.sh up
@@ -60,13 +71,16 @@ scripts/devices-lab.sh seed
 scripts/devices-lab.sh simulate
 ```
 
-- **المفروض تشوف** كل السطور فيها `[PASS]`. لو فيه `FAIL` قولي قبل ما تروح.
-- `seed` بيطبع سطر زي: `lab company 5, branch 22` ← **اكتب الرقمين دول**،
-  هتحتاجهم في الزيارة.
+- **المفروض تشوف** كل السطور فيها `[PASS]`. لو فيه `FAIL` ماتروحش بيه: افتح
+  issue وحط فيه السطر، ويتصلّح الأول.
+- `seed` بيطبع سطر زي:
+  `lab company 5 (شركة الفجر 5), branch 22 (فرع الجنوب 22)` ← **اكتب اسم الشركة
+  واسم الفرع**. فورم التخصيص في الداشبورد بيعرض الأسامي بس، مش الأرقام.
+
+**Terminal 2** (افتحه وادخل `devices-agent` مرة واحدة: `cd hr-platform/devices-agent`):
 
 ```bash
 # 2) اتأكد إن الأدوات شغالة من غير أي install
-cd devices-agent
 python3 -m workin_devices version          # المفروض يطبع 0.1.0
 
 # 3) افتح port الـ capture في الـ firewall
@@ -102,7 +116,7 @@ sudo ufw allow 8081/tcp
 | 2 | `Menu → System Info → Device Info` (أو About) | الـ firmware ونسخة الـ Push/ADMS |
 | 3 | `Menu → Comm. → Ethernet` | IP الجهاز والـ gateway |
 | 4 | `Menu → Comm. → Cloud Server Setting` (أو ADMS) | **دي اللي هترجّعها في الآخر**. لو الشاشة مش موجودة ← الجهاز قديم |
-| 5 | `Menu → System → Date Time` | الساعة والـ time zone. **هتحتاجها في الخطوة 5.3** |
+| 5 | `Menu → System → Date Time` | الساعة، والـ time zone، و**التوقيت الصيفي (Daylight Saving / DLST) شغال ولا لأ**، والساعة بتتظبط لوحدها (NTP) ولا يدوي. **هتحتاجهم في الخطوة 5.3** |
 | 6 | `Menu → Data Mgt.` (أو Record) | عدد سجلات الحضور وعدد الموظفين |
 
 أجهزة **Hikvision** معظم الكلام ده بيبقى في صفحة الويب بتاعتها (الخطوة 8).
@@ -111,10 +125,11 @@ sudo ufw allow 8081/tcp
 
 ## 3. اتوصّل بالشبكة ودوّر على الأجهزة
 
+**Terminal 2:**
+
 ```bash
 ip -4 addr                                  # هتلاقي IP اللابتوب، مثلاً 192.168.1.57/24
 ping -c 3 192.168.1.201                     # IP الجهاز من صورة رقم 3
-cd devices-agent
 python3 -m workin_devices scan --cidr 192.168.1.0/24
 ```
 
@@ -145,6 +160,8 @@ python3 -m workin_devices scan --cidr 192.168.1.0/24
 الخطوة دي **قراءة بس**، ولازم تتعمل قبل ما تغيّر أي إعداد. بتاخد نسخة من كل
 سجلات الحضور على اللابتوب، عشان لو حصل أي حاجة يبقى معانا نسخة.
 
+**Terminal 2:**
+
 ```bash
 python3 -m workin_devices zk-info --host 192.168.1.201 \
   --backup field-report/SN-attlog-backup.tsv
@@ -168,7 +185,7 @@ python3 -m workin_devices zk-info --host 192.168.1.201 \
 | لو ظهر | يعني | اعمل |
 |---|---|---|
 | `comm_key_required: true` | الجهاز عليه Comm Key | اسأل عليه وضيف `--comm-key 12345` |
-| `the terminal refused the communication key` | الـ Comm Key غلط | اتأكد منه من المنيو |
+| `comm_key_required: true` **تاني** بعد ما حطيت `--comm-key` | الـ Comm Key غلط (`zk-info` بيطبع نفس السطر للمفتاح الغلط) | اتأكد منه من المنيو |
 | `did not answer in time` | الجهاز مش بيرد على TCP | جرّب تاني بـ `--udp`. لو برضه لأ، جرّب بعد شوية (ممكن الجهاز مشغول) |
 | `cannot reach ... over TCP` | IP غلط أو الجهاز مش على الشبكة | ارجع للخطوة 3 |
 | عدد `records` مختلف عن الشاشة | ممكن حد عمل بصمة دلوقتي | أعد الأمر. لو لسه مختلف، اكتبها ملاحظة |
@@ -194,7 +211,6 @@ scripts/devices-lab.sh up
 **Terminal 2:**
 
 ```bash
-cd devices-agent
 python3 -m workin_devices capture --listen 0.0.0.0:8081 \
   --upstream http://127.0.0.1:18080 --host-header devices.localhost \
   --out field-report/captures
@@ -227,6 +243,10 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
   | Import a USB export | استيراد ملف من فلاشة USB |
   | Unreadable lines | أسطر غير مقروءة |
   | Deactivate device | إيقاف الجهاز |
+  | Revoke (جنب الـ agent) | إنهاء |
+  | All companies | كل الشركات |
+  | That serial number is already allocated. | هذا الرقم التسلسلي مخصص بالفعل. |
+  | The file is too large to upload here. | الملف أكبر من المسموح هنا. |
 
 ### 5.2 خلّي الجهاز يبعت للابتوب
 
@@ -245,9 +265,13 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
 
 - في terminal الـ capture: سطر فيه `NEW [السيريال] GET /iclock/cdata?...`.
 - في الداشبورد: السيريال ظهر في جدول **"Terminals waiting to be allocated"** (أجهزة في انتظار التخصيص).
-- الجهاز لسه **مش متخصص** (مش مربوط بشركة)، وده مقصود: وهو كده السيستم
-  مابيبعتلوش أي إعدادات، وبيرفض يستلم منه بصمات (`403`)، فالجهاز بيحتفظ بكل
-  حاجة عنده ومفيش حاجة بتضيع.
+- الجهاز لسه **مش متخصص** (مش مربوط بشركة)، وده مقصود: السيستم بيرفض يستلم منه
+  بصمات (`403`)، فالجهاز بيحتفظ بكل حاجة عنده ومفيش بصمة بتضيع.
+- **خد بالك:** السيستم بيرد عليه بإعدادات الإرسال العادية (`Delay=10`،
+  `TransTimes=00:00;14:05`، `TransInterval=1`، `Realtime=1`، وغيرها)، **من غير
+  الـ time zone**. في أجهزة بتحفظ الإعدادات دي، وعشان كده في الخطوة 10 لازم
+  تتأكد إن برنامج العميل بيستلم بصمة جديدة بعد ما ترجّع الإعداد.
+- في نفس الشاشة: اكتب **فيه اختيار `Enable Domain Name` ولا لأ** (سيبه OFF).
 
 **لو مفيش حاجة ظهرت بعد دقيقة:**
 
@@ -271,7 +295,7 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
 | +02:00 ثابت | `+02:00` |
 | +03:00 ثابت | `+03:00` |
 | بيتبع التوقيت الصيفي لمصر لوحده | `Africa/Cairo` |
-| مش متأكد | قارن ساعة الجهاز بساعة اللابتوب واختار `+02:00` أو `+03:00` اللي بيطابق |
+| مش متأكد | **ماتخمّنش.** افتح `Date Time` تاني: لو Daylight Saving شغال اختار `Africa/Cairo`؛ لو مقفول اختار الـ offset اللي ساعة الجهاز ماشية عليه دلوقتي (قارنها بساعة اللابتوب) |
 
 **في الداشبورد:** جدول "Terminals waiting" ← زرار **Allocate to a branch** جنب
 السيريال:
@@ -295,25 +319,34 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
 | لو شفت | يعني | اعمل |
 |---|---|---|
 | البصمات **UNMATCHED** | كود الموظف على الجهاز مش مربوط بموظف عندنا | **في وضع A ده طبيعي** (الداتابيز تجريبية). في وضع B اكتب الأكواد، وهنربطها بعدين |
-| مواعيد البصمات **غلط بساعة أو ساعتين** | الـ time zone في التخصيص مش زي الجهاز | ماتغيّرش حاجة في الجهاز. اكتبها ملاحظة وكلمني. في وضع A ممكن تمسح اللاب وتبدأ تاني: `scripts/devices-lab.sh down --wipe` ثم `up` و `seed` |
+| مواعيد البصمات **غلط بساعة أو ساعتين** | الـ time zone في التخصيص مش زي الجهاز | ماتغيّرش حاجة في الجهاز. اكتبها في الـ issue (الخطوة 11)، ولو في وضع B بلّغ صاحب الريبو في نفس اليوم. في وضع A ممكن تمسح اللاب وتبدأ تاني: `scripts/devices-lab.sh down --wipe` ثم `up` و `seed` |
 | في الـ capture `413` بيتكرر لنفس الرفع | الجهاز بيبعت أكتر من 5000 سجل مرة واحدة | **معلومة مهمة**: اكتبها، وقف التجربة، ورجّع الجهاز (الخطوة 10) |
 | `That serial number is already allocated` | السيريال متخصص قبل كده | افتحه من جدول Attendance devices |
 
 ### 5.4 التجارب مع الموظف (واكتب النتايج)
 
+> **تجربة 5 و 6 بيأثروا على الجهاز الحقيقي:** اعملهم **بعيد عن مواعيد الحضور
+> والانصراف، ومع الموظف اللي متفق معاه بس**. الجهاز بيحتفظ بالبصمات ومفيش حاجة
+> بتضيع، بس ماينفعش حد تاني يبصم وإنت شايل الكابل.
+
 | # | اعمل | المفروض تشوف | اكتب |
 |---|---|---|---|
 | 1 | موظف يعمل بصمة عادي | بصمة جديدة في الداشبورد **خلال ثواني**: الكود والوقت، و *Delivered via* = `PUSH` | وصلت خلال كام ثانية؟ |
-| 2 | يعمل بصمة وهو دايس زرار **Check-Out** (أو F2) | عمود *State / verification*: الرقم الأول اتغير | رقم الدخول = ؟ رقم الخروج = ؟ |
+| 2 | يعمل بصمة وهو دايس زرار **Check-Out** (أو F2) | عمود *State / verification*: الرقم الأول اتغير | رقم الدخول = ؟ رقم الخروج = ؟ الموظفين أصلاً بيدوسوا الزرار ده؟ |
 | 3 | يعمل بصمتين ورا بعض في أقل من 10 ثواني | الاتنين اتسجلوا | اتسجلوا؟ |
-| 4 | افتح ملف `*.request.bin` لأي `ATTLOG` في `field-report/captures/السيريال/` | الوقت مكتوب `2026-09-16 08:01:02` ولا رقم طويل (10 أرقام) | شكل الوقت |
+| 4 | افتح ملف `*.request.bin` لأي `ATTLOG` في `field-report/captures/السيريال/` | (أ) الوقت مكتوب `2026-09-16 08:01:02` ولا رقم طويل (10 أرقام)؛ (ب) كل سطر فيه كام حقل، والفاصل Tab ولا حاجة تانية؛ (ج) كود الموظف (أول حقل) طوله كام رقم | شكل الوقت، عدد الحقول والفاصل، طول الكود |
 | 5 | **شيل كابل الشبكة من الجهاز**، الموظف يعمل بصمتين، رجّع الكابل | البصمتين يوصلوا بعد ما الكابل يرجع، **بمواعيدهم الأصلية** | وصلوا؟ بعد قد إيه؟ |
-| 6 | في terminal الـ capture اضغط **Ctrl+C**، الموظف يعمل بصمة، استنى دقيقة، شغّل الـ capture تاني | البصمة توصل بعد ما الـ capture يرجع | الجهاز عاد الإرسال؟ بعد قد إيه؟ |
-| 7 | افتح ملف `*-GET.json` لأول اتصال | `pushver=` و `DeviceType=` في الـ path | القيم |
-| 8 | افتح ملف `*-POST.json` لأي ATTLOG | `request_headers` ← `Content-Type` | القيمة |
+| 6 | في terminal الـ capture اضغط **Ctrl+C**، الموظف يعمل بصمة، استنى دقيقة، شغّل الـ capture تاني | البصمة توصل بعد ما الـ capture يرجع، **وتظهر مرة واحدة** في الداشبورد | الجهاز عاد الإرسال؟ بعد قد إيه؟ اتسجلت مرة واحدة؟ |
+| 7 | افتح ملف `*-GET.json` لأول اتصال | في الـ path: `pushver=` و `DeviceType=` و `language=` و `PushOptionsFlag=` | القيم |
+| 8 | افتح ملف `*-POST.json` لأي ATTLOG | `request_headers` ← `Content-Type`، و `Stamp=` في الـ path | القيمتين (الـ Stamp رقم عادي ولا شكل تاني؟) |
 | 9 | بص على أكبر ملف `ATTLOG` | عدد السطور فيه، وهل فيه `413` | أكبر عدد سجلات في رفعة واحدة |
 | 10 | منيو الجهاز | فيه اختيار HTTPS؟ | أيوه / لأ |
 | 11 | قارن 3 بصمات في الداشبورد بشاشة البحث في الجهاز | نفس الكود ونفس الوقت | متطابقين؟ |
+
+الجدول ده والصور بتاعة الخطوة 2 بيغطوا الـ checklist اللي في الخطوة 4 من
+[zkteco-adms-receiver-setup.md](zkteco-adms-receiver-setup.md). حاجتين منه
+**مش بيتختبروا في الزيارة دي**، اكتبهم "لم يُختبر": الـ TLS versions (الـ
+capture شغال HTTP بس)، وهل `TimeZone` بيقبل دقايق (محتاج نغيّر في الجهاز).
 
 ---
 
@@ -329,11 +362,20 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
    `zk-info`).
 2. **التوكن:**
    - **وضع A:** استخدم توكن اللاب اللي عمله `seed`:
-     `cp lab/agent.token field-report/agent.token`
+     `mkdir -p field-report && cp lab/agent.token field-report/agent.token`
      (التوكن ده تبع شركة اللاب، ولازم الجهاز يكون متخصص **لفرع نفس الشركة**.)
    - **وضع B:** من الداشبورد ← **On-premises agents** ← اختار الشركة ← اكتب اسم
-     ← **Issue agent token** ← انسخ التوكن **(بيظهر مرة واحدة بس)** وحطه في
-     `field-report/agent.token`.
+     ← **Issue agent token** ← انسخ التوكن **(بيظهر مرة واحدة بس)**. التوكن ده
+     باسورد للبرود، فماتكتبهوش جوه أمر (هيتحفظ في الـ history). اكتب ده في
+     Terminal 2 والصق التوكن لما يطلب (مش هيظهر وإنت بتلصقه):
+
+     ```bash
+     mkdir -p field-report
+     printf 'Agent token: '; read -rs TOKEN; echo
+     (umask 077 && printf '%s\n' "$TOKEN" > field-report/agent.token)
+     unset TOKEN
+     ```
+
 3. `chmod 600 field-report/agent.token`
 4. اعمل ملف `field-report/agent.toml`:
 
@@ -352,34 +394,60 @@ comm_key = 0          # لو فيه Comm Key اكتبه
 udp = false           # true لو zk-info اشتغل بـ --udp بس
 ```
 
-### 6.2 شغّل بالترتيب
+> **الترتيب هنا مهم:** `doctor` بيقرأ بس ومابيبعتش حاجة، و `once` بيبعت **السجل
+> كله**. كل بصمة بتتسجل بالـ in/out بتاعها، فلو بعتّ بـ `in_out_field` غلط
+> وبعدين غيّرته، أول `once` بعدها هيبعت **السجل كله تاني** كبصمات جديدة. عشان
+> كده الـ in/out بيتظبط في 6.2 و 6.3 **قبل** أي `once`.
+
+### 6.2 اقرأ بس (doctor)
 
 ```bash
 python3 -m workin_devices doctor --config field-report/agent.toml   # بيقرأ بس، مابيبعتش
-python3 -m workin_devices once   --config field-report/agent.toml   # بيقرأ ويبعت
-python3 -m workin_devices once   --config field-report/agent.toml   # تاني مرة
 ```
 
-**المفروض تشوف:**
+**المفروض تشوف:** `OK` والسيريال، وآخر 3 بصمات جنب كل واحدة `in/out=`.
 
-- `doctor`: `OK` والسيريال، وآخر 3 بصمات جنب كل واحدة `in/out=`.
-- أول `once`: `stored=` رقم كبير (كل السجل).
-- تاني `once`: `stored=0` ← صح، مفيش حاجة جديدة.
-- في الداشبورد: البصمات بـ *Delivered via* = `AGENT`.
-
-### 6.3 أهم تجربة: الدخول والخروج
+### 6.3 الدخول والخروج (قبل ما تبعت أي حاجة)
 
 1. الموظف يعمل بصمة **Check-Out** (زي تجربة 2 في 5.4).
 2. شغّل `doctor` تاني ← بص على آخر سطر `in/out=`.
 3. **لو بصمة الخروج `in/out=1`** ← تمام، سيب `in_out_field = "punch"`.
-4. **لو مش `1`** ← غيّرها لـ `in_out_field = "status"` وشغّل `doctor` تاني. **اكتب النتيجة.**
+4. **لو مش `1`** ← غيّرها لـ `in_out_field = "status"` وشغّل `doctor` تاني.
+   **اكتب النتيجة.**
+5. **لو الجهاز بيعمل Push كمان (عملت الخطوة 5):**
+   - نفس بصمة الخروج في الداشبورد: الرقم الأول في *State / verification* لازم
+     يساوي `in/out=` في `doctor`. لو مش بيساويه ← القيمة التانية لـ
+     `in_out_field` هي الصح، جرّبها بـ `doctor`.
+   - لو تجربة 4 في 5.4 طلعت إن الوقت **رقم طويل**: البصمة اللي جاية بالـ Push
+     واللي جاية بالـ agent هيتسجلوا **مرتين** مهما عملت. في وضع B **ماتشغّلش
+     `once` على الجهاز ده**، واكتبها. في وضع A عادي.
 
-**لو الجهاز بيعمل Push كمان (عملت الخطوة 5):**
+### 6.4 ابعت (once)
 
-- **الصح:** بصمات الـ agent تطلع `duplicates`، وكل بصمة تظهر **مرة واحدة** في
-  الداشبورد (Delivered via = `PUSH`).
-- **لو كل بصمة ظهرت مرتين** ← الـ `in_out_field` غلط. غيّره واكتب النتيجة.
-  (أو الجهاز بيبعت الوقت كرقم طويل؛ شوف تجربة 4.)
+```bash
+python3 -m workin_devices once --config field-report/agent.toml   # بيقرأ ويبعت
+python3 -m workin_devices once --config field-report/agent.toml   # تاني مرة
+```
+
+**المفروض تشوف:**
+
+- أول `once`:
+  - جهاز قديم (من غير Push): `stored=` رقم كبير (كل السجل).
+  - جهاز بيعمل Push: `stored=0` أو رقم صغير، لأن البصمات دي وصلت بالـ Push قبل
+    كده. وكل بصمة تظهر **مرة واحدة** في الداشبورد (Delivered via = `PUSH`).
+- تاني `once`: `stored=0` ← صح، مفيش حاجة جديدة.
+- في الداشبورد: بصمات الجهاز القديم بـ *Delivered via* = `AGENT`.
+
+**لو كل بصمة ظهرت مرتين** بعد `once`:
+
+- ماتغيّرش `in_out_field` وتبعت تاني: ده هيعمل **نسخة تالتة**.
+- اكتب: شكل الوقت (تجربة 4)، و `in/out=` في `doctor` قدام الرقم الأول في الداشبورد.
+- **وضع A:** لو عايز تعيد التجربة: في Terminal 1 `scripts/devices-lab.sh down --wipe`
+  ثم `up` و `seed`، وفي Terminal 2 `rm -f field-report/spool.sqlite3` (الـ agent
+  فاكر إنه بعت)، وخصّص الجهاز تاني.
+- **وضع B:** **ماتشغّلش `once` تاني** على الجهاز ده. البصمات المكررة بتفضل في
+  `device_punches` (مش بتأثر على الحضور دلوقتي، لأن مفيش حاجة بتحوّل البصمات
+  لحضور). اكتبها في الـ issue، وصاحب الريبو هو اللي يقرر تنضيفها.
 
 **مشاكل الـ agent:**
 
@@ -405,8 +473,9 @@ python3 -m workin_devices once   --config field-report/agent.toml   # تاني �
 
 1. على الجهاز: `Menu → USB Manager → Download → Attendance Data` على الفلاشة.
    هيعمل ملف اسمه `1_attlog.dat` أو `attlog.dat`.
-2. انسخه على اللابتوب في `field-report/`، **وسيب الملف الأصلي زي ما هو.**
-3. ارفعه (لازم الجهاز يكون متخصص):
+2. انسخه على اللابتوب في `devices-agent/field-report/`، **وسيب الملف الأصلي على
+   الفلاشة زي ما هو.**
+3. ارفعه (لازم الجهاز يكون متخصص)، من **Terminal 2**:
 
 ```bash
 python3 -m workin_devices import-usb --config field-report/agent.toml \
@@ -421,10 +490,10 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
 | النتيجة | يعني |
 |---|---|
 | الجهاز اتقرأ قبل كده (خطوة 5 أو 6) و `stored` قليل جداً و `duplicates` كبير | **تمام** ← ترتيب أعمدة الملف زي الـ Push |
-| الجهاز اتقرأ قبل كده بس `stored` كبير (قريب من `lines`) | **ترتيب الأعمدة مختلف** ← اكتبها، وابعتلي أول 3 سطور من الملف بعد ما تغيّر الأكواد |
+| الجهاز اتقرأ قبل كده بس `stored` كبير (قريب من `lines`) | **ترتيب الأعمدة مختلف** ← اكتبها، وحط أول 3 سطور من الملف في الـ issue (الخطوة 11) **بعد ما تغيّر أكواد الموظفين** |
 | `malformed` أكبر من صفر | سطور مش مفهومة ← هتلاقيها في صفحة الجهاز تحت *Unreadable lines* |
 | `import failed: ... is not an active device` | الجهاز مش متخصص لشركة التوكن ← خصّصه |
-| من الداشبورد: `The file is too large` | الملف أكبر من 1 ميجا ← استخدم أمر `import-usb` |
+| من الداشبورد: `الملف أكبر من المسموح هنا` (The file is too large) | الملف أكبر من 1 ميجا ← استخدم أمر `import-usb` |
 
 ---
 
@@ -434,15 +503,18 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
    الـ admin**، اسألهم عليهم.
 2. قبل ما تغيّر حاجة صوّر:
    `Configuration → Network → Advanced → HTTP Listening`.
-3. احفظ الباسورد في ملف واقرأ الجهاز:
+3. احفظ الباسورد في ملف واقرأ الجهاز، من **Terminal 2**. **ماتكتبش الباسورد جوه
+   أمر** (هيتحفظ في الـ history): الأمر هيسألك عليه، اكتبه ودوس Enter (مش هيظهر
+   وإنت بتكتبه):
 
    ```bash
-   printf '%s' 'PASSWORD' > field-report/hik.pw && chmod 600 field-report/hik.pw
+   mkdir -p field-report
+   printf 'Hikvision password: '; read -rs HIK_PW; echo
+   (umask 077 && printf '%s' "$HIK_PW" > field-report/hik.pw)
+   unset HIK_PW
    python3 -m workin_devices hik-info --host 192.168.1.64 --username admin \
      --password-file field-report/hik.pw --days 7 --dump field-report/hik-events.json
    ```
-
-   (غيّر `PASSWORD` للباسورد الحقيقي.)
 
    **هتشوف:** `serial` و `model`، و `events_with_employee_by_minor`: أكواد الأحداث
    اللي فيها موظف، وعدد كل واحد.
@@ -462,7 +534,7 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
    password_file = "hik.pw"
    ```
 
-6. شغّل `doctor` وبعده `once` زي الخطوة 6.2.
+6. شغّل `doctor` (زي 6.2) وبعده `once` (زي 6.4).
 7. **(اختياري)** سجّل اللي الجهاز بيبعته لوحده:
    - في `HTTP Listening` حط IP اللابتوب، port `8081`، URL `/hik/السيريال`.
    - شغّل `capture` **من غير** `--upstream`.
@@ -494,6 +566,9 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
 - [ ] لو العميل بيستخدم برنامج بيقرأ من الجهاز: خليهم يتأكدوا إن بصمة جديدة بتوصل
       للبرنامج بتاعهم.
 - [ ] وقّف الـ capture (Ctrl+C).
+- [ ] امسح الباسوردات من اللابتوب (Terminal 2): `rm -f field-report/hik.pw`
+- [ ] **وضع B بس:** في الداشبورد ← **On-premises agents** ← الـ agent اللي عملته ←
+      **Revoke** (إنهاء). وبعدها (Terminal 2): `rm -f field-report/agent.token`
 - [ ] `sudo ufw delete allow 8081/tcp`
 - [ ] شيل أي كابل أو switch إنت اللي حطيته.
 - [ ] **وضع B بس:** في الداشبورد افتح كل جهاز خصّصته ← **Deactivate device**
@@ -507,14 +582,15 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
 
 ## 11. بعد الزيارة
 
-1. انسخ فولدر `field-report/` في مكان خاص. **مش في الريبو.**
-2. ابعتلي **ورقة النتائج** (آخر الدليل) **من غير أكواد موظفين أو أسامي**، وأنا
-   هملى بيها:
+1. انسخ فولدر `devices-agent/field-report/` في مكان خاص. **مش في الريبو.**
+2. **افتح issue لكل جهاز** بالقالب
+   `.github/ISSUE_TEMPLATE/device-compatibility-finding.yml`، وحط فيه **ورقة
+   النتائج** (آخر الدليل) وأي مشكلة (FAIL، `413`، دخول/خروج مقلوب، ترتيب أعمدة
+   USB، كود Hikvision، بصمات مكررة). **من غير أكواد موظفين أو أسامي.**
+3. الإجابات تتنقل في PR للملفين دول، وده اللي بيحوّل معلومات الـ documentation
+   لمعلومات متأكدين منها من جهاز حقيقي:
    - [attendance-device-model-and-firmware-inventory.md](attendance-device-model-and-firmware-inventory.md)
    - [vendor-capability-matrix.md](vendor-capability-matrix.md)
-3. أي مشكلة (FAIL، `413`، دخول/خروج مقلوب، ترتيب أعمدة USB، كود Hikvision)
-   نفتحلها issue بالقالب
-   `.github/ISSUE_TEMPLATE/device-compatibility-finding.yml`.
 
 ---
 
@@ -522,21 +598,36 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
 
 ### 12.1 لازم يكون خلص قبل ما تروح (بالترتيب)
 
-1. **الـ PR اتدمج** واللابتوب عليه الكود ده (`git pull` في `hr-platform`).
+1. **اللابتوب على `main` بعد دمج الكود ده**، ومفيش تعديلات محلية (الـ `--build`
+   بيبني من الفولدر زي ما هو). في Terminal 1:
+
+   ```bash
+   git switch main && git pull --ff-only
+   git status --short          # لازم مايطبعش أي حاجة
+   ```
+
 2. **جداول الأجهزة اتعملت على البرود (15 جدول).**
-   - ده تغيير في داتابيز البرود، **فإنت اللي تعمله أو توافق عليه صراحة**؛ أنا
-     مسموحلي أقرأ بس من البرود.
+   - ده تغيير في داتابيز البرود: **صاحب الريبو (repository owner) بس** اللي
+     يشغّله أو يوافق عليه صراحة. أي agent session (AI) **ممنوع** تشغّله؛ مسموحلها
+     تقرأ بس، ولما يتطلب منها.
    - الخطوات في [provisioning-phase1-tables.md](../operations/provisioning-phase1-tables.md).
-   - أول حاجة شغّل `verify_phase1_tables.sql` (قراءة بس) وشوف الـ verdict:
+   - أول حاجة شغّل `verify_phase1_tables.sql` (قراءة بس)، واقرأ **جزئين** من النتيجة:
+   - **(أ) سطر `phase1 tables present`:** الـ verdict بيبدأ بإيه؟
 
-     | الـ verdict | اعمل |
+     | الـ verdict بيبدأ بـ | اعمل |
      |---|---|
-     | `not applied` | الخطوات كاملة (فيها backup الأول) |
-     | `PRE-AGENTS` | شغّل `upgrade_device_agents_and_delivery.sql` بس |
-     | `applied` | مفيش حاجة |
-     | أي حاجة تانية (مثلاً `PRE-DEVICE-TABLES`) | **وقّف** واعمل اللي مكتوب جنب الـ verdict في نفس السطر، ومتكملش غير لما يطلع `applied` |
+     | `not applied -- apply it` | الخطوات كاملة في الـ provisioning runbook (فيها backup الأول) |
+     | `PRE-AGENTS -- apply upgrade_device_agents_and_delivery.sql (not --force), then re-run this script` | شغّل ملف الـ upgrade ده بس، **من غير `--force`**، وبعدين شغّل الـ verify تاني |
+     | `applied -- if any table was here before this provisioning, compare definitions` | كمّل لـ (ب). ولو فيه جدول من الـ 15 كان موجود قبل الـ provisioning، قارن تعريفاته زي الخطوة 1 في الـ provisioning runbook |
+     | أي حاجة تانية (`PARTIAL`، `PRE-DEVICE-TABLES`، ...) | **وقّف**، واعمل اللي مكتوب في الـ verdict نفسه، ومتكملش غير لما يطلع `applied` |
 
-3. **ملف `.env.remote-db`** فيه الـ 3 سطور دول زيادة:
+   - **(ب) سطور `column counts`:** **كل** سطر لازم الـ verdict بتاعه يكون
+     `ok (count only)`. لو فيه `PRE-AGENTS` أو `UNEXPECTED` ← **وقّف**. مثلاً
+     `device_punches=24` معناها الـ upgrade ماكملش، وكل رفع بصمات هيفشل.
+
+3. **ملف `deploy/.env.remote-db`:** المفاتيح دي **موجودة أصلاً** في الملف (جاية من
+   `env.remote-db.example` بـ `false` و `devices.example.com`). **غيّر قيمها**،
+   ماتضيفش سطور جديدة:
 
    ```bash
    DEVICES_INGEST_ENABLED=true
@@ -544,14 +635,24 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
    APP_DEVICES_DOMAIN=devices.localhost
    ```
 
+   واتأكد إن كل مفتاح موجود **مرة واحدة** (الأمر ده بيطبع عدد بس، مش القيم). كل
+   سطر لازم يطلع `1`:
+
+   ```bash
+   for k in DEVICES_INGEST_ENABLED DEVICES_AGENTS_ENABLED APP_DEVICES_DOMAIN; do
+     printf '%s ' "$k"; grep -c "^$k=" deploy/.env.remote-db
+   done
+   ```
+
 4. **شركة العميل وفرعها موجودين على البرود.** لو مش عملاء عندنا ← استخدم وضع A.
 
 ### 12.2 تشغيل السيستم في الشركة
 
+**Terminal 1** (`hr-platform`):
+
 ```bash
-cd deploy
-docker compose -f compose.remote-db.yaml -f compose.tls.yaml -f compose.field-loopback.yaml \
-  --env-file .env.remote-db up -d --build
+(cd deploy && docker compose -f compose.remote-db.yaml -f compose.tls.yaml \
+  -f compose.field-loopback.yaml --env-file .env.remote-db up -d --build)
 ```
 
 > **`compose.field-loopback.yaml` إجباري في الشركة.** من غيره، أي حد على شبكة
@@ -586,15 +687,15 @@ docker compose -f compose.remote-db.yaml -f compose.tls.yaml -f compose.field-lo
 
 | المشكلة | اعمل |
 |---|---|
-| السيستم مش بيقوم (unhealthy) | غالباً مفيش نت أو الداتابيز مش بترد ← اتأكد من الـ hotspot، و `docker compose ... logs app` |
-| Phase 1 schema check بيقول جداول ناقصة | الخطوة 12.1 رقم 2 ماخلصتش ← **وقّف**، ماتكملش |
+| السيستم مش بيقوم (unhealthy) | غالباً مفيش نت أو الداتابيز مش بترد ← اتأكد من الـ hotspot، وشوف الـ logs بنفس أمر 12.2 بس بدّل `up -d --build` بـ `logs app` |
+| Phase 1 schema check بيقول جداول أو أعمدة ناقصة | الخطوة 12.1 رقم 2 ماخلصتش ← **وقّف**، ماتكملش |
 | الـ capture بيقول `502` | السيستم مش شغال ← شوف أول سطر |
 | الشركة مش موجودة في قايمة الفروع | ارجع لوضع A |
 
 ### 12.5 بعد الزيارة
 
 - رجّع `DEVICES_INGEST_ENABLED=false` و `DEVICES_AGENTS_ENABLED=false`، أو وقّف الـ stack.
-- اتأكد إن الأجهزة اللي خصّصتها **Deactivated** (الخطوة 10).
+- اتأكد إن الأجهزة اللي خصّصتها **Deactivated**، والـ agent **Revoked** (الخطوة 10).
 - لو جهاز لسه متوجّه للابتوب بالغلط: السيستم هيرفضه، والجهاز هيحتفظ بسجلاته. مفيش حاجة هتضيع.
 
 ---
@@ -604,7 +705,7 @@ docker compose -f compose.remote-db.yaml -f compose.tls.yaml -f compose.field-lo
 | المشكلة | السبب المحتمل | اعمل |
 |---|---|---|
 | مش لاقي الجهاز في `scan` | WiFi بدل كابل، شبكة مختلفة، IP غلط | كابل، نفس الـ subnet، IP من المنيو |
-| `comm_key_required` | الجهاز عليه Comm Key | اسأل عليه، `--comm-key` |
+| `comm_key_required` | الجهاز عليه Comm Key، أو الـ `--comm-key` اللي حطيته غلط | اسأل عليه، `--comm-key` |
 | `did not answer in time` | الجهاز بيرد UDP بس، أو مشغول | `--udp`، وجرّب بعدين |
 | الـ capture مش بيسجل حاجة | firewall، IP اللابتوب اتغير، الجهاز محتاج restart | `sudo ufw allow 8081/tcp`، صحّح الـ IP، restart |
 | `502 UPSTREAM ERROR` | السيستم واقف | `scripts/devices-lab.sh up` (الجهاز مش هيضيع حاجة) |
@@ -618,8 +719,10 @@ docker compose -f compose.remote-db.yaml -f compose.tls.yaml -f compose.field-lo
 | `not registered` | مش متخصص لشركة التوكن | خصّصه لنفس الشركة |
 | `unauthorized` | التوكن غلط أو اتلغى | توكن جديد |
 | `chmod 600` في رسالة خطأ | صلاحيات ملف التوكن | `chmod 600` للملف |
-| كل بصمة ظاهرة مرتين | `in_out_field` غلط أو الوقت رقم طويل | `in_out_field = "status"`، واكتب النتيجة |
-| USB: `stored` كبير مع إن الجهاز اتقرأ | ترتيب أعمدة مختلف | اكتبها وابعت أول 3 سطور بعد تغيير الأكواد |
+| كل بصمة ظاهرة مرتين | الوقت بيتبعت رقم طويل (تجربة 4)، أو `in_out_field` غلط | **ماتبعتش تاني.** شوف 6.4. في وضع B ماتشغّلش `once` تاني |
+| USB: `stored` كبير مع إن الجهاز اتقرأ | ترتيب أعمدة مختلف | اكتبها وحط أول 3 سطور في الـ issue بعد تغيير الأكواد |
+| الـ verify فيه `PRE-AGENTS` أو `UNEXPECTED` | الجداول على البرود مش كاملة | **وقّف وضع B**. صاحب الريبو يكمّل 12.1 |
+| `hik.pw` أو `agent.token` لسه على اللابتوب | ماتمسحوش | `rm -f` من Terminal 2 (الخطوة 10) |
 | برنامج العميل وقف يستلم | الإعدادات مارجعتش زي الأول | قارن بالصورة، restart للجهاز |
 
 ---
@@ -635,11 +738,16 @@ HTTPS موجود في المنيو؟  نعم / لا              Content-Type: .
 الوقت بيتبعت:  تاريخ ووقت / رقم طويل          أكبر عدد سجلات في رفعة: ..........  ظهر 413؟ نعم / لا
 Comm Key؟ نعم / لا        بيرد على:  TCP / UDP
 ساعة الجهاز فرقها عن اللابتوب: ...... ثانية     Time zone الجهاز: ..........
+Daylight Saving: شغال / مقفول               الساعة: NTP / يدوي
+Enable Domain Name موجود؟  نعم / لا            language: ..........  PushOptionsFlag: ..........
+Stamp في رفع ATTLOG: ..........               TLS versions: لم يُختبر   TimeZone بالدقايق: لم يُختبر
+سطر ATTLOG: عدد الحقول ....  الفاصل: Tab / غيره   طول كود الموظف: .... أرقام
 عدد السجلات على الجهاز: ..........          عدد الموظفين: ..........
 بصمة وصلت خلال: ...... ثانية
 شلنا الكابل: البصمات وصلت بعد الرجوع؟  نعم / لا  بعد: ......
-وقفنا الـ capture: الجهاز عاد الإرسال؟  نعم / لا  بعد: ......
+وقفنا الـ capture: الجهاز عاد الإرسال؟  نعم / لا  بعد: ......  اتسجلت مرة واحدة؟ نعم / لا
 الدخول = رقم ....  الخروج = رقم ....       in_out_field الصح: punch / status
+الموظفين بيدوسوا زرار الدخول/الخروج؟  نعم / لا
 USB: ترتيب الأعمدة زي الـ Push؟  نعم / لا
 Hikvision: أكواد الحضور اللي ظهرت: ..........
 مشاكل تانية: ................................................
