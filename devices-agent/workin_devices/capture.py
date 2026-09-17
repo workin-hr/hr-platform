@@ -47,7 +47,7 @@ SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]")
 # of OPERLOG (ZkTecoOperlogFilter) and command results. Every other table -- templates, photos,
 # enrolment and ID-card records, whatever a firmware calls them -- is withheld whole. The
 # platform receives nothing from other brands' pushes, so their JSON and XML are recorded as
-# structure only: names, value types and lengths, small numbers (event codes) and timestamps.
+# structure only: names, value types and lengths, event and status codes, and timestamps.
 # Bounding every kept field is what keeps an encoded template out, however it is wrapped or
 # escaped. Forwarding is unaffected.
 ATTLOG_PIN = re.compile(r"^\d{1,32}$")
@@ -63,9 +63,12 @@ NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:-]{0,63}$")
 # which carry no identity: kept when the value is a plain word such as checkIn or cardOrFace.
 ENUM_KEYS = {"attendanceStatus", "currentVerifyMode", "userType", "eventType", "type"}
 ENUM_VALUE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,31}$")
-# A field that names a person or a credential keeps no value at all, not even a small number:
-# an employee number of 7 is as much an identity as "1001".
-IDENTITY_NAME = re.compile(r"employee|card|user|person|name|phone|mail|face|finger|picture|photo", re.IGNORECASE)
+# A number is kept only under a key that names an event or status code, which is what a visit
+# compares; under any other key (pin, enrollid, id, badge, ...) it may be an employee code, and an
+# employee code of 7 is as much an identity as "1001". Compared case-insensitively.
+CODE_KEYS = {"major", "minor", "majoreventtype", "subeventtype", "eventtype", "inout", "status", "state",
+             "verify", "verifymode", "verifytype", "mode", "doorno", "readerno", "cardreaderno", "result",
+             "statuscode", "errorcode", "numofmatches", "totalmatches"}
 STRUCTURE_ONLY = {"values": "structure only"}
 
 
@@ -175,49 +178,48 @@ def _structure_of(media: str, body: bytes) -> tuple[bytes, dict | None]:
     return b"", {"type": media or "none", "bytes": len(body)}
 
 
-def _scalar(value, identity: bool = False):
+def _scalar(value, code: bool = False):
     if value is None or isinstance(value, bool):
         return value
     if isinstance(value, (int, float)):
-        return value if -1000 < value < 1000 and not identity else "<number>"
+        return value if code and -1000 < value < 1000 else "<number>"
     if isinstance(value, str):
         return value if TIMESTAMP.match(value) else f"<string {len(value)}>"
     return f"<{type(value).__name__}>"
 
 
-def structure(value, depth: int = 0, identity: bool = False):
-    """A parsed JSON value with its names, types and lengths, small numbers, timestamps and
+def structure(value, depth: int = 0, code: bool = False):
+    """A parsed JSON value with its names, types and lengths, event and status codes, timestamps and
     enumerations, and nothing that identifies a person or carries a template."""
     if depth > 16:
         return "<nested>"
     if isinstance(value, dict):
         return {(key if isinstance(key, str) and NAME.match(key) else f"<key {len(str(key))}>"):
                 (item if key in ENUM_KEYS and isinstance(item, str) and ENUM_VALUE.match(item)
-                 else structure(item, depth + 1, identity or _names_identity(key)))
+                 else structure(item, depth + 1, _is_code(key)))
                 for key, item in list(value.items())[:64]}
     if isinstance(value, list):
-        return ([structure(item, depth + 1, identity) for item in value] if len(value) <= 16
+        return ([structure(item, depth + 1, code) for item in value] if len(value) <= 16
                 else f"<array {len(value)}>")
-    return _scalar(value, identity)
+    return _scalar(value, code)
 
 
-def _names_identity(key) -> bool:
-    return not isinstance(key, str) or (key not in ENUM_KEYS and IDENTITY_NAME.search(key) is not None)
+def _is_code(key) -> bool:
+    return isinstance(key, str) and key.lower() in CODE_KEYS
 
 
-def _xml_structure(element, depth: int, lines: list[str], identity: bool = False) -> None:
+def _xml_structure(element, depth: int, lines: list[str]) -> None:
     if depth > 16 or len(lines) > 256:
         return
     local = element.tag.split("}")[-1]
     tag = local if NAME.match(local) else f"<tag {len(element.tag)}>"
-    identity = identity or _names_identity(local)
-    attributes = " ".join(f"{name if NAME.match(name) else '<name>'}={_scalar(value, identity or _names_identity(name))}"
+    attributes = " ".join(f"{name if NAME.match(name) else '<name>'}={_scalar(_number(value), _is_code(name))}"
                           for name, value in list(element.attrib.items())[:16])
     text = (element.text or "").strip()
-    shown = (text if local in ENUM_KEYS and ENUM_VALUE.match(text) else _scalar(_number(text), identity)) if text else None
+    shown = (text if local in ENUM_KEYS and ENUM_VALUE.match(text) else _scalar(_number(text), _is_code(local))) if text else None
     lines.append("  " * depth + tag + (f" [{attributes}]" if attributes else "") + (f": {shown}" if text else ""))
     for child in list(element)[:64]:
-        _xml_structure(child, depth + 1, lines, identity)
+        _xml_structure(child, depth + 1, lines)
 
 
 def _number(text: str):

@@ -256,7 +256,8 @@ def main(argv=None):
     sub.add_argument("--username", required=True)
     sub.add_argument("--password-file", required=True)
     sub.add_argument("--days", type=int, default=7)
-    sub.add_argument("--dump", help="write the raw events to this JSON file")
+    sub.add_argument("--dump", help="write each event's structure (codes, times, in/out; no name, employee, card "
+                                     "or picture) to this JSON file")
     sub.add_argument("--timeout", type=float, default=10.0)
     sub.set_defaults(handler=cmd_hik_info)
 

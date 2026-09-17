@@ -271,6 +271,17 @@ class CaptureRecordsWhatATerminalSends(unittest.TestCase):
             self.assertNotIn(secret, kept)
         self.assertIn(b'"subEventType": 1', kept)
         self.assertIn(b'"dateTime": "2026-09-16T08:00:00+03:00"', kept)
+        kept, _ = capture.recordable(
+            "/other/brand", "application/json",
+            b'{"cmd":"sendlog","sn":"AYSK123","record":[{"enrollid":42,"time":"2026-09-16 08:00:00","inout":0}],'
+            b'"emp_code":7,"pin":12,"uid":3,"id":42,"staffNo":88,"badge":555}')
+        for key in (b"enrollid", b"emp_code", b"pin", b"uid", b"id", b"staffNo", b"badge"):
+            self.assertIn(b'"' + key + b'": "<number>"', kept, "a number is kept only under an event or status code")
+        self.assertIn(b'"inout": 0', kept)
+        kept, _ = capture.recordable("/other/brand", "application/xml",
+                                     b"<Event><PIN>42</PIN><Time>2026-09-16 08:00:00</Time><minor>75</minor></Event>")
+        self.assertIn(b"PIN: <number>", kept)
+        self.assertIn(b"minor: 75", kept)
         kept, note = capture.recordable("/hik/X", "application/xml",
                                         b'<!DOCTYPE x [<!ENTITY e "Ahmed Ali">]><Event><name>&e;</name></Event>')
         self.assertEqual(kept, b"")
