@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import com.workin.backend.platformadmin.org.ActiveCompanies;
 import com.workin.backend.platformadmin.org.OrgCascadeStore;
 import com.workin.legacy.LegacyClock;
+import com.workin.legacy.phone.LegacyPhoneCountries;
 
 /**
  * Supplies every admin page with the four things its layout needs -- the
@@ -72,14 +73,18 @@ public class AdminViewModelAdvice {
 	/** The rows a toolbar's org filter cascade narrows between; an {@link ObjectProvider} for the clock's reason. */
 	private final ObjectProvider<OrgCascadeStore> cascades;
 
+	/** The active phone countries a company or employee form offers; an {@link ObjectProvider} for the clock's reason. */
+	private final ObjectProvider<LegacyPhoneCountries> phoneCountries;
+
 	public AdminViewModelAdvice(MessageSource messageSource, AdminPageAvailability availability,
 			ObjectProvider<LegacyClock> clock, ObjectProvider<ActiveCompanies> companies,
-			ObjectProvider<OrgCascadeStore> cascades) {
+			ObjectProvider<OrgCascadeStore> cascades, ObjectProvider<LegacyPhoneCountries> phoneCountries) {
 		this.messageSource = messageSource;
 		this.availability = availability;
 		this.clock = clock;
 		this.companies = companies;
 		this.cascades = cascades;
+		this.phoneCountries = phoneCountries;
 	}
 
 	/**
@@ -243,6 +248,31 @@ public class AdminViewModelAdvice {
 				if (this.read == null) {
 					OrgCascadeStore store = AdminViewModelAdvice.this.cascades.getIfAvailable();
 					this.read = scoped || store == null ? OrgFilterCascade.NONE : OrgFilterCascade.of(store.cascade(0));
+				}
+				return this.read;
+			}
+		};
+	}
+
+	/**
+	 * The country select and the phone rules of a form that takes a phone (see
+	 * {@link PhoneCountryChoices}).
+	 *
+	 * <p>A supplier read at most once per request, for {@link #companyFilterOptions()}'s
+	 * reason: only a page rendering a phone form should query. Legacy's layout reads the
+	 * rules on every page, phone form or not.
+	 */
+	@ModelAttribute("phoneCountries")
+	public Supplier<PhoneCountryChoices> phoneCountries(HttpServletRequest request) {
+		String lang = lang(request);
+		return new Supplier<>() {
+			private PhoneCountryChoices read;
+
+			@Override
+			public PhoneCountryChoices get() {
+				if (this.read == null) {
+					LegacyPhoneCountries store = AdminViewModelAdvice.this.phoneCountries.getIfAvailable();
+					this.read = store == null ? PhoneCountryChoices.NONE : PhoneCountryChoices.of(store.allActive(), lang);
 				}
 				return this.read;
 			}

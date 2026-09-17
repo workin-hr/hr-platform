@@ -14,6 +14,8 @@
 @param String flashType = "success"
 @param java.util.List<String> pageStyles = java.util.List.of()
 @param java.util.List<String> pageScripts = java.util.List.of()
+<%-- PhoneCountryChoices.rules(), from a page with a form that takes a phone. --%>
+@param String phoneCountryRules = null
 <%-- The page's own wrapper class, beside the shared .content. Nearly every
      dashboard page uses hr-page, so that is the default; the two detail pages
      use a bare class="content" and pass "" for it. --%>
@@ -90,6 +92,15 @@
 	<%-- The drawer: opening, the backdrop, Escape, and the focus trap
 	     that a drawer over a backdrop needs to be honest about. --%>
 	<script src="/admin/_assets/nav-drawer.js"></script>
+	<%-- A form with a country_code and a phone gets legacy's number checks:
+	     digits only, the country's length, and a refused submit. Legacy loads
+	     these on every page; here they come with a page's rules, because
+	     phone-form-bind.js with no rules refuses every number. --%>
+@if(phoneCountryRules != null)
+	<script src="/admin/_assets/phone-countries-rules.js" data-rules="${phoneCountryRules}"></script>
+	<script src="/admin/_assets/phone-validator.js"></script>
+	<script src="/admin/_assets/phone-form-bind.js"></script>
+@endif
 	<script src="/admin/_assets/row-actions.js"></script>
 	<script src="/admin/_assets/crud.js"></script>
 	<%-- A toolbar form carrying data-org-filters narrows its company, branch,
