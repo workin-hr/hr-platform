@@ -70,7 +70,9 @@ public class AdminRequestsController {
 		// hr_request_filter_form_attrs() (hr_list_helper.php:970-979): request-filter-cascade.js
 		// lists the chosen company's types. Nothing for a session bound to one company, which
 		// has no company select: legacy's script throws there and leaves the server's list.
-		model.addAttribute("typesByCompany", current.isScopedToOneCompany()
+		// Decided from the advice's session, as the org toolbars' cascade is, not from the
+		// administrator view this page builds for itself.
+		model.addAttribute("typesByCompany", session.isScopedToOneCompany()
 				? null : JSON.writeValueAsString(this.store.activeTypesByCompany()));
 		model.addAttribute("result", this.store.paginate(
 				filters, status, typeId, dateFrom, dateTo, showCompany));

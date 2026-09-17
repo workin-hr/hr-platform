@@ -148,6 +148,28 @@ class AdminAttendanceEndToEndTest {
 
 	private static final String PATH = "/admin/attendance";
 
+	/**
+	 * The toolbar keeps the filtered branch and department for org-filter-cascade.js, which
+	 * redraws both selects from them (D-260). Kept as 0, a select would show "All" while the
+	 * list stays filtered, and the next search would drop that filter.
+	 */
+	@Test
+	void theToolbarKeepsTheFilteredBranchAndDepartmentForItsCascade() {
+		long branch = this.jdbc.queryForObject("SELECT branch_id FROM employees WHERE id = ?", Long.class, this.employeeA);
+		this.jdbc.update("INSERT INTO departments (company_id, name, is_active, created_at) VALUES (?, 'Alpha Ops', 1, NOW())",
+				this.companyA);
+		long department = this.jdbc.queryForObject(
+				"SELECT id FROM departments WHERE company_id = ? AND name = 'Alpha Ops'", Long.class, this.companyA);
+
+		String html = body(PATH + "?company_id=" + this.companyA + "&filter_branch=" + branch
+				+ "&filter_department=" + department);
+		Matcher toolbar = Pattern.compile(
+				"<form method=\"GET\" class=\"toolbar-form toolbar-form--labeled\"((?:[^>\"]|\"[^\"]*\")*)>").matcher(html);
+		assertThat(toolbar.find()).as("the toolbar's filter form").isTrue();
+		assertThat(toolbar.group(1)).contains("data-selected-branch=\"" + branch + "\"",
+				"data-selected-department=\"" + department + "\"");
+	}
+
 	private long attendance(long employeeId, String checkIn, String checkOut, Long exceptionTypeId) {
 		this.jdbc.update("INSERT INTO attendance (employee_id, check_in, check_out, method,"
 				+ " exception_type_id) VALUES (?, ?, ?, 'app', ?)",
