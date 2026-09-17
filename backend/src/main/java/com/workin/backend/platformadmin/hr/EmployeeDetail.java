@@ -23,6 +23,14 @@ public record EmployeeDetail(
 		List<AttendanceDay> attendance, List<Request> requests, List<Penalty> penalties,
 		List<Advance> advances, Payslip payslip, List<Document> documents) {
 
+	/**
+	 * {@code dashboard_employee_display_name($emp)} ({@code detail.php:36}): the name the title,
+	 * the header and the initials circle all use, an em dash when the stored name is blank.
+	 */
+	public String displayName() {
+		return EmployeeDisplay.displayName(this.employee.employeeName(), "—");
+	}
+
 	/** Days with a check-in in the selected month. */
 	public int daysPresent() {
 		return this.attendance.size();

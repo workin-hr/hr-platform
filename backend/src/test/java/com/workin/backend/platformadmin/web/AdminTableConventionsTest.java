@@ -168,10 +168,14 @@ class AdminTableConventionsTest {
 	 * legacy's {@code badge()} is one map of status to colour and label ({@code layout.php:77-107}).
 	 * A page choosing its own colours is how pending came to be grey here and yellow there.
 	 */
-	private static final Pattern LITERAL_BADGE = Pattern.compile("(?s)<span class=\"badge badge-[\\w-]+\"[^>]*>(.*?)</span>");
+	private static final Pattern LITERAL_BADGE = Pattern.compile(
+			"(?s)<span\\b[^>]*?(?<![\\w-])class=\"(?=[^\"]*(?<![\\w-])badge(?![\\w-]))[^\"]*(?<![\\w-])badge-[\\w-]+[^\"]*\"[^>]*>(.*?)</span>");
 
-	/** The label keys statusBadge.jte gives a status; a page that prints one in a badge is drawing a status. */
-	private static final Pattern STATUS_LABEL = Pattern.compile("\"(status_\\w+|gender_\\w+|method_\\w+|role_\\w+|yes|no)\"");
+	/**
+	 * The label keys statusBadge.jte gives a status; a page that prints one in a badge is drawing a status.
+	 * A bare prefix counts: {@code "status_" + row.status()} is how statusBadge.jte itself builds the key.
+	 */
+	private static final Pattern STATUS_LABEL = Pattern.compile("\"((status|gender|method|role)_\\w*|yes|no)\"");
 
 	@Test
 	void everyStatusBadgeComesFromTheSharedPartial() throws IOException {

@@ -395,13 +395,15 @@
 	gap: 20px;
 }
 
-.emp-detail-empty {
+/* Legacy's padding is a style attribute, which beats app-ui.css's `.tbl td`; a
+   bare class loses to it, so these name the cell as that rule does. */
+.tbl td.emp-detail-empty {
 	text-align: center;
 	padding: 16px;
 	color: #888;
 }
 
-.emp-detail-empty--tall {
+.tbl td.emp-detail-empty--tall {
 	padding: 20px;
 }
 

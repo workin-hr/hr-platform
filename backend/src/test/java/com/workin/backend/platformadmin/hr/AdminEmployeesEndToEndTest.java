@@ -236,6 +236,19 @@ class AdminEmployeesEndToEndTest {
 	}
 
 	@Test
+	void anEmployeeWithABlankNameDrawsLegacysEInItsAvatar() {
+		// employee_table_avatar_html() (employee_helper.php:506): the initials of
+		// dashboard_employee_display_name($row, 'E').
+		long id = seedEmployee(this.companyA, "1002", "", "");
+
+		String html = body("/admin/employees?company_id=" + this.companyA);
+		int menu = html.indexOf("id=\"row-actions-menu-" + id + "\"");
+		assertThat(menu).as("the row for employee %s", id).isPositive();
+		assertThat(html.substring(html.lastIndexOf("<tr", menu), menu))
+				.contains("<span class=\"emp-tbl-avatar\" aria-hidden=\"true\">E</span>");
+	}
+
+	@Test
 	void theListRendersAnEmployeeWhoHasAContractDuration() {
 		// Every other fixture here leaves contract_duration_months NULL, and
 		// that is why the whole page answered 500 against real data without

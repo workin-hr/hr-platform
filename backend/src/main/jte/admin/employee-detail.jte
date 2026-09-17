@@ -20,7 +20,7 @@
 <%-- detail.php is served under pages/employees, whose page.php:234 names
      these four -- what a browser loads on legacy's own detail view. --%>
 @template.admin.layout(
-	title = t.apply("employee") + " — " + detail.employee().employeeName(),
+	title = t.apply("employee") + " — " + detail.displayName(),
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
@@ -59,14 +59,14 @@
 			<%-- Legacy falls back to ui-avatars.com when the photo fails to load. The fallback is
 			     drawn locally instead, as the lists draw theirs (img-fallback.js). --%>
 			@if(detail.employee().photoUrl() == null || detail.employee().photoUrl().isEmpty())
-				<div class="emp-detail-avatar">${EmployeeDisplay.initials(detail.employee().employeeName())}</div>
+				<div class="emp-detail-avatar">${EmployeeDisplay.initials(detail.displayName())}</div>
 			@else
 				<img src="${detail.employee().photoUrl()}" alt="" class="emp-detail-photo"
-				     data-fallback-initials="${EmployeeDisplay.initials(detail.employee().employeeName())}"
+				     data-fallback-initials="${EmployeeDisplay.initials(detail.displayName())}"
 				     data-fallback-class="emp-detail-avatar">
 			@endif
 			<div>
-				<div class="emp-detail-name">${detail.employee().employeeName()}
+				<div class="emp-detail-name">${detail.displayName()}
 					@template.admin.statusBadge(status = detail.employee().active() ? "1" : "0", t = t)</div>
 				<div class="emp-detail-fields">
 					<span>&#9632; ${t.apply("emp_code")}: <strong>${detail.employee().employeeCode()}</strong></span>

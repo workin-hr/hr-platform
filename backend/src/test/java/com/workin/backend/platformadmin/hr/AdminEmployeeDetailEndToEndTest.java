@@ -284,6 +284,18 @@ class AdminEmployeeDetailEndToEndTest {
 	}
 
 	@Test
+	void anEmployeeWithABlankNameReadsAsLegacysDashInTheTitleHeaderAndAvatar() {
+		// detail.php:36: dashboard_employee_display_name($emp) falls back to an em dash, and the
+		// title, the name and the initials circle all use it.
+		long id = seedEmployee(this.companyA, "1002", "", "");
+
+		String html = detailBody(id, 3, 2026);
+		assertThat(html).contains("<title>Employee — —");
+		assertThat(html).contains("<div class=\"emp-detail-avatar\">—</div>");
+		assertThat(html).containsPattern("<div class=\"emp-detail-name\">—\\s*<span class=\"badge badge-green\">");
+	}
+
+	@Test
 	void theAttendanceTableHasLegacysColumnsAndTimes() {
 		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
 		seedAttendance(id, "2026-03-02 09:05:00", "2026-03-02 17:35:00");

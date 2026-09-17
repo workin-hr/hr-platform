@@ -108,10 +108,24 @@ public final class EmployeeDisplay {
 	}
 
 	/**
+	 * {@code dashboard_employee_display_name($row, $fallback)} ({@code includes/employee_helper.php:130-152}):
+	 * the name, or {@code fallback} when it is blank.
+	 *
+	 * <p>Legacy's pages pass different fallbacks for the same blank name: the detail page an em
+	 * dash, the employees list's avatar {@code E}. So the fallback is the caller's, not this
+	 * method's.
+	 */
+	public static String displayName(String name, String fallback) {
+		return name == null || name.isBlank() ? fallback : name;
+	}
+
+	/**
 	 * {@code dashboard_avatar_initials_label()} ({@code includes/media.php:106-125}): the first
 	 * letter of each of the first two words, upper-cased, and {@code ?} for a blank name.
 	 *
-	 * <p>Rendered when an employee has no uploaded photo, which most have not.
+	 * <p>Rendered when an employee has no uploaded photo, which most have not. No legacy page
+	 * reaches the {@code ?}: each substitutes its own fallback name first (see
+	 * {@link #displayName}).
 	 */
 	public static String initials(String name) {
 		if (name == null || name.isBlank()) {

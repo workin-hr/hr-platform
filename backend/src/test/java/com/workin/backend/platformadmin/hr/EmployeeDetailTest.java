@@ -69,6 +69,15 @@ class EmployeeDetailTest {
 		assertThat(EmployeeDisplay.initials(null)).isEqualTo("?");
 	}
 
+	@Test
+	void aBlankNameIsTheFallbackEachLegacyPagePassesBeforeDrawingInitials() {
+		assertThat(EmployeeDisplay.displayName("aya alpha", "—")).isEqualTo("aya alpha");
+		assertThat(EmployeeDisplay.displayName(" ", "—")).isEqualTo("—");
+		assertThat(EmployeeDisplay.displayName(null, "E")).isEqualTo("E");
+		assertThat(EmployeeDisplay.initials(EmployeeDisplay.displayName("", "—")))
+				.as("detail.php draws the em dash itself").isEqualTo("—");
+	}
+
 	private static String doc(String url) {
 		return new EmployeeDetail.Document("id_card", url, "2026-03-01 10:00:00").href();
 	}
