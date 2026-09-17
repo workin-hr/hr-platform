@@ -14,6 +14,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
+from . import capture
 from . import zk4370 as zk
 
 PORTS = {4370: "ZKTeco 4370", 80: "HTTP", 443: "HTTPS", 8000: "Hikvision SDK", 8080: "HTTP alt",
@@ -132,7 +133,8 @@ def backup_attendance(ip: str, path: str, port: int = 4370, comm_key: int = 0, u
 
 def hik_summary(device, days: int = 7, dump_path: str | None = None) -> dict:
     """deviceInfo, and a count of the terminal's events by minor code, so the attendance codes this
-    model uses can be read off a real log rather than assumed. Raw events go to dump_path."""
+    model uses can be read off a real log rather than assumed. dump_path gets each event's structure
+    (capture.structure): codes, times and in/out, never a name, card number, employee or picture."""
     from datetime import timedelta
     from collections import Counter
     from .sources import HikvisionSource
@@ -142,7 +144,7 @@ def hik_summary(device, days: int = 7, dump_path: str | None = None) -> dict:
     events = source.events(end - timedelta(days=days), end)
     if dump_path:
         with open(dump_path, "w", encoding="utf-8") as handle:
-            json.dump(events, handle, indent=1, ensure_ascii=False)
+            json.dump([capture.structure(event) for event in events], handle, indent=1, ensure_ascii=False)
     by_minor = Counter(str(event.get("minor")) for event in events)
     with_employee = Counter(str(event.get("minor")) for event in events if event.get("employeeNoString") or event.get("employeeNo"))
     return {"serial": info.serial, "model": info.model, "firmware": info.firmware, "events": len(events),
