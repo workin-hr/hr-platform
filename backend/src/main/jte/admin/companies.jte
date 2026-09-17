@@ -282,8 +282,8 @@
 								</select>
 							</div>
 							<div class="form-row">
-								<label for="co_title">${t.apply("company_title")}</label>
-								<select id="co_title" name="company_title_id" required>
+								<label for="co_title_id">${t.apply("company_title")}</label>
+								<select id="co_title_id" name="company_title_id" required>
 									<option value="">${t.apply("choose_option")}</option>
 									@for(CompanyRow.Option option : titles)
 										<option value="${option.id()}"
@@ -292,8 +292,8 @@
 								</select>
 							</div>
 							<div class="form-row">
-								<label for="co_size">${t.apply("company_size")}</label>
-								<select id="co_size" name="company_size_id" required>
+								<label for="co_size_id">${t.apply("company_size")}</label>
+								<select id="co_size_id" name="company_size_id" required>
 									<option value="">${t.apply("choose_option")}</option>
 									@for(CompanyRow.Option option : sizes)
 										<option value="${option.id()}"

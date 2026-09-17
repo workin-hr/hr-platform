@@ -180,7 +180,22 @@ test('opening focuses the first field, and closing returns focus to the row', as
 // window written straight under <body> cannot show what the page's containers do to it:
 // an animated card kept a transform, became the containing block of the fixed window, and
 // laid it out against itself -- off-centre, scrolling the page, its title off-screen.
-const SHEETS = ['style.css', 'app-ui.css', 'sidebar.css', 'admin-extra.css', 'app-responsive.css', 'hr-pages.css'];
+/**
+ * The shared stylesheets `layout.jte` links, in its order. Read from the template, because
+ * the order is load-bearing: `admin-extra.css` overrides `app-ui.css` rules of the same
+ * specificity only by loading after it, and a hard-coded list would stay green if the
+ * layout's links were reordered.
+ */
+function layoutSheets() {
+	const layout = readFileSync(new URL('../../../backend/src/main/jte/admin/layout.jte', import.meta.url), 'utf8');
+	const sheets = [...layout.matchAll(/<link rel="stylesheet" href="\/admin\/_assets\/([\w-]+\.css)">/g)].map((match) => match[1]);
+	if (!sheets.includes('app-ui.css') || !sheets.includes('admin-extra.css')) {
+		throw new Error(`layout.jte's stylesheet links did not read as expected: ${sheets}`);
+	}
+	return sheets;
+}
+
+const SHEETS = [...layoutSheets(), 'hr-pages.css'];
 
 const NAME_FIELD = '<div class="form-row"><label for="f">name</label><input type="text" id="f" name="nameEn" data-dialog-field="nameEn"></div>';
 
