@@ -24,7 +24,22 @@ const asset = (name) => readFileSync(
 	new URL(`../../../backend/src/main/resources/static/admin/_assets/${name}`, import.meta.url),
 	'utf8');
 
-const SHEETS = ['style.css', 'app-ui.css', 'sidebar.css', 'admin-extra.css', 'app-responsive.css'];
+/**
+ * The shared stylesheets `layout.jte` links, in its order. Read from the template, because
+ * the order is load-bearing: `admin-extra.css` overrides `app-ui.css` rules of the same
+ * specificity only by loading after it, and a hard-coded list would stay green if the
+ * layout's links were reordered.
+ */
+function layoutSheets() {
+	const layout = readFileSync(new URL('../../../backend/src/main/jte/admin/layout.jte', import.meta.url), 'utf8');
+	const sheets = [...layout.matchAll(/<link rel="stylesheet" href="\/admin\/_assets\/([\w-]+\.css)">/g)].map((match) => match[1]);
+	if (!sheets.includes('app-ui.css') || !sheets.includes('admin-extra.css')) {
+		throw new Error(`layout.jte's stylesheet links did not read as expected: ${sheets}`);
+	}
+	return sheets;
+}
+
+const SHEETS = layoutSheets();
 
 // layout.jte's shell: the sidebar, the backdrop before .main, the topbar's menu button, and a
 // control in .content.

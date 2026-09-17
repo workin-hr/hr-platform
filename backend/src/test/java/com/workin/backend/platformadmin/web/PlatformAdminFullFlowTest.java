@@ -170,8 +170,8 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 		jdbc.update("INSERT INTO company_sizes (id, name, min_employees, max_employees) VALUES (24321, 'Flow size', 1, 10)");
 
 		String form = get("/admin/companies?edit=" + companyId, cookie).response().getBody();
-		java.util.Map<String, Long> seeded = java.util.Map.of("co_act", 24301L, "co_title", 24311L, "co_size", 24321L);
-		for (String select : List.of("co_act", "co_title", "co_size")) {
+		java.util.Map<String, Long> seeded = java.util.Map.of("co_act", 24301L, "co_title_id", 24311L, "co_size_id", 24321L);
+		for (String select : List.of("co_act", "co_title_id", "co_size_id")) {
 			int start = form.indexOf("<select id=\"" + select + "\"");
 			assertThat(start).as("the %s select renders", select).isPositive();
 			String markup = form.substring(start, form.indexOf("</select>", start));
