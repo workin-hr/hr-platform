@@ -6,12 +6,15 @@
 
 - **الهدف من الزيارة:** نتأكد إن الكود اللي عملناه شغال مع جهاز حقيقي، ونسجّل
   معلومات الجهاز (الموديل، الـ firmware، طريقة إرسال البيانات) عشان نكمّل عليها.
-- **الأوامر:** افتح 2 terminal على اللابتوب وسيبهم مفتوحين طول الزيارة:
+- **الأوامر:** افتح 3 terminals على اللابتوب وسيبهم مفتوحين طول الزيارة. كل
+  block أوامر في الدليل مكتوب فوقه هيتكتب في أنهي terminal:
   - **Terminal 1** في فولدر الريبو `hr-platform`: للأوامر اللي بتبدأ بـ
-    `scripts/` أو `cd deploy` **بس**.
+    `scripts/` أو `git` أو `deploy` **بس**.
   - **Terminal 2** في `hr-platform/devices-agent`: **لكل حاجة تانية**
     (`python3 -m workin_devices`، و `cp` و `chmod` و `rm`، وأي حاجة فيها
     `field-report/`).
+  - **Terminal 3** في `hr-platform/devices-agent` برضه: للـ `capture` **بس**،
+    لأنه بيفضل شغال ومش بيرجعلك الـ prompt.
   - فولدر `field-report/` لازم يكون **جوه `devices-agent`**. git متظبط يتجاهله
     هناك بس؛ لو اتعمل في `hr-platform` نفسه، التوكن والباسوردات هتظهر في
     `git status` وممكن تدخل في commit بالغلط.
@@ -208,7 +211,7 @@ python3 -m workin_devices zk-info --host 192.168.1.201 \
 scripts/devices-lab.sh up
 ```
 
-**Terminal 2:**
+**Terminal 3** (افتحه وادخل `devices-agent`: `cd hr-platform/devices-agent`):
 
 ```bash
 python3 -m workin_devices capture --listen 0.0.0.0:8081 \
@@ -263,7 +266,7 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
 
 **المفروض تشوف خلال دقيقة:**
 
-- في terminal الـ capture: سطر فيه `NEW [السيريال] GET /iclock/cdata?...`.
+- في Terminal 3 (الـ capture): سطر فيه `NEW [السيريال] GET /iclock/cdata?...`.
 - في الداشبورد: السيريال ظهر في جدول **"Terminals waiting to be allocated"** (أجهزة في انتظار التخصيص).
 - الجهاز لسه **مش متخصص** (مش مربوط بشركة)، وده مقصود: السيستم بيرفض يستلم منه
   بصمات (`403`)، فالجهاز بيحتفظ بكل حاجة عنده ومفيش بصمة بتضيع.
@@ -305,15 +308,17 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
 - **Device name:** أي اسم، مثلاً "بوابة الشركة".
 - **Device time zone:** من الجدول اللي فوق.
 - **Branch:**
-  - وضع A: اختار الفرع اللي `seed` طبعه (مثلاً branch 22).
+  - وضع A: اختار الفرع **بالاسم** اللي `seed` طبعه (مثلاً "شركة الفجر 5 — فرع الجنوب 22").
   - وضع B: فرع الشركة الحقيقي.
 - اضغط **Allocate to a branch**.
 
 **المفروض تشوف:**
 
 - صفحة الجهاز اتفتحت.
-- في الـ capture: الاتصال الجاي فيه `TimeZone=`، وبعدها `POST /iclock/cdata?...table=ATTLOG`.
-  ده الجهاز بيبعت **كل سجلاته القديمة** (عادي ياخد شوية لو السجل كبير).
+- في Terminal 3: بعد الاتصال الجاي، `POST /iclock/cdata?...table=ATTLOG`. ده الجهاز
+  بيبعت **كل سجلاته القديمة** (عادي ياخد شوية لو السجل كبير).
+- الـ `TimeZone=` **مش بيظهر على الشاشة** (الشاشة بتعرض أول 20 حرف من الرد بس).
+  هتلاقيه في آخر ملف `*-GET.response.bin` في `field-report/captures/السيريال/`.
 - في الداشبورد: البصمات بتظهر في صفحة الجهاز.
 
 | لو شفت | يعني | اعمل |
@@ -336,7 +341,7 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
 | 3 | يعمل بصمتين ورا بعض في أقل من 10 ثواني | الاتنين اتسجلوا | اتسجلوا؟ |
 | 4 | افتح ملف `*.request.bin` لأي `ATTLOG` في `field-report/captures/السيريال/` | (أ) الوقت مكتوب `2026-09-16 08:01:02` ولا رقم طويل (10 أرقام)؛ (ب) كل سطر فيه كام حقل، والفاصل Tab ولا حاجة تانية؛ (ج) كود الموظف (أول حقل) طوله كام رقم | شكل الوقت، عدد الحقول والفاصل، طول الكود |
 | 5 | **شيل كابل الشبكة من الجهاز**، الموظف يعمل بصمتين، رجّع الكابل | البصمتين يوصلوا بعد ما الكابل يرجع، **بمواعيدهم الأصلية** | وصلوا؟ بعد قد إيه؟ |
-| 6 | في terminal الـ capture اضغط **Ctrl+C**، الموظف يعمل بصمة، استنى دقيقة، شغّل الـ capture تاني | البصمة توصل بعد ما الـ capture يرجع، **وتظهر مرة واحدة** في الداشبورد | الجهاز عاد الإرسال؟ بعد قد إيه؟ اتسجلت مرة واحدة؟ |
+| 6 | في Terminal 3 اضغط **Ctrl+C**، الموظف يعمل بصمة، **استنى 10 دقايق**، شغّل أمر الـ capture تاني (سهم لفوق ثم Enter) | البصمة توصل بعد ما الـ capture يرجع، **بميعادها الأصلي، وتظهر مرة واحدة** في الداشبورد | الجهاز عاد الإرسال؟ بعد قد إيه؟ اتسجلت مرة واحدة؟ |
 | 7 | افتح ملف `*-GET.json` لأول اتصال | في الـ path: `pushver=` و `DeviceType=` و `language=` و `PushOptionsFlag=` | القيم |
 | 8 | افتح ملف `*-POST.json` لأي ATTLOG | `request_headers` ← `Content-Type`، و `Stamp=` في الـ path | القيمتين (الـ Stamp رقم عادي ولا شكل تاني؟) |
 | 9 | بص على أكبر ملف `ATTLOG` | عدد السطور فيه، وهل فيه `413` | أكبر عدد سجلات في رفعة واحدة |
@@ -344,9 +349,11 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
 | 11 | قارن 3 بصمات في الداشبورد بشاشة البحث في الجهاز | نفس الكود ونفس الوقت | متطابقين؟ |
 
 الجدول ده والصور بتاعة الخطوة 2 بيغطوا الـ checklist اللي في الخطوة 4 من
-[zkteco-adms-receiver-setup.md](zkteco-adms-receiver-setup.md). حاجتين منه
+[zkteco-adms-receiver-setup.md](zkteco-adms-receiver-setup.md). 3 حاجات منه
 **مش بيتختبروا في الزيارة دي**، اكتبهم "لم يُختبر": الـ TLS versions (الـ
-capture شغال HTTP بس)، وهل `TimeZone` بيقبل دقايق (محتاج نغيّر في الجهاز).
+capture شغال HTTP بس)، وهل `TimeZone` بيقبل دقايق (محتاج نغيّر في الجهاز)، و
+"Acknowledgement dropped" (تجربة 6 بتوقف الاستقبال كله، مش بترفض رفعة بعد ما
+الجهاز يبعتها).
 
 ---
 
@@ -377,12 +384,14 @@ capture شغال HTTP بس)، وهل `TimeZone` بيقبل دقايق (محتا�
      ```
 
 3. `chmod 600 field-report/agent.token`
-4. اعمل ملف `field-report/agent.toml`:
+4. اعمل ملف `field-report/zk.toml`. **جهاز واحد بس في كل ملف:** `once` بيقرأ
+   ويبعت **كل** الأجهزة اللي في الملف. لجهاز ZKTeco تاني اعمل ملف تاني (مثلاً
+   `zk2.toml` بـ `spool_path = "zk2.sqlite3"`).
 
 ```toml
 server_url = "https://localhost:18443"   # وضع B: "https://localhost"
 token_file = "agent.token"
-spool_path = "spool.sqlite3"
+spool_path = "zk.sqlite3"
 insecure_skip_tls_verify = true          # عشان الشهادة المحلية بتاعة اللابتوب بس
 in_out_field = "punch"
 
@@ -402,7 +411,7 @@ udp = false           # true لو zk-info اشتغل بـ --udp بس
 ### 6.2 اقرأ بس (doctor)
 
 ```bash
-python3 -m workin_devices doctor --config field-report/agent.toml   # بيقرأ بس، مابيبعتش
+python3 -m workin_devices doctor --config field-report/zk.toml   # بيقرأ بس، مابيبعتش
 ```
 
 **المفروض تشوف:** `OK` والسيريال، وآخر 3 بصمات جنب كل واحدة `in/out=`.
@@ -425,8 +434,8 @@ python3 -m workin_devices doctor --config field-report/agent.toml   # بيقرأ
 ### 6.4 ابعت (once)
 
 ```bash
-python3 -m workin_devices once --config field-report/agent.toml   # بيقرأ ويبعت
-python3 -m workin_devices once --config field-report/agent.toml   # تاني مرة
+python3 -m workin_devices once --config field-report/zk.toml   # بيقرأ ويبعت
+python3 -m workin_devices once --config field-report/zk.toml   # تاني مرة
 ```
 
 **المفروض تشوف:**
@@ -442,9 +451,12 @@ python3 -m workin_devices once --config field-report/agent.toml   # تاني م�
 
 - ماتغيّرش `in_out_field` وتبعت تاني: ده هيعمل **نسخة تالتة**.
 - اكتب: شكل الوقت (تجربة 4)، و `in/out=` في `doctor` قدام الرقم الأول في الداشبورد.
-- **وضع A:** لو عايز تعيد التجربة: في Terminal 1 `scripts/devices-lab.sh down --wipe`
-  ثم `up` و `seed`، وفي Terminal 2 `rm -f field-report/spool.sqlite3` (الـ agent
-  فاكر إنه بعت)، وخصّص الجهاز تاني.
+- **وضع A:** لو عايز تعيد التجربة:
+  1. Terminal 1: `scripts/devices-lab.sh down --wipe` ثم `up` ثم `seed` (`seed`
+     بيعمل توكن جديد وبيلغي القديم).
+  2. Terminal 2: `rm -f field-report/zk.sqlite3` (الـ agent فاكر إنه بعت) و
+     `cp lab/agent.token field-report/agent.token` (التوكن الجديد).
+  3. خصّص الجهاز تاني.
 - **وضع B:** **ماتشغّلش `once` تاني** على الجهاز ده. البصمات المكررة بتفضل في
   `device_punches` (مش بتأثر على الحضور دلوقتي، لأن مفيش حاجة بتحوّل البصمات
   لحضور). اكتبها في الـ issue، وصاحب الريبو هو اللي يقرر تنضيفها.
@@ -458,7 +470,7 @@ python3 -m workin_devices once --config field-report/agent.toml   # تاني م�
 | `config error: ... is not a serial the platform accepts` | السيريال فيه مسافة أو حرف غريب | اكتبه زي الستيكر بالظبط |
 | `SERIAL MISMATCH` / `configured as X but the terminal reports Y` | الـ IP ده لجهاز تاني | صحّح `serial` أو `host`. **مش هيبعت حاجة لحد ما يتطابقوا** |
 | `not registered` | الجهاز مش متخصص، أو متخصص لشركة غير شركة التوكن | خصّصه لفرع في **نفس شركة التوكن** |
-| `unauthorized` | التوكن غلط أو اتلغى | اعمل توكن جديد |
+| `unauthorized` | التوكن غلط أو اتلغى | وضع A: `cp lab/agent.token field-report/agent.token` (كل `seed` بيعمل توكن جديد). وضع B: اعمل توكن جديد (6.1 رقم 2) |
 | `did not answer in time` | الجهاز مش بيرد | جرّب `udp = true`، واتأكد من الـ IP |
 | `refused the communication key` | الـ Comm Key غلط | صحّح `comm_key` |
 | `terminal clock is +N seconds` | ساعة الجهاز مش مظبوطة | اكتبها ملاحظة بس. **ماتغيّرش الساعة** |
@@ -475,14 +487,31 @@ python3 -m workin_devices once --config field-report/agent.toml   # تاني م�
    هيعمل ملف اسمه `1_attlog.dat` أو `attlog.dat`.
 2. انسخه على اللابتوب في `devices-agent/field-report/`، **وسيب الملف الأصلي على
    الفلاشة زي ما هو.**
-3. ارفعه (لازم الجهاز يكون متخصص)، من **Terminal 2**:
+3. **ملف الإعداد:** الرفع محتاج `server_url` والتوكن بس، فأي ملف من 6.1 أو 8 ينفع
+   (`zk.toml` أو `hik.toml`). لو معندكش ولا واحد: اعمل 6.1 رقم 2 و 3 (التوكن)،
+   واعمل `field-report/usb.toml` فيه **أول 4 سطور بس** من ملف 6.1 رقم 4، مع
+   `spool_path = "usb.sqlite3"`.
+4. **وضع B، لو الجهاز ده اتقرأ قبل كده (خطوة 5 أو 6):** الرفع بيسجل كل سطر
+   مالوش نسخة. لو ترتيب الأعمدة في الملف مختلف، **السجل كله هيتسجل تاني** على
+   البرود. فقبل ما ترفع، في Terminal 2:
+
+   ```bash
+   tail -n 5 field-report/1_attlog.dat
+   ```
+
+   دوّر على بصمة (نفس الكود ونفس الوقت) موجودة كمان في ملف `*.request.bin` بتاع
+   `ATTLOG` (تجربة 4)، أو في آخر 3 بصمات في `doctor`. **الرقم اللي بعد الوقت**
+   في الملف لازم يساوي الرقم اللي بعد الوقت في الـ `request.bin`، أو `in/out=` في
+   `doctor`. لو مش بيساويه، أو مالقيتش نفس البصمة: **ماترفعش في وضع B**. اكتبها
+   وحط السطور في الـ issue بعد ما تغيّر أكواد الموظفين.
+5. ارفعه (لازم الجهاز يكون متخصص)، من **Terminal 2**:
 
 ```bash
-python3 -m workin_devices import-usb --config field-report/agent.toml \
+python3 -m workin_devices import-usb --config field-report/zk.toml \
   --serial SN --file field-report/1_attlog.dat
 ```
 
-(غيّر `SN` لسيريال الجهاز. ولو الملف أقل من 1 ميجا ممكن ترفعه من الداشبورد:
+(غيّر `SN` لسيريال الجهاز، و `zk.toml` لملفك. ولو الملف أقل من 1 ميجا ممكن ترفعه من الداشبورد:
 صفحة الجهاز ← **Import a USB export**.)
 
 **هيطبع:** `{"lines": ..., "stored": ..., "duplicates": ..., "unmatched": ..., "malformed": ...}`
@@ -490,7 +519,7 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
 | النتيجة | يعني |
 |---|---|
 | الجهاز اتقرأ قبل كده (خطوة 5 أو 6) و `stored` قليل جداً و `duplicates` كبير | **تمام** ← ترتيب أعمدة الملف زي الـ Push |
-| الجهاز اتقرأ قبل كده بس `stored` كبير (قريب من `lines`) | **ترتيب الأعمدة مختلف** ← اكتبها، وحط أول 3 سطور من الملف في الـ issue (الخطوة 11) **بعد ما تغيّر أكواد الموظفين** |
+| الجهاز اتقرأ قبل كده بس `stored` كبير (قريب من `lines`) | **ترتيب الأعمدة مختلف** (وده ماكانش المفروض يحصل في وضع B لو عملت رقم 4) ← اكتبها، وحط أول 3 سطور من الملف في الـ issue (الخطوة 11) **بعد ما تغيّر أكواد الموظفين** |
 | `malformed` أكبر من صفر | سطور مش مفهومة ← هتلاقيها في صفحة الجهاز تحت *Unreadable lines* |
 | `import failed: ... is not an active device` | الجهاز مش متخصص لشركة التوكن ← خصّصه |
 | من الداشبورد: `الملف أكبر من المسموح هنا` (The file is too large) | الملف أكبر من 1 ميجا ← استخدم أمر `import-usb` |
@@ -523,9 +552,15 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
      لو كود غير 1 و38 و75 ← **اكتبه** (هنضيفه في `attendance_minors`).
 
 4. خصّص الجهاز في الداشبورد: **Vendor = Hikvision**، والسيريال اللي طلع من `hik-info`.
-5. ضيف ده لـ `field-report/agent.toml`:
+5. اعمل ملف **لوحده** `field-report/hik.toml` (مش في `zk.toml`: `once` بيبعت كل
+   الأجهزة اللي في الملف). لو لسه ماعملتش التوكن، اعمل 6.1 رقم 2 و 3 الأول:
 
    ```toml
+   server_url = "https://localhost:18443"   # وضع B: "https://localhost"
+   token_file = "agent.token"
+   spool_path = "hik.sqlite3"
+   insecure_skip_tls_verify = true          # عشان الشهادة المحلية بتاعة اللابتوب بس
+
    [[devices]]
    serial = "السيريال من hik-info"
    kind = "hikvision"
@@ -534,10 +569,17 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
    password_file = "hik.pw"
    ```
 
-6. شغّل `doctor` (زي 6.2) وبعده `once` (زي 6.4).
+6. شغّل `doctor` وبعده `once` زي 6.2 و 6.4، بس بـ `--config field-report/hik.toml`.
 7. **(اختياري)** سجّل اللي الجهاز بيبعته لوحده:
    - في `HTTP Listening` حط IP اللابتوب، port `8081`، URL `/hik/السيريال`.
-   - شغّل `capture` **من غير** `--upstream`.
+   - في Terminal 3: وقّف الـ capture اللي شغال (Ctrl+C) الأول، لأن الاتنين على
+     port `8081`. وبعدين شغّل من **غير** `--upstream`:
+
+     ```bash
+     python3 -m workin_devices capture --listen 0.0.0.0:8081 --out field-report/captures
+     ```
+
+   - لما تخلص: Ctrl+C، ولو لسه محتاج جهاز الـ Push رجّع أمر 5.1.
    - الـ capture هيرد على الجهاز بـ `503`، فالجهاز هيحتفظ بالأحداث ومش هتضيع على
      العميل. إحنا بس بنسجّل شكل البيانات.
    - **رجّع الإعداد في الآخر.**
@@ -553,8 +595,8 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
 ## 9. أي نوع جهاز تاني (Dahua, Suprema, Anviz...)
 
 - صوّر شاشات الخطوة 2، واحتفظ بنتيجة `scan`.
-- لو الجهاز فيه إعداد "server" أو "cloud": شغّل `capture` من غير `--upstream`
-  ووجّهه عليه.
+- لو الجهاز فيه إعداد "server" أو "cloud": في Terminal 3 شغّل الـ `capture` من
+  غير `--upstream` (نفس أمر 8 رقم 7، وقّف أي capture شغال الأول) ووجّهه عليه.
 - **مفيش دعم لسه**، بس المعلومات دي هي اللي هتخلينا نعمل دعم.
 
 ---
@@ -563,9 +605,10 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
 
 - [ ] **كل جهاز:** رجّع `Cloud Server Setting` زي الصورة بالظبط، أو اقفله لو كان
       مقفول. وفي Hikvision رجّع `HTTP Listening`.
-- [ ] لو العميل بيستخدم برنامج بيقرأ من الجهاز: خليهم يتأكدوا إن بصمة جديدة بتوصل
-      للبرنامج بتاعهم.
-- [ ] وقّف الـ capture (Ctrl+C).
+- [ ] **لو العميل بيستخدم أي برنامج** (بيقرأ من الجهاز زي ZKTime.Net، أو الجهاز
+      بيبعتله زي BioTime): موظف يعمل بصمة جديدة، وخليهم يتأكدوا إنها وصلت
+      للبرنامج بتاعهم. ده كمان بيغطي إعدادات الإرسال اللي السيستم بعتها (5.2).
+- [ ] وقّف الـ capture (Ctrl+C في Terminal 3).
 - [ ] امسح الباسوردات من اللابتوب (Terminal 2): `rm -f field-report/hik.pw`
 - [ ] **وضع B بس:** في الداشبورد ← **On-premises agents** ← الـ agent اللي عملته ←
       **Revoke** (إنهاء). وبعدها (Terminal 2): `rm -f field-report/agent.token`
@@ -614,12 +657,15 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
    - أول حاجة شغّل `verify_phase1_tables.sql` (قراءة بس)، واقرأ **جزئين** من النتيجة:
    - **(أ) سطر `phase1 tables present`:** الـ verdict بيبدأ بإيه؟
 
-     | الـ verdict بيبدأ بـ | اعمل |
+     الجدول ده بيقول **صاحب الريبو** يعمل إيه. لو إنت مش صاحب الريبو: ماتشغّلش
+     حاجة منه، ابعتله الـ verdict بس، ووضع B مستني لحد ما يطلع `applied`.
+
+     | الـ verdict بيبدأ بـ | صاحب الريبو يعمل |
      |---|---|
      | `not applied -- apply it` | الخطوات كاملة في الـ provisioning runbook (فيها backup الأول) |
-     | `PRE-AGENTS -- apply upgrade_device_agents_and_delivery.sql (not --force), then re-run this script` | شغّل ملف الـ upgrade ده بس، **من غير `--force`**، وبعدين شغّل الـ verify تاني |
-     | `applied -- if any table was here before this provisioning, compare definitions` | كمّل لـ (ب). ولو فيه جدول من الـ 15 كان موجود قبل الـ provisioning، قارن تعريفاته زي الخطوة 1 في الـ provisioning runbook |
-     | أي حاجة تانية (`PARTIAL`، `PRE-DEVICE-TABLES`، ...) | **وقّف**، واعمل اللي مكتوب في الـ verdict نفسه، ومتكملش غير لما يطلع `applied` |
+     | `PRE-AGENTS -- apply upgrade_device_agents_and_delivery.sql (not --force), then re-run this script` | يشغّل ملف الـ upgrade ده بس، **من غير `--force`**، وبعدين الـ verify تاني |
+     | `applied -- if any table was here before this provisioning, compare definitions` | يكمّل لـ (ب). ولو فيه جدول من الـ 15 كان موجود قبل الـ provisioning، قارن تعريفاته زي الخطوة 1 في الـ provisioning runbook |
+     | أي حاجة تانية (`PARTIAL`، `PRE-DEVICE-TABLES`، ...) | **وقّف**. يعمل اللي مكتوب في الـ verdict نفسه، ووضع B مستني لحد ما يطلع `applied` |
 
    - **(ب) سطور `column counts`:** **كل** سطر لازم الـ verdict بتاعه يكون
      `ok (count only)`. لو فيه `PRE-AGENTS` أو `UNEXPECTED` ← **وقّف**. مثلاً
@@ -636,7 +682,7 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
    ```
 
    واتأكد إن كل مفتاح موجود **مرة واحدة** (الأمر ده بيطبع عدد بس، مش القيم). كل
-   سطر لازم يطلع `1`:
+   سطر لازم يطلع `1`. في **Terminal 1** (`hr-platform`):
 
    ```bash
    for k in DEVICES_INGEST_ENABLED DEVICES_AGENTS_ENABLED APP_DEVICES_DOMAIN; do
@@ -644,7 +690,18 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
    done
    ```
 
-4. **شركة العميل وفرعها موجودين على البرود.** لو مش عملاء عندنا ← استخدم وضع A.
+4. **`ADMIN_PASSWORD` في `deploy/.env.remote-db` هو نفس باسورد داشبورد البرود
+   الحالي بالظبط.** السيستم أول ما يقوم بيقارنه بالباسورد المتسجل على البرود؛ لو
+   مختلف، **بيغيّر باسورد داشبورد البرود** للقيمة اللي في اللابتوب، و**بيطلّع كل
+   اللي عاملين login**. اتأكد من غير ما تطبع الباسورد: شغّل الأمر ده على اللابتوب
+   (Terminal 1) وعلى السيرفر اللي شغال عليه البرود، والرقمين لازم يطابقوا:
+
+   ```bash
+   grep '^ADMIN_PASSWORD=' deploy/.env.remote-db | sha256sum
+   ```
+
+   لو مش بيطابقوا، أو مش قادر تتأكد: **ماتشغّلش وضع B**.
+5. **شركة العميل وفرعها موجودين على البرود.** لو مش عملاء عندنا ← استخدم وضع A.
 
 ### 12.2 تشغيل السيستم في الشركة
 
@@ -666,7 +723,7 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
   | الأمر | وضع B |
   |---|---|
   | الـ `capture` | `--upstream http://127.0.0.1:80` |
-  | `server_url` في `agent.toml` | `"https://localhost"` |
+  | `server_url` في `zk.toml` و `hik.toml` و `usb.toml` | `"https://localhost"` |
   | الداشبورد | `https://localhost/admin/devices?live=1` (باسورد البرود) |
 
 - في الـ stack ده الـ admin actions شغالة، **فماحدش يستخدم لوحة PHP القديمة في
@@ -674,7 +731,11 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
 
 ### 12.3 إيه اللي بيتكتب على البرود
 
-- **بيتكتب:**
+- **أول ما السيستم يقوم:** صف الأدمن في `platform_admins`، **بس لو** `ADMIN_PASSWORD`
+  مختلف عن البرود (12.1 رقم 4)، ومعاه إنهاء كل الـ sessions.
+- **وهو شغال:** الـ login بتاعك (sessions ومحاولات الدخول)، ومسح دوري لمحاولات
+  الدخول القديمة (نفس اللي السيرفر بيعمله).
+- **من التجربة:**
   - الجهاز وتاريخ تخصيصه
   - الأجهزة اللي في الانتظار
   - البصمات الخام (`device_punches`) والسطور غير المفهومة
@@ -696,6 +757,7 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
 
 - رجّع `DEVICES_INGEST_ENABLED=false` و `DEVICES_AGENTS_ENABLED=false`، أو وقّف الـ stack.
 - اتأكد إن الأجهزة اللي خصّصتها **Deactivated**، والـ agent **Revoked** (الخطوة 10).
+- لو فيه بصمات اتسجلت مرتين (6.4 أو 7): اكتبها في الـ issue، وصاحب الريبو يقرر.
 - لو جهاز لسه متوجّه للابتوب بالغلط: السيستم هيرفضه، والجهاز هيحتفظ بسجلاته. مفيش حاجة هتضيع.
 
 ---
@@ -708,6 +770,9 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
 | `comm_key_required` | الجهاز عليه Comm Key، أو الـ `--comm-key` اللي حطيته غلط | اسأل عليه، `--comm-key` |
 | `did not answer in time` | الجهاز بيرد UDP بس، أو مشغول | `--udp`، وجرّب بعدين |
 | الـ capture مش بيسجل حاجة | firewall، IP اللابتوب اتغير، الجهاز محتاج restart | `sudo ufw allow 8081/tcp`، صحّح الـ IP، restart |
+| `Address already in use` لما تشغّل الـ capture | فيه capture تاني شغال على 8081 | Ctrl+C في Terminal 3 الأول |
+| `doctor` أو `once` قرأ جهاز مش قصدك | الملف فيه أكتر من جهاز | جهاز واحد في كل ملف (6.1 رقم 4) |
+| داشبورد البرود طلّع الكل أو الباسورد اتغير | `ADMIN_PASSWORD` في اللابتوب مختلف | وقّف الـ stack، وبلّغ صاحب الريبو فوراً (12.1 رقم 4) |
 | `502 UPSTREAM ERROR` | السيستم واقف | `scripts/devices-lab.sh up` (الجهاز مش هيضيع حاجة) |
 | `403` على رفع البصمات | الجهاز مش متخصص أو متوقف | خصّصه (5.3) |
 | `413` بيتكرر | أكتر من 5000 سجل في رفعة | اكتبها، وقف، رجّع الجهاز |
@@ -717,10 +782,10 @@ python3 -m workin_devices import-usb --config field-report/agent.toml \
 | الأجهزة مش ظاهرة في الداشبورد | فلتر الشركة مختار | اختار "All companies" (كل الشركات) |
 | `SERIAL MISMATCH` | الـ IP لجهاز تاني | صحّح `serial` أو `host` |
 | `not registered` | مش متخصص لشركة التوكن | خصّصه لنفس الشركة |
-| `unauthorized` | التوكن غلط أو اتلغى | توكن جديد |
+| `unauthorized` | التوكن غلط أو اتلغى | وضع A: انسخ `lab/agent.token` تاني. وضع B: توكن جديد |
 | `chmod 600` في رسالة خطأ | صلاحيات ملف التوكن | `chmod 600` للملف |
 | كل بصمة ظاهرة مرتين | الوقت بيتبعت رقم طويل (تجربة 4)، أو `in_out_field` غلط | **ماتبعتش تاني.** شوف 6.4. في وضع B ماتشغّلش `once` تاني |
-| USB: `stored` كبير مع إن الجهاز اتقرأ | ترتيب أعمدة مختلف | اكتبها وحط أول 3 سطور في الـ issue بعد تغيير الأكواد |
+| USB: `stored` كبير مع إن الجهاز اتقرأ | ترتيب أعمدة مختلف | اكتبها وحط أول 3 سطور في الـ issue بعد تغيير الأكواد. في وضع B اعمل 7 رقم 4 **قبل** الرفع |
 | الـ verify فيه `PRE-AGENTS` أو `UNEXPECTED` | الجداول على البرود مش كاملة | **وقّف وضع B**. صاحب الريبو يكمّل 12.1 |
 | `hik.pw` أو `agent.token` لسه على اللابتوب | ماتمسحوش | `rm -f` من Terminal 2 (الخطوة 10) |
 | برنامج العميل وقف يستلم | الإعدادات مارجعتش زي الأول | قارن بالصورة، restart للجهاز |
@@ -741,11 +806,12 @@ Comm Key؟ نعم / لا        بيرد على:  TCP / UDP
 Daylight Saving: شغال / مقفول               الساعة: NTP / يدوي
 Enable Domain Name موجود؟  نعم / لا            language: ..........  PushOptionsFlag: ..........
 Stamp في رفع ATTLOG: ..........               TLS versions: لم يُختبر   TimeZone بالدقايق: لم يُختبر
+Acknowledgement dropped: لم يُختبر
 سطر ATTLOG: عدد الحقول ....  الفاصل: Tab / غيره   طول كود الموظف: .... أرقام
 عدد السجلات على الجهاز: ..........          عدد الموظفين: ..........
 بصمة وصلت خلال: ...... ثانية
 شلنا الكابل: البصمات وصلت بعد الرجوع؟  نعم / لا  بعد: ......
-وقفنا الـ capture: الجهاز عاد الإرسال؟  نعم / لا  بعد: ......  اتسجلت مرة واحدة؟ نعم / لا
+وقفنا الـ capture 10 دقايق: الجهاز عاد الإرسال؟  نعم / لا  بعد: ......  اتسجلت مرة واحدة؟ نعم / لا
 الدخول = رقم ....  الخروج = رقم ....       in_out_field الصح: punch / status
 الموظفين بيدوسوا زرار الدخول/الخروج؟  نعم / لا
 USB: ترتيب الأعمدة زي الـ Push؟  نعم / لا

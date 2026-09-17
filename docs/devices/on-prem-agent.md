@@ -168,4 +168,4 @@ go before the command.
 | `did not answer in time` | terminal off, wrong IP, or UDP-only | check the address; try `udp = true` |
 | `retry: server answered 503` or `unreachable` | platform or internet down | nothing: records wait in the spool |
 | `terminal clock is +N seconds` | the terminal's clock drifts | fix the clock on the terminal with the customer |
-| a punch appears twice in the dashboard | in/out mapping differs from the terminal's push | switch `in_out_field` |
+| a punch appears twice in the dashboard | the terminal pushes Unix-seconds times, or `in_out_field` differs from the terminal's push | do not send again: changing `in_out_field` re-sends the whole log under new keys. Settle the mapping with `doctor` first (field-visit runbook, 6.3), and on a production database leave the duplicates for the owner to decide |
