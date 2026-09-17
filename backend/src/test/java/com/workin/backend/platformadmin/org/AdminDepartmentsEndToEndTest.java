@@ -302,6 +302,20 @@ class AdminDepartmentsEndToEndTest {
 				.contains("North Only").doesNotContain("South Only");
 	}
 
+	/**
+	 * The toolbar keeps the filtered branch for org-filter-cascade.js, which redraws the branch
+	 * select from it (D-260). Kept as 0, the select would show "All" while the list stays
+	 * filtered, and the next search would drop the branch.
+	 */
+	@Test
+	void theToolbarKeepsTheFilteredBranchForItsCascade() {
+		String html = body("/admin/departments?company_id=" + this.companyA + "&filter_branch=" + this.branchA1);
+		Matcher toolbar = Pattern.compile(
+				"<form method=\"GET\" class=\"toolbar-form toolbar-form--labeled\"((?:[^>\"]|\"[^\"]*\")*)>").matcher(html);
+		assertThat(toolbar.find()).as("the toolbar's filter form").isTrue();
+		assertThat(toolbar.group(1)).contains("data-selected-branch=\"" + this.branchA1 + "\"");
+	}
+
 	@Test
 	void anAddWithNoCompanyChosenAsksForOneAndLeavesTheBranchesToIt() throws java.io.IOException {
 		long suspended = createCompany("Zeta Suspended");

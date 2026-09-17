@@ -326,6 +326,20 @@ class AdminJobTitlesEndToEndTest {
 				.contains("In Dept").doesNotContain("No Dept");
 	}
 
+	/**
+	 * The toolbar keeps the filtered department for org-filter-cascade.js, which redraws the
+	 * department select from it (D-260). Kept as 0, the select would show "All" while the list
+	 * stays filtered, and the next search would drop the department.
+	 */
+	@Test
+	void theToolbarKeepsTheFilteredDepartmentForItsCascade() {
+		String html = body("/admin/job_titles?company_id=" + this.companyA + "&filter_department=" + this.departmentA);
+		Matcher toolbar = Pattern.compile(
+				"<form method=\"GET\" class=\"toolbar-form toolbar-form--labeled\"((?:[^>\"]|\"[^\"]*\")*)>").matcher(html);
+		assertThat(toolbar.find()).as("the toolbar's filter form").isTrue();
+		assertThat(toolbar.group(1)).contains("data-selected-department=\"" + this.departmentA + "\"");
+	}
+
 	@Test
 	void deleteDeactivatesRatherThanRemoving() {
 		post("/admin/job_titles", this.cookie, page("/admin/job_titles?action=add", this.cookie).csrf(),
