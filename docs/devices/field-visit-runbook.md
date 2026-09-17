@@ -15,6 +15,8 @@
     `field-report/`).
   - **Terminal 3** في `hr-platform/devices-agent` برضه: للـ `capture` **بس**،
     لأنه بيفضل شغال ومش بيرجعلك الـ prompt.
+  - الأوامر اللي بتكتب أو بتمسح باسورد أو توكن بتتأكد هي في أنهي terminal. لو
+    طبعت `WRONG TERMINAL`، ماحصلش حاجة: اكتبها تاني في الـ terminal اللي مكتوب.
   - فولدر `field-report/` لازم يكون **جوه `devices-agent`**. git متظبط يتجاهله
     هناك بس؛ لو اتعمل في `hr-platform` نفسه، التوكن والباسوردات هتظهر في
     `git status` وممكن تدخل في commit بالغلط.
@@ -247,6 +249,9 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
   | Unreadable lines | أسطر غير مقروءة |
   | Deactivate device | إيقاف الجهاز |
   | Revoke (جنب الـ agent) | إنهاء |
+  | Restore (agent متلغي) | إعادة تفعيل |
+  | Activate device (جهاز متوقف) | تفعيل الجهاز |
+  | Active / Inactive (الحالة) | نشط / غير نشط |
   | All companies | كل الشركات |
   | That serial number is already allocated. | هذا الرقم التسلسلي مخصص بالفعل. |
   | The file is too large to upload here. | الملف أكبر من المسموح هنا. |
@@ -285,7 +290,7 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
 | الجهاز محتاج restart | اعمل restart للجهاز |
 | الجهاز واللابتوب مش على نفس الشبكة | من موبايل على نفس الشبكة افتح `http://IP-اللابتوب:8081`؛ لو مافتحش يبقى الشبكة مانعة |
 | Enable Domain Name شغالة أو Proxy شغال | اقفلهم |
-| الـ capture بيطبع `502 UPSTREAM ERROR` | السيستم مش شغال ← `scripts/devices-lab.sh up`. **الجهاز مش هيضيع حاجة**، هيعيد المحاولة |
+| الـ capture بيطبع `502 UPSTREAM ERROR` | السيستم مش شغال ← وضع A: `scripts/devices-lab.sh up`؛ وضع B: الـ stack بتاع 12.2 (شوف 12.4). **الجهاز مش هيضيع حاجة**، هيعيد المحاولة |
 
 ### 5.3 خصّص الجهاز لفرع (ركّز هنا)
 
@@ -383,7 +388,7 @@ capture شغال HTTP بس)، وهل `TimeZone` بيقبل دقايق (محتا�
    لوحده، اكتب السيريال بإيدك في فورم **Allocate to a branch** (نفس اللي طلع في
    `zk-info`).
 2. **التوكن:**
-   - **وضع A:** استخدم توكن اللاب اللي عمله `seed`:
+   - **وضع A:** استخدم توكن اللاب اللي عمله `seed` (Terminal 2):
      `mkdir -p field-report && cp lab/agent.token field-report/agent.token`
      (التوكن ده تبع شركة اللاب، ولازم الجهاز يكون متخصص **لفرع نفس الشركة**.)
    - **وضع B:** من الداشبورد ← **On-premises agents** ← اختار الشركة ← اكتب اسم
@@ -392,13 +397,15 @@ capture شغال HTTP بس)، وهل `TimeZone` بيقبل دقايق (محتا�
      Terminal 2 والصق التوكن لما يطلب (مش هيظهر وإنت بتلصقه):
 
      ```bash
-     mkdir -p field-report
-     printf 'Agent token: '; read -rs TOKEN; echo
-     (umask 077 && printf '%s\n' "$TOKEN" > field-report/agent.token)
-     unset TOKEN
+     if [ -d workin_devices ]; then
+       mkdir -p field-report
+       printf 'Agent token: '; read -rs TOKEN; echo
+       (umask 077 && printf '%s\n' "$TOKEN" > field-report/agent.token)
+       unset TOKEN; echo saved
+     else echo 'WRONG TERMINAL: use Terminal 2 (devices-agent)'; fi
      ```
 
-3. `chmod 600 field-report/agent.token`
+3. (Terminal 2) `chmod 600 field-report/agent.token`
 4. اعمل ملف `field-report/zk.toml`. **جهاز واحد بس في كل ملف:** `once` بيقرأ
    ويبعت **كل** الأجهزة اللي في الملف. لجهاز ZKTeco تاني اعمل ملف تاني (مثلاً
    `zk2.toml` بـ `spool_path = "zk2.sqlite3"`).
@@ -469,7 +476,9 @@ python3 -m workin_devices once --config field-report/zk.toml   # تاني مرة
 - **وضع A:** لو عايز تعيد التجربة:
   1. Terminal 1: `scripts/devices-lab.sh down --wipe` ثم `up` ثم `seed` (`seed`
      بيعمل توكن جديد وبيلغي القديم).
-  2. Terminal 2: `rm -f field-report/zk.sqlite3` (الـ agent فاكر إنه بعت) و
+  2. Terminal 2: امسح **كل** ملفات الـ spool (الـ agent فاكر إنه بعت، واللاب
+     اتمسح كله):
+     `rm -f field-report/zk.sqlite3 field-report/zk2.sqlite3 field-report/hik.sqlite3 field-report/usb.sqlite3` و
      `cp lab/agent.token field-report/agent.token` (التوكن الجديد).
   3. خصّص الجهاز تاني.
 - **وضع B:** **ماتشغّلش `once` تاني** على الجهاز ده. البصمات المكررة بتفضل في
@@ -480,12 +489,12 @@ python3 -m workin_devices once --config field-report/zk.toml   # تاني مرة
 
 | لو ظهر | يعني | اعمل |
 |---|---|---|
-| `config error: ... chmod 600` | ملف التوكن مفتوح للكل | `chmod 600 field-report/agent.token` |
+| `config error: ... chmod 600` | ملف التوكن مفتوح للكل | (Terminal 2) `chmod 600 field-report/agent.token` |
 | `config error: ... is plain http` | الـ `server_url` مكتوب `http` | خليه `https://localhost:18443` |
 | `config error: ... is not a serial the platform accepts` | السيريال فيه مسافة أو حرف غريب | اكتبه زي الستيكر بالظبط |
 | `SERIAL MISMATCH` / `configured as X but the terminal reports Y` | الـ IP ده لجهاز تاني | صحّح `serial` أو `host`. **مش هيبعت حاجة لحد ما يتطابقوا** |
 | `not registered` | الجهاز مش متخصص، أو متخصص لشركة غير شركة التوكن | خصّصه لفرع في **نفس شركة التوكن** |
-| `unauthorized` | التوكن غلط أو اتلغى | وضع A: `cp lab/agent.token field-report/agent.token` (كل `seed` بيعمل توكن جديد). وضع B: اعمل توكن جديد (6.1 رقم 2) |
+| `unauthorized` | التوكن غلط أو اتلغى | وضع A (Terminal 2): `cp lab/agent.token field-report/agent.token` (كل `seed` بيعمل توكن جديد). وضع B: اعمل توكن جديد (6.1 رقم 2) |
 | `did not answer in time` | الجهاز مش بيرد | جرّب `udp = true`، واتأكد من الـ IP |
 | `refused the communication key` | الـ Comm Key غلط | صحّح `comm_key` |
 | `terminal clock is +N seconds` | ساعة الجهاز مش مظبوطة | اكتبها ملاحظة بس. **ماتغيّرش الساعة** |
@@ -564,10 +573,12 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
    وإنت بتكتبه):
 
    ```bash
-   mkdir -p field-report
-   printf 'Hikvision password: '; read -rs HIK_PW; echo
-   (umask 077 && printf '%s' "$HIK_PW" > field-report/hik.pw)
-   unset HIK_PW
+   if [ -d workin_devices ]; then
+     mkdir -p field-report
+     printf 'Hikvision password: '; read -rs HIK_PW; echo
+     (umask 077 && printf '%s' "$HIK_PW" > field-report/hik.pw)
+     unset HIK_PW; echo saved
+   else echo 'WRONG TERMINAL: use Terminal 2 (devices-agent)'; fi
    python3 -m workin_devices hik-info --host 192.168.1.64 --username admin \
      --password-file field-report/hik.pw --days 7 --dump field-report/hik-events.json
    ```
@@ -636,13 +647,21 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
       بيبعتله زي BioTime): موظف يعمل بصمة جديدة، وخليهم يتأكدوا إنها وصلت
       للبرنامج بتاعهم. ده كمان بيغطي إعدادات الإرسال اللي السيستم بعتها (5.2).
 - [ ] وقّف الـ capture (Ctrl+C في Terminal 3).
-- [ ] امسح الباسوردات من اللابتوب (Terminal 2): `rm -f field-report/hik.pw`
 - [ ] **وضع B بس:** في الداشبورد ← **On-premises agents** ← الـ agent اللي عملته ←
-      **Revoke** (إنهاء). وبعدها (Terminal 2): `rm -f field-report/agent.token`
+      **Revoke** (إنهاء) **مرة واحدة**. الصح: الحالة بقت **Inactive** (غير نشط)،
+      والزرار بقى **Restore** (إعادة تفعيل). **ماتدوسش عليه تاني**: كده بترجّعه.
+- [ ] امسح الباسوردات والتوكن من اللابتوب، في **Terminal 2** (لازم يطبع `deleted`):
+
+  ```bash
+  [ -d workin_devices ] && rm -f field-report/hik.pw field-report/agent.token && echo deleted || echo 'WRONG TERMINAL: use Terminal 2 (devices-agent)'
+  ```
+
 - [ ] `sudo ufw delete allow 8081/tcp`
 - [ ] شيل أي كابل أو switch إنت اللي حطيته.
-- [ ] **وضع B بس:** في الداشبورد افتح كل جهاز خصّصته ← **Deactivate device**
-      (بصماته بتفضل محفوظة، وبيبطل يستقبل جديد). وبعدها الخطوة 12.5، وفيها مسح
+- [ ] **وضع B بس:** في الداشبورد افتح كل جهاز خصّصته ← **Deactivate device** (إيقاف
+      الجهاز) **مرة واحدة** (بصماته بتفضل محفوظة، وبيبطل يستقبل جديد). الصح: الحالة
+      بقت **Inactive** (غير نشط)، والزرار بقى **Activate device** (تفعيل الجهاز).
+      **ماتدوسش عليه تاني**: كده بترجّع الجهاز شغال على البرود. وبعدها الخطوة 12.5، وفيها مسح
       نسخ `.env.remote-db` لو اللابتوب مش جهاز صاحب الريبو.
 
 **مشكلة:** العميل قال البرنامج بتاعهم مش بيستلم بعد ما رجّعت الإعدادات
@@ -812,8 +831,9 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
 
 بالترتيب ده، **كله**:
 
-1. **والسيستم لسه شغال:** اتأكد في الداشبورد إن الأجهزة اللي خصّصتها
-   **Deactivated**، والـ agent **Revoked** (الخطوة 10).
+1. **والسيستم لسه شغال:** اتأكد في الداشبورد إن الأجهزة اللي خصّصتها والـ agent
+   حالتهم **Inactive** (غير نشط)، والزراير بقت **Activate device** (تفعيل الجهاز)
+   و **Restore** (إعادة تفعيل). **ماتدوسش عليهم** (الخطوة 10).
 2. **وقّف الـ stack** (Terminal 1). تعديل الملف لوحده مابيأثرش على السيستم وهو
    شغال: الـ receiver والـ agent endpoint والـ admin actions بيفضلوا شغالين على
    البرود لحد ما يقف.
@@ -827,9 +847,17 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
    `deploy/.env.remote-db`، عشان التشغيل الجاي على البرود (من غير
    `compose.field-loopback.yaml`) مايفتحش الـ receiver.
 4. **لو اللابتوب مش جهاز صاحب الريبو:** بعد رقم 2 (الأمر محتاج الملف)، امسح **كل**
-   نسخ ملف البرود من اللابتوب: `rm -f deploy/.env.remote-db`، ونسخة صاحب الريبو
-   اللي قارنت بيها في 12.1 رقم 4. الملف ده فيه باسورد داتابيز البرود و
-   `JWT_SECRET`. (رقم 3 يتعمل ساعتها في ملف صاحب الريبو نفسه.)
+   نسخ ملف البرود من اللابتوب. الملف ده فيه باسورد داتابيز البرود و `JWT_SECRET`.
+   (رقم 3 يتعمل ساعتها في ملف صاحب الريبو نفسه.) في **Terminal 1** (`hr-platform`)،
+   ولازم يطبع `deleted`:
+
+   ```bash
+   [ -f deploy/compose.remote-db.yaml ] && rm -f deploy/.env.remote-db && echo deleted || echo 'WRONG TERMINAL: use Terminal 1 (hr-platform)'
+   ```
+
+   ونسخة صاحب الريبو اللي قارنت بيها في 12.1 رقم 4: `rm -f` بمسارها الكامل
+   (`/PATH/TO/OWNER/.env.remote-db`)، وبعدها `ls` بنفس المسار لازم يقول
+   `No such file or directory`.
 
 - لو فيه بصمات اتسجلت مرتين (6.4 أو 7): اكتبها في الـ issue، وصاحب الريبو يقرر.
 - لو جهاز لسه متوجّه للابتوب بالغلط: السيستم هيرفضه، والجهاز هيحتفظ بسجلاته. مفيش حاجة هتضيع.
@@ -847,7 +875,7 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
 | `Address already in use` لما تشغّل الـ capture | فيه capture تاني شغال على 8081 | Ctrl+C في Terminal 3 الأول |
 | `doctor` أو `once` قرأ جهاز مش قصدك | الملف فيه أكتر من جهاز | جهاز واحد في كل ملف (6.1 رقم 4) |
 | داشبورد Java على البرود طلّع الكل أو باسورده اتغير | `ADMIN_PASSWORD` في اللابتوب مختلف عن آخر تشغيل | وقّف الـ stack، وبلّغ صاحب الريبو فوراً (12.1 رقم 4) |
-| `502 UPSTREAM ERROR` | السيستم واقف | `scripts/devices-lab.sh up` (الجهاز مش هيضيع حاجة) |
+| `502 UPSTREAM ERROR` | السيستم واقف | وضع A: `scripts/devices-lab.sh up`؛ وضع B: الـ stack بتاع 12.2 (12.4). الجهاز مش هيضيع حاجة |
 | `403` على رفع البصمات | الجهاز مش متخصص أو متوقف | خصّصه (5.3) |
 | `413` بيتكرر | أكتر من 5000 سجل في رفعة | اكتبها، وقف، رجّع الجهاز |
 | البصمات `UNMATCHED` | الكود مش مربوط بموظف | عادي في وضع A. في B اكتب الأكواد |
@@ -861,7 +889,8 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
 | كل بصمة ظاهرة مرتين | الوقت بيتبعت رقم طويل (تجربة 4)، أو `in_out_field` غلط | **ماتبعتش تاني.** شوف 6.4. في وضع B ماتشغّلش `once` تاني |
 | USB: `stored` كبير مع إن الجهاز اتقرأ | ترتيب أعمدة مختلف | اكتبها وحط أول 3 سطور في الـ issue بعد تغيير الأكواد. في وضع B اعمل 7 رقم 5 **قبل** الرفع |
 | الـ verify فيه `PRE-AGENTS` أو `UNEXPECTED` | الجداول على البرود مش كاملة | **وقّف وضع B**. صاحب الريبو يكمّل 12.1 |
-| `hik.pw` أو `agent.token` لسه على اللابتوب | ماتمسحوش | `rm -f` من Terminal 2 (الخطوة 10) |
+| `hik.pw` أو `agent.token` لسه على اللابتوب | ماتمسحوش، أو اتكتب `rm` في terminal غلط | أمر الخطوة 10 في Terminal 2، ولازم يطبع `deleted` |
+| أمر طبع `WRONG TERMINAL` | اتكتب في terminal غلط؛ ماحصلش حاجة | اكتبه تاني في الـ terminal اللي بيقوله |
 | برنامج العميل وقف يستلم | الإعدادات مارجعتش زي الأول | قارن بالصورة، restart للجهاز |
 
 ---
