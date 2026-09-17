@@ -339,7 +339,7 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
 | لو شفت | يعني | اعمل |
 |---|---|---|
 | البصمات **UNMATCHED** | كود الموظف على الجهاز مش مربوط بموظف عندنا | **في وضع A ده طبيعي** (الداتابيز تجريبية). في وضع B اكتب الأكواد، وهنربطها بعدين |
-| مواعيد البصمات **غلط بساعة أو ساعتين** | الـ time zone في التخصيص مش زي الجهاز | ماتغيّرش حاجة في الجهاز. اكتبها في الـ issue (الخطوة 11)، ولو في وضع B بلّغ صاحب الريبو في نفس اليوم. في وضع A ممكن تمسح اللاب وتبدأ تاني: `scripts/devices-lab.sh down --wipe` ثم `up` و `seed` |
+| مواعيد البصمات **غلط بساعة أو ساعتين** | الـ time zone في التخصيص مش زي الجهاز | ماتغيّرش حاجة في الجهاز. اكتبها في الـ issue (الخطوة 11)، ولو في وضع B بلّغ صاحب الريبو في نفس اليوم. في وضع A ممكن تمسح اللاب وتبدأ تاني بالخطوات التلاتة اللي في 6.4 ("لو عايز تعيد التجربة"): `down --wipe` لوحده مش كفاية، لأن `seed` بيعمل توكن جديد والـ agent فاكر إنه بعت |
 | في الـ capture `413` بيتكرر لنفس الرفع | الجهاز بيبعت أكتر من 5000 سجل مرة واحدة | **معلومة مهمة**: اكتبها، وقف التجربة، ورجّع الجهاز (الخطوة 10) |
 | `That serial number is already allocated` | السيريال متخصص قبل كده | افتحه من جدول Attendance devices |
 
@@ -502,7 +502,8 @@ python3 -m workin_devices once --config field-report/zk.toml   # تاني مرة
    الموظف يعمل **بصمة دخول عادية وبعدها بصمة Check-Out**، واستنى لحد ما يوصلوا
    (في الداشبورد بالـ Push، أو في `doctor`). هتحتاجهم في رقم 4.
 2. على الجهاز: `Menu → USB Manager → Download → Attendance Data` على الفلاشة.
-   هيعمل ملف اسمه `1_attlog.dat` أو `attlog.dat`.
+   هيعمل ملف اسمه `1_attlog.dat` أو `attlog.dat` (أو اسم قريب). **اكتب اسمه
+   بالظبط**: الأوامر تحت مكتوب فيها `1_attlog.dat`، غيّره للاسم الحقيقي فيهم كلهم.
 3. انسخه على اللابتوب في `devices-agent/field-report/`، **وسيب الملف الأصلي على
    الفلاشة زي ما هو.**
 4. **ملف الإعداد:** الرفع محتاج `server_url` والتوكن بس، فأي ملف من 6.1 أو 8 ينفع
@@ -536,7 +537,7 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
   --serial SN --file field-report/1_attlog.dat
 ```
 
-(غيّر `SN` لسيريال الجهاز، و `zk.toml` لملفك. ولو الملف أقل من 1 ميجا ممكن ترفعه من الداشبورد:
+(غيّر `SN` لسيريال الجهاز، و `zk.toml` لملفك، و `1_attlog.dat` لاسم الملف الحقيقي. ولو الملف أقل من 1 ميجا ممكن ترفعه من الداشبورد:
 صفحة الجهاز ← **Import a USB export**.)
 
 **هيطبع:** `{"lines": ..., "stored": ..., "duplicates": ..., "unmatched": ..., "malformed": ...}`
@@ -547,6 +548,7 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
 | الجهاز اتقرأ قبل كده بس `stored` كبير (قريب من `lines`) | **ترتيب الأعمدة مختلف** (وده ماكانش المفروض يحصل في وضع B لو عملت رقم 5) ← اكتبها، وحط أول 3 سطور من الملف في الـ issue (الخطوة 11) **بعد ما تغيّر أكواد الموظفين** |
 | `malformed` أكبر من صفر | سطور مش مفهومة ← هتلاقيها في صفحة الجهاز تحت *Unreadable lines* |
 | `import failed: ... is not an active device` | الجهاز مش متخصص لشركة التوكن ← خصّصه |
+| `No such file or directory` أو `FileNotFoundError` | اسم الملف في الأمر مش زي الملف الحقيقي ← `ls field-report/` وصحّح الاسم في `tail` و `import-usb` |
 | من الداشبورد: `الملف أكبر من المسموح هنا` (The file is too large) | الملف أكبر من 1 ميجا ← استخدم أمر `import-usb` |
 
 ---
@@ -808,19 +810,27 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
 
 ### 12.5 بعد الزيارة
 
-- رجّع `DEVICES_INGEST_ENABLED=false` و `DEVICES_AGENTS_ENABLED=false`، أو وقّف الـ stack
-  (Terminal 1):
+بالترتيب ده، **كله**:
 
-  ```bash
-  (cd deploy && docker compose -f compose.remote-db.yaml -f compose.tls.yaml \
-    -f compose.field-loopback.yaml --env-file .env.remote-db down)
-  ```
+1. **والسيستم لسه شغال:** اتأكد في الداشبورد إن الأجهزة اللي خصّصتها
+   **Deactivated**، والـ agent **Revoked** (الخطوة 10).
+2. **وقّف الـ stack** (Terminal 1). تعديل الملف لوحده مابيأثرش على السيستم وهو
+   شغال: الـ receiver والـ agent endpoint والـ admin actions بيفضلوا شغالين على
+   البرود لحد ما يقف.
 
-- **لو اللابتوب مش جهاز صاحب الريبو:** وقّف الـ stack بالأمر اللي فوق **الأول**
-  (محتاج الملف)، وبعدين امسح **كل** نسخ ملف البرود من اللابتوب:
-  `rm -f deploy/.env.remote-db`، ونسخة صاحب الريبو اللي قارنت بيها في 12.1 رقم 4.
-  الملف ده فيه باسورد داتابيز البرود و `JWT_SECRET`.
-- اتأكد إن الأجهزة اللي خصّصتها **Deactivated**، والـ agent **Revoked** (الخطوة 10).
+   ```bash
+   (cd deploy && docker compose -f compose.remote-db.yaml -f compose.tls.yaml \
+     -f compose.field-loopback.yaml --env-file .env.remote-db down)
+   ```
+
+3. **رجّع** `DEVICES_INGEST_ENABLED=false` و `DEVICES_AGENTS_ENABLED=false` في
+   `deploy/.env.remote-db`، عشان التشغيل الجاي على البرود (من غير
+   `compose.field-loopback.yaml`) مايفتحش الـ receiver.
+4. **لو اللابتوب مش جهاز صاحب الريبو:** بعد رقم 2 (الأمر محتاج الملف)، امسح **كل**
+   نسخ ملف البرود من اللابتوب: `rm -f deploy/.env.remote-db`، ونسخة صاحب الريبو
+   اللي قارنت بيها في 12.1 رقم 4. الملف ده فيه باسورد داتابيز البرود و
+   `JWT_SECRET`. (رقم 3 يتعمل ساعتها في ملف صاحب الريبو نفسه.)
+
 - لو فيه بصمات اتسجلت مرتين (6.4 أو 7): اكتبها في الـ issue، وصاحب الريبو يقرر.
 - لو جهاز لسه متوجّه للابتوب بالغلط: السيستم هيرفضه، والجهاز هيحتفظ بسجلاته. مفيش حاجة هتضيع.
 
@@ -841,7 +851,7 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
 | `403` على رفع البصمات | الجهاز مش متخصص أو متوقف | خصّصه (5.3) |
 | `413` بيتكرر | أكتر من 5000 سجل في رفعة | اكتبها، وقف، رجّع الجهاز |
 | البصمات `UNMATCHED` | الكود مش مربوط بموظف | عادي في وضع A. في B اكتب الأكواد |
-| المواعيد غلط بساعة | time zone التخصيص مش زي الجهاز | ماتغيّرش الجهاز. في A: `down --wipe` وابدأ تاني |
+| المواعيد غلط بساعة | time zone التخصيص مش زي الجهاز | ماتغيّرش الجهاز. في A: الخطوات التلاتة في 6.4 (`down --wipe` و `seed`، ونسخ التوكن ومسح الـ spool، والتخصيص من تاني) |
 | الداشبورد بيقول certificate غير آمن | شهادة محلية | Advanced ← Proceed |
 | الأجهزة مش ظاهرة في الداشبورد | فلتر الشركة مختار | اختار "All companies" (كل الشركات) |
 | `SERIAL MISMATCH` | الـ IP لجهاز تاني | صحّح `serial` أو `host` |
