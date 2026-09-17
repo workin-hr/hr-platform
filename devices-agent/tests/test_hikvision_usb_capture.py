@@ -1,5 +1,6 @@
 import http.client
 import http.server
+import json
 import os
 import tempfile
 import threading
@@ -67,7 +68,7 @@ class UsbImport(unittest.TestCase):
         self.assertEqual([(p.pin, p.local_time, p.status, p.verify) for p in punches], [("1001", "2026-09-16 08:00:00", 0, 1)])
 
 
-class CaptureKeepsEveryByte(unittest.TestCase):
+class CaptureRecordsWhatATerminalSends(unittest.TestCase):
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -153,6 +154,67 @@ class CaptureKeepsEveryByte(unittest.TestCase):
         server.server_close()
         self.assertEqual(status, 502)
         self.assertNotIn(b"OK", answer)
+
+    def recorded(self, suffix):
+        found = {}
+        for root, _, files in os.walk(self.dir.name):
+            for name in files:
+                if name.endswith(suffix):
+                    with open(os.path.join(root, name), "rb") as handle:
+                        found[name] = handle.read()
+        return found
+
+    def test_biometric_and_enrolment_records_are_forwarded_but_never_written_or_printed(self):
+        printed = []
+        server = capture.serve("127.0.0.1", 0, self.dir.name, f"http://127.0.0.1:{self.upstream.server_address[1]}",
+                               "devices.localhost", out=printed.append)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        operlog = (b"OPLOG 4\t0\t2026-09-16 08:00:00\t0\t0\t0\t0\r\n"
+                   b"USER PIN=1001\tName=Ahmed Ali\tPasswd=4321\tCard=998877\r\n"
+                   b"FP PIN=1001\tFID=6\tSize=1024\tValid=1\tTMP=TEMPLATEBYTES\r\n"
+                   b"face PIN=1001\tFID=50\tTMP=FACEBYTES\r\n")
+        template = b"PIN=1001\tFID=6\tTMP=BIODATABYTES"
+        photo = b"\xff\xd8\xff\xe0JFIFPHOTOBYTES"
+        self.post(server, "/iclock/cdata?SN=CGE123&table=OPERLOG&Stamp=1", operlog)
+        self.post(server, "/iclock/cdata?SN=CGE123&table=BIODATA&Stamp=1", template)
+        self.post(server, "/iclock/fdata?SN=CGE123&table=ATTPHOTO", photo, "application/octet-stream")
+        server.shutdown()
+        server.server_close()
+        self.assertEqual([body for *_, body in self.received], [operlog, template, photo],
+                         "the platform still receives every upload unchanged; it discards these itself")
+        on_disk = b"".join(self.recorded(".request.bin").values()) + b"".join(self.recorded(".json").values())
+        on_screen = "\n".join(printed)
+        for secret in (b"TEMPLATEBYTES", b"FACEBYTES", b"BIODATABYTES", b"PHOTOBYTES", b"Ahmed Ali", b"4321", b"998877"):
+            self.assertNotIn(secret, on_disk)
+            self.assertNotIn(secret.decode("latin-1"), on_screen)
+        self.assertIn(b"OPLOG 4\t0\t2026-09-16 08:00:00", on_disk, "operation lines are the evidence and stay")
+        notes = [json.loads(body).get("request_body_withheld") for body in self.recorded(".json").values()]
+        self.assertIn({"lines": {"USER": 1, "FP": 1, "FACE": 1}}, notes)
+        self.assertIn({"table": "BIODATA", "bytes": len(template)}, notes)
+        self.assertIn({"table": "ATTPHOTO", "bytes": len(photo)}, notes)
+
+    def test_standalone_keeps_an_events_text_parts_and_withholds_its_pictures(self):
+        server = capture.serve("127.0.0.1", 0, self.dir.name, None, None, out=lambda *_: None)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        body = (b"--MIME_boundary\r\n"
+                b"Content-Disposition: form-data; name=\"event_log\"\r\n"
+                b"Content-Type: application/json\r\n\r\n"
+                b"{\"eventType\":\"AccessControllerEvent\",\"majorEventType\":5,\"subEventType\":75}\r\n"
+                b"--MIME_boundary\r\n"
+                b"Content-Disposition: form-data; name=\"Picture\"; filename=\"face.jpg\"\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n"
+                b"\xff\xd8\xff\xe0FACEPICTUREBYTES\r\n"
+                b"--MIME_boundary--\r\n")
+        status, _ = self.post(server, "/hik/DS-K1T", body, "multipart/form-data; boundary=MIME_boundary")
+        self.post(server, "/hik/DS-K1T", b"\xff\xd8\xff\xe0RAWPICTUREBYTES", "image/jpeg")
+        server.shutdown()
+        server.server_close()
+        self.assertEqual(status, 503)
+        on_disk = b"".join(self.recorded(".request.bin").values()) + b"".join(self.recorded(".json").values())
+        self.assertIn(b"\"subEventType\":75", on_disk, "the event's shape is what the visit records")
+        self.assertNotIn(b"FACEPICTUREBYTES", on_disk)
+        self.assertNotIn(b"RAWPICTUREBYTES", on_disk)
+        self.assertIn(b"image/jpeg", on_disk, "a withheld part is still named, so the recording shows it was sent")
 
     def test_standalone_it_handshakes_without_a_time_zone(self):
         status, body = capture.standalone_answer("GET", "/iclock/cdata?SN=CGE123&options=all")

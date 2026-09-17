@@ -42,10 +42,13 @@
    الصورة (الخطوة 10).
 4. **استأذن قبل ما توصّل اللابتوب على شبكتهم أو تعمل scan.**
 5. **ابعد عن مواعيد الحضور والانصراف** (أول ساعة وآخر ساعة في الشيفت).
-6. **الملفات اللي هتطلع من الزيارة فيها أكواد موظفين ومواعيد**: خليها على
+6. **الملفات اللي هتطلع من الزيارة فيها أكواد موظفين وأسامي ومواعيد**: خليها على
    اللابتوب بس. ماتحطهاش في الريبو ولا في شات ولا في issue.
-7. إحنا **مش بناخد بصمات الصوابع ولا صور الوش**. السيستم بيرمي أي حاجة زي كده
-   لو الجهاز بعتها.
+7. إحنا **مش بناخد بصمات الصوابع ولا صور الوش**. لو الجهاز بعتها: السيستم بيرميها،
+   والـ `capture` **مابيكتبهاش** على اللابتوب ولا بيطبعها على الشاشة، ومعاها سطور
+   تسجيل الموظفين (`USER`: الاسم وباسورد الجهاز ورقم الكارت). في ملف الـ `.json`
+   بتاع الطلب هتلاقي `request_body_withheld`: نوعها وحجمها بس. لو لقيت في
+   `field-report/` صورة أو بصمة لأي سبب، امسحها وماتنقلهاش.
 
 ---
 
@@ -203,7 +206,8 @@ python3 -m workin_devices zk-info --host 192.168.1.201 \
 ← روح الخطوة 6.
 
 الفكرة: هنخلي الجهاز يبعت البصمات للابتوب بدل ما يبعتها لمكانها العادي، وبرنامج
-`capture` على اللابتوب يسجل كل حاجة الجهاز بيبعتها، ويبعتها للسيستم بتاعنا.
+`capture` على اللابتوب يسجل اللي الجهاز بيبعته (ماعدا البصمات والصور وسطور
+تسجيل الموظفين، قاعدة 7)، ويبعته كله للسيستم بتاعنا.
 
 ### 5.1 شغّل السيستم والـ capture على اللابتوب
 
@@ -230,6 +234,10 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
 **افتح الداشبورد في المتصفح:** `https://localhost:18443/admin/devices?live=1`
 
 - هيطلعلك تحذير الشهادة (certificate) ← اضغط Advanced ثم Proceed.
+- **قبل ما تملى أي فورم** (تخصيص جهاز، أو توكن agent): دوس **Stop live refresh**
+  (إيقاف التحديث المباشر) الأول. الصفحة بتعمل refresh كل 10 ثواني وبتمسح اللي
+  كتبته. رجّعه بعدها بـ **Live: refresh every 10 seconds** (مباشر: تحديث كل 10
+  ثوانٍ).
 - الباسورد: `devpassword`.
 - `?live=1` معناها إن الصفحة بتعمل refresh لوحدها كل 10 ثواني.
 - الداشبورد بيفتح **بالعربي**. الدليل بيكتب أسامي الزراير بالإنجليزي، وده اللي
@@ -252,6 +260,8 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
   | Restore (agent متلغي) | إعادة تفعيل |
   | Activate device (جهاز متوقف) | تفعيل الجهاز |
   | Active / Inactive (الحالة) | نشط / غير نشط |
+  | Stop live refresh | إيقاف التحديث المباشر |
+  | Live: refresh every 10 seconds | مباشر: تحديث كل 10 ثوانٍ |
   | All companies | كل الشركات |
   | That serial number is already allocated. | هذا الرقم التسلسلي مخصص بالفعل. |
   | The file is too large to upload here. | الملف أكبر من المسموح هنا. |
@@ -330,10 +340,11 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
   grep -l '"path": "/iclock/cdata' field-report/captures/SN/*-GET.json | xargs -r ls -t | head -n 1
   ```
 
-  لو **مطبعش حاجة**: مفيش handshake متسجل في الفولدر ده. اتأكد إن `SN` هو اسم
-  الفولدر بالظبط زي ما هو في `ls field-report/captures/`.
+  - لو طبع `No such file or directory` (bash) أو `no matches found` (zsh): اسم
+    الفولدر غلط. اكتب `SN` بالظبط زي ما هو في `ls field-report/captures/`.
+  - لو **مطبعش حاجة**: الفولدر صح بس مفيش handshake متسجل فيه لسه.
 
-  ده بيطبع اسم آخر handshake بالوقت (مش بالرقم اللي في أول الاسم: الرقم ده بيبدأ من
+  لو طبع اسم ملف، ده آخر handshake بالوقت (مش بالرقم اللي في أول الاسم: الرقم ده بيبدأ من
   1 كل مرة الـ capture يتشغّل)، مثلاً `00042-20260916-081502-GET.json`. افتح الملف
   اللي بنفس الاسم بس آخره `-GET.response.bin`: فيه سطر `TimeZone=`. لو الوقت في
   اسم الملف **قبل** ما خصّصت الجهاز، يبقى الجهاز لسه ماعملش handshake جديد: غالباً
@@ -386,13 +397,13 @@ capture شغال HTTP بس)، وهل `TimeZone` بيقبل دقايق (محتا�
 
 1. **خصّص الجهاز الأول** (زي 5.3). لو جهاز قديم مابيظهرش في "Terminals waiting"
    لوحده، اكتب السيريال بإيدك في فورم **Allocate to a branch** (نفس اللي طلع في
-   `zk-info`).
+   `zk-info`). وقّف التحديث المباشر الأول (5.1).
 2. **التوكن:**
    - **وضع A:** استخدم توكن اللاب اللي عمله `seed` (Terminal 2):
      `mkdir -p field-report && cp lab/agent.token field-report/agent.token`
      (التوكن ده تبع شركة اللاب، ولازم الجهاز يكون متخصص **لفرع نفس الشركة**.)
    - **وضع B:** من الداشبورد ← **On-premises agents** ← اختار الشركة ← اكتب اسم
-     ← **Issue agent token** ← انسخ التوكن **(بيظهر مرة واحدة بس)**. التوكن ده
+     ← **Issue agent token** (بعد ما توقّف التحديث المباشر، 5.1) ← انسخ التوكن **(بيظهر مرة واحدة بس)**. التوكن ده
      باسورد للبرود، فماتكتبهوش جوه أمر (هيتحفظ في الـ history). اكتب ده في
      Terminal 2 والصق التوكن لما يطلب (مش هيظهر وإنت بتلصقه):
 
@@ -589,7 +600,7 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
    - **قارن:** اعمل بصمة دلوقتي، ودوّر عليها في صفحة الأحداث بتاعة الجهاز: كودها كام؟
      لو كود غير 1 و38 و75 ← **اكتبه** (هنضيفه في `attendance_minors`).
 
-4. خصّص الجهاز في الداشبورد: **Vendor = Hikvision**، والسيريال اللي طلع من `hik-info`.
+4. خصّص الجهاز في الداشبورد (وقّف التحديث المباشر الأول، 5.1): **Vendor = Hikvision**، والسيريال اللي طلع من `hik-info`.
 5. اعمل ملف **لوحده** `field-report/hik.toml` (مش في `zk.toml`: `once` بيبعت كل
    الأجهزة اللي في الملف). لو لسه ماعملتش التوكن، اعمل 6.1 رقم 2 و 3 الأول:
 
@@ -734,19 +745,23 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
    DEVICES_INGEST_ENABLED=true
    DEVICES_AGENTS_ENABLED=true
    APP_DEVICES_DOMAIN=devices.localhost
+   ADMIN_ACTIONS_ENABLED=true
    ```
+
+   (`ADMIN_ACTIONS_ENABLED=true` هو اللي بيظهر زراير التخصيص والتوكن والإيقاف في
+   الداشبورد. **اكتب قيمته القديمة** عشان ترجّعها في 12.5.)
 
    واتأكد إن كل مفتاح موجود **مرة واحدة** (الأمر ده بيطبع عدد بس، مش القيم). في
    **Terminal 1** (`hr-platform`):
 
    ```bash
-   for k in DEVICES_INGEST_ENABLED DEVICES_AGENTS_ENABLED APP_DEVICES_DOMAIN; do
+   for k in DEVICES_INGEST_ENABLED DEVICES_AGENTS_ENABLED APP_DEVICES_DOMAIN ADMIN_ACTIONS_ENABLED; do
      printf '%s ' "$k"; grep -c "^$k=" deploy/.env.remote-db
    done
    ```
 
    - `1` ← تمام.
-   - `0` ← الملف أقدم من المفاتيح دي (اتعمل قبل 2026-09-16): **ضيف** السطر.
+   - `0` ← الملف أقدم من المفتاح ده (مفاتيح الأجهزة اتضافت 2026-09-16): **ضيف** السطر.
    - `2` أو أكتر ← امسح الزيادة وسيب سطر واحد.
 
 4. **`deploy/.env.remote-db` هو ملف صاحب الريبو نفسه**، اللي شغّل بيه Java على
@@ -826,6 +841,7 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
 | Phase 1 schema check بيقول جداول أو أعمدة ناقصة | الخطوة 12.1 رقم 2 ماخلصتش ← **وقّف**، ماتكملش |
 | الـ capture بيقول `502` | السيستم مش شغال ← شوف أول سطر |
 | الشركة مش موجودة في قايمة الفروع | ارجع لوضع A |
+| مفيش زرار Allocate أو Issue agent token، وفيه رسالة "إجراءات الإدارة معطّلة في هذا النشر" | `ADMIN_ACTIONS_ENABLED` مش `true` ← 12.1 رقم 3، وبعدها أمر 12.2 تاني |
 
 ### 12.5 بعد الزيارة
 
@@ -845,7 +861,8 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
 
 3. **رجّع** `DEVICES_INGEST_ENABLED=false` و `DEVICES_AGENTS_ENABLED=false` في
    `deploy/.env.remote-db`، عشان التشغيل الجاي على البرود (من غير
-   `compose.field-loopback.yaml`) مايفتحش الـ receiver.
+   `compose.field-loopback.yaml`) مايفتحش الـ receiver. ورجّع `ADMIN_ACTIONS_ENABLED`
+   للقيمة القديمة اللي كتبتها في 12.1 رقم 3.
 4. **لو اللابتوب مش جهاز صاحب الريبو:** بعد رقم 2 (الأمر محتاج الملف)، امسح **كل**
    نسخ ملف البرود من اللابتوب. الملف ده فيه باسورد داتابيز البرود و `JWT_SECRET`.
    (رقم 3 يتعمل ساعتها في ملف صاحب الريبو نفسه.) في **Terminal 1** (`hr-platform`)،

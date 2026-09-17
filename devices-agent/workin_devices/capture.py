@@ -1,8 +1,11 @@
 """The field recorder: a small HTTP server a terminal is pointed at during a site visit.
 
-It keeps every byte of every exchange -- request line, headers, body, and the answer -- under
-one folder per terminal, so what a real firmware sends becomes evidence the team can replay
-later instead of a memory of the visit.
+It keeps each exchange -- request line, headers, body, and the answer -- under one folder per
+terminal, so what a real firmware sends becomes evidence the team can replay later instead of a
+memory of the visit. What it never writes, or prints, is biometric: fingerprint and face
+templates, pictures, and the enrolment records that carry a name, a device password and a card
+number (``recordable``). The platform discards the same records; a recorder that kept them would
+be the one place they survived, on a laptop.
 
 With --upstream it is a recording reverse proxy in front of the platform: the terminal talks to
 the real receiver, and the Host header is set to the name the receiver answers on, so the
@@ -10,10 +13,12 @@ laptop's LAN address can change from site to site without reconfiguring the stac
 it answers like a receiver that is temporarily unavailable: a handshake with no time zone and OK
 to a command poll, but 503 to every upload. A firmware that is told an upload was received may
 drop it from its queue, and then the customer's own system never gets those punches; a 503
-keeps them queued, and the recorder still has every byte of each attempt.
+keeps them queued, and the recorder still has each attempt.
 """
 from __future__ import annotations
 
+import email.parser
+import email.policy
 import http.client
 import http.server
 import json
@@ -33,6 +38,60 @@ NOT_RECORDED = {"authorization", "cookie", "proxy-authorization"}
 # every path would put the platform's sign-in and API on that LAN through it.
 FORWARDED_PREFIX = "/iclock"
 SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]")
+# Upload tables whose whole body is a template or a picture, and USERINFO, whose every line is an
+# enrolment record (ZkTecoAdmsService's known tables); and the record kinds inside a mixed body
+# such as OPERLOG that are the same (ZkTecoOperlogFilter). Anything forwarded is unaffected.
+WITHHELD_TABLES = {"FINGERTMP", "BIODATA", "BIOPHOTO", "USERPIC", "ATTPHOTO", "FACE", "USERINFO"}
+WITHHELD_LINE_KINDS = {"USER", "FP", "FACE", "BIODATA", "BIOPHOTO", "USERPIC", "FVEIN", "PALM"}
+TEXT_TYPES = ("text/", "application/json", "application/xml", "application/x-www-form-urlencoded")
+
+
+def recordable(path: str, content_type: str, body: bytes) -> tuple[bytes, dict | None]:
+    """The part of a request body that may be written to disk, and what was withheld (kinds and
+    sizes, never content). Closed by default: a body that is not text is withheld whole."""
+    if not body:
+        return body, None
+    parsed = urlparse(path)
+    table = (parse_qs(parsed.query).get("table") or [""])[0].upper()
+    if table in WITHHELD_TABLES:
+        return b"", {"table": table, "bytes": len(body)}
+    if content_type.lower().startswith("multipart/"):
+        return _recordable_parts(content_type, body)
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return b"", {"binary": content_type or "unknown", "bytes": len(body)}
+    kept, withheld = [], {}
+    for line in text.splitlines(keepends=True):
+        kind = line.strip().split(maxsplit=1)[0].upper() if line.strip() else ""
+        if kind in WITHHELD_LINE_KINDS:
+            withheld[kind] = withheld.get(kind, 0) + 1
+        else:
+            kept.append(line)
+    if not withheld:
+        return body, None
+    return "".join(kept).encode("utf-8"), {"lines": withheld}
+
+
+def _recordable_parts(content_type: str, body: bytes) -> tuple[bytes, dict | None]:
+    message = email.parser.BytesParser(policy=email.policy.HTTP).parsebytes(
+        b"Content-Type: " + content_type.encode("latin-1", "replace") + b"\r\n\r\n" + body)
+    if not message.is_multipart():
+        return b"", {"binary": content_type, "bytes": len(body)}
+    kept, withheld = [], []
+    for part in message.iter_parts():
+        part_type = part.get_content_type()
+        payload = part.get_payload(decode=True) or b""
+        label = f"--- part name={part.get_param('name', header='content-disposition')} type={part_type} bytes={len(payload)}"
+        if part_type.startswith(TEXT_TYPES):
+            text, inner = recordable("", part_type, payload)
+            kept.append(label.encode("utf-8") + b"\n" + text + b"\n")
+            if inner:
+                withheld.append({"type": part_type, **inner})
+        else:
+            kept.append(label.encode("utf-8") + b" [withheld]\n")
+            withheld.append({"type": part_type, "bytes": len(payload)})
+    return b"".join(kept), ({"parts": withheld} if withheld else None)
 
 
 class Recorder:
@@ -134,6 +193,7 @@ def make_handler(recorder: Recorder, upstream: str | None, host_header: str | No
             self.end_headers()
             self.wfile.write(response_body)
             identity = identity_of(self.path, client_ip)
+            kept_body, withheld = recordable(self.path, self.headers.get("Content-Type", ""), request_body)
             meta = {"at": datetime.now().isoformat(timespec="milliseconds"), "client": client_ip,
                     "method": self.command, "path": self.path,
                     "request_headers": {name: value for name, value in self.headers.items()
@@ -141,8 +201,10 @@ def make_handler(recorder: Recorder, upstream: str | None, host_header: str | No
                     "request_bytes": len(request_body), "status": status, "response_headers": response_headers,
                     "response_bytes": len(response_body), "elapsed_ms": round((time.monotonic() - started) * 1000),
                     "upstream": upstream, "upstream_error": error}
-            _, first = recorder.save(identity, meta, request_body, response_body)
-            preview = request_body[:90].decode("utf-8", "replace").replace("\t", " ").replace("\r", "").replace("\n", " | ")
+            if withheld:
+                meta["request_body_withheld"] = withheld
+            _, first = recorder.save(identity, meta, kept_body, response_body)
+            preview = kept_body[:90].decode("utf-8", "replace").replace("\t", " ").replace("\r", "").replace("\n", " | ")
             out(f"{datetime.now():%H:%M:%S} {'NEW ' if first else ''}[{identity}] {self.command} {self.path[:70]} "
                 f"-> {status}{' ' + response_body[:20].decode('utf-8', 'replace').strip() if response_body else ''}"
                 f"{'  body: ' + preview if preview else ''}{'  UPSTREAM ERROR: ' + error if error else ''}")
