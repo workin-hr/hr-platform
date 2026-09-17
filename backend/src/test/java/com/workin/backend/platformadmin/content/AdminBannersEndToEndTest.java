@@ -239,7 +239,9 @@ class AdminBannersEndToEndTest {
 		seedBanner("external_url", "https://example.com/offer");
 
 		String html = body(PATH + "?lang=en");
-		assertThat(html).contains("<span class=\"badge badge-blue\">Mobile app</span>", "External URL");
+		assertThat(html).as("the list's platform badge, then its action cell before the stored value")
+				.containsPattern("Mobile app</span></td>\\s*<td>\\s*External URL\\s*"
+						+ "<span class=\"badge badge-gray\">https://example.com/offer</span>");
 		assertThat(optionTexts(html, "banner_platform")).containsExactly("Desktop & mobile", "Desktop app", "Mobile app");
 		assertThat(optionTexts(html, "banner_action_type"))
 				.containsExactly("None", "External URL", "WhatsApp", "In-app screen");

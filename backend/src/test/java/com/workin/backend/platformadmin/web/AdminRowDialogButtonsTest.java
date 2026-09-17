@@ -156,9 +156,10 @@ class AdminRowDialogButtonsTest {
 	 * windows write one field to a row too ({@code faqs/page.php:153-217},
 	 * {@code phone_countries/page.php:95-138}, {@code guide_videos/page.php:91-123},
 	 * {@code banners/page.php:111-232}, {@code notifications/page.php:233-296}), and a page's add
-	 * and edit windows should not look different. It reads every {@code .modal-bg} window's form,
-	 * with an id or without, and counts every {@code modal-bg} the templates write, so a window whose
-	 * tag it cannot read fails rather than drops out.
+	 * and edit windows should not look different. It reads every {@code .modal-bg} window, with an id
+	 * or without, to its closing tag, whether its form sits inside it or around it, and counts every
+	 * {@code modal-bg} the templates write, so a window whose tag it cannot read fails rather than
+	 * drops out.
 	 */
 	@Test
 	void eachFieldInAPagesOwnWindowIsItsOwnFormRowWithALabelForItsControl() throws IOException {
@@ -176,11 +177,9 @@ class AdminRowDialogButtonsTest {
 				String where = template.getFileName() + " "
 						+ (id.find() ? "#" + id.group(1) : "line " + source.substring(0, at).lines().count());
 				windows.add(where);
-				int formStart = source.indexOf("<form", at);
-				int next = source.indexOf(WINDOW, at + 1);
-				if (formStart >= 0 && (next < 0 || formStart < next)) {
-					checkFormRows(where, source.substring(formStart, source.indexOf("</form>", formStart)), offenders, labels);
-				}
+				// The window's own markup, to its closing tag: a form wrapped around the window, or none
+				// at all, still has its fields read.
+				checkFormRows(where, source.substring(at, windowEnd(source, at, where)), offenders, labels);
 			}
 		}
 		assertThat(windows).as("every window the templates write, each read by the sweep").hasSize(written);
@@ -197,6 +196,20 @@ class AdminRowDialogButtonsTest {
 	private static final String WINDOW = "<div class=\"modal-bg";
 
 	private static final Pattern WINDOW_ID = Pattern.compile("\\bid=\"([\\w-]+)\"");
+
+	private static final Pattern DIV = Pattern.compile("<div\\b|</div>");
+
+	private static int windowEnd(String source, int start, String where) {
+		Matcher div = DIV.matcher(source).region(start, source.length());
+		int depth = 0;
+		while (div.find()) {
+			depth += div.group().equals("</div>") ? -1 : 1;
+			if (depth == 0) {
+				return div.end();
+			}
+		}
+		throw new AssertionError(where + " never closes");
+	}
 
 	/**
 	 * Fields legacy writes as a {@code <textarea>} ({@code faqs/page.php:200-203} and {@code :233-236},
