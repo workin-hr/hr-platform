@@ -33,9 +33,11 @@ class ContentOptionLabelsTest {
 				assertThat(messages.getProperty(action.labelKey())).as("%s in %s", action.labelKey(), catalogue).isNotBlank();
 			}
 		}
-		assertThat(Faq.Platform.offered()).as("every platform, both first as legacy's select")
-				.containsExactlyInAnyOrder(Faq.Platform.values()).first().isEqualTo(Faq.Platform.BOTH);
+		assertThat(Faq.Platform.offered()).as("every platform, in legacy's order")
+				.containsExactly(Faq.Platform.BOTH, Faq.Platform.DESKTOP, Faq.Platform.MOBILE)
+				.containsExactlyInAnyOrder(Faq.Platform.values());
 		assertThat(Banner.Action.offered()).as("every action, in legacy's order")
-				.containsExactly(Banner.Action.NONE, Banner.Action.EXTERNAL_URL, Banner.Action.WHATSAPP, Banner.Action.INTERNAL_ROUTE);
+				.containsExactly(Banner.Action.NONE, Banner.Action.EXTERNAL_URL, Banner.Action.WHATSAPP, Banner.Action.INTERNAL_ROUTE)
+				.containsExactlyInAnyOrder(Banner.Action.values());
 	}
 }

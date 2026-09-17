@@ -156,36 +156,47 @@ class AdminRowDialogButtonsTest {
 	 * windows write one field to a row too ({@code faqs/page.php:153-217},
 	 * {@code phone_countries/page.php:95-138}, {@code guide_videos/page.php:91-123},
 	 * {@code banners/page.php:111-232}, {@code notifications/page.php:233-296}), and a page's add
-	 * and edit windows should not look different. It reads each {@code .modal-bg}'s form, and names
-	 * the windows it expects to read, so a window that stops matching fails rather than drops out.
+	 * and edit windows should not look different. It reads every {@code .modal-bg} window's form,
+	 * with an id or without, and counts every {@code modal-bg} the templates write, so a window whose
+	 * tag it cannot read fails rather than drops out.
 	 */
 	@Test
 	void eachFieldInAPagesOwnWindowIsItsOwnFormRowWithALabelForItsControl() throws IOException {
 		List<String> offenders = new ArrayList<>();
 		List<String> windows = new ArrayList<>();
 		int[] labels = {0};
+		int written = 0;
 		for (Path template : templates()) {
 			String source = JTE_COMMENT.matcher(Files.readString(template, StandardCharsets.UTF_8)).replaceAll("");
-			Matcher modal = MODAL.matcher(source);
-			while (modal.find()) {
-				int formStart = source.indexOf("<form", modal.end());
-				int next = source.indexOf("class=\"modal-bg", modal.end());
-				if (formStart < 0 || (next >= 0 && next < formStart)) {
-					continue;
-				}
-				String where = template.getFileName() + " #" + modal.group(1);
+			written += (int) Pattern.compile("\\bmodal-bg\\b").matcher(source).results().count();
+			for (int at = source.indexOf(WINDOW); at >= 0; at = source.indexOf(WINDOW, at + 1)) {
+				// A window's opening tag holds JTE expressions but no markup, so it ends before the next '<'.
+				String tag = source.substring(at, source.indexOf('<', at + 1));
+				Matcher id = WINDOW_ID.matcher(tag);
+				String where = template.getFileName() + " "
+						+ (id.find() ? "#" + id.group(1) : "line " + source.substring(0, at).lines().count());
 				windows.add(where);
-				checkFormRows(where, source.substring(formStart, source.indexOf("</form>", formStart)), offenders, labels);
+				int formStart = source.indexOf("<form", at);
+				int next = source.indexOf(WINDOW, at + 1);
+				if (formStart >= 0 && (next < 0 || formStart < next)) {
+					checkFormRows(where, source.substring(formStart, source.indexOf("</form>", formStart)), offenders, labels);
+				}
 			}
 		}
-		assertThat(windows).as("the pages' own windows with a form").contains(
+		assertThat(windows).as("every window the templates write, each read by the sweep").hasSize(written);
+		assertThat(windows).as("the pages' own windows").contains(
 				"banners.jte #bannerModal", "faqs.jte #faqCatModal", "faqs.jte #faqItemModal",
 				"guide-videos.jte #gvModal", "notifications.jte #notifModal", "phone-countries.jte #pcModal",
 				"companies.jte #companyModal", "settings-templates.jte #settingDefinitionModal",
 				"settings-templates.jte #settingOptionModal");
-		assertThat(labels[0]).as("the sweep found their labels").isGreaterThanOrEqualTo(40);
+		assertThat(labels[0]).as("the sweep found their labels").isGreaterThanOrEqualTo(90);
 		assertThat(offenders).isEmpty();
 	}
+
+	/** Where a window's opening tag starts its class; a tag written any other way fails the count above. */
+	private static final String WINDOW = "<div class=\"modal-bg";
+
+	private static final Pattern WINDOW_ID = Pattern.compile("\\bid=\"([\\w-]+)\"");
 
 	/**
 	 * Fields legacy writes as a {@code <textarea>} ({@code faqs/page.php:200-203} and {@code :233-236},
@@ -217,8 +228,6 @@ class AdminRowDialogButtonsTest {
 		assertThat(found).as("each field in its add window and its row window").hasSize(14);
 		assertThat(inputs).isEmpty();
 	}
-
-	private static final Pattern MODAL =Pattern.compile("<div class=\"modal-bg[^\"]*\"[^>]*\\bid=\"([\\w-]+)\"");
 
 	private static void checkFormRows(String where, String fields, List<String> offenders, int[] labels) {
 		Deque<Integer> rows = new ArrayDeque<>();

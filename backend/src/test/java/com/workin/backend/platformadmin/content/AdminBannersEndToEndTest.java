@@ -233,6 +233,25 @@ class AdminBannersEndToEndTest {
 	// Harness
 	// ------------------------------------------------------------------
 
+	@Test
+	void theListAndTheFormShowLegacysPlatformAndActionLabelsInItsOrder() {
+		// banners/page.php:95, :140-142 and :182-185: the label, never the stored value.
+		seedBanner("external_url", "https://example.com/offer");
+
+		String html = body(PATH + "?lang=en");
+		assertThat(html).contains("<span class=\"badge badge-blue\">Mobile app</span>", "External URL");
+		assertThat(optionTexts(html, "banner_platform")).containsExactly("Desktop & mobile", "Desktop app", "Mobile app");
+		assertThat(optionTexts(html, "banner_action_type"))
+				.containsExactly("None", "External URL", "WhatsApp", "In-app screen");
+	}
+
+	private static List<String> optionTexts(String html, String selectId) {
+		Matcher select = Pattern.compile("(?s)<select[^>]*\\bid=\"" + selectId + "\"[^>]*>(.*?)</select>").matcher(html);
+		assertThat(select.find()).as("the %s select", selectId).isTrue();
+		return Pattern.compile("(?s)<option[^>]*>(.*?)</option>").matcher(select.group(1)).results()
+				.map(option -> option.group(1).trim().replace("&amp;", "&")).toList();
+	}
+
 	private void dialCode(String code, int phoneLength, int sortOrder) {
 		this.jdbc.update("INSERT INTO phone_countries (country_code, name_ar, name_en, phone_length,"
 				+ " is_active, sort_order) VALUES (?, ?, ?, ?, 1, ?)",
