@@ -347,9 +347,9 @@ class AdminRequestsEndToEndTest {
 				.containsPattern("data-dialog=\"request-reject\"\\s+data-dialog-id=\"" + id + "\"");
 		assertThat(menu).as("and does not post from the menu").doesNotContain("value=\"reject\"");
 
-		int dialog = html.indexOf("<dialog class=\"row-dialog\" id=\"request-reject\"");
+		int dialog = html.indexOf("<div class=\"modal-bg\" id=\"request-reject\"");
 		assertThat(dialog).as("the reject dialog renders").isPositive();
-		String markup = html.substring(dialog, html.indexOf("</dialog>", dialog));
+		String markup = html.substring(dialog, html.indexOf("</form>", dialog));
 		assertThat(markup).contains("name=\"action\" value=\"reject\"");
 		java.util.regex.Matcher comment = java.util.regex.Pattern.compile("<textarea\\b[^>]*name=\"comment\"[^>]*>").matcher(markup);
 		assertThat(comment.find()).as("a reply box").isTrue();

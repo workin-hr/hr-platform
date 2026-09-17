@@ -194,10 +194,12 @@
 			@template.admin.rowDialog(id = "request-approve", action = "approve",
 					title = t.apply("approve"), csrfParameterName = csrfParameterName,
 					csrfToken = csrfToken, t = t, submitLabel = t.apply("approve"),
-					submitVariant = "blue",
+					submitVariant = "green",
 					fields = @`
-						<label>${t.apply("reply")}
-							<textarea name="comment" rows="3"></textarea></label>
+						<div class="form-row">
+							<label for="req_approve_comment">${t.apply("reply")}</label>
+							<textarea id="req_approve_comment" name="comment" rows="4"></textarea>
+						</div>
 					`)
 			<%-- Legacy's reject opens the same decision modal, with an optional
 			     reply (requests/page.php:143-157); it never posts on the first click. --%>
@@ -206,8 +208,10 @@
 					csrfToken = csrfToken, t = t, submitLabel = t.apply("reject"),
 					submitVariant = "red",
 					fields = @`
-						<label>${t.apply("reply")}
-							<textarea name="comment" rows="3"></textarea></label>
+						<div class="form-row">
+							<label for="req_reject_comment">${t.apply("reply")}</label>
+							<textarea id="req_reject_comment" name="comment" rows="4"></textarea>
+						</div>
 					`)
 		@endif
 		</div>

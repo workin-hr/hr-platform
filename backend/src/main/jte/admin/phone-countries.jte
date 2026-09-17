@@ -131,35 +131,38 @@
 					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
 					fields = @`
 						<div class="form-row">
-							<label>${t.apply("country_code")}
-								<input type="text" name="countryCode" dir="ltr" required
-								       data-dialog-field="countryCode"></label>
-							<label>${t.apply("flag_emoji")}
-								<input type="text" name="flagEmoji" data-dialog-field="flagEmoji"></label>
+							<label for="pc_edit_code">${t.apply("country_code")}</label>
+							<input type="text" id="pc_edit_code" name="countryCode" dir="ltr" required data-dialog-field="countryCode">
 						</div>
 						<div class="form-row">
-							<label>${t.apply("name_ar")}
-								<input type="text" name="nameAr" required data-dialog-field="nameAr"></label>
-							<label>${t.apply("name_en")}
-								<input type="text" name="nameEn" required data-dialog-field="nameEn"></label>
+							<label for="pc_edit_name_ar">${t.apply("name_ar")}</label>
+							<input type="text" id="pc_edit_name_ar" name="nameAr" required data-dialog-field="nameAr">
 						</div>
 						<div class="form-row">
-							<label>${t.apply("phone_length")}
-								<input type="number" name="phoneLength" min="4" max="15" required
-								       data-dialog-field="phoneLength"></label>
-							<label>${t.apply("sort_order")}
-								<input type="number" name="sortOrder" data-dialog-field="sortOrder"></label>
+							<label for="pc_edit_name_en">${t.apply("name_en")}</label>
+							<input type="text" id="pc_edit_name_en" name="nameEn" required data-dialog-field="nameEn">
 						</div>
 						<div class="form-row">
-							<label>${t.apply("phone_prefixes")}
-								<input type="text" name="prefixes" dir="ltr"
-								       data-dialog-field="prefixes"></label>
-							<%-- Ticked from the row, as legacy's edit modal sets it
-							     (phone_countries/page.php:198). Rendered ticked, it
-							     re-activated every inactive country saved from here. --%>
-							<label>
-								<input type="checkbox" name="isActive" value="1"
-								       data-dialog-field="isActive">
+							<label for="pc_edit_flag">${t.apply("flag_emoji")}</label>
+							<input type="text" id="pc_edit_flag" name="flagEmoji" data-dialog-field="flagEmoji">
+						</div>
+						<div class="form-row">
+							<label for="pc_edit_length">${t.apply("phone_length")}</label>
+							<input type="number" id="pc_edit_length" name="phoneLength" min="4" max="15" required data-dialog-field="phoneLength">
+						</div>
+						<div class="form-row">
+							<label for="pc_edit_prefixes">${t.apply("phone_prefixes")}</label>
+							<input type="text" id="pc_edit_prefixes" name="prefixes" dir="ltr" data-dialog-field="prefixes">
+						</div>
+						<div class="form-row">
+							<label for="pc_edit_sort">${t.apply("sort_order")}</label>
+							<input type="number" id="pc_edit_sort" name="sortOrder" data-dialog-field="sortOrder">
+						</div>
+						<%-- Ticked from the row, as legacy's edit modal sets it
+						     (phone_countries/page.php:198). Rendered ticked, it
+						     re-activated every inactive country saved from here. --%>
+						<div class="form-row">
+							<label><input type="checkbox" name="isActive" value="1" data-dialog-field="isActive">
 								<span>${t.apply("status_active")}</span></label>
 						</div>
 					`)

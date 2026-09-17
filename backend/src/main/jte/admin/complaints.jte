@@ -211,15 +211,20 @@
 			@template.admin.rowDialog(id = "complaint-reply", action = "reply",
 					title = t.apply("admin_reply"), csrfParameterName = csrfParameterName,
 					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
+					cancelLabel = t.apply("cancel"),
 					fields = @`
-						<label>${t.apply("admin_reply")}
-							<textarea name="reply" rows="4" data-dialog-field="reply"></textarea></label>
-						<label>${t.apply("status")}
-							<select name="status" data-dialog-field="status">
+						<div class="form-row">
+							<label for="complaint_reply">${t.apply("admin_reply")}</label>
+							<textarea id="complaint_reply" name="reply" rows="4" data-dialog-field="reply"></textarea>
+						</div>
+						<div class="form-row">
+							<label for="complaint_status">${t.apply("status")}</label>
+							<select id="complaint_status" name="status" data-dialog-field="status">
 								<option value="pending">${t.apply("status_pending")}</option>
 								<option value="done">${t.apply("status_done")}</option>
 								<option value="closed">${t.apply("status_closed")}</option>
-							</select></label>
+							</select>
+						</div>
 					`)
 		@endif
 		</div>

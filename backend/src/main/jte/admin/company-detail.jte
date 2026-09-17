@@ -100,11 +100,13 @@
 						formAction = "/admin/companies/action",
 						title = t.apply("reject"), csrfParameterName = csrfParameterName,
 						csrfToken = csrfToken, t = t, submitLabel = t.apply("reject"),
-						submitVariant = "danger",
+						submitVariant = "red", cancelLabel = t.apply("cancel"),
 						fields = @`
 							<input type="hidden" name="companyId" data-dialog-field="companyId">
-							<label>${t.apply("rejection_reason")}
-								<textarea name="reason" rows="3" required></textarea></label>
+							<div class="form-row">
+								<label for="company_reject_reason">${t.apply("rejection_reason")}</label>
+								<textarea id="company_reject_reason" name="reason" rows="3" required></textarea>
+							</div>
 						`)
 			@endif
 		@endif

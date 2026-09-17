@@ -280,6 +280,7 @@
      they follow it down when that padding changes. */
   .modal .form-footer,
   .modal .account-form__footer {
+    bottom: -20px;
     margin-inline: -20px;
     margin-bottom: -20px;
     padding: 12px 20px 20px;
@@ -301,13 +302,6 @@
   .org-form-span-2,
   .company-add-span-2 {
     grid-column: auto;
-  }
-
-  /* The row dialog is a sheet here too; its own scroll area already keeps its
-     footer visible. */
-  .row-dialog {
-    width: calc(100vw - 20px);
-    max-width: none;
   }
 }
 

@@ -356,7 +356,7 @@ class AdminAttendanceEndToEndTest {
 		this.jdbc.update("UPDATE exception_types SET is_active = 0 WHERE id IN (?, ?)", retired, unused);
 
 		String html = body(PATH + range() + "&company_id=" + this.companyA);
-		int dialog = html.indexOf("<dialog class=\"row-dialog\" id=\"attendance-edit\"");
+		int dialog = html.indexOf("<div class=\"modal-bg\" id=\"attendance-edit\"");
 		assertThat(dialog).as("the edit dialog renders").isPositive();
 		assertThat(selectMarkup(html.substring(dialog), "<select name=\"exception_type_id\""))
 				.as("the edit dialog offers the row's retired type")
@@ -390,9 +390,9 @@ class AdminAttendanceEndToEndTest {
 		attendance(this.employeeB, "2026-03-03 09:00:00", null, other);
 
 		String html = body(PATH + range() + "&company_id=");
-		int dialog = html.indexOf("<dialog class=\"row-dialog\" id=\"attendance-edit\"");
+		int dialog = html.indexOf("<div class=\"modal-bg\" id=\"attendance-edit\"");
 		assertThat(dialog).as("the edit dialog renders").isPositive();
-		String markup = html.substring(dialog, html.indexOf("</dialog>", dialog));
+		String markup = html.substring(dialog, html.indexOf("</form>", dialog));
 		assertThat(markup).as("with no company chosen, the edit dialog offers no type to choose")
 				.doesNotContain("<select name=\"exception_type_id\"")
 				.doesNotContain("<option value=\"" + other + "\"");
@@ -453,7 +453,7 @@ class AdminAttendanceEndToEndTest {
 				.as("a new punch cannot take the retired type").isEqualTo(rows);
 
 		String html = body(PATH + range() + "&company_id=" + this.companyA);
-		int dialog = html.indexOf("<dialog class=\"row-dialog\" id=\"attendance-edit\"");
+		int dialog = html.indexOf("<div class=\"modal-bg\" id=\"attendance-edit\"");
 		assertThat(dialog).as("the edit dialog renders").isPositive();
 		assertThat(selectMarkup(html.substring(dialog), "<select name=\"exception_type_id\""))
 				.as("the dialog marks the retired option for row-dialog.js")

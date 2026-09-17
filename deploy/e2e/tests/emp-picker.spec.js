@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 
 /**
- * emp-picker.js in a browser, with no stack behind it, beside row-dialog.js.
+ * emp-picker.js in a browser, with no stack behind it, beside row-dialog.js and the
+ * modal scripts that open and close its window.
  *
  * <p>The Java end-to-end tests read the rendered pages: the picker's markup, the
  * row's employee and label on its Edit trigger, and the page's list. They cannot
@@ -46,19 +47,26 @@ const PAGE = `<!doctype html>
         data-dialog-employee_id="7" data-dialog-employee_label="Aya Alpha (A100)">edit listed</button>
 <button type="button" data-dialog="advance-edit" data-dialog-id="2" data-dialog-subject="Gone Away"
         data-dialog-employee_id="900" data-dialog-employee_label="Gone Away (G1)">edit deactivated</button>
-<dialog class="row-dialog" id="advance-edit">
-	<form method="POST" class="row-dialog__form">
-		<input type="hidden" name="id" data-dialog-field="id">
+<div class="modal-bg" id="advance-edit" aria-hidden="true">
+	<div class="modal" role="dialog" aria-modal="true">
+		<button type="button" class="modal-close" id="cancel">&times;</button>
+		<h2>edit</h2>
 		<p class="row-dialog__subject" data-dialog-field="subject"></p>
-		<div class="row-dialog__body">${picker('advance-edit-employee', true)}</div>
-		<button type="button" data-dialog-close id="cancel">cancel</button>
-		<button type="submit" id="save">save</button>
-	</form>
-</dialog>`;
+		<form method="POST">
+			<input type="hidden" name="id" data-dialog-field="id">
+			<div class="form-row">${picker('advance-edit-employee', true)}</div>
+			<div class="form-footer"><button type="submit" id="save">save</button></div>
+		</form>
+	</div>
+</div>`;
 
 test.beforeEach(async ({ page }) => {
 	await page.setContent(PAGE);
+	await page.addStyleTag({ content: asset('style.css') });
+	// The layout's order: crud.js, row-dialog.js, then modal-a11y.js.
+	await page.addScriptTag({ content: asset('crud.js') });
 	await page.addScriptTag({ content: asset('row-dialog.js') });
+	await page.addScriptTag({ content: asset('modal-a11y.js') });
 	await page.addScriptTag({ content: asset('emp-picker.js') });
 	// Registered after the picker's own listener, so it sees the picker's verdict.
 	// It stops every real POST; no dialog button submits in order to close.
