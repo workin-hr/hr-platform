@@ -4,11 +4,14 @@ import { test, expect } from '@playwright/test';
 /**
  * The employee detail page's `emp-detail-*` classes against the style attributes they replace.
  *
- * <p>`employees/detail.php` writes its layout inline, and an inline style beats every rule. A class
- * does not: `.emp-detail-empty` carried legacy's padding and still lost it to app-ui.css's
- * `.tbl td`. So each classed element is drawn beside a twin carrying legacy's style attribute,
- * in the same place, under the layout's stylesheets and the page's own in the layout's order, and
- * every property legacy's attribute sets must compute the same on both.
+ * <p>`employees/detail.php` writes its layout inline, and a class is not a style attribute. An
+ * inline style beats every rule: `.emp-detail-empty` carried legacy's padding and still lost it to
+ * app-ui.css's `.tbl td`. And a rule can select on the attribute itself: app-ui.css's
+ * `.content > div[style*="border-radius:12px"]` gives legacy's card a larger radius and a shadow
+ * that a class never matches. So the page is drawn twice, once with the port's classes and once
+ * with legacy's attributes, each element where the template puts it, under the layout's
+ * stylesheets and the page's own in the layout's order; and every computed property of every
+ * marked element must be the same on both.
  */
 
 const asset = (name) => readFileSync(
@@ -52,7 +55,7 @@ const SHEETS = [...layoutSheets(), ...pageSheets()];
  */
 const PAIRS = {
 	bar: ['<div % class="emp-detail-bar"><a class="btn btn-outline btn-sm">back</a><form method="GET"><select><option>1</option></select><button class="btn btn-blue btn-sm">go</button></form></div>',
-		'<div % style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap"><a class="btn btn-outline btn-sm">back</a><form method="GET"><select><option>1</option></select><button class="btn btn-blue btn-sm">go</button></form></div>'],
+		'<div % style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap"><a class="btn btn-outline btn-sm">back</a><form method="GET" style="display:flex;gap:8px"><select><option>1</option></select><button class="btn btn-blue btn-sm">go</button></form></div>'],
 	barForm: ['<div class="emp-detail-bar"><form % method="GET"><select><option>1</option></select><button class="btn btn-blue btn-sm">go</button></form></div>',
 		'<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap"><form % method="GET" style="display:flex;gap:8px"><select><option>1</option></select><button class="btn btn-blue btn-sm">go</button></form></div>'],
 	card: ['<div % class="emp-detail-card"><div class="emp-detail-avatar">A A</div><div>name</div></div>',
@@ -89,48 +92,59 @@ const PAIRS = {
 		'<div class="emp-detail-docs"><a % href="#" target="_blank" style="display:inline-block;padding:6px 14px;background:#E6F1FB;color:#185FA5;border-radius:8px;font-size:12px;text-decoration:none">id_card</a></div>'],
 };
 
-function page() {
-	const blocks = Object.entries(PAIRS).map(([pair, [port, legacy]]) => {
-		const mark = (side) => `data-pair="${pair}" data-side="${side}"`;
-		return `<section>${port.replace('%', mark('port'))}</section><section>${legacy.replace('%', mark('legacy'))}</section>`;
-	});
+/** One side of the page: each pair's markup for that side, a direct child of `.content`, in order. */
+function page(side) {
+	const blocks = Object.entries(PAIRS).map(([pair, sides]) => sides[side === 'port' ? 0 : 1].replace('%', `data-pair="${pair}"`));
 	return `<!doctype html><html lang="ar" dir="rtl"><body class="lang-ar">
 <div class="shell"><main class="main" id="main-content"><div class="content">${blocks.join('\n')}</div></main></div>
 </body></html>`;
 }
 
-test('every emp-detail class computes to the style attribute legacy writes in its place', async ({ page: browser }) => {
-	await browser.setViewportSize({ width: 1440, height: 900 });
-	await browser.setContent(page());
+/** Every computed property of every marked element, keyed by pair. */
+async function computed(context, side, width) {
+	const tab = await context.newPage();
+	await tab.setViewportSize({ width, height: 900 });
+	await tab.setContent(page(side));
 	for (const sheet of SHEETS) {
-		await browser.addStyleTag({ content: asset(sheet) });
+		await tab.addStyleTag({ content: asset(sheet) });
 	}
+	const styles = await tab.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-pair]')].map((element) => {
+		const style = getComputedStyle(element);
+		const values = {};
+		for (let index = 0; index < style.length; index++) {
+			values[style[index]] = style.getPropertyValue(style[index]);
+		}
+		return [element.dataset.pair, values];
+	})));
+	await tab.close();
+	return styles;
+}
 
-	const differences = await browser.evaluate(() => {
-		const found = [];
-		for (const legacy of document.querySelectorAll('[data-side="legacy"]')) {
-			const pair = legacy.dataset.pair;
-			const port = document.querySelector(`[data-side="port"][data-pair="${pair}"]`);
-			const ported = getComputedStyle(port);
-			const original = getComputedStyle(legacy);
-			// The longhands legacy's attribute sets: `padding:20px` is four of them.
-			for (let index = 0; index < legacy.style.length; index++) {
-				const property = legacy.style[index];
-				if (ported.getPropertyValue(property) !== original.getPropertyValue(property)) {
-					found.push(`${pair} ${property}: port ${ported.getPropertyValue(property)}, legacy ${original.getPropertyValue(property)}`);
+// Below 768px the four tables stack, where legacy keeps them two across (D-262).
+for (const width of [1440, 1024]) {
+	test(`every emp-detail class computes as legacy's style attribute does, at ${width}px`, async ({ context }) => {
+		const port = await computed(context, 'port', width);
+		const legacy = await computed(context, 'legacy', width);
+		expect(Object.keys(port), 'every pair was drawn with the port\'s classes').toEqual(Object.keys(PAIRS));
+		expect(Object.keys(legacy), 'every pair was drawn with legacy\'s attributes').toEqual(Object.keys(PAIRS));
+		expect(Object.keys(legacy.card).length, 'the whole computed style was read').toBeGreaterThan(200);
+
+		const differences = [];
+		for (const pair of Object.keys(PAIRS)) {
+			for (const [property, value] of Object.entries(legacy[pair])) {
+				if (port[pair][property] !== value) {
+					differences.push(`${pair} ${property}: port ${port[pair][property]}, legacy ${value}`);
 				}
 			}
 		}
-		return found;
+		expect(differences).toEqual([]);
 	});
+}
 
-	const compared = await browser.evaluate(() => [...document.querySelectorAll('[data-side="legacy"]')]
-		.map((legacy) => legacy.dataset.pair));
-	expect(compared, 'every pair was drawn, each with its port twin').toEqual(Object.keys(PAIRS));
+test('every emp-detail class in the sheet has a pair', () => {
 	// A class added to the sheet without a pair here would not be compared at all.
 	const declared = new Set([...asset('admin-extra.css').matchAll(/\.(emp-detail-[\w-]+)/g)].map((match) => match[1]));
 	const drawn = Object.values(PAIRS).map(([port]) => [...port.matchAll(/class="([^"]*)"/g)].flatMap((match) => match[1].split(' '))).flat();
 	expect([...declared].filter((name) => !drawn.includes(name)), 'every emp-detail class has a pair').toEqual([]);
 	expect(declared.size, 'the sheet declared the classes this compares').toBeGreaterThanOrEqual(17);
-	expect(differences).toEqual([]);
 });

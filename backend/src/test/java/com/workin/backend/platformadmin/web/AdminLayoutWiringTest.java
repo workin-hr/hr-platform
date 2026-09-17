@@ -148,7 +148,7 @@ class AdminLayoutWiringTest {
 				if (!lower.endsWith(".css")) {
 					continue;
 				}
-				String css = Files.readString(file, StandardCharsets.UTF_8);
+				String css = cssTokens(Files.readString(file, StandardCharsets.UTF_8));
 				if (webFont.matcher(css).find()) {
 					offenders.add(name + " declares or imports a font");
 				}
@@ -175,8 +175,9 @@ class AdminLayoutWiringTest {
 		try (var templates = Files.walk(TEMPLATES)) {
 			for (Path template : templates.filter(file -> file.toString().endsWith(".jte")).sorted().toList()) {
 				String body = Files.readString(template, StandardCharsets.UTF_8);
-				if (webFont.matcher(body).find() || family.matcher(body).find()
-						|| shorthand.matcher(body).find()) {
+				String inline = cssTokens(body);
+				if (webFont.matcher(inline).find() || family.matcher(inline).find()
+						|| shorthand.matcher(inline).find()) {
 					offenders.add(fileName(template) + " carries a font of its own");
 				}
 				Matcher links = link.matcher(body);
@@ -196,6 +197,28 @@ class AdminLayoutWiringTest {
 		assertThat(Files.readString(ASSETS.resolve("style.css"), StandardCharsets.UTF_8))
 				.as("the copied style.css still names legacy's stack on body")
 				.contains("font-family: " + stack + ";");
+	}
+
+	private static final Pattern CSS_COMMENT = Pattern.compile("(?s)/\\*.*?\\*/");
+
+	private static final Pattern CSS_ESCAPE = Pattern.compile("\\\\(?:([0-9a-fA-F]{1,6})[ \\t\\r\\n\\f]?|([^\\r\\n\\f0-9a-fA-F]))");
+
+	/**
+	 * CSS as a parser reads it: comments removed and escapes decoded. {@code @import} followed by a
+	 * comment and then a string is an import, and so is {@code @\69mport}; Chromium loads both.
+	 * Removing a comment can join two tokens a browser keeps apart, which only ever adds an offender.
+	 */
+	static String cssTokens(String css) {
+		String uncommented = CSS_COMMENT.matcher(css).replaceAll("");
+		return CSS_ESCAPE.matcher(uncommented).replaceAll(escape -> {
+			if (escape.group(2) != null) {
+				return Matcher.quoteReplacement(escape.group(2));
+			}
+			int codePoint = Integer.parseInt(escape.group(1), 16);
+			boolean valid = codePoint > 0 && codePoint <= Character.MAX_CODE_POINT
+					&& !(codePoint >= Character.MIN_SURROGATE && codePoint <= Character.MAX_SURROGATE);
+			return Matcher.quoteReplacement(Character.toString(valid ? codePoint : 0xFFFD));
+		});
 	}
 
 	/**

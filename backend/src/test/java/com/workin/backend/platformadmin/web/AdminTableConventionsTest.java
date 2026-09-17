@@ -175,7 +175,14 @@ class AdminTableConventionsTest {
 	 * The label keys statusBadge.jte gives a status; a page that prints one in a badge is drawing a status.
 	 * A bare prefix counts: {@code "status_" + row.status()} is how statusBadge.jte itself builds the key.
 	 */
-	private static final Pattern STATUS_LABEL = Pattern.compile("\"((status|gender|method|role)_\\w*|yes|no)\"");
+	private static final Pattern STATUS_LABEL = Pattern.compile("\"((status|gender|method|role)_[^\"]*|yes|no)\"");
+
+	/**
+	 * A badge whose colour class is computed: {@code class="badge ${...}"}, {@code badge-${...}}, or a
+	 * {@code badge} class anywhere beside an expression. Only statusBadge.jte may choose a colour.
+	 */
+	private static final Pattern COMPUTED_BADGE = Pattern.compile(
+			"<span\\b[^>]*?(?<![\\w-])class=\"(?=[^\"]*(?<![\\w-])badge(?:-\\$\\{|(?![\\w-])))(?=[^\"]*\\$\\{)[^\"]*");
 
 	@Test
 	void everyStatusBadgeComesFromTheSharedPartial() throws IOException {
@@ -186,10 +193,9 @@ class AdminTableConventionsTest {
 				continue;
 			}
 			String source = Files.readString(template, StandardCharsets.UTF_8);
-			for (String line : source.split("\n")) {
-				if (line.contains("class=\"badge ${")) {
-					offenders.add(name + ": " + line.trim());
-				}
+			Matcher computed = COMPUTED_BADGE.matcher(source);
+			while (computed.find()) {
+				offenders.add(name + ": " + computed.group());
 			}
 			// A badge with a fixed colour is a count, a time or a value; one labelled with a status is
 			// a status badge that chose its own colour.

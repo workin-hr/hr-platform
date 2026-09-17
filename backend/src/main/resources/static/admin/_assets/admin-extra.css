@@ -335,10 +335,14 @@
 	gap: 8px;
 }
 
+/* Legacy writes border-radius:12px, and app-ui.css's `.content > div[style*="border-radius:12px"]`
+   then gives the card its larger radius and a shadow. That rule keys on the style attribute, so
+   the class carries what it computes to. */
 .emp-detail-card {
 	background: #fff;
 	border: 1px solid #e8e6e0;
-	border-radius: 12px;
+	border-radius: var(--app-radius-lg);
+	box-shadow: var(--app-shadow-sm);
 	padding: 20px;
 	margin-bottom: 20px;
 	display: grid;
