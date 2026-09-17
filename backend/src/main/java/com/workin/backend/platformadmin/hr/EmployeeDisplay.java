@@ -3,6 +3,7 @@ package com.workin.backend.platformadmin.hr;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
+import java.util.Locale;
 
 import com.workin.legacy.PhpMath;
 
@@ -107,20 +108,20 @@ public final class EmployeeDisplay {
 	}
 
 	/**
-	 * {@code dashboard_avatar_initials_html()}: the first letter of each of the
-	 * first two words.
+	 * {@code dashboard_avatar_initials_label()} ({@code includes/media.php:106-125}): the first
+	 * letter of each of the first two words, upper-cased, and {@code ?} for a blank name.
 	 *
 	 * <p>Rendered when an employee has no uploaded photo, which most have not.
 	 */
 	public static String initials(String name) {
 		if (name == null || name.isBlank()) {
-			return "؟";
+			return "?";
 		}
 		String[] words = name.trim().split("\\s+");
 		StringBuilder letters = new StringBuilder();
 		for (int at = 0; at < Math.min(2, words.length); at++) {
 			if (!words[at].isEmpty()) {
-				letters.appendCodePoint(words[at].codePointAt(0));
+				letters.append(Character.toString(words[at].codePointAt(0)).toUpperCase(Locale.ROOT));
 				letters.append(' ');
 			}
 		}

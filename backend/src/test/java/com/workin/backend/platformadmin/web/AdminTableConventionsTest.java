@@ -259,7 +259,12 @@ class AdminTableConventionsTest {
 	 * can still render the wrong label if a page passes the wrong status.
 	 *
 	 * <p>Empty means the page passes the row's own status, as legacy's {@code badge($row['status'])}
-	 * does.
+	 * does -- except complaints, where legacy draws no badge at all: it always renders an inline
+	 * status select ({@code complaints/page.php:195-205}), and the port's badge is its read-only
+	 * stand-in for a viewer who cannot write.
+	 *
+	 * <p>This checks the badges the port draws. It cannot see one legacy draws and the port does not;
+	 * that is each page's own end-to-end test.
 	 */
 	private static final Map<String, List<String>> LEGACY_STATUS = Map.ofEntries(
 			Map.entry("administrative-decisions.jte", List.of("active", "inactive")),
@@ -273,7 +278,9 @@ class AdminTableConventionsTest {
 			Map.entry("departments.jte", List.of("active", "suspended")),
 			// No legacy page: terminals and agents are on or off, and "inactive" says so.
 			Map.entry("devices.jte", List.of("active", "inactive", "active", "inactive", "active", "inactive")),
-			Map.entry("employee-detail.jte", List.of("1", "0")),
+			// The header's active flag and each penalty's applied-to-payroll flag (detail.php:61, :102); the
+			// request and advance tables pass the row's status (:95, :109).
+			Map.entry("employee-detail.jte", List.of("1", "0", "1", "0")),
 			Map.entry("employees.jte", List.of("active", "suspended")),
 			Map.entry("faqs.jte", List.of("active", "inactive", "active", "inactive")),
 			Map.entry("guide-videos.jte", List.of("active", "inactive")),
