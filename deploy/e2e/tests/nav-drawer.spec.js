@@ -33,8 +33,11 @@ const asset = (name) => readFileSync(
 function layoutSheets() {
 	const layout = readFileSync(new URL('../../../backend/src/main/jte/admin/layout.jte', import.meta.url), 'utf8');
 	const sheets = [...layout.matchAll(/<link rel="stylesheet" href="\/admin\/_assets\/([\w-]+\.css)">/g)].map((match) => match[1]);
-	if (!sheets.includes('app-ui.css') || !sheets.includes('admin-extra.css')) {
-		throw new Error(`layout.jte's stylesheet links did not read as expected: ${sheets}`);
+	// Every link but the per-page one, whose href is a JTE expression: one that
+	// gains a query string or an attribute must fail here, not drop its sheet.
+	const links = [...layout.matchAll(/<link\b[^>]*\brel="stylesheet"[^>]*>/g)].filter((link) => !link[0].includes('${'));
+	if (sheets.length !== links.length || !sheets.includes('app-ui.css') || !sheets.includes('admin-extra.css')) {
+		throw new Error(`layout.jte's stylesheet links did not read as expected: ${sheets} of ${links.length} links`);
 	}
 	return sheets;
 }

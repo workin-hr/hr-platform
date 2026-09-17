@@ -89,9 +89,9 @@
 								<td>${banner.titleAr() == null || banner.titleAr().isBlank() ? "—" : banner.titleAr()}</td>
 								<td class="text-muted">${banner.titleEn() == null || banner.titleEn().isBlank()
 									? "—" : banner.titleEn()}</td>
-								<td><span class="badge badge-blue">${banner.platform().stored()}</span></td>
+								<td><span class="badge badge-blue">${t.apply(banner.platform().labelKey())}</span></td>
 								<td>
-									${banner.buttonActionType().stored()}
+									${t.apply(banner.buttonActionType().labelKey())}
 									@if(banner.buttonActionValue() != null)
 										<span class="badge badge-gray">${banner.buttonActionValue()}</span>
 									@endif
@@ -147,62 +147,88 @@
 				<div class="modal" role="dialog" aria-modal="true" aria-labelledby="bannerModal-title">
 					<button type="button" class="modal-close"
 							aria-label="${t.apply("cancel")}">&times;</button>
-					<h2 id="bannerModal-title">${t.apply(editBanner == null ? "add" : "edit_banner")}</h2>
+					<h2 id="bannerModal-title">${t.apply(editBanner == null ? "add_banner" : "edit_banner")}</h2>
 					<form method="post" enctype="multipart/form-data">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="${editBanner == null ? "add" : "edit"}">
 					@if(editBanner != null)
 						<input type="hidden" name="id" value="${editBanner.id()}">
 					@endif
-					<div class="form-row">
-						<label>${t.apply("banner_image")}
-							<input type="file" name="image" accept="image/jpeg,image/png,image/webp"
-							       required="${editBanner == null}">
-							<small>${t.apply("banner_upload_hint")}</small></label>
-						<label>${t.apply("app_platform")}
-							<select name="platform">
-								@for(Faq.Platform p : Faq.Platform.values())
+					<%-- bannerModal (banners/page.php:111-232): its rows and its pairs in
+					     .banner-form-grid. Legacy writes the WhatsApp code as a select beside
+					     the number; here it is still a text field in its own row. Legacy's
+					     script shows the action value, the WhatsApp fields and the button
+					     labels only for the action type that uses them; here they stay
+					     visible, and the server ignores the ones the type does not use. --%>
+					<div class="form-row banner-form-row--image">
+						<label for="banner_image_file">${t.apply("banner_image")}</label>
+						<input type="file" id="banner_image_file" name="image" accept="image/jpeg,image/png,image/webp"
+						       required="${editBanner == null}">
+						<span class="form-hint">${t.apply("banner_upload_hint")}</span>
+					</div>
+					<div class="banner-form-grid">
+						<div class="form-row">
+							<label for="banner_sort">${t.apply("sort_order")}</label>
+							<input type="number" id="banner_sort" name="sortOrder"
+							       value="${editBanner == null ? "0" : String.valueOf(editBanner.sortOrder())}">
+						</div>
+						<div class="form-row">
+							<label for="banner_platform">${t.apply("app_platform")}</label>
+							<select id="banner_platform" name="platform">
+								@for(Faq.Platform p : Faq.Platform.offered())
 									<option value="${p.stored()}"
-											selected="${editBanner != null && editBanner.platform() == p}">${p.stored()}</option>
+									        selected="${editBanner != null && editBanner.platform() == p}">${t.apply(p.labelKey())}</option>
 								@endfor
-							</select></label>
-						<label>${t.apply("sort_order")}<input type="number" name="sortOrder"
-								value="${editBanner == null ? "0" : String.valueOf(editBanner.sortOrder())}"></label>
+							</select>
+						</div>
 					</div>
 					<div class="form-row">
-						<label>${t.apply("title_ar")}<input type="text" name="titleAr"
-								value="${editBanner == null ? "" : editBanner.titleAr()}"></label>
-						<label>${t.apply("title_en")}<input type="text" name="titleEn"
-								value="${editBanner == null ? "" : editBanner.titleEn()}"></label>
+						<label><input type="checkbox" name="isActive" value="1"
+						              checked="${editBanner == null || editBanner.active()}">
+							<span>${t.apply("status_active")}</span></label>
+					</div>
+					<div class="banner-form-grid">
+						<div class="form-row">
+							<label for="banner_title_ar">${t.apply("title_ar")}</label>
+							<input type="text" id="banner_title_ar" name="titleAr"
+							       value="${editBanner == null ? "" : editBanner.titleAr()}">
+						</div>
+						<div class="form-row">
+							<label for="banner_title_en">${t.apply("title_en")}</label>
+							<input type="text" id="banner_title_en" name="titleEn"
+							       value="${editBanner == null ? "" : editBanner.titleEn()}">
+						</div>
+					</div>
+					<div class="banner-form-grid">
+						<div class="form-row">
+							<label for="banner_desc_ar">${t.apply("description_ar")}</label>
+							<textarea id="banner_desc_ar" name="descriptionAr" rows="3">${editBanner == null ? "" : editBanner.descriptionAr()}</textarea>
+						</div>
+						<div class="form-row">
+							<label for="banner_desc_en">${t.apply("description_en")}</label>
+							<textarea id="banner_desc_en" name="descriptionEn" rows="3">${editBanner == null ? "" : editBanner.descriptionEn()}</textarea>
+						</div>
 					</div>
 					<div class="form-row">
-						<label>${t.apply("description_ar")}<textarea name="descriptionAr" rows="2">${editBanner == null ? "" : editBanner.descriptionAr()}</textarea></label>
-						<label>${t.apply("description_en")}<textarea name="descriptionEn" rows="2">${editBanner == null ? "" : editBanner.descriptionEn()}</textarea></label>
+						<label for="banner_action_type">${t.apply("button_action_type")}</label>
+						<select id="banner_action_type" name="actionType">
+							@for(Banner.Action a : Banner.Action.offered())
+								<option value="${a.stored()}"
+								        selected="${editBanner != null && editBanner.buttonActionType() == a}">${t.apply(a.labelKey())}</option>
+							@endfor
+						</select>
 					</div>
 					<div class="form-row">
-						<label>${t.apply("button_label_ar")}<input type="text" name="buttonLabelAr"
-								value="${editBanner == null ? "" : editBanner.buttonLabelAr()}"></label>
-						<label>${t.apply("button_label_en")}<input type="text" name="buttonLabelEn"
-								value="${editBanner == null ? "" : editBanner.buttonLabelEn()}"></label>
-					</div>
-					<div class="form-row">
-						<label>${t.apply("button_action_type")}
-							<select name="actionType">
-								@for(Banner.Action a : Banner.Action.values())
-									<option value="${a.stored()}"
-											selected="${editBanner != null && editBanner.buttonActionType() == a}">${a.stored()}</option>
-								@endfor
-							</select></label>
 						<%-- One field for the external URL and one datalist-backed field for
 						     the internal route. The route list is the allowlist itself, so
-						     the form offers only values the server will accept. --%>
-						<%-- Empty for a WhatsApp button, as legacy's edit leaves it: that
-						     number lives in the two inputs below, not here. --%>
-						<label>${t.apply("button_action_value")}
-							<input type="text" name="actionValue" list="bannerRoutes"
-							       value="${editBanner == null || editBanner.buttonActionValue() == null
-								       || whatsappParts != null ? "" : editBanner.buttonActionValue()}"
-							       placeholder="${t.apply("banner_action_url_placeholder")}"></label>
+						     the form offers only values the server will accept. Empty for a
+						     WhatsApp button, as legacy's edit leaves it: that number lives in
+						     the two fields below, not here. --%>
+						<label for="banner_action_value">${t.apply("button_action_value")}</label>
+						<input type="text" id="banner_action_value" name="actionValue" list="bannerRoutes"
+						       value="${editBanner == null || editBanner.buttonActionValue() == null
+							       || whatsappParts != null ? "" : editBanner.buttonActionValue()}"
+						       placeholder="${t.apply("banner_action_url_placeholder")}">
 						<datalist id="bannerRoutes">
 							@for(String route : routes)
 								<option value="${route}"></option>
@@ -212,21 +238,30 @@
 					<div class="form-row">
 						<%-- A stored WhatsApp number split back into the parts it was built
 						     from (D-230). Left empty, an unchanged save would store no number. --%>
-						<label>${t.apply("country_code")}
-							<input type="text" name="whatsappCountryCode" placeholder="+20"
-							       value="${whatsappParts == null ? "" : whatsappParts.countryCode()}"></label>
-						<label>${t.apply("banner_whatsapp_number")}<input type="text" name="whatsappPhone"
-								value="${whatsappParts == null ? "" : whatsappParts.local()}"></label>
-						<label>
-							<input type="checkbox" name="isActive" value="1"
-						       checked="${editBanner == null || editBanner.active()}">
-							<span>${t.apply("status_active")}</span></label>
+						<label for="banner_whatsapp_country">${t.apply("country_code")}</label>
+						<input type="text" id="banner_whatsapp_country" name="whatsappCountryCode" dir="ltr" placeholder="+20"
+						       value="${whatsappParts == null ? "" : whatsappParts.countryCode()}">
 					</div>
-					<%-- The save sits in a form-footer so it stays put while the
-					     fields scroll: .modal is the scroll container, and a form
-					     longer than the box otherwise pushes its own button out of
-					     reach. Legacy leaves it loose here and carries the same
-					     problem; the class is legacy's own. --%>
+					<div class="form-row">
+						<label for="banner_whatsapp_phone">${t.apply("banner_whatsapp_number")}</label>
+						<input type="text" id="banner_whatsapp_phone" name="whatsappPhone" inputmode="tel"
+						       placeholder="${t.apply("banner_action_whatsapp_placeholder")}"
+						       value="${whatsappParts == null ? "" : whatsappParts.local()}">
+					</div>
+					<div class="banner-form-grid">
+						<div class="form-row">
+							<label for="banner_btn_ar">${t.apply("button_label_ar")}</label>
+							<input type="text" id="banner_btn_ar" name="buttonLabelAr"
+							       value="${editBanner == null ? "" : editBanner.buttonLabelAr()}">
+						</div>
+						<div class="form-row">
+							<label for="banner_btn_en">${t.apply("button_label_en")}</label>
+							<input type="text" id="banner_btn_en" name="buttonLabelEn"
+							       value="${editBanner == null ? "" : editBanner.buttonLabelEn()}">
+						</div>
+					</div>
+					<%-- The save sits in a form-footer, as legacy's does, so it stays put
+					     while the fields scroll: .modal is the scroll container. --%>
 					<div class="form-footer">
 						<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
 					</div>

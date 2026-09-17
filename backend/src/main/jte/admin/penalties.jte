@@ -217,7 +217,7 @@
 						</div>
 						<div class="form-row">
 							<label for="pen_edit_reason">${t.apply("penalty_reason")}</label>
-							<input type="text" id="pen_edit_reason" name="reason" maxlength="500" data-dialog-field="reason">
+							<textarea id="pen_edit_reason" name="reason" rows="3" maxlength="500" data-dialog-field="reason"></textarea>
 						</div>
 					`)
 
@@ -265,7 +265,7 @@
 					</div>
 					<div class="form-row">
 						<label for="reason">${t.apply("penalty_reason")}</label>
-						<input type="text" id="reason" name="reason" maxlength="500">
+						<textarea id="reason" name="reason" rows="3" maxlength="500"></textarea>
 					</div>
 					</div>
 					<div class="form-footer">

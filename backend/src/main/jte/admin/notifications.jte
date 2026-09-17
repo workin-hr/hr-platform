@@ -177,26 +177,31 @@
 				<div class="modal" role="dialog" aria-modal="true" aria-labelledby="notifModal-title">
 					<button type="button" class="modal-close"
 							aria-label="${t.apply("cancel")}">&times;</button>
-					<h2 id="notifModal-title">${t.apply("nav_notifications")}</h2>
+					<h2 id="notifModal-title">${t.apply("send_notification")}</h2>
 					<form method="post"
 				      onsubmit="return confirm('${t.apply("confirm_broadcast")}')">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+					<%-- One field to a row, with notifModal's ids (notifications/page.php:233-296). --%>
 					<div class="form-row">
-						<label>${t.apply("notif_audience")}
-							<select name="audience" required>
-								@for(BroadcastAudience audience : audiences)
-									<option value="${audience.submitted()}">${t.apply(audience.labelKey())}</option>
-								@endfor
-							</select></label>
+						<label for="notif_audience">${t.apply("notif_audience")}</label>
+						<select id="notif_audience" name="audience" required>
+							@for(BroadcastAudience audience : audiences)
+								<option value="${audience.submitted()}">${t.apply(audience.labelKey())}</option>
+							@endfor
+						</select>
+					</div>
+					<div class="form-row">
 						<%-- Only read for the company audience; the server ignores it otherwise. --%>
-						<label>${t.apply("company")}
-							<input type="number" name="companyId" min="1"></label>
+						<label for="notif_company">${t.apply("company")}</label>
+						<input type="number" id="notif_company" name="companyId" min="1">
 					</div>
 					<div class="form-row">
-						<label>${t.apply("notif_title")}<input type="text" name="title" required></label>
+						<label for="notif_title">${t.apply("notif_title")}</label>
+						<input type="text" id="notif_title" name="title" required>
 					</div>
 					<div class="form-row">
-						<label>${t.apply("notif_body")}<textarea name="body" rows="3"></textarea></label>
+						<label for="notif_body">${t.apply("notif_body")}</label>
+						<textarea id="notif_body" name="body" rows="4"></textarea>
 					</div>
 					<div class="form-row">
 						<label>
@@ -204,11 +209,8 @@
 							<span>${t.apply("confirm_broadcast")} — ${t.apply("notif_audience_all_employees")}: ${reach}</span>
 						</label>
 					</div>
-					<%-- The save sits in a form-footer so it stays put while the
-					     fields scroll: .modal is the scroll container, and a form
-					     longer than the box otherwise pushes its own button out of
-					     reach. Legacy leaves it loose here and carries the same
-					     problem; the class is legacy's own. --%>
+					<%-- The send sits in a form-footer, as legacy's does, so it stays put
+					     while the fields scroll: .modal is the scroll container. --%>
 					<div class="form-footer">
 						<button type="submit" class="btn btn-blue">${t.apply("send_notification")}</button>
 					</div>
