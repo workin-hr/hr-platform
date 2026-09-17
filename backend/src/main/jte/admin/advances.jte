@@ -205,10 +205,12 @@
 			@template.admin.rowDialog(id = "advance-reject", action = "reject",
 					title = t.apply("reject"), csrfParameterName = csrfParameterName,
 					csrfToken = csrfToken, t = t, submitLabel = t.apply("reject"),
-					submitVariant = "danger",
+					submitVariant = "red",
 					fields = @`
-						<label>${t.apply("rejection_reason")}
-							<textarea name="rejection_reason" rows="3" required></textarea></label>
+						<div class="form-row">
+							<label for="adv_rejection_reason">${t.apply("rejection_reason")} *</label>
+							<textarea id="adv_rejection_reason" name="rejection_reason" rows="4" required></textarea>
+						</div>
 					`)
 		@endif
 		@if(canWrite)
@@ -224,16 +226,16 @@
 									source = "employee-picker-list", t = t, fromRow = true)
 						</div>
 						<div class="form-row">
-							<label>${t.apply("advance_amount")}
-								<input type="number" step="0.01" min="0" name="amount" required
-								       data-dialog-field="amount"></label>
-							<label>${t.apply("request_date")}
-								<input type="date" name="request_date" data-dialog-field="request_date"></label>
+							<label for="adv_edit_amount">${t.apply("advance_amount")}</label>
+							<input type="number" id="adv_edit_amount" step="0.01" min="0" name="amount" required data-dialog-field="amount">
 						</div>
 						<div class="form-row">
-							<label>${t.apply("advance_reason")}
-								<input type="text" name="reason" maxlength="500"
-								       data-dialog-field="reason"></label>
+							<label for="adv_edit_date">${t.apply("request_date")}</label>
+							<input type="date" id="adv_edit_date" name="request_date" data-dialog-field="request_date">
+						</div>
+						<div class="form-row">
+							<label for="adv_edit_reason">${t.apply("advance_reason")}</label>
+							<input type="text" id="adv_edit_reason" name="reason" maxlength="500" data-dialog-field="reason">
 						</div>
 					`)
 

@@ -402,7 +402,7 @@ class AdminAdvancesEndToEndTest {
 				.contains("data-dialog-employee_label=\"Aya Alpha (A100)\"");
 
 		String dialog = html.substring(html.indexOf("id=\"advance-edit\""));
-		dialog = dialog.substring(0, dialog.indexOf("</dialog>"));
+		dialog = dialog.substring(0, dialog.indexOf("</form>"));
 		assertThat(dialog)
 				.as("the row fills a picker, not a select that can only hold listed employees")
 				.doesNotContain("<select name=\"employee_id\"")

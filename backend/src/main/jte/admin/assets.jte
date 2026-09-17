@@ -189,16 +189,16 @@
 									source = "employee-picker-list", t = t, fromRow = true)
 						</div>
 						<div class="form-row">
-							<label>${t.apply("asset")}
-								<input type="text" name="asset_text" required maxlength="500"
-								       data-dialog-field="asset_text"></label>
+							<label for="ast_edit_text">${t.apply("asset")}</label>
+							<input type="text" id="ast_edit_text" name="asset_text" required maxlength="500" data-dialog-field="asset_text">
 						</div>
 						<div class="form-row">
-							<label>${t.apply("date")}
-								<input type="date" name="asset_date" data-dialog-field="asset_date"></label>
-							<label>${t.apply("to_date")}
-								<input type="date" name="asset_end_date"
-								       data-dialog-field="asset_end_date"></label>
+							<label for="ast_edit_date">${t.apply("date")}</label>
+							<input type="date" id="ast_edit_date" name="asset_date" data-dialog-field="asset_date">
+						</div>
+						<div class="form-row">
+							<label for="ast_edit_end_date">${t.apply("to_date")}</label>
+							<input type="date" id="ast_edit_end_date" name="asset_end_date" data-dialog-field="asset_end_date">
 						</div>
 					`)
 

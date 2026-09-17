@@ -4,6 +4,7 @@
 @import com.workin.backend.platformadmin.hr.EmployeeDisplay
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
+@import com.workin.backend.platformadmin.web.PhoneCountryChoices
 @import java.util.List
 @import java.util.function.Function
 @param String csrfParameterName
@@ -29,6 +30,11 @@
 @param boolean formOpen = false
 @param long editCompanyId = 0
 @param EditableCompany editCompany = null
+@param java.util.function.Supplier<PhoneCountryChoices> phoneCountries
+<%-- Read only when the form below renders, which it does only with actions on. --%>
+!{var phone = actionsEnabled ? phoneCountries.get() : PhoneCountryChoices.NONE;}
+<%-- ($row['country_code'] ?? '+20') === $code: an add, or a company with no code, selects +20. --%>
+!{String selectedCode = editCompany == null || editCompany.countryCode() == null ? "+20" : editCompany.countryCode();}
 <%-- dashboard/pages/companies/page.php. --%>
 @template.admin.layout(
 	title = t.apply("nav_companies"),
@@ -43,6 +49,7 @@
 	flashType = flashType,
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css", "company-add.css"),
+	phoneCountryRules = phone.rules(),
 	body = @`
 		@if(errorKey != null)
 			<div class="flash flash-error">${t.apply(errorKey)}</div>
@@ -194,11 +201,13 @@
 					formAction = "/admin/companies/action",
 					title = t.apply("reject"), csrfParameterName = csrfParameterName,
 					csrfToken = csrfToken, t = t, submitLabel = t.apply("reject"),
-					submitVariant = "danger",
+					submitVariant = "red", cancelLabel = t.apply("cancel"),
 					fields = @`
 						<input type="hidden" name="companyId" data-dialog-field="companyId">
-						<label>${t.apply("rejection_reason")}
-							<textarea name="reason" rows="3" required></textarea></label>
+						<div class="form-row">
+							<label for="company_reject_reason">${t.apply("rejection_reason")}</label>
+							<textarea id="company_reject_reason" name="reason" rows="3" required></textarea>
+						</div>
 					`)
 
 			<%-- _company_form.php, serving add and edit as it does. Opened by the
@@ -212,7 +221,8 @@
 							aria-label="${t.apply("cancel")}">&times;</button>
 					<h2 id="companyModal-title">${t.apply(editCompanyId > 0 ? "edit" : "add_company")}</h2>
 					<form method="POST" action="/admin/companies/save"
-							enctype="multipart/form-data">
+							enctype="multipart/form-data"
+							data-invalid-phone-msg="${t.apply("error_invalid_phone")}">
 						<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 						<input type="hidden" name="action"
 						       value="${editCompanyId > 0 ? "save_edit" : "add"}">
@@ -235,12 +245,17 @@
 							</div>
 							<div class="form-row">
 								<label for="co_code">${t.apply("country_code")}</label>
-								<input type="text" id="co_code" name="country_code" dir="ltr"
-								       value="${editCompany == null ? "+20" : editCompany.countryCode()}">
+								<select id="co_code" name="country_code" required>
+									@for(PhoneCountryChoices.Option country : phone.options())
+										<option value="${country.code()}"
+										        selected="${country.code().equals(selectedCode)}">${country.label()}</option>
+									@endfor
+								</select>
 							</div>
 							<div class="form-row">
 								<label for="co_phone">${t.apply("phone")}</label>
-								<input type="text" id="co_phone" name="phone" dir="ltr" required
+								<input type="tel" id="co_phone" name="phone" dir="ltr" required
+								       autocomplete="tel" inputmode="numeric" placeholder="${t.apply("phone")}"
 								       value="${editCompany == null ? "" : editCompany.phone()}">
 							</div>
 							<div class="form-row company-add-span-2">

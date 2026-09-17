@@ -9,13 +9,21 @@
   const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), '
     + 'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+  // The first field inside the window, never its close button. Scoped per
+  // alternative: prefixing '.modal ' and suffixing ':not(.modal-close)' onto the
+  // whole comma list touched only its first and last selectors, so the unscoped
+  // `button:not([disabled])` matched the close button, which comes first in
+  // every window, and every modal opened with focus on its ×.
+  const FIELD = FOCUSABLE.split(',')
+    .map(function (selector) { return '.modal ' + selector.trim() + ':not(.modal-close)'; })
+    .join(', ');
+
   let opener = null;
 
   function open(modal) {
     opener = document.activeElement;
     modal.setAttribute('aria-hidden', 'false');
-    const first = modal.querySelector('.modal ' + FOCUSABLE + ':not(.modal-close)')
-      || modal.querySelector('.modal-close');
+    const first = modal.querySelector(FIELD) || modal.querySelector('.modal-close');
     if (first) {
       first.focus();
     }

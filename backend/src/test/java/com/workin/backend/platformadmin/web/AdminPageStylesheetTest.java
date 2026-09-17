@@ -58,7 +58,7 @@ class AdminPageStylesheetTest {
 	 * nothing styles them. Removing one here would be a divergence, not a fix.
 	 */
 	private static final Set<String> UNSTYLED_IN_LEGACY_TOO = Set.of(
-			"account-form", "org-form", "pager", "row-dialog__form",
+			"account-form", "org-form", "pager",
 			"checkbox-grid", "checkbox-item", "setting-templates-tab",
 			"settings-form", "home-panel-icon--clock", "home-panel-icon--people",
 			"emp-checkbox-label",

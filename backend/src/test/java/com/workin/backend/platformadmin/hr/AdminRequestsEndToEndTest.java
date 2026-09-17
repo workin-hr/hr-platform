@@ -124,6 +124,52 @@ class AdminRequestsEndToEndTest {
 
 	}
 
+	/**
+	 * hr_request_filter_form_attrs() and hr_render_request_type_filter_field()
+	 * (hr_list_helper.php:970-999): the toolbar carries every company's active request types for
+	 * request-filter-cascade.js, and the type select lists one company's types. With no company
+	 * chosen it asks for one, because a type is one company's row.
+	 */
+	@Test
+	void theRequestTypeFilterListsOneCompanysTypesAndAsksForACompanyWithoutOne() {
+		this.jdbc.update("UPDATE request_types SET is_active = 0 WHERE id = ?",
+				createType(this.companyB, "Retired", false, false));
+
+		String unfiltered = body("/admin/requests");
+		Matcher toolbar = Pattern.compile("<form method=\"GET\" class=\"toolbar-form toolbar-form--labeled\"([^>]*)>")
+				.matcher(unfiltered);
+		assertThat(toolbar.find()).as("the toolbar's filter form").isTrue();
+		assertThat(toolbar.group(1))
+				.contains(" data-request-filters=\"1\"")
+				.contains(" data-request-types-by-company=\"" + ("{\"" + this.companyA + "\":["
+						+ "{\"id\":" + this.deductingTypeA + ",\"name\":\"Annual\"},"
+						+ "{\"id\":" + this.plainTypeA + ",\"name\":\"Unpaid\"}],"
+						+ "\"" + this.companyB + "\":[{\"id\":" + this.typeB + ",\"name\":\"Annual\"}]}")
+						.replace("\"", "&#34;") + "\"")
+				.contains(" data-selected-request-type=\"0\"");
+		assertThat(typeSelect(unfiltered))
+				.as("no company: the select is disabled and asks for one")
+				.startsWith("<select id=\"rq_type\" name=\"type_id\" data-filter-request-type disabled>")
+				.contains("<option value=\"0\" disabled>اختر الشركة أولاً</option>")
+				.doesNotContain("Annual").doesNotContain("Unpaid");
+		assertThat(unfiltered).contains("<script src=\"/admin/_assets/request-filter-cascade.js\"></script>");
+
+		String filtered = body("/admin/requests?company_id=" + this.companyA + "&type_id=" + this.plainTypeA);
+		assertThat(typeSelect(filtered))
+				.startsWith("<select id=\"rq_type\" name=\"type_id\" data-filter-request-type>")
+				.contains("<option value=\"" + this.deductingTypeA + "\">Annual</option>")
+				.contains("<option value=\"" + this.plainTypeA + "\" selected>Unpaid</option>")
+				.doesNotContain("value=\"" + this.typeB + "\"")
+				.doesNotContain("disabled");
+		assertThat(filtered).contains(" data-selected-request-type=\"" + this.plainTypeA + "\"");
+	}
+
+	private static String typeSelect(String html) {
+		Matcher select = Pattern.compile("<select id=\"rq_type\".*?</select>", Pattern.DOTALL).matcher(html);
+		assertThat(select.find()).as("the request type filter").isTrue();
+		return select.group();
+	}
+
 	@Test
 	void approvingAPlainRequestChangesOnlyItsStatus() {
 		long id = seedRequest(this.employeeA, this.plainTypeA, "2026-03-02", "2026-03-04");
@@ -347,9 +393,9 @@ class AdminRequestsEndToEndTest {
 				.containsPattern("data-dialog=\"request-reject\"\\s+data-dialog-id=\"" + id + "\"");
 		assertThat(menu).as("and does not post from the menu").doesNotContain("value=\"reject\"");
 
-		int dialog = html.indexOf("<dialog class=\"row-dialog\" id=\"request-reject\"");
+		int dialog = html.indexOf("<div class=\"modal-bg\" id=\"request-reject\"");
 		assertThat(dialog).as("the reject dialog renders").isPositive();
-		String markup = html.substring(dialog, html.indexOf("</dialog>", dialog));
+		String markup = html.substring(dialog, html.indexOf("</form>", dialog));
 		assertThat(markup).contains("name=\"action\" value=\"reject\"");
 		java.util.regex.Matcher comment = java.util.regex.Pattern.compile("<textarea\\b[^>]*name=\"comment\"[^>]*>").matcher(markup);
 		assertThat(comment.find()).as("a reply box").isTrue();

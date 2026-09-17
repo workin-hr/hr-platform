@@ -15,6 +15,7 @@
 @param DashboardPage<AttendanceRecord.AggregateRow> aggregateResult
 @param DashboardListFilters filters
 @param java.util.function.Supplier<java.util.List<com.workin.backend.platformadmin.org.ActiveCompanies.CompanyOption>> companyFilterOptions
+@param java.util.function.Supplier<com.workin.backend.platformadmin.web.OrgFilterCascade> orgFilterCascade
 @param List<LeaveBalance.EmployeeOption> employeeOptions
 @param List<AttendanceRecord.ExceptionTypeOption> exceptionTypes
 @param List<AttendanceRecord.ExceptionTypeOption> editExceptionTypes
@@ -76,7 +77,21 @@
 		@endif
 
 		<div class="toolbar page-toolbar page-toolbar-filters">
-			<form method="GET" class="toolbar-form toolbar-form--labeled">
+			<%-- org_filter_cascade_form_attrs() (org_helper.php:450-466), for org-filter-cascade.js. --%>
+			!{var cascade = orgFilterCascade.get();}
+			<form method="GET" class="toolbar-form toolbar-form--labeled"
+			      data-org-filters="${cascade.attached() ? "1" : null}"
+			      data-branches-by-company="${cascade.branchesByCompany()}"
+			      data-departments-by-company="${cascade.departmentsByCompany()}"
+			      data-departments-by-branch="${cascade.departmentsByBranch()}"
+			      data-job-titles-by-dept="${cascade.jobTitlesByDepartment()}"
+			      data-filter-all="${t.apply("filter_all")}"
+			      data-select-company-msg="${t.apply("filter_all_companies")}"
+			      data-pick-branch-first-msg="${t.apply("pick_branch")}"
+			      data-pick-dept-first-msg="${t.apply("pick_department")}"
+			      data-selected-branch="${filters.filterBranch()}"
+			      data-selected-department="${filters.filterDepartment()}"
+			      data-selected-job-title="0">
 				@if(!session.isScopedToOneCompany())
 					@template.admin.companyFilterField(companyId = filters.companyId(), companies = companyFilterOptions, t = t)
 				@endif
@@ -86,7 +101,7 @@
 				</div>
 				<div class="filter-field">
 					<label class="filter-field__label" for="at_branch">${t.apply("branch")}</label>
-					<select id="at_branch" name="filter_branch">
+					<select id="at_branch" name="filter_branch" data-filter-branch>
 						<option value="0">${t.apply("filter_all")}</option>
 						@for(Employee.Option option : branchOptions)
 							<option value="${option.id()}"
@@ -96,7 +111,7 @@
 				</div>
 				<div class="filter-field">
 					<label class="filter-field__label" for="at_dept">${t.apply("department")}</label>
-					<select id="at_dept" name="filter_department">
+					<select id="at_dept" name="filter_department" data-filter-department>
 						<option value="0">${t.apply("filter_all")}</option>
 						@for(Employee.Option option : departmentOptions)
 							<option value="${option.id()}"
@@ -282,24 +297,24 @@
 					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
 					fields = @`
 						<div class="form-row">
-							<label>${t.apply("att_check_in_time")}
-								<input type="datetime-local" name="check_in" required
-								       data-dialog-field="check_in"></label>
-							<label>${t.apply("att_check_out_time")}
-								<input type="datetime-local" name="check_out"
-								       data-dialog-field="check_out"></label>
+							<label for="att_edit_check_in">${t.apply("att_check_in_time")}</label>
+							<input type="datetime-local" id="att_edit_check_in" name="check_in" required data-dialog-field="check_in">
+						</div>
+						<div class="form-row">
+							<label for="att_edit_check_out">${t.apply("att_check_out_time")}</label>
+							<input type="datetime-local" id="att_edit_check_out" name="check_out" data-dialog-field="check_out">
 						</div>
 						<div class="form-row">
 							@if(editChoosesType)
-							<label>${t.apply("exception")}
-								<select name="exception_type_id" data-dialog-field="exception_type_id">
-									<option value="0">—</option>
-									<%-- Active types, plus a retired type a listed row carries, marked. row-dialog.js
-									     disables a retired option unless the opened row already carries it. --%>
-									@for(AttendanceRecord.ExceptionTypeOption option : editExceptionTypes)
-										<option value="${option.id()}" data-dialog-current-only="${option.active() ? null : "1"}">${option.name()}@if(!option.active()) — ${t.apply("status_inactive")}@endif</option>
-									@endfor
-								</select></label>
+							<label for="att_edit_exception">${t.apply("exception")}</label>
+							<select name="exception_type_id" id="att_edit_exception" data-dialog-field="exception_type_id">
+								<option value="0">—</option>
+								<%-- Active types, plus a retired type a listed row carries, marked. row-dialog.js
+								     disables a retired option unless the opened row already carries it. --%>
+								@for(AttendanceRecord.ExceptionTypeOption option : editExceptionTypes)
+									<option value="${option.id()}" data-dialog-current-only="${option.active() ? null : "1"}">${option.name()}@if(!option.active()) — ${t.apply("status_inactive")}@endif</option>
+								@endfor
+							</select>
 							@else
 							<%-- No company chosen: every company's rows are listed and a type belongs to one
 							     company, so the row keeps its type and changing it needs a company. --%>

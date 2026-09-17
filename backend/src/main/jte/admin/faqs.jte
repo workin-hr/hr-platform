@@ -209,19 +209,22 @@
 					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
 					fields = @`
 						<div class="form-row">
-							<label>${t.apply("name_ar")}
-								<input type="text" name="nameAr" required data-dialog-field="nameAr"></label>
-							<label>${t.apply("name_en")}
-								<input type="text" name="nameEn" required data-dialog-field="nameEn"></label>
+							<label for="faq_cat_edit_name_ar">${t.apply("name_ar")}</label>
+							<input type="text" id="faq_cat_edit_name_ar" name="nameAr" required data-dialog-field="nameAr">
 						</div>
 						<div class="form-row">
-							<label>${t.apply("sort_order")}
-								<input type="number" name="sortOrder" data-dialog-field="sortOrder"></label>
-							<%-- Ticked from the row, as legacy's edit modal sets it
-							     (faqs/page.php:260). Rendered ticked, it re-activated
-							     every inactive category saved from this dialog. --%>
-							<label><input type="checkbox" name="isActive" value="1"
-									data-dialog-field="isActive">
+							<label for="faq_cat_edit_name_en">${t.apply("name_en")}</label>
+							<input type="text" id="faq_cat_edit_name_en" name="nameEn" required data-dialog-field="nameEn">
+						</div>
+						<div class="form-row">
+							<label for="faq_cat_edit_sort">${t.apply("sort_order")}</label>
+							<input type="number" id="faq_cat_edit_sort" name="sortOrder" data-dialog-field="sortOrder">
+						</div>
+						<%-- Ticked from the row, as legacy's edit modal sets it
+						     (faqs/page.php:260). Rendered ticked, it re-activated
+						     every inactive category saved from this dialog. --%>
+						<div class="form-row">
+							<label><input type="checkbox" name="isActive" value="1" data-dialog-field="isActive">
 								<span>${t.apply("status_active")}</span></label>
 						</div>
 					`)
@@ -231,38 +234,45 @@
 					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
 					fields = @`
 						<div class="form-row">
-							<label>${t.apply("faq_category")}
-								<select name="categoryId" required data-dialog-field="categoryId">
-									@for(Faq.Category category : categories)
-										<option value="${category.id()}">${arabic ? category.nameAr() : category.nameEn()}</option>
-									@endfor
-								</select></label>
-							<label>${t.apply("app_platform")}
-								<select name="platform" data-dialog-field="platform">
-									@for(Faq.Platform p : Faq.Platform.values())
-										<option value="${p.stored()}">${p.stored()}</option>
-									@endfor
-								</select></label>
-							<label>${t.apply("sort_order")}
-								<input type="number" name="sortOrder" data-dialog-field="sortOrder"></label>
+							<label for="faq_item_edit_category">${t.apply("faq_category")}</label>
+							<select id="faq_item_edit_category" name="categoryId" required data-dialog-field="categoryId">
+								@for(Faq.Category category : categories)
+									<option value="${category.id()}">${arabic ? category.nameAr() : category.nameEn()}</option>
+								@endfor
+							</select>
 						</div>
 						<div class="form-row">
-							<label>${t.apply("question_ar")}
-								<input type="text" name="questionAr" required data-dialog-field="questionAr"></label>
-							<label>${t.apply("question_en")}
-								<input type="text" name="questionEn" required data-dialog-field="questionEn"></label>
+							<label for="faq_item_edit_q_ar">${t.apply("question_ar")}</label>
+							<input type="text" id="faq_item_edit_q_ar" name="questionAr" required data-dialog-field="questionAr">
 						</div>
 						<div class="form-row">
-							<label>${t.apply("answer_ar")}
-								<textarea name="answerAr" rows="3" required data-dialog-field="answerAr"></textarea></label>
-							<label>${t.apply("answer_en")}
-								<textarea name="answerEn" rows="3" required data-dialog-field="answerEn"></textarea></label>
+							<label for="faq_item_edit_q_en">${t.apply("question_en")}</label>
+							<input type="text" id="faq_item_edit_q_en" name="questionEn" required data-dialog-field="questionEn">
 						</div>
 						<div class="form-row">
-							<%-- Ticked from the row, as legacy's edit modal sets it
-							     (faqs/page.php:274). --%>
-							<label><input type="checkbox" name="isActive" value="1"
-									data-dialog-field="isActive">
+							<label for="faq_item_edit_a_ar">${t.apply("answer_ar")}</label>
+							<textarea id="faq_item_edit_a_ar" name="answerAr" rows="3" required data-dialog-field="answerAr"></textarea>
+						</div>
+						<div class="form-row">
+							<label for="faq_item_edit_a_en">${t.apply("answer_en")}</label>
+							<textarea id="faq_item_edit_a_en" name="answerEn" rows="3" required data-dialog-field="answerEn"></textarea>
+						</div>
+						<div class="form-row">
+							<label for="faq_item_edit_platform">${t.apply("app_platform")}</label>
+							<select id="faq_item_edit_platform" name="platform" data-dialog-field="platform">
+								@for(Faq.Platform p : Faq.Platform.values())
+									<option value="${p.stored()}">${p.stored()}</option>
+								@endfor
+							</select>
+						</div>
+						<div class="form-row">
+							<label for="faq_item_edit_sort">${t.apply("sort_order")}</label>
+							<input type="number" id="faq_item_edit_sort" name="sortOrder" data-dialog-field="sortOrder">
+						</div>
+						<%-- Ticked from the row, as legacy's edit modal sets it
+						     (faqs/page.php:274). --%>
+						<div class="form-row">
+							<label><input type="checkbox" name="isActive" value="1" data-dialog-field="isActive">
 								<span>${t.apply("status_active")}</span></label>
 						</div>
 					`)

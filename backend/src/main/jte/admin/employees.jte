@@ -6,12 +6,15 @@
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
+@import com.workin.backend.platformadmin.web.PhoneCountryChoices
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
 @param DashboardPage<Employee> result
 @param DashboardListFilters filters
 @param java.util.function.Supplier<java.util.List<com.workin.backend.platformadmin.org.ActiveCompanies.CompanyOption>> companyFilterOptions
+@param java.util.function.Supplier<com.workin.backend.platformadmin.web.OrgFilterCascade> orgFilterCascade
+@param java.util.function.Supplier<PhoneCountryChoices> phoneCountries
 @param List<Employee.Option> branchOptions
 @param List<Employee.Option> departmentOptions
 @param List<Employee.Option> jobTitleOptions
@@ -51,6 +54,8 @@
 !{boolean canWrite = canManage && actionsEnabled;}
 !{boolean arabic = "ar".equals(lang);}
 !{int colCount = showCompanyColumn ? 14 : 13;}
+<%-- Read only when the form below renders; the list alone takes no phone. --%>
+!{var phone = addOpen || editRow != null ? phoneCountries.get() : PhoneCountryChoices.NONE;}
 <%-- dashboard/pages/employees/page.php. --%>
 @template.admin.layout(
 	title = t.apply("employees"),
@@ -66,6 +71,7 @@
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css", "company-add.css", "org-form.css", "employee-form.css"),
 	pageScripts = java.util.List.of("employee-form.js", "employee-shift.js"),
+	phoneCountryRules = phone.rules(),
 	body = @`
 		@if(errorKey != null)
 			<div class="flash flash-error">${t.apply(errorKey)}</div>
@@ -75,7 +81,21 @@
 		@endif
 
 		<div class="toolbar page-toolbar page-toolbar-filters">
-			<form method="GET" class="toolbar-form toolbar-form--labeled">
+			<%-- org_filter_cascade_form_attrs() (org_helper.php:450-466), for org-filter-cascade.js. --%>
+			!{var cascade = orgFilterCascade.get();}
+			<form method="GET" class="toolbar-form toolbar-form--labeled"
+			      data-org-filters="${cascade.attached() ? "1" : null}"
+			      data-branches-by-company="${cascade.branchesByCompany()}"
+			      data-departments-by-company="${cascade.departmentsByCompany()}"
+			      data-departments-by-branch="${cascade.departmentsByBranch()}"
+			      data-job-titles-by-dept="${cascade.jobTitlesByDepartment()}"
+			      data-filter-all="${t.apply("filter_all")}"
+			      data-select-company-msg="${t.apply("filter_all_companies")}"
+			      data-pick-branch-first-msg="${t.apply("pick_branch")}"
+			      data-pick-dept-first-msg="${t.apply("pick_department")}"
+			      data-selected-branch="${filterBranch}"
+			      data-selected-department="${filterDepartment}"
+			      data-selected-job-title="${filterJobTitle}">
 				@if(!session.isScopedToOneCompany())
 					@template.admin.companyFilterField(companyId = filters.companyId(), companies = companyFilterOptions, t = t)
 				@endif
@@ -96,7 +116,7 @@
 				</div>
 				<div class="filter-field">
 					<label class="filter-field__label" for="emp_branch_f">${t.apply("branch")}</label>
-					<select id="emp_branch_f" name="filter_branch">
+					<select id="emp_branch_f" name="filter_branch" data-filter-branch>
 						<option value="0">${t.apply("filter_all")}</option>
 						@for(Employee.Option option : branchOptions)
 							<option value="${option.id()}" selected="${filterBranch == option.id()}">${option.label()}</option>
@@ -105,7 +125,7 @@
 				</div>
 				<div class="filter-field">
 					<label class="filter-field__label" for="emp_dept_f">${t.apply("department")}</label>
-					<select id="emp_dept_f" name="filter_department">
+					<select id="emp_dept_f" name="filter_department" data-filter-department>
 						<option value="0">${t.apply("filter_all")}</option>
 						@for(Employee.Option option : departmentOptions)
 							<option value="${option.id()}" selected="${filterDepartment == option.id()}">${option.label()}</option>
@@ -114,7 +134,7 @@
 				</div>
 				<div class="filter-field">
 					<label class="filter-field__label" for="emp_job_f">${t.apply("job_title")}</label>
-					<select id="emp_job_f" name="filter_job_title">
+					<select id="emp_job_f" name="filter_job_title" data-filter-job-title>
 						<option value="0">${t.apply("filter_all")}</option>
 						@for(Employee.Option option : jobTitleOptions)
 							<option value="${option.id()}" selected="${filterJobTitle == option.id()}">${option.label()}</option>
@@ -144,9 +164,7 @@
 					<%-- _employee_form.php: employee-form.js, copied from legacy, fills the
 					     branch, department and job title selects from these maps, which carry
 					     only the companies this form may use (R-051); employee-shift.js fills
-					     the shift select when the form names its company (D-250). Legacy's
-					     data-invalid-phone-msg is left out: only phone-form-bind.js reads it,
-					     and this page does not load it. --%>
+					     the shift select when the form names its company (D-250). --%>
 					<form method="POST" data-employee-form
 					      data-branches-by-company="${branchesByCompany}"
 					      data-departments-by-company="${departmentsByCompany}"
@@ -157,6 +175,8 @@
 					      data-select-company-msg="${t.apply("select_company_first_branches")}"
 					      data-select-branch-msg="${t.apply("pick_branch")}"
 					      data-select-dept-msg="${t.apply("pick_department")}"
+					      data-invalid-phone-msg="${t.apply("error_invalid_phone")}"
+					      data-phone-keep-untouched="${editRow != null}"
 					      data-selected-company="${editRow == null ? filters.companyId() : editRow.companyId()}"
 					      data-selected-branch="${editRow == null ? 0L : editRow.branchId()}"
 					      data-selected-department="${editRow == null ? 0L : editRow.departmentId()}"
@@ -268,16 +288,28 @@
 						       value="${editRow == null ? "" : editRow.shiftEffectiveFromInput()}">
 					</div>
 					<div class="form-row">
-						<label for="phone">${t.apply("phone")}</label>
-						<input type="text" id="phone" name="phone"
-						       value="${editRow == null ? "" : editRow.phone()}">
+						<%-- Before the phone, as _employee_form.php has it. Required
+						     only when a phone is given, and checked before the number
+						     itself is judged. A stored code no active country has is
+						     listed too, labelled as phone_country_option_label() labels
+						     an unknown code, so an unchanged save keeps it: legacy's
+						     select drops it. --%>
+						<label for="country_code">${t.apply("country_code")}</label>
+						<select id="country_code" name="country_code">
+							<option value="">${t.apply("optional")}</option>
+							@if(editRow != null && editRow.countryCode() != null && !editRow.countryCode().isEmpty() && !phone.offers(editRow.countryCode()))
+								<option value="${editRow.countryCode()}" selected>${editRow.countryCode()}</option>
+							@endif
+							@for(PhoneCountryChoices.Option country : phone.options())
+								<option value="${country.code()}"
+								        selected="${editRow != null && country.code().equals(editRow.countryCode())}">${country.label()}</option>
+							@endfor
+						</select>
 					</div>
 					<div class="form-row">
-						<%-- Required only when a phone is given, and checked
-						     before the number itself is judged. --%>
-						<label for="country_code">${t.apply("country_code")}</label>
-						<input type="text" id="country_code" name="country_code"
-						       value="${editRow == null ? "" : editRow.countryCode()}">
+						<label for="phone">${t.apply("phone")}</label>
+						<input type="text" id="phone" name="phone" inputmode="tel" autocomplete="off"
+						       value="${editRow == null ? "" : editRow.phone()}">
 					</div>
 					<div class="form-row">
 						<label for="password">${t.apply("password")}</label>

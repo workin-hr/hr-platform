@@ -126,6 +126,9 @@ class AdminEmployeesEndToEndTest {
 		this.jdbc.update("DELETE FROM departments");
 		this.jdbc.update("DELETE FROM branches");
 		this.jdbc.update("DELETE FROM platform_admin_audit_events");
+		// seedCountries()' rows. This database has no other country, so a leftover one would
+		// become the dial code every other code resolves to, and +20 would stop being Egypt.
+		this.jdbc.update("DELETE FROM phone_countries WHERE country_code IN ('+881', '+882')");
 
 		String phone = "+2101" + System.nanoTime() % 100_000_000L;
 		// One administrator, one password (ADR-0018): the bootstrap provisioned
@@ -164,6 +167,51 @@ class AdminEmployeesEndToEndTest {
 		String html = body("/admin/employees");
 		assertThat(html).contains("1001", "Aya", "Alpha HQ", "Alpha Ops", "Alpha Fitter",
 				"Alpha Day");
+	}
+
+	/**
+	 * org_filter_cascade_form_attrs() (org_helper.php:450-466): the toolbar form carries, for
+	 * org-filter-cascade.js, every company's active branches, each department under the branches
+	 * it is linked to and under its company, each job title under its department, and the
+	 * filtered branch, department and job title to keep -- every company's while the list is
+	 * filtered to one, because the company select changes without a request.
+	 */
+	@Test
+	void theToolbarCarriesEveryCompanysOrgRowsForTheFilterCascade() {
+		long quoted = createBranch(this.companyA, "Alpha \"North\" <2>", true);
+		createBranch(this.companyA, "Alpha Closed", false);
+		this.jdbc.update("INSERT INTO department_branches (department_id, branch_id) VALUES (?, ?)",
+				this.departmentA, quoted);
+		this.jdbc.update("UPDATE job_titles SET department_id = ? WHERE id = ?", this.departmentA, this.jobTitleA);
+
+		String html = body("/admin/employees?company_id=" + this.companyA + "&filter_branch=" + quoted
+				+ "&filter_department=" + this.departmentA + "&filter_job_title=" + this.jobTitleA);
+		Matcher toolbar = TOOLBAR_FORM.matcher(html);
+		assertThat(toolbar.find()).as("the toolbar's filter form").isTrue();
+		String form = toolbar.group(1);
+
+		assertThat(hasAttribute(form, "data-org-filters")).isTrue();
+		assertThat(attribute(form, "data-branches-by-company")).isEqualTo("{\"" + this.companyA + "\":["
+				+ "{\"id\":" + quoted + ",\"name\":\"Alpha \\\"North\\\" <2>\"},"
+				+ "{\"id\":" + this.branchA + ",\"name\":\"Alpha HQ\"}],"
+				+ "\"" + this.companyB + "\":[{\"id\":" + this.branchB + ",\"name\":\"Beta HQ\"}]}");
+		assertThat(attribute(form, "data-departments-by-company")).isEqualTo("{\"" + this.companyA + "\":["
+				+ "{\"id\":" + this.departmentA + ",\"name\":\"Alpha Ops\"}],"
+				+ "\"" + this.companyB + "\":[{\"id\":" + this.departmentB + ",\"name\":\"Beta Ops\"}]}");
+		assertThat(attribute(form, "data-departments-by-branch")).isEqualTo("{\"" + quoted + "\":["
+				+ "{\"id\":" + this.departmentA + ",\"name\":\"Alpha Ops\"}]}");
+		assertThat(attribute(form, "data-job-titles-by-dept")).isEqualTo("{\"" + this.departmentA + "\":["
+				+ "{\"id\":" + this.jobTitleA + ",\"name\":\"Alpha Fitter\"}]}");
+		assertThat(attribute(form, "data-selected-branch")).isEqualTo(String.valueOf(quoted));
+		assertThat(attribute(form, "data-selected-department")).isEqualTo(String.valueOf(this.departmentA));
+		assertThat(attribute(form, "data-selected-job-title")).isEqualTo(String.valueOf(this.jobTitleA));
+		assertThat(attribute(form, "data-filter-all")).isEqualTo("الكل");
+
+		assertThat(html)
+				.contains("<select id=\"emp_branch_f\" name=\"filter_branch\" data-filter-branch>")
+				.contains("<select id=\"emp_dept_f\" name=\"filter_department\" data-filter-department>")
+				.contains("<select id=\"emp_job_f\" name=\"filter_job_title\" data-filter-job-title>")
+				.contains("<script src=\"/admin/_assets/org-filter-cascade.js\"></script>");
 	}
 
 	@Test
@@ -691,9 +739,16 @@ class AdminEmployeesEndToEndTest {
 
 		String html = get("/admin/employees?company_id=0&action=edit&id=" + id, this.cookie)
 				.getBody();
+		// Except the toolbar's filter cascade, which carries every company's rows for an
+		// administrator, whose reach they are, because its company select changes them without
+		// a request (D-260). Nothing else on the page may name another company's.
+		Matcher toolbar = TOOLBAR_FORM.matcher(html);
+		assertThat(toolbar.find()).as("the toolbar's filter form").isTrue();
+		assertThat(toolbar.group(1)).contains("Beta HQ");
+		String page = html.substring(0, toolbar.start()) + html.substring(toolbar.end());
 
-		assertThat(html).contains("Alpha HQ", "Alpha Ops", "Alpha Fitter", "Alpha Day");
-		assertThat(html)
+		assertThat(page).contains("Alpha HQ", "Alpha Ops", "Alpha Fitter", "Alpha Day");
+		assertThat(page)
 				.doesNotContain("Beta HQ")
 				.doesNotContain("Beta Ops")
 				.doesNotContain("Beta Fitter")
@@ -930,6 +985,65 @@ class AdminEmployeesEndToEndTest {
 
 		assertSaved(postFields(
 				formFields(body("/admin/employees?action=edit&id=" + id), "save_edit")));
+
+		assertThat(editableColumns(id)).isEqualTo(before);
+	}
+
+	/**
+	 * _employee_form.php's country select (D-261): an optional first choice, then the active
+	 * countries labelled flag, name and code; the form carries legacy's invalid-phone message,
+	 * and the page loads the rules and the two phone scripts. The list alone renders no form,
+	 * so it loads none of them.
+	 */
+	@Test
+	void theFormSelectsACountryFromTheActiveOnesAndLoadsLegacysPhoneChecks() {
+		seedCountries();
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update("UPDATE employees SET phone = '0712345678', country_code = '+881' WHERE id = ?", id);
+
+		String add = body("/admin/employees?company_id=" + this.companyA + "&action=add");
+		String select = countrySelect(add);
+		assertThat(select).as("optional, as legacy's is, and nothing chosen on an add")
+				.containsPattern("^<select id=\"country_code\" name=\"country_code\">\\s*<option value=\"\">اختياري</option>")
+				.doesNotContain("selected");
+		assertThat(select).as("an active country, labelled as phone_country_option_label() labels it")
+				.contains("<option value=\"+881\"").contains(">🏳 بلد تجريبي (+881)</option>");
+		assertThat(select).as("a retired country").doesNotContain("+882");
+		assertThat(formOf(add, "add_employee"))
+				.contains("data-invalid-phone-msg=\"رقم الهاتف غير صالح لهذه الدولة\"")
+				.as("an add has no stored pair to keep").doesNotContain("data-phone-keep-untouched");
+		assertThat(add).containsSubsequence(
+				"<script src=\"/admin/_assets/phone-countries-rules.js\" data-rules=\"",
+				"&#34;+881&#34;:{&#34;phone_length&#34;:10,&#34;phone_prefixes&#34;:[&#34;07&#34;]}",
+				"<script src=\"/admin/_assets/phone-validator.js\"></script>",
+				"<script src=\"/admin/_assets/phone-form-bind.js\"></script>");
+
+		String edit = body("/admin/employees?action=edit&id=" + id);
+		assertThat(countrySelect(edit)).as("the stored country chosen")
+				.containsPattern("<option value=\"\\+881\"\\s+selected>");
+		assertThat(formOf(edit, "save_edit")).contains("data-phone-keep-untouched");
+
+		assertThat(body("/admin/employees?company_id=" + this.companyA))
+				.as("a list without its form loads no phone script").doesNotContain("phone-form-bind.js");
+	}
+
+	/**
+	 * A code no active country has -- a retired country's -- is listed and chosen, so an
+	 * unchanged save posts it and keeps the pair. Legacy's select drops it, and the save then
+	 * asks for a country.
+	 */
+	@Test
+	void anUnchangedSaveKeepsACountryCodeNoActiveCountryHas() {
+		seedCountries();
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update("UPDATE employees SET phone = '0712345678', country_code = '+882' WHERE id = ?", id);
+		this.jdbc.update("INSERT INTO employee_shift_assignments (employee_id, shift_id,"
+				+ " effective_from) VALUES (?, ?, '2026-01-01')", id, this.shiftA);
+		Map<String, Object> before = editableColumns(id);
+
+		String edit = body("/admin/employees?action=edit&id=" + id);
+		assertThat(countrySelect(edit)).containsPattern("<option value=\"\\+882\" selected>\\+882</option>");
+		assertSaved(postFields(formFields(edit, "save_edit")));
 
 		assertThat(editableColumns(id)).isEqualTo(before);
 	}
@@ -1288,6 +1402,10 @@ class AdminEmployeesEndToEndTest {
 		}
 	}
 
+	/** The toolbar form's start tag; a quoted attribute value may hold a {@code >}. */
+	private static final Pattern TOOLBAR_FORM = Pattern.compile(
+			"<form method=\"GET\" class=\"toolbar-form toolbar-form--labeled\"((?:[^>\"]|\"[^\"]*\")*)>");
+
 	private static String attribute(String attributes, String name) {
 		Matcher matcher = Pattern.compile("(?:^|\\s)" + name + "=\"([^\"]*)\"").matcher(attributes);
 		return matcher.find()
@@ -1339,6 +1457,19 @@ class AdminEmployeesEndToEndTest {
 
 	private int employeeCount() {
 		return this.jdbc.queryForObject("SELECT COUNT(*) FROM employees", Integer.class);
+	}
+
+	/** An active country and a retired one, with codes no other test uses; signIn() removes them. */
+	private void seedCountries() {
+		this.jdbc.update("INSERT INTO phone_countries (country_code, name_ar, name_en, flag_emoji, phone_length,"
+				+ " phone_prefixes, is_active, sort_order) VALUES ('+881', 'بلد تجريبي', 'Test land', '🏳', 10,"
+				+ " '[\"07\"]', 1, 90), ('+882', 'بلد متقاعد', 'Retired land', '', 10, '[\"07\"]', 0, 91)");
+	}
+
+	private static String countrySelect(String html) {
+		int start = html.indexOf("<select id=\"country_code\"");
+		assertThat(start).as("the country select renders").isPositive();
+		return html.substring(start, html.indexOf("</select>", start));
 	}
 
 	private long seedEmployee(long companyId, String code, String first, String last) {

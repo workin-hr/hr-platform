@@ -158,12 +158,16 @@
 					title = t.apply("edit"), csrfParameterName = csrfParameterName,
 					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
 					fields = @`
-						<label>${t.apply("total_days")}
-							<input type="number" name="total_days" step="0.5" min="0"
-							       data-dialog-field="total"></label>
-						<label>${t.apply("used_days")}
-							<input type="number" name="used_days" step="0.5" min="0"
-							       data-dialog-field="used"></label>
+						<div class="form-row">
+							<label for="leave_edit_total">${t.apply("total_days")}</label>
+							<input type="number" id="leave_edit_total" name="total_days" step="0.5" min="0"
+							       data-dialog-field="total">
+						</div>
+						<div class="form-row">
+							<label for="leave_edit_used">${t.apply("used_days")}</label>
+							<input type="number" id="leave_edit_used" name="used_days" step="0.5" min="0"
+							       data-dialog-field="used">
+						</div>
 					`)
 		@endif
 		@if(canWrite)

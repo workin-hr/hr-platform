@@ -92,6 +92,10 @@
 .shell.nav-open .nav-toggle-bars::before { transform: rotate(45deg); }
 .shell.nav-open .nav-toggle-bars::after  { transform: rotate(-45deg); }
 
+/* Faded out rather than removed while the drawer is closed, so opening can fade
+   it in -- and a transparent box fixed over the whole page still takes every
+   tap, the menu button that opens the drawer included. It takes taps only while
+   the drawer is open, which is when a tap on it means "close". */
 .nav-backdrop {
   display: none;
   position: fixed;
@@ -99,6 +103,7 @@
   z-index: var(--app-backdrop-z);
   background: rgba(15, 23, 42, .45);
   opacity: 0;
+  pointer-events: none;
   transition: opacity .25s var(--app-ease);
 }
 
@@ -198,6 +203,7 @@
   }
   .shell.nav-open .nav-backdrop {
     opacity: 1;
+    pointer-events: auto;
   }
 
   /* While the drawer is open the page behind it must not scroll away under
@@ -280,6 +286,7 @@
      they follow it down when that padding changes. */
   .modal .form-footer,
   .modal .account-form__footer {
+    bottom: -20px;
     margin-inline: -20px;
     margin-bottom: -20px;
     padding: 12px 20px 20px;
@@ -301,13 +308,6 @@
   .org-form-span-2,
   .company-add-span-2 {
     grid-column: auto;
-  }
-
-  /* The row dialog is a sheet here too; its own scroll area already keeps its
-     footer visible. */
-  .row-dialog {
-    width: calc(100vw - 20px);
-    max-width: none;
   }
 }
 
