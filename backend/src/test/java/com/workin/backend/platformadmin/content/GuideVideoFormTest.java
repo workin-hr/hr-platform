@@ -22,6 +22,18 @@ class GuideVideoFormTest {
 	}
 
 	@Test
+	void theSortOrderIsPhpsIntCastBoundedToItsColumn() {
+		assertThat(sortOrder("1e1")).as("(int) reads the exponent").isEqualTo(10);
+		assertThat(sortOrder(" 7abc")).isEqualTo(7);
+		assertThat(sortOrder("abc")).isZero();
+		assertThat(sortOrder("99999999999")).as("past the int column").isEqualTo(Integer.MAX_VALUE);
+	}
+
+	private static int sortOrder(String raw) {
+		return GuideVideoForm.validate("دليل", "Guide", "1.mp4", raw, true).video().sortOrder();
+	}
+
+	@Test
 	void bothTitlesAreRequired() {
 		assertThat(GuideVideoForm.validate("دليل", "Guide", "1.mp4", "0", true).ok()).isTrue();
 		assertThat(GuideVideoForm.validate("", "Guide", "1.mp4", "0", true).errorKey())

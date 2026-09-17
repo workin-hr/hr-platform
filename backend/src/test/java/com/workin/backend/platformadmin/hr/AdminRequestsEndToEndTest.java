@@ -164,6 +164,13 @@ class AdminRequestsEndToEndTest {
 		assertThat(filtered).contains(" data-selected-request-type=\"" + this.plainTypeA + "\"");
 	}
 
+	@Test
+	void theTypeFilterIsPhpsIntCast() {
+		// (int) ($_GET['type_id'] ?? 0): "<id>e0" is the id.
+		String filtered = body("/admin/requests?company_id=" + this.companyA + "&type_id=" + this.plainTypeA + "e0");
+		assertThat(filtered).contains(" data-selected-request-type=\"" + this.plainTypeA + "\"");
+	}
+
 	private static String typeSelect(String html) {
 		Matcher select = Pattern.compile("<select id=\"rq_type\".*?</select>", Pattern.DOTALL).matcher(html);
 		assertThat(select.find()).as("the request type filter").isTrue();

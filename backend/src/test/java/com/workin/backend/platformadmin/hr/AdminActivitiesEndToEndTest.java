@@ -379,6 +379,18 @@ class AdminActivitiesEndToEndTest {
 	}
 
 	@Test
+	void thePageSizeIsPhpsIntCastSoAnExponentCounts() {
+		long employee = createEmployee(this.companyA, "Rana", "01000000016");
+		for (int i = 1; i <= 12; i++) {
+			punch(employee, String.format("2026-09-%02d 09:00:00", i), null);
+		}
+		// (int) "2e1" is 20, which holds all twelve; read as its leading digits it was 2,
+		// floored to ten, which needs a second page.
+		assertThat(body(PATH + "&per_page=2e1&date_from=2026-09-01&date_to=2026-09-30"))
+				.doesNotContain("page=2");
+	}
+
+	@Test
 	void malformedPagingParametersDoNotAnswerFourHundred() {
 		for (String bad : List.of("abc", "-5", "", "1e", "99999999999999999999")) {
 			ResponseEntity<String> response =

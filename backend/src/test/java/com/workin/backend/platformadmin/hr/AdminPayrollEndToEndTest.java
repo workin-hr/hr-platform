@@ -76,6 +76,9 @@ class AdminPayrollEndToEndTest extends AdminPayrollTestSupport {
 		payslip(batchId, this.employeeA);
 
 		String html = body(PATH + "?run_id=" + batchId);
+		assertThat(body(PATH + "?run_id=" + batchId + "e0"))
+				.as("(int) \"<id>e0\" is the id, as PHP casts it")
+				.contains("Aya");
 		// The employee and the stored net, the latter from the totals strip --
 		// the detail row shows the recomputed figure instead, which
 		// AdminPayrollCalculationParityTest pins separately.

@@ -435,6 +435,19 @@ class AdminEmployeeDetailEndToEndTest {
 	}
 
 	@Test
+	void theIdMonthAndYearArePhpsIntCast() {
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		seedAttendance(id, "2026-03-02 09:00:00", "2026-03-02 17:00:00");
+
+		// (int) "3e0" is 3 and (int) "2.026e3" is 2026; Integer.parseInt refused both.
+		String html = get("/admin/employee_detail?id=" + id + "e0&month=3e0&year=2.026e3&lang=en", this.cookie)
+				.getBody();
+		assertThat(html).contains("<option value=\"3\" selected>3</option>")
+				.contains("<option value=\"2026\" selected>2026</option>")
+				.contains("2026-03-02");
+	}
+
+	@Test
 	void anAnonymousRequestNeverReachesThePage() {
 		ResponseEntity<String> response = this.restTemplate.exchange(
 				"/admin/employee_detail?id=1", HttpMethod.GET,

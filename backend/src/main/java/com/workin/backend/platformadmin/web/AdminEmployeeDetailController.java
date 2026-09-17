@@ -15,6 +15,7 @@ import com.workin.legacy.LegacyClock;
 import com.workin.backend.platformadmin.hr.Employee;
 import com.workin.backend.platformadmin.hr.EmployeeDetailStore;
 import com.workin.backend.platformadmin.hr.EmployeeStore;
+import com.workin.legacy.PhpCast;
 
 /**
  * {@code dashboard/pages/employees/detail.php}, reached in legacy as
@@ -104,12 +105,7 @@ public class AdminEmployeeDetailController {
 		if (raw == null || raw.isBlank()) {
 			return fallback;
 		}
-		try {
-			return Integer.parseInt(raw.trim());
-		}
-		catch (NumberFormatException ex) {
-			return 0;
-		}
+		return Math.clamp(PhpCast.intval(raw), Integer.MIN_VALUE, Integer.MAX_VALUE);
 	}
 
 	/**

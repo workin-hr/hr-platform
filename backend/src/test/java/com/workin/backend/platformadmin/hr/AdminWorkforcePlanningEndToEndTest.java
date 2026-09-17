@@ -284,6 +284,22 @@ class AdminWorkforcePlanningEndToEndTest {
 	}
 
 	@Test
+	void aStoredPlannedCountPastTheSignedIntRangeIsListedAsStored() {
+		// Legacy's column keeps up to 4294967295, and legacy writes one. The list reads it back.
+		long id = seedPlan(this.companyA, this.branchA, this.departmentA, this.jobTitleA, 1);
+		this.jdbc.update("UPDATE workforce_planning SET planned_count = 3000000000 WHERE id = ?", id);
+
+		ResponseEntity<String> page = get("/admin/workforce_planning", this.cookie);
+		assertThat(page.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(page.getBody()).contains("<td>3000000000</td>")
+				.as("no one is employed against it, so the actual figure is short").contains("<td class=\"text-red\">0</td>");
+
+		ResponseEntity<String> edit = get("/admin/workforce_planning?company_id=0&action=edit&id=" + id, this.cookie);
+		assertThat(edit.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(edit.getBody()).containsPattern("name=\"planned_count\" required\\s+value=\"3000000000\"");
+	}
+
+	@Test
 	void aPlanMayHaveNoDepartmentButMustHaveABranchAndAJobTitle() {
 		postForm("action", "add_wp",
 				"company_id", String.valueOf(this.companyA),

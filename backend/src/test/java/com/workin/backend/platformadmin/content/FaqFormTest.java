@@ -27,6 +27,15 @@ class FaqFormTest {
 		assertThat(FaqForm.validateCategory("عام", "General", "abc", true).category().sortOrder()).isZero();
 		assertThat(FaqForm.validateCategory("عام", "General", "", true).category().sortOrder()).isZero();
 		assertThat(FaqForm.validateCategory("عام", "General", "7", true).category().sortOrder()).isEqualTo(7);
+		assertThat(FaqForm.validateCategory("عام", "General", "1e1", true).category().sortOrder())
+				.as("(int) reads the exponent").isEqualTo(10);
+	}
+
+	@Test
+	void anItemsCategoryAndSortOrderArePhpsIntCast() {
+		FaqForm.ItemResult result = FaqForm.validateItem("2e0", "س", "Q", "ج", "A", "both", "3.5", true);
+		assertThat(result.item().categoryId()).isEqualTo(2L);
+		assertThat(result.item().sortOrder()).isEqualTo(3);
 	}
 
 	private static FaqForm.ItemResult item(String categoryId, String qAr, String qEn, String aAr, String aEn) {

@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 
+import com.workin.legacy.PhpCast;
+
 /**
  * Validates a submitted phone-country row, reproducing
  * {@code dashboard_phone_country_validate_post()} rule for rule.
@@ -52,7 +54,7 @@ public final class PhoneCountryForm {
 			return Result.rejected("error_required");
 		}
 
-		int length = parseInt(phoneLength, 0);
+		int length = parseInt(phoneLength);
 		if (length < MIN_PHONE_LENGTH || length > MAX_PHONE_LENGTH) {
 			return Result.rejected("phone_length_invalid");
 		}
@@ -67,7 +69,7 @@ public final class PhoneCountryForm {
 		}
 
 		return new Result(new PhoneCountry(0L, code, ar, en, trimToEmpty(flagEmoji),
-				length, parsed, active, parseInt(sortOrder, 0)), null);
+				length, parsed, active, parseInt(sortOrder)), null);
 	}
 
 	/**
@@ -92,12 +94,9 @@ public final class PhoneCountryForm {
 		return value == null ? "" : value.trim();
 	}
 
-	private static int parseInt(String value, int fallback) {
-		try {
-			return value == null || value.isBlank() ? fallback : Integer.parseInt(value.trim());
-		} catch (NumberFormatException ex) {
-			return fallback;
-		}
+	/** {@code (int) ($post[...] ?? 0)} ({@link PhpCast#intval}), bounded to the {@code int} column. */
+	private static int parseInt(String value) {
+		return Math.clamp(PhpCast.intval(value), Integer.MIN_VALUE, Integer.MAX_VALUE);
 	}
 
 }

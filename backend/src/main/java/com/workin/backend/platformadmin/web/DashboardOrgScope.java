@@ -3,6 +3,8 @@ package com.workin.backend.platformadmin.web;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 
+import com.workin.legacy.PhpCast;
+
 /**
  * {@code org_helper.php}: which company the dashboard is acting on.
  *
@@ -60,7 +62,9 @@ public final class DashboardOrgScope {
 		}
 		HttpSession session = request.getSession(true);
 		String raw = request.getParameter("company_id");
-		long id = parsePositive(raw);
+		// `(int) $raw`: "9abc" is 9, "1e2" is 100, and "abc" is 0, which clears the filter
+		// rather than erroring. An id past a long's range saturates, as PHP's does.
+		long id = PhpCast.intval(raw);
 		if (id > 0) {
 			session.setAttribute(SESSION_KEY, id);
 		} else {
@@ -132,37 +136,6 @@ public final class DashboardOrgScope {
 			return rowCompanyId == session.companyId();
 		}
 		return filters.companyId() <= 0 || rowCompanyId == filters.companyId();
-	}
-
-	/**
-	 * {@code (int) $raw} for the shapes a query parameter arrives in, then
-	 * {@code > 0}.
-	 *
-	 * <p>PHP's cast takes the leading integer and yields 0 for anything that
-	 * does not start with one, so {@code "9abc"} is 9 and {@code "abc"} is 0 --
-	 * which clears the filter rather than erroring. Reproduced, because the
-	 * alternative is a 400 on a URL legacy accepts.
-	 */
-	private static long parsePositive(String raw) {
-		String trimmed = raw == null ? "" : raw.trim();
-		int end = 0;
-		if (end < trimmed.length() && (trimmed.charAt(end) == '+' || trimmed.charAt(end) == '-')) {
-			end++;
-		}
-		while (end < trimmed.length() && Character.isDigit(trimmed.charAt(end))) {
-			end++;
-		}
-		String digits = trimmed.substring(0, end);
-		if (digits.isEmpty() || "+".equals(digits) || "-".equals(digits)) {
-			return 0L;
-		}
-		try {
-			return Long.parseLong(digits);
-		} catch (NumberFormatException ex) {
-			// Longer than a long: PHP saturates rather than throwing, and
-			// either way the id matches no company.
-			return 0L;
-		}
 	}
 
 }
