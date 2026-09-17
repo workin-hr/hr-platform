@@ -126,6 +126,9 @@ class AdminEmployeesEndToEndTest {
 		this.jdbc.update("DELETE FROM departments");
 		this.jdbc.update("DELETE FROM branches");
 		this.jdbc.update("DELETE FROM platform_admin_audit_events");
+		// seedCountries()' rows. This database has no other country, so a leftover one would
+		// become the dial code every other code resolves to, and +20 would stop being Egypt.
+		this.jdbc.update("DELETE FROM phone_countries WHERE country_code IN ('+881', '+882')");
 
 		String phone = "+2101" + System.nanoTime() % 100_000_000L;
 		// One administrator, one password (ADR-0018): the bootstrap provisioned
@@ -986,6 +989,65 @@ class AdminEmployeesEndToEndTest {
 		assertThat(editableColumns(id)).isEqualTo(before);
 	}
 
+	/**
+	 * _employee_form.php's country select (D-261): an optional first choice, then the active
+	 * countries labelled flag, name and code; the form carries legacy's invalid-phone message,
+	 * and the page loads the rules and the two phone scripts. The list alone renders no form,
+	 * so it loads none of them.
+	 */
+	@Test
+	void theFormSelectsACountryFromTheActiveOnesAndLoadsLegacysPhoneChecks() {
+		seedCountries();
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update("UPDATE employees SET phone = '0712345678', country_code = '+881' WHERE id = ?", id);
+
+		String add = body("/admin/employees?company_id=" + this.companyA + "&action=add");
+		String select = countrySelect(add);
+		assertThat(select).as("optional, as legacy's is, and nothing chosen on an add")
+				.containsPattern("^<select id=\"country_code\" name=\"country_code\">\\s*<option value=\"\">اختياري</option>")
+				.doesNotContain("selected");
+		assertThat(select).as("an active country, labelled as phone_country_option_label() labels it")
+				.contains("<option value=\"+881\"").contains(">🏳 بلد تجريبي (+881)</option>");
+		assertThat(select).as("a retired country").doesNotContain("+882");
+		assertThat(formOf(add, "add_employee"))
+				.contains("data-invalid-phone-msg=\"رقم الهاتف غير صالح لهذه الدولة\"")
+				.as("an add has no stored pair to keep").doesNotContain("data-phone-keep-untouched");
+		assertThat(add).containsSubsequence(
+				"<script src=\"/admin/_assets/phone-countries-rules.js\" data-rules=\"",
+				"&#34;+881&#34;:{&#34;phone_length&#34;:10,&#34;phone_prefixes&#34;:[&#34;07&#34;]}",
+				"<script src=\"/admin/_assets/phone-validator.js\"></script>",
+				"<script src=\"/admin/_assets/phone-form-bind.js\"></script>");
+
+		String edit = body("/admin/employees?action=edit&id=" + id);
+		assertThat(countrySelect(edit)).as("the stored country chosen")
+				.containsPattern("<option value=\"\\+881\"\\s+selected>");
+		assertThat(formOf(edit, "save_edit")).contains("data-phone-keep-untouched");
+
+		assertThat(body("/admin/employees?company_id=" + this.companyA))
+				.as("a list without its form loads no phone script").doesNotContain("phone-form-bind.js");
+	}
+
+	/**
+	 * A code no active country has -- a retired country's -- is listed and chosen, so an
+	 * unchanged save posts it and keeps the pair. Legacy's select drops it, and the save then
+	 * asks for a country.
+	 */
+	@Test
+	void anUnchangedSaveKeepsACountryCodeNoActiveCountryHas() {
+		seedCountries();
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update("UPDATE employees SET phone = '0712345678', country_code = '+882' WHERE id = ?", id);
+		this.jdbc.update("INSERT INTO employee_shift_assignments (employee_id, shift_id,"
+				+ " effective_from) VALUES (?, ?, '2026-01-01')", id, this.shiftA);
+		Map<String, Object> before = editableColumns(id);
+
+		String edit = body("/admin/employees?action=edit&id=" + id);
+		assertThat(countrySelect(edit)).containsPattern("<option value=\"\\+882\" selected>\\+882</option>");
+		assertSaved(postFields(formFields(edit, "save_edit")));
+
+		assertThat(editableColumns(id)).isEqualTo(before);
+	}
+
 	@Test
 	void aReplacedPhoneIsStillCheckedForItsCountryCode() {
 		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
@@ -1395,6 +1457,19 @@ class AdminEmployeesEndToEndTest {
 
 	private int employeeCount() {
 		return this.jdbc.queryForObject("SELECT COUNT(*) FROM employees", Integer.class);
+	}
+
+	/** An active country and a retired one, with codes no other test uses; signIn() removes them. */
+	private void seedCountries() {
+		this.jdbc.update("INSERT INTO phone_countries (country_code, name_ar, name_en, flag_emoji, phone_length,"
+				+ " phone_prefixes, is_active, sort_order) VALUES ('+881', 'بلد تجريبي', 'Test land', '🏳', 10,"
+				+ " '[\"07\"]', 1, 90), ('+882', 'بلد متقاعد', 'Retired land', '', 10, '[\"07\"]', 0, 91)");
+	}
+
+	private static String countrySelect(String html) {
+		int start = html.indexOf("<select id=\"country_code\"");
+		assertThat(start).as("the country select renders").isPositive();
+		return html.substring(start, html.indexOf("</select>", start));
 	}
 
 	private long seedEmployee(long companyId, String code, String first, String last) {

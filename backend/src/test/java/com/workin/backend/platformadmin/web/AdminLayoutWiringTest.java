@@ -372,7 +372,7 @@ class AdminLayoutWiringTest {
 		org.springframework.context.support.StaticMessageSource messages =
 				new org.springframework.context.support.StaticMessageSource();
 		messages.addMessage("admin", java.util.Locale.forLanguageTag("ar"), "أدمن");
-		AdminViewModelAdvice advice = new AdminViewModelAdvice(messages, null, noClock(), companies(null), cascades(null));
+		AdminViewModelAdvice advice = new AdminViewModelAdvice(messages, null, noClock(), companies(null), cascades(null), phoneCountries(null));
 		org.springframework.mock.web.MockHttpServletRequest request =
 				new org.springframework.mock.web.MockHttpServletRequest();
 		// One administrator (ADR-0018), shown by PHP's label for it, not by an id.
@@ -400,7 +400,7 @@ class AdminLayoutWiringTest {
 				};
 		AdminViewModelAdvice advice = new AdminViewModelAdvice(
 				new org.springframework.context.support.StaticMessageSource(), null, noClock(), companies(store),
-				cascades(null));
+				cascades(null), phoneCountries(null));
 
 		java.util.function.Supplier<List<com.workin.backend.platformadmin.org.ActiveCompanies.CompanyOption>> options =
 				advice.companyFilterOptions();
@@ -483,7 +483,7 @@ class AdminLayoutWiringTest {
 				new org.springframework.mock.web.MockHttpServletRequest();
 		AdminViewModelAdvice advice = new AdminViewModelAdvice(
 				new org.springframework.context.support.StaticMessageSource(), null, noClock(), companies(null),
-				cascades(store));
+				cascades(store), phoneCountries(null));
 
 		java.util.function.Supplier<OrgFilterCascade> cascade = advice.orgFilterCascade(request);
 		assertThat(reads[0]).as("building the model reads nothing").isZero();
@@ -494,7 +494,7 @@ class AdminLayoutWiringTest {
 
 		AdminViewModelAdvice ownerView = new AdminViewModelAdvice(
 				new org.springframework.context.support.StaticMessageSource(), null, noClock(), companies(null),
-				cascades(store)) {
+				cascades(store), phoneCountries(null)) {
 			@Override
 			public DashboardSession session(jakarta.servlet.http.HttpServletRequest ignored) {
 				return DashboardSession.company(7L);
@@ -526,6 +526,69 @@ class AdminLayoutWiringTest {
 
 			@Override
 			public com.workin.backend.platformadmin.org.OrgCascadeStore getIfUnique() {
+				return store;
+			}
+		};
+	}
+
+	/**
+	 * A company or employee form's country select and phone rules (D-261): the active
+	 * countries, labelled in the page's language, read only when a form asks and once per
+	 * request. Without the legacy database there are no rules, so the layout loads no phone
+	 * script to refuse every number.
+	 */
+	@Test
+	void thePhoneCountriesAreReadOnceAndOnlyWhenAFormAsks() {
+		int[] reads = {0};
+		com.workin.legacy.phone.LegacyPhoneCountries store = new com.workin.legacy.phone.LegacyPhoneCountries(
+				new org.springframework.jdbc.datasource.DriverManagerDataSource()) {
+			@Override
+			public List<com.workin.legacy.phone.LegacyPhoneCountry> allActive() {
+				reads[0]++;
+				return List.of(new com.workin.legacy.phone.LegacyPhoneCountry(1, "+20", "مصر", "Egypt", "🇪🇬",
+						11, "[\"010\"]", 1, 1));
+			}
+		};
+		org.springframework.mock.web.MockHttpServletRequest request =
+				new org.springframework.mock.web.MockHttpServletRequest();
+		request.setParameter("lang", "en");
+		AdminViewModelAdvice advice = new AdminViewModelAdvice(
+				new org.springframework.context.support.StaticMessageSource(), null, noClock(), companies(null),
+				cascades(null), phoneCountries(store));
+
+		java.util.function.Supplier<PhoneCountryChoices> choices = advice.phoneCountries(request);
+		assertThat(reads[0]).as("building the model reads nothing").isZero();
+		assertThat(choices.get().options()).as("labelled in the page's language")
+				.containsExactly(new PhoneCountryChoices.Option("+20", "🇪🇬 Egypt (+20)"));
+		assertThat(choices.get().rules()).isEqualTo("{\"+20\":{\"phone_length\":11,\"phone_prefixes\":[\"010\"]}}");
+		assertThat(reads[0]).as("read once per request").isEqualTo(1);
+
+		AdminViewModelAdvice withoutLegacy = new AdminViewModelAdvice(
+				new org.springframework.context.support.StaticMessageSource(), null, noClock(), companies(null),
+				cascades(null), phoneCountries(null));
+		assertThat(withoutLegacy.phoneCountries(request).get()).isEqualTo(PhoneCountryChoices.NONE);
+	}
+
+	private static org.springframework.beans.factory.ObjectProvider<com.workin.legacy.phone.LegacyPhoneCountries>
+			phoneCountries(com.workin.legacy.phone.LegacyPhoneCountries store) {
+		return new org.springframework.beans.factory.ObjectProvider<>() {
+			@Override
+			public com.workin.legacy.phone.LegacyPhoneCountries getObject() {
+				return store;
+			}
+
+			@Override
+			public com.workin.legacy.phone.LegacyPhoneCountries getObject(Object... args) {
+				return store;
+			}
+
+			@Override
+			public com.workin.legacy.phone.LegacyPhoneCountries getIfAvailable() {
+				return store;
+			}
+
+			@Override
+			public com.workin.legacy.phone.LegacyPhoneCountries getIfUnique() {
 				return store;
 			}
 		};

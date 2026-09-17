@@ -184,6 +184,67 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 		}
 	}
 
+	/**
+	 * _company_form.php's country select (D-261): the active countries, labelled flag, name and
+	 * code, +20 chosen on an add and the stored code on an edit; the form carries legacy's
+	 * invalid-phone message, and the page loads the rules and the two phone scripts.
+	 */
+	@Test
+	void theCompanyFormSelectsItsCountryFromTheActiveOnesAndLoadsLegacysPhoneChecks() {
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		// Removed afterwards: in a database with no other country, a leftover one becomes the
+		// dial code every other code resolves to.
+		int egyptAdded = jdbc.update("INSERT IGNORE INTO phone_countries (country_code, name_ar, name_en, flag_emoji,"
+				+ " phone_length, phone_prefixes, is_active, sort_order) VALUES ('+20', 'مصر', 'Egypt', '', 11,"
+				+ " '[\"010\"]', 1, 1)");
+		jdbc.update("INSERT INTO phone_countries (country_code, name_ar, name_en, flag_emoji, phone_length,"
+				+ " phone_prefixes, is_active, sort_order) VALUES ('+881', 'بلد تجريبي', 'Test land', '🏳', 10,"
+				+ " '[\"07\"]', 1, 90), ('+882', 'بلد متقاعد', 'Retired land', '', 10, '[\"07\"]', 0, 91)");
+		try {
+			companyFormSelectsItsCountry(jdbc);
+		}
+		finally {
+			jdbc.update("DELETE FROM phone_countries WHERE country_code IN ('+881', '+882')");
+			if (egyptAdded == 1) {
+				jdbc.update("DELETE FROM phone_countries WHERE country_code = '+20'");
+			}
+		}
+	}
+
+	private void companyFormSelectsItsCountry(JdbcTemplate jdbc) {
+		String cookie = signIn();
+		long companyId = createCompany();
+		jdbc.update("UPDATE companies SET country_code = '+881' WHERE id = ?", companyId);
+
+		String add = get("/admin/companies", cookie).response().getBody();
+		assertThat(countrySelect(add)).as("required, as legacy's is")
+				.startsWith("<select id=\"co_code\" name=\"country_code\" required>")
+				.containsPattern("<option value=\"\\+20\"\\s+selected>")
+				.contains("<option value=\"+881\"").contains(">🏳 بلد تجريبي (+881)</option>")
+				.as("a retired country").doesNotContain("+882");
+		assertThat(countrySelect(add).split("selected", -1)).as("one choice").hasSize(2);
+		assertThat(add).contains("data-invalid-phone-msg=\"رقم الهاتف غير صالح لهذه الدولة\"")
+				.containsSubsequence(
+						"<script src=\"/admin/_assets/phone-countries-rules.js\" data-rules=\"",
+						"&#34;+881&#34;:{&#34;phone_length&#34;:10,&#34;phone_prefixes&#34;:[&#34;07&#34;]}",
+						"<script src=\"/admin/_assets/phone-validator.js\"></script>",
+						"<script src=\"/admin/_assets/phone-form-bind.js\"></script>");
+
+		String edit = get("/admin/companies?edit=" + companyId + "&lang=en", cookie).response().getBody();
+		assertThat(countrySelect(edit)).as("the stored country, in the page's language")
+				.containsPattern("<option value=\"\\+881\"\\s+selected>🏳 Test land \\(\\+881\\)</option>")
+				.doesNotContainPattern("<option value=\"\\+20\"\\s+selected>");
+
+		assertThat(get("/admin/sessions", cookie).response().getBody())
+				.as("a page with no phone form loads no phone script").doesNotContain("phone-form-bind.js");
+	}
+
+	private static String countrySelect(String html) {
+		int start = html.indexOf("<select id=\"co_code\"");
+		assertThat(start).as("the country select renders").isPositive();
+		return html.substring(start, html.indexOf("</select>", start));
+	}
+
 	@Test
 	void eachCompanyRowOffersDeleteAfterEdit() {
 		// company_helper.php:191-197: Details, Edit, then Delete as a danger item,
