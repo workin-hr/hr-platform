@@ -2,10 +2,11 @@
 
 It keeps each exchange -- request line, headers, body, and the answer -- under one folder per
 terminal, so what a real firmware sends becomes evidence the team can replay later instead of a
-memory of the visit. What it never writes, or prints, is biometric: fingerprint and face
-templates, pictures, and the enrolment records that carry a name, a device password and a card
-number (``recordable``). The platform discards the same records; a recorder that kept them would
-be the one place they survived, on a laptop.
+memory of the visit. It writes, and prints, only what the platform itself keeps (``recordable``):
+attendance, options, operation lines and command results, plus JSON or XML from other brands.
+Fingerprint and face templates, pictures, enrolment and ID-card records never reach the disk --
+the platform discards them, and a recorder that kept them would be the one place they survived,
+on a laptop.
 
 With --upstream it is a recording reverse proxy in front of the platform: the terminal talks to
 the real receiver, and the Host header is set to the name the receiver answers on, so the
@@ -38,53 +39,87 @@ NOT_RECORDED = {"authorization", "cookie", "proxy-authorization"}
 # every path would put the platform's sign-in and API on that LAN through it.
 FORWARDED_PREFIX = "/iclock"
 SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]")
-# Upload tables whose whole body is a template or a picture, and USERINFO, whose every line is an
-# enrolment record (ZkTecoAdmsService's known tables); and the record kinds inside a mixed body
-# such as OPERLOG that are the same (ZkTecoOperlogFilter). Anything forwarded is unaffected.
-WITHHELD_TABLES = {"FINGERTMP", "BIODATA", "BIOPHOTO", "USERPIC", "ATTPHOTO", "FACE", "USERINFO"}
-WITHHELD_LINE_KINDS = {"USER", "FP", "FACE", "BIODATA", "BIOPHOTO", "USERPIC", "FVEIN", "PALM"}
-TEXT_TYPES = ("text/", "application/json", "application/xml", "application/x-www-form-urlencoded")
+# What a recording may keep is what the platform itself keeps, and nothing else: ATTLOG and
+# OPTIONS uploads, the OPLOG lines of OPERLOG (ZkTecoAdmsService.upload, ZkTecoOperlogFilter),
+# and command results. Every other table -- templates, photos, enrolment and ID-card records,
+# whatever a firmware calls them -- the platform discards, and so does the recorder. Outside the
+# ZKTeco receiver only JSON and XML are kept. Forwarding is unaffected.
+KEPT_TABLES = {"ATTLOG", "OPTIONS"}
+KEPT_OPERLOG_KIND = "OPLOG"
+COMMAND_RESULT = re.compile(r"^ID=[^&\s]*&Return=-?\d+&CMD=[A-Za-z_]*$")
+STRUCTURED_TYPES = ("application/json", "application/xml", "text/xml")
+# A template or picture carried as base64 inside an otherwise kept body: no attendance, option or
+# event field is this long.
+ENCODED_RUN = re.compile(rb"[A-Za-z0-9+/=_-]{256,}")
 
 
 def recordable(path: str, content_type: str, body: bytes) -> tuple[bytes, dict | None]:
     """The part of a request body that may be written to disk, and what was withheld (kinds and
-    sizes, never content). Closed by default: a body that is not text is withheld whole."""
+    sizes, never content). Only what the platform keeps is kept; everything else is withheld."""
     if not body:
         return body, None
     parsed = urlparse(path)
-    table = (parse_qs(parsed.query).get("table") or [""])[0].upper()
-    if table in WITHHELD_TABLES:
-        return b"", {"table": table, "bytes": len(body)}
-    if content_type.lower().startswith("multipart/"):
+    if parsed.path == FORWARDED_PREFIX or parsed.path.startswith(FORWARDED_PREFIX + "/"):
+        if parsed.path == FORWARDED_PREFIX + "/devicecmd":
+            kept, withheld = _kept_lines(body, lambda line: bool(COMMAND_RESULT.match(line.strip())), "other")
+        else:
+            table = (parse_qs(parsed.query).get("table") or [""])[0].upper()
+            if table in KEPT_TABLES:
+                kept, withheld = _kept_lines(body, lambda line: True, None)
+            elif table == "OPERLOG":
+                kept, withheld = _kept_lines(body, lambda line: _kind(line) == KEPT_OPERLOG_KIND, None)
+            else:
+                return b"", {"table": table or "none", "bytes": len(body)}
+    elif content_type.lower().startswith("multipart/"):
         return _recordable_parts(content_type, body)
+    elif content_type.lower().split(";")[0].strip() in STRUCTURED_TYPES:
+        kept, withheld = body, None
+    else:
+        return b"", {"type": content_type or "none", "bytes": len(body)}
+    if kept is None:
+        return b"", withheld
+    return _without_encoded_runs(kept, withheld)
+
+
+def _kind(line: str) -> str:
+    stripped = line.strip()
+    return stripped.split(maxsplit=1)[0].upper() if stripped else ""
+
+
+def _kept_lines(body: bytes, keep, other_label: str | None) -> tuple[bytes | None, dict | None]:
     try:
         text = body.decode("utf-8")
     except UnicodeDecodeError:
-        return b"", {"binary": content_type or "unknown", "bytes": len(body)}
-    kept, withheld = [], {}
+        return None, {"binary": True, "bytes": len(body)}
+    kept, dropped = [], {}
     for line in text.splitlines(keepends=True):
-        kind = line.strip().split(maxsplit=1)[0].upper() if line.strip() else ""
-        if kind in WITHHELD_LINE_KINDS:
-            withheld[kind] = withheld.get(kind, 0) + 1
-        else:
+        if not line.strip() or keep(line):
             kept.append(line)
-    if not withheld:
-        return body, None
-    return "".join(kept).encode("utf-8"), {"lines": withheld}
+        else:
+            label = other_label or _kind(line)
+            dropped[label] = dropped.get(label, 0) + 1
+    return "".join(kept).encode("utf-8"), ({"lines": dropped} if dropped else None)
+
+
+def _without_encoded_runs(kept: bytes, withheld: dict | None) -> tuple[bytes, dict | None]:
+    scrubbed, runs = ENCODED_RUN.subn(lambda m: b"[withheld %d chars]" % len(m.group(0)), kept)
+    if runs:
+        withheld = {**(withheld or {}), "encoded_runs": runs}
+    return scrubbed, withheld
 
 
 def _recordable_parts(content_type: str, body: bytes) -> tuple[bytes, dict | None]:
     message = email.parser.BytesParser(policy=email.policy.HTTP).parsebytes(
         b"Content-Type: " + content_type.encode("latin-1", "replace") + b"\r\n\r\n" + body)
     if not message.is_multipart():
-        return b"", {"binary": content_type, "bytes": len(body)}
+        return b"", {"type": content_type, "bytes": len(body)}
     kept, withheld = [], []
     for part in message.iter_parts():
         part_type = part.get_content_type()
         payload = part.get_payload(decode=True) or b""
         label = f"--- part name={part.get_param('name', header='content-disposition')} type={part_type} bytes={len(payload)}"
-        if part_type.startswith(TEXT_TYPES):
-            text, inner = recordable("", part_type, payload)
+        if part_type in STRUCTURED_TYPES:
+            text, inner = _without_encoded_runs(payload, None)
             kept.append(label.encode("utf-8") + b"\n" + text + b"\n")
             if inner:
                 withheld.append({"type": part_type, **inner})

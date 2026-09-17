@@ -193,6 +193,41 @@ class CaptureRecordsWhatATerminalSends(unittest.TestCase):
         self.assertIn({"table": "BIODATA", "bytes": len(template)}, notes)
         self.assertIn({"table": "ATTPHOTO", "bytes": len(photo)}, notes)
 
+    def test_only_what_the_platform_keeps_is_recorded_whatever_the_upload_is_called(self):
+        long_template = b"QUJD" * 100
+        cases = [
+            ("/iclock/cdata?SN=X&table=IDCARD", "text/plain",
+             b"IDCARD PIN=1\tIDNum=29001011234567\tName=Ahmed Ali\tPhoto=PHOTOB64"),
+            ("/iclock/cdata?SN=X&table=tabledata&tablename=templatev10", "text/plain",
+             b"templatev10 size=1\r\npin=1\tfingerid=6\ttemplate=TEMPLATEB64"),
+            ("/iclock/cdata?SN=X&table=OTHER", "application/octet-stream", b"TMP=QUJDREVGR0g="),
+            ("/iclock/cdata?SN=X", "text/plain", b"PIN=1\tName=Ahmed Ali"),
+            ("/iclock/querydata?SN=X&type=tabledata", "text/plain", b"user uid=1\tname=Ahmed Ali"),
+        ]
+        for path, content_type, body in cases:
+            kept, note = capture.recordable(path, content_type, body)
+            self.assertEqual(kept, b"", path)
+            self.assertEqual(note["bytes"], len(body), path)
+        kept, note = capture.recordable("/iclock/cdata?SN=X&table=OPERLOG", "text/plain",
+                                        b"OPLOG 4\t0\t2026-09-16 08:00:00\t0\r\nIDCARD PIN=1\tIDNum=29001011234567\r\n")
+        self.assertEqual(kept, b"OPLOG 4\t0\t2026-09-16 08:00:00\t0\r\n")
+        self.assertEqual(note, {"lines": {"IDCARD": 1}})
+        kept, note = capture.recordable("/iclock/cdata?SN=X&table=ATTLOG", "text/plain",
+                                        b"1001\t2026-09-16 08:00:00\t0\t1\t" + long_template + b"\r\n")
+        self.assertNotIn(long_template, kept, "a long encoded run is withheld even inside a kept upload")
+        self.assertTrue(kept.startswith(b"1001\t2026-09-16 08:00:00\t0\t1\t"))
+        self.assertEqual(note, {"encoded_runs": 1})
+        kept, note = capture.recordable("/iclock/devicecmd?SN=X", "text/plain",
+                                        b"ID=1&Return=0&CMD=INFO\nPIN=1\tName=Ahmed Ali\n")
+        self.assertEqual((kept, note), (b"ID=1&Return=0&CMD=INFO\n", {"lines": {"other": 1}}))
+        kept, note = capture.recordable("/hik/DS-K1T", "application/json",
+                                        b'{"eventType":"AccessControllerEvent","faceData":"' + long_template + b'"}')
+        self.assertIn(b'"eventType":"AccessControllerEvent"', kept)
+        self.assertNotIn(long_template, kept)
+        for content_type in ("text/plain", "application/x-www-form-urlencoded", ""):
+            kept, _ = capture.recordable("/other/brand", content_type, b"name=Ahmed Ali&photo=PHOTO")
+            self.assertEqual(kept, b"", content_type)
+
     def test_standalone_keeps_an_events_text_parts_and_withholds_its_pictures(self):
         server = capture.serve("127.0.0.1", 0, self.dir.name, None, None, out=lambda *_: None)
         threading.Thread(target=server.serve_forever, daemon=True).start()

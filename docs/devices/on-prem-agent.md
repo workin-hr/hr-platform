@@ -154,7 +154,7 @@ go before the command.
 | `scan --cidr 192.168.1.0/24` | finds terminals on a LAN (ask first) |
 | `zk-info --host IP [--comm-key N] [--udp] [--backup FILE]` | a ZKTeco terminal's identity, counts and clock; optionally its whole log to a local file |
 | `hik-info --host IP --username U --password-file F [--dump FILE]` | a Hikvision terminal's identity and its event codes |
-| `capture --listen 0.0.0.0:8081 [--upstream URL --host-header NAME]` | the site-visit recorder (field-visit runbook, step 5). It forwards every upload unchanged but never writes or prints biometric templates, pictures or `USER` enrolment lines; the request's `.json` records their kind and size |
+| `capture --listen 0.0.0.0:8081 [--upstream URL --host-header NAME]` | the site-visit recorder (field-visit runbook, step 5). It forwards every upload unchanged, but writes and prints only what the platform keeps -- `ATTLOG` and `OPTIONS` uploads, `OPLOG` lines, command results, and JSON or XML from other brands -- with long encoded runs removed. Templates, pictures, enrolment and ID-card records are withheld; the request's `.json` records their kind and size |
 | `sim-zk`, `sim-push`, `sim-hik`, `sim-usb` | lab simulators ([devices-lab.md](devices-lab.md)) |
 
 ## When It Is Not Working
