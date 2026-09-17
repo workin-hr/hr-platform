@@ -125,20 +125,25 @@ class AdminTableConventionsTest {
 	@Test
 	void everyClippedCellKeepsTheWholeTextInItsTitle() throws IOException {
 		List<String> offenders = new ArrayList<>();
-		Pattern cell = Pattern.compile("<td\\b[^>]*>\\$\\{ListDisplay\\.notes\\(([^,]+),");
+		// Across lines, and counted: a cell wrapped so the pattern cannot read it fails rather than
+		// drops out of the sweep.
+		Pattern cell = Pattern.compile("(?s)<td\\b([^>]*)>\\s*\\$\\{ListDisplay\\.notes\\(([^,]+),");
+		int calls = 0;
+		int read = 0;
 		for (Path template : templates()) {
 			String name = template.getFileName().toString();
-			for (String line : Files.readString(template, StandardCharsets.UTF_8).split("\n")) {
-				Matcher cells = cell.matcher(line);
-				while (cells.find()) {
-					String accessor = cells.group(1).trim();
-					String openingTag = line.substring(cells.start(), line.indexOf('>', cells.start()));
-					if (!openingTag.contains("title=") || !openingTag.contains(accessor)) {
-						offenders.add(name + ": " + line.trim());
-					}
+			String source = Files.readString(template, StandardCharsets.UTF_8);
+			calls += (int) Pattern.compile("ListDisplay\\.notes\\(").matcher(source).results().count();
+			Matcher cells = cell.matcher(source);
+			while (cells.find()) {
+				read++;
+				String accessor = cells.group(2).trim();
+				if (!cells.group(1).contains("title=") || !cells.group(1).contains(accessor)) {
+					offenders.add(name + ": " + cells.group().replaceAll("\\s+", " "));
 				}
 			}
 		}
+		assertThat(read).as("every ListDisplay.notes() call is a cell this sweep read").isEqualTo(calls);
 		assertThat(offenders)
 				.as("a clipped cell without its own value in title() loses the rest of the text "
 						+ "with no way to read it")
@@ -163,6 +168,11 @@ class AdminTableConventionsTest {
 	 * legacy's {@code badge()} is one map of status to colour and label ({@code layout.php:77-107}).
 	 * A page choosing its own colours is how pending came to be grey here and yellow there.
 	 */
+	private static final Pattern LITERAL_BADGE = Pattern.compile("(?s)<span class=\"badge badge-[\\w-]+\"[^>]*>(.*?)</span>");
+
+	/** The label keys statusBadge.jte gives a status; a page that prints one in a badge is drawing a status. */
+	private static final Pattern STATUS_LABEL = Pattern.compile("\"(status_\\w+|gender_\\w+|method_\\w+|role_\\w+|yes|no)\"");
+
 	@Test
 	void everyStatusBadgeComesFromTheSharedPartial() throws IOException {
 		List<String> offenders = new ArrayList<>();
@@ -171,9 +181,18 @@ class AdminTableConventionsTest {
 			if (name.equals("statusBadge.jte")) {
 				continue;
 			}
-			for (String line : Files.readString(template, StandardCharsets.UTF_8).split("\n")) {
+			String source = Files.readString(template, StandardCharsets.UTF_8);
+			for (String line : source.split("\n")) {
 				if (line.contains("class=\"badge ${")) {
 					offenders.add(name + ": " + line.trim());
+				}
+			}
+			// A badge with a fixed colour is a count, a time or a value; one labelled with a status is
+			// a status badge that chose its own colour.
+			Matcher badge = LITERAL_BADGE.matcher(source);
+			while (badge.find()) {
+				if (STATUS_LABEL.matcher(badge.group(1)).find()) {
+					offenders.add(name + ": " + badge.group().replaceAll("\\s+", " "));
 				}
 			}
 		}
@@ -314,6 +333,37 @@ class AdminTableConventionsTest {
 				.as("the partial maps a status to a colour and a label; passing the wrong status "
 						+ "renders the wrong word in the right colour, which no other check sees")
 				.containsExactlyInAnyOrderEntriesOf(LEGACY_STATUS);
+	}
+
+	/**
+	 * The statuses above are read in source order, which cannot tell {@code row.active() ? "active"
+	 * : "suspended"} from its negation. Every two-way badge here asks whether the row is on, so its
+	 * condition is not negated and the "on" status comes first.
+	 */
+	@Test
+	void everyTwoWayBadgeShowsItsOnStatusWhenItsConditionHolds() throws IOException {
+		Pattern call = Pattern.compile("(?s)@template\\.admin\\.statusBadge\\(status = (.+?), t = t\\)");
+		// One condition and two literals; join-requests' three-way chain is not one.
+		Pattern twoWay = Pattern.compile("(?s)^([^?]+?)\\s*\\?\\s*\"([^\"]*)\"\\s*:\\s*\"([^\"]*)\"$");
+		List<String> inverted = new ArrayList<>();
+		int twoWays = 0;
+		for (Path template : templates()) {
+			Matcher calls = call.matcher(Files.readString(template, StandardCharsets.UTF_8));
+			while (calls.find()) {
+				Matcher ternary = twoWay.matcher(calls.group(1).trim());
+				if (!ternary.matches()) {
+					continue;
+				}
+				twoWays++;
+				String condition = ternary.group(1).trim();
+				if (condition.startsWith("!") || !List.of("active", "1").contains(ternary.group(2))
+						|| List.of("active", "1").contains(ternary.group(3))) {
+					inverted.add(template.getFileName() + ": " + calls.group(1).replaceAll("\\s+", " "));
+				}
+			}
+		}
+		assertThat(twoWays).as("the sweep found the two-way badges").isGreaterThanOrEqualTo(19);
+		assertThat(inverted).isEmpty();
 	}
 
 	/**
