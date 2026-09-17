@@ -68,7 +68,8 @@ cmd_seed() {
   # PINs 1001-1005 are bound to five of them -- the same binding HR makes for a
   # real terminal (employee_device_identities).
   local row company branch pins employees
-  row="$(sql "SELECT e.company_id, e.branch_id, GROUP_CONCAT(e.id ORDER BY e.id SEPARATOR ',')
+  row="$(sql "SELECT e.company_id, e.branch_id, GROUP_CONCAT(e.id ORDER BY e.id SEPARATOR ','),
+                     MIN(c.company_name), MIN(b.name)
               FROM employees e JOIN branches b ON b.id = e.branch_id AND b.is_active = 1
               JOIN companies c ON c.id = e.company_id AND c.status = 'active'
               WHERE e.is_active = 1
@@ -88,7 +89,9 @@ cmd_seed() {
          VALUES ($company, $employee, '$pin', 'MANUAL', NOW(), NOW());"
     pin=$((pin + 1))
   done
-  echo "lab company $company, branch $branch, PINs $pins"
+  # The allocation form lists branches by name only, so the names are what an
+  # operator picks from.
+  echo "lab company $company ($(cut -f4 <<<"$row")), branch $branch ($(cut -f5 <<<"$row")), PINs $pins"
 
   local serial vendor
   for entry in SIM-PUSH-001:zkteco SIM-ZK4370-001:zkteco SIM-HIK-001:hikvision SIM-USB-001:zkteco; do

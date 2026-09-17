@@ -1,463 +1,958 @@
-# Field Visit Runbook — Testing Attendance Terminals At A Customer Site
+# دليل زيارة الشركة — تجربة أجهزة البصمة على الطبيعة
 
-One visit to a customer's branch, with a laptop, turns the device work from
-"built against documentation" into "verified against hardware". This is the
-order to do it in, what to type, what to look at, and what never to do. It
-assumes nothing is known about the terminals beforehand: the brand, the
-model and whether they can push are all found out on site.
+الدليل ده بيقولك تعمل إيه بالترتيب لما تروح شركة عندها أجهزة بصمة: تكتب إيه،
+تبص على إيه، ولو حصلت مشكلة تعمل إيه. مش لازم تكون عارف نوع الجهاز قبل ما
+تروح؛ الخطوات نفسها هتعرّفك.
 
-Everything here has been rehearsed in the lab first
-([devices-lab.md](devices-lab.md)); do that rehearsal before leaving. The
-agent and its commands are described in [on-prem-agent.md](on-prem-agent.md).
-The questions the visit answers are the hardware checklist in
-[zkteco-adms-receiver-setup.md](zkteco-adms-receiver-setup.md) §4.
+- **الهدف من الزيارة:** نتأكد إن الكود اللي عملناه شغال مع جهاز حقيقي، ونسجّل
+  معلومات الجهاز (الموديل، الـ firmware، طريقة إرسال البيانات) عشان نكمّل عليها.
+- **الأوامر:** افتح 3 terminals على اللابتوب وسيبهم مفتوحين طول الزيارة. كل
+  block أوامر في الدليل مكتوب فوقه هيتكتب في أنهي terminal:
+  - **Terminal 1** في فولدر الريبو `hr-platform`: للأوامر اللي بتبدأ بـ
+    `scripts/` أو `git` أو `deploy` **بس**.
+  - **Terminal 2** في `hr-platform/devices-agent`: **لكل حاجة تانية**
+    (`python3 -m workin_devices`، و `cp` و `chmod` و `rm`، وأي حاجة فيها
+    `field-report/`).
+  - **Terminal 3** في `hr-platform/devices-agent` برضه: للـ `capture` **بس**،
+    لأنه بيفضل شغال ومش بيرجعلك الـ prompt.
+  - الأوامر اللي بتكتب أو بتمسح باسورد أو توكن بتتأكد هي في أنهي terminal. لو
+    طبعت `WRONG TERMINAL`، ماحصلش حاجة: اكتبها تاني في الـ terminal اللي مكتوب.
+  - فولدر `field-report/` لازم يكون **جوه `devices-agent`**. git متظبط يتجاهله
+    هناك بس؛ لو اتعمل في `hr-platform` نفسه، التوكن والباسوردات هتظهر في
+    `git status` وممكن تدخل في commit بالغلط.
+- **مين بيعمل إيه:** إنت (اللي رايح الزيارة) بتنفذ الخطوات وبتكتب النتايج.
+  أي تغيير في داتابيز البرود **صاحب الريبو (repository owner) بس** اللي يعمله أو
+  يوافق عليه صراحة، وأي agent session (AI) ممنوع تعمله (الخطوة 12.1).
+- **تفاصيل الـ agent وأوامره:** [on-prem-agent.md](on-prem-agent.md).
+  **السميولشن:** [devices-lab.md](devices-lab.md).
 
-## Rules That Hold For The Whole Visit
+---
 
-A terminal on a customer's wall records their payroll. Nothing done during
-the visit may change what it holds or stop it working for them.
+## 0. قواعد ممنوع تكسرها
 
-- **Never clear, delete or overwrite anything on a terminal** — attendance
-  log, users, fingerprints, administrators. The agent cannot: its 4370 client
-  has no such command (`READ_ONLY_COMMANDS` in `workin_devices/zk4370.py`).
-  Do not use the terminal's own menus for it either.
-- **Never change the terminal's date, time or time zone** unless the
-  customer asks you to fix a wrong clock, and then write down the old value.
-- **Photograph every settings screen before you change it**, and put every
-  changed setting back before you leave (step 10).
-- **Ask before scanning the customer's network** or plugging into it.
-- **Stay away from shift change.** The first and last hour of a shift is
-  when every employee punches.
-- **The backup files and captures hold employee PINs and punch times.** They
-  are personal data: keep them on the laptop, never in the repository, a chat
-  or a ticket. Only what step 11 lists goes into the repository.
-- **No fingerprint templates, photos or faces are collected.** The receiver
-  discards template uploads, and the agent never asks for them.
+الجهاز ده عليه حضور وانصراف موظفين الشركة ومرتباتهم. أي غلطة فيه مشكلة حقيقية
+للعميل.
 
-## 1. The Day Before
+1. **ممنوع تمسح أي حاجة من الجهاز**: لا سجلات حضور، ولا موظفين، ولا بصمات، ولا
+   admins. الـ agent بتاعنا أصلاً مايقدرش يمسح؛ وإنت كمان ماتعملش ده من منيو
+   الجهاز.
+2. **ممنوع تغيّر تاريخ أو ساعة أو time zone الجهاز**، إلا لو العميل طلب منك
+   تصلّحها، وساعتها اكتب القيمة القديمة الأول.
+3. **قبل ما تغيّر أي إعداد: صوّره بالموبايل.** وقبل ما تمشي رجّع كل حاجة زي
+   الصورة (الخطوة 10).
+4. **استأذن قبل ما توصّل اللابتوب على شبكتهم أو تعمل scan.**
+5. **ابعد عن مواعيد الحضور والانصراف** (أول ساعة وآخر ساعة في الشيفت).
+6. **الملفات اللي هتطلع من الزيارة فيها أكواد موظفين ومواعيد**: خليها على
+   اللابتوب بس. ماتحطهاش في الريبو ولا في شات ولا في issue.
+7. إحنا **مش بناخد بصمات الصوابع ولا صور الوش**. لو الجهاز بعتها، السيستم بيرميها.
+   والـ `capture` بيكتب على اللابتوب (وبيطبع على الشاشة) **بس** اللي السيستم بيحتفظ
+   بيه، وبالشكل اللي السيستم بيفهمه:
+   - **ZKTeco:** سطور الحضور (`ATTLOG`: كود، وقت، وحقول قصيرة)، والإعدادات
+     (`OPTIONS`)، وسطور العمليات (`OPLOG`)، ونتايج الأوامر. سطر حضور السيستم
+     مايفهموش بيتكتب **شكله بس**: `# unparsed line shape: 9999,9999-99-99 ...` (كل
+     رقم `9` وكل حرف `a`)، عشان تعرف الفاصل والطول من غير القيم.
+   - **أي ماركة تانية:** شكل الـ JSON أو XML بس: أسامي الحقول ونوع كل قيمة وطولها
+     (`"<string 9>"`)، وأكواد الأحداث والحالة (زي `minor`؛ أي رقم تاني زي `pin` بيتكتب
+     `"<number>"`) والتواريخ، وقيم دخول/خروج وطريقة التحقق (زي
+     `"attendanceStatus": "checkIn"`). **مفيش أسامي ولا أرقام كروت ولا أكواد موظفين.**
+   - أي حاجة تانية (بصمات، صور، بيانات تسجيل الموظفين، البطاقات، مهما كان اسمها)
+     **مابتتكتبش خالص**.
 
-### 1.1 Ask the customer
+   في ملف الـ `.json` بتاع الطلب هتلاقي `request_body_withheld`: نوع اللي اتشال
+   وحجمه بس (أو `structure only`). لو لقيت في `field-report/` صورة أو بصمة لأي سبب،
+   امسحها وماتنقلهاش.
 
-- Which terminals they have, how many, and where.
-- The terminal **admin password** or someone who can open the menu, and the
-  **Comm Key** if one is set (`Menu → Comm. → Connection → Comm Key`).
-- What reads the terminals today: ZKTime.Net / ZKAccess (reads over 4370),
-  BioTime / ZKBioSecurity (the terminal pushes to it), a USB stick into Excel,
-  or nothing. This decides what you must restore afterwards.
-- Permission to plug a laptop into their network, and a network cable run
-  or switch port near the terminal.
-- A 30-minute window outside shift change, and one employee willing to punch
-  a few times.
-- If they are a platform customer: which employees are on the terminal, so
-  device PINs can be matched to employees.
+---
 
-### 1.2 Prepare the laptop
+## 1. قبل الزيارة بيوم
 
-1. Rehearse: `scripts/devices-lab.sh up && scripts/devices-lab.sh seed &&
-   scripts/devices-lab.sh simulate`. Every `[PASS]` line must pass. The images
-   are then cached, so the lab starts at the site without internet.
-2. Check the kit runs with nothing installed:
-   `cd devices-agent && python3 -m workin_devices version` (Python 3.11 or
-   later; no packages needed).
-3. Allow the capture port through the firewall: `sudo ufw allow 8081/tcp`
-   (remove it afterwards).
-4. Decide where punches go (section 1.3) and start that stack once to be
-   sure it works.
-5. Pack: laptop charger, a USB-to-Ethernet adapter, two network cables, a
-   small switch, a FAT32 USB stick, a phone hotspot, and this runbook.
+### 1.1 اسأل العميل
 
-### 1.3 Where the punches go
+- عنده كام جهاز، ونوعهم إيه، وفين.
+- **باسورد منيو الجهاز**، أو حد عنده يفتحلك المنيو.
+- **الـ Comm Key** لو متظبط (`Menu → Comm. → Connection → Comm Key`).
+- بيسحبوا البصمات إزاي دلوقتي؟
+  - برنامج على كمبيوتر (ZKTime.Net / ZKAccess) ← البرنامج ده بيقرأ من الجهاز.
+  - BioTime / ZKBioSecurity ← الجهاز هو اللي بيبعت للبرنامج ده.
+  - فلاشة USB ويحطوها في Excel.
+  - **ده مهم** عشان تعرف ترجّع إيه في الآخر.
+- موافقة إنك توصّل لابتوب على الشبكة، وكابل شبكة أو port فاضي جنب الجهاز.
+- **نص ساعة** بعيد عن مواعيد الحضور، وموظف واحد يعمل بصمة كذا مرة.
+- لو هما عملاء عندنا على السيستم: مين الموظفين المسجلين على الجهاز.
 
-**A. The lab database on the laptop (default).** Nothing leaves the laptop.
-Use it for the first visit unless there is a reason not to.
+### 1.2 جهّز اللابتوب (في البيت، فيه نت)
 
-**B. The production database**, through the remote-db stack on the laptop.
-Only once the prerequisites in [section 12](#12-mode-b-the-production-database)
-are done, and never as a way to skip them.
-
-Both modes run the same code and the same capture proxy; only the upstream
-changes.
-
-## 2. Arrive And Photograph
-
-Before touching anything, photograph:
-
-1. The sticker on the back: model, serial number (SN), MAC.
-2. `Menu → System Info → Device Info` (or *About*): firmware version,
-   platform, and the push/ADMS version if shown.
-3. `Menu → Comm. → Ethernet`: IP address, subnet mask, gateway, DNS, DHCP.
-4. `Menu → Comm. → Cloud Server Setting` (or *ADMS*): whether it exists, and
-   every value on it — **this is what you restore in step 10**.
-5. `Menu → System → Date Time`: the time, the time zone, whether it follows
-   daylight saving, and whether NTP is on.
-6. `Menu → Data Mgt.` (or *Record*): how many attendance records and users
-   it holds.
-
-Hikvision terminals show most of this on their web page instead (step 8).
-
-## 3. Join The Network And Find The Terminals
+**Terminal 1** (`hr-platform`):
 
 ```bash
-ip -4 addr            # the laptop's address, e.g. 192.168.1.57/24
-ping -c 3 <terminal IP from step 2>
-cd devices-agent
+# 1) السميولشن كامل مرة واحدة -- كده الـ images اتحملت واللاب هيشتغل من غير نت
+scripts/devices-lab.sh up
+scripts/devices-lab.sh seed
+scripts/devices-lab.sh simulate
+```
+
+- **المفروض تشوف** كل السطور فيها `[PASS]`. لو فيه `FAIL` ماتروحش بيه: افتح
+  issue وحط فيه السطر، ويتصلّح الأول.
+- `seed` بيطبع سطر زي:
+  `lab company 5 (شركة الفجر 5), branch 22 (فرع الجنوب 22)` ← **اكتب اسم الشركة
+  واسم الفرع**. فورم التخصيص في الداشبورد بيعرض الأسامي بس، مش الأرقام.
+
+**Terminal 2** (افتحه وادخل `devices-agent` مرة واحدة: `cd hr-platform/devices-agent`):
+
+```bash
+# 2) اتأكد إن الأدوات شغالة من غير أي install
+python3 -m workin_devices version          # المفروض يطبع 0.1.0
+
+# 3) افتح port الـ capture في الـ firewall
+sudo ufw allow 8081/tcp
+```
+
+**4) قرر البصمات هتتسجل فين:**
+
+| الوضع | يعني إيه | إمتى |
+|---|---|---|
+| **A — لوكال (الافتراضي)** | كل حاجة على اللابتوب، في داتابيز تجريبية | أول زيارة |
+| **B — البرود** | البصمات تتسجل في داتابيز البرود | بس بعد ما شروط الخطوة 12 تخلص كلها |
+
+**5) الشنطة:**
+
+- شاحن اللابتوب
+- USB-to-Ethernet adapter
+- 2 كابل شبكة
+- switch صغير
+- فلاشة FAT32
+- الموبايل للـ hotspot
+- الدليل ده
+
+---
+
+## 2. أول ما توصل: صوّر الجهاز
+
+قبل ما تلمس أي حاجة، صوّر:
+
+| # | الشاشة | ليه |
+|---|---|---|
+| 1 | الستيكر اللي ورا الجهاز (Model، **SN** = السيريال، MAC) | السيريال هو اللي هنسجّل بيه الجهاز |
+| 2 | `Menu → System Info → Device Info` (أو About) | الـ firmware ونسخة الـ Push/ADMS |
+| 3 | `Menu → Comm. → Ethernet` | IP الجهاز والـ gateway |
+| 4 | `Menu → Comm. → Cloud Server Setting` (أو ADMS) | **دي اللي هترجّعها في الآخر**. لو الشاشة مش موجودة ← الجهاز قديم |
+| 5 | `Menu → System → Date Time` | الساعة، والـ time zone، و**التوقيت الصيفي (Daylight Saving / DLST) شغال ولا لأ**، والساعة بتتظبط لوحدها (NTP) ولا يدوي. **هتحتاجهم في الخطوة 5.3** |
+| 6 | `Menu → Data Mgt.` (أو Record) | عدد سجلات الحضور وعدد الموظفين |
+
+أجهزة **Hikvision** معظم الكلام ده بيبقى في صفحة الويب بتاعتها (الخطوة 8).
+
+---
+
+## 3. اتوصّل بالشبكة ودوّر على الأجهزة
+
+**Terminal 2:**
+
+```bash
+ip -4 addr                                  # هتلاقي IP اللابتوب، مثلاً 192.168.1.57/24
+ping -c 3 192.168.1.201                     # IP الجهاز من صورة رقم 3
 python3 -m workin_devices scan --cidr 192.168.1.0/24
 ```
 
-`scan` probes TCP 4370, 80, 443, 8000, 8080, 37777 and 5010, and ZKTeco over
-UDP. For each host it prints what it found, and writes
-`field-report/scan-<time>.json`. Read it like this:
+`scan` بيطبع سطر لكل جهاز لقاه، وبيحفظ النتيجة في `field-report/scan-*.json`.
 
-| `scan` says | It is | Go to |
+**اقرأ النتيجة كده:**
+
+| لو شفت في السطر | يبقى الجهاز | روح على |
 |---|---|---|
-| `zk_tcp` with `serial`, `firmware` | a ZKTeco terminal reachable over 4370 | step 4 |
-| `zk_tcp` with `comm_key_required: true` | the same, with a Comm Key | step 4 with `--comm-key` |
-| `zk_udp` | an older ZKTeco that answers only over UDP | step 4 with `--udp` |
-| `http_80` guess `hikvision (ISAPI)` | a Hikvision terminal | step 8 |
-| `http_80` guess `dahua (CGI)`, or port 37777 | a Dahua terminal | step 9 |
-| nothing for the terminal's IP | wrong subnet, or a terminal with networking off | check step 2's photo |
+| `zk_tcp` وجواه `serial` و `firmware` | ZKTeco بيرد على 4370 | الخطوة 4 |
+| `zk_tcp` وجواه `comm_key_required: true` | ZKTeco عليه Comm Key | الخطوة 4 مع `--comm-key` |
+| `zk_udp` | ZKTeco قديم بيرد على UDP بس | الخطوة 4 مع `--udp` |
+| `hikvision (ISAPI)` | Hikvision | الخطوة 8 |
+| `dahua (CGI)` أو port 37777 | Dahua | الخطوة 9 |
 
-## 4. ZKTeco: Read It And Back Up Its Log
+**مشاكل ممكن تقابلك:**
 
-Do this first, for every ZKTeco terminal that answers on 4370, **before any
-setting is changed**. It is read-only, and the backup is the customer's
-attendance log on your laptop in case anything later goes wrong.
+| المشكلة | الحل |
+|---|---|
+| `ping` مش بيرد | اتأكد إن اللابتوب على نفس الشبكة: الـ IP لازم يبدأ بنفس الأرقام (مثلاً `192.168.1.x`). لو الشبكة مافيهاش DHCP، اسأل عن IP فاضي وحطه يدوي |
+| `scan` مالقاش الجهاز | استخدم **كابل مش WiFi** (شبكات WiFi كتير بتمنع الأجهزة تشوف بعض). اتأكد من IP الجهاز من صورة رقم 3 |
+| `scan` قال إن الشبكة كبيرة | اسكان على جزء أصغر، مثلاً `--cidr 192.168.1.0/24` |
+
+---
+
+## 4. ZKTeco: خد نسخة احتياطية من السجل (قبل أي تغيير)
+
+الخطوة دي **قراءة بس**، ولازم تتعمل قبل ما تغيّر أي إعداد. بتاخد نسخة من كل
+سجلات الحضور على اللابتوب، عشان لو حصل أي حاجة يبقى معانا نسخة.
+
+**Terminal 2:**
 
 ```bash
 python3 -m workin_devices zk-info --host 192.168.1.201 \
-  --backup field-report/<SN>-attlog-backup.tsv
-# add --comm-key 12345 if asked; add --udp if TCP does not answer
+  --backup field-report/SN-attlog-backup.tsv
 ```
 
-Check, and write down:
+(غيّر `SN` لسيريال الجهاز.)
 
-- `serial` matches the sticker.
-- `records` matches the count on the terminal's screen, and the backup file
-  has that many lines (minus its header).
-- `device_time` against `laptop_time`: the difference is the terminal's clock
-  skew. More than a few minutes is a finding.
-- The last lines of the backup against the terminal's own attendance query
-  (`Menu → Attendance Search`) for one employee: same PIN, same times.
+**المفروض تشوف:** `serial` و `firmware` و `records` و `device_time` و
+`laptop_time`، وبعدها `backed up N record(s)`.
 
-## 5. ZKTeco That Can Push: The Receiver
+**اتأكد من دول واكتبهم:**
 
-Only if step 2 found a *Cloud Server Setting* / *ADMS* screen.
+- [ ] `serial` هو نفس اللي على الستيكر.
+- [ ] `records` هو نفس العدد اللي على شاشة الجهاز.
+- [ ] الفرق بين `device_time` و `laptop_time`: لو أكتر من كام دقيقة، اكتبه (ساعة الجهاز مش مظبوطة).
+- [ ] آخر كام سطر في ملف الـ backup نفس اللي في شاشة البحث في الجهاز
+      (`Menu → Attendance Search`) لموظف واحد: نفس الكود ونفس المواعيد.
 
-### 5.1 Start the receiver on the laptop
+**مشاكل:**
 
-Mode A (lab):
+| لو ظهر | يعني | اعمل |
+|---|---|---|
+| `comm_key_required: true` | الجهاز عليه Comm Key | اسأل عليه وضيف `--comm-key 12345` |
+| `comm_key_required: true` **تاني** بعد ما حطيت `--comm-key` | الـ Comm Key غلط (`zk-info` بيطبع نفس السطر للمفتاح الغلط) | اتأكد منه من المنيو |
+| `did not answer in time` | الجهاز مش بيرد على TCP | جرّب تاني بـ `--udp`. لو برضه لأ، جرّب بعد شوية (ممكن الجهاز مشغول) |
+| `cannot reach ... over TCP` | IP غلط أو الجهاز مش على الشبكة | ارجع للخطوة 3 |
+| عدد `records` مختلف عن الشاشة | ممكن حد عمل بصمة دلوقتي | أعد الأمر. لو لسه مختلف، اكتبها ملاحظة |
+
+---
+
+## 5. جهاز ZKTeco بيعمل Push (عنده Cloud Server Setting)
+
+**بس** لو في الخطوة 2 لقيت شاشة `Cloud Server Setting` أو `ADMS`. لو مش موجودة
+← روح الخطوة 6.
+
+الفكرة: هنخلي الجهاز يبعت البصمات للابتوب بدل ما يبعتها لمكانها العادي، وبرنامج
+`capture` على اللابتوب يسجل من اللي الجهاز بيبعته بس اللي السيستم بيحتفظ بيه
+(قاعدة 7)، ويبعته **كله** للسيستم بتاعنا.
+
+### 5.1 شغّل السيستم والـ capture على اللابتوب
+
+**Terminal 1** (وضع A — لوكال):
 
 ```bash
-scripts/devices-lab.sh up                       # already built at home: starts in seconds
-cd devices-agent
+scripts/devices-lab.sh up
+```
+
+**Terminal 3** (افتحه وادخل `devices-agent`: `cd hr-platform/devices-agent`):
+
+```bash
 python3 -m workin_devices capture --listen 0.0.0.0:8081 \
   --upstream http://127.0.0.1:18080 --host-header devices.localhost \
   --out field-report/captures
 ```
 
-Mode B: the same `capture` command with `--upstream http://127.0.0.1:80`
-(section 12).
+(في وضع B نفس الأمر بس `--upstream http://127.0.0.1:80`، شوف الخطوة 12.)
 
-`capture` prints the address to type into the terminal, forwards the
-terminal's `/iclock` requests to the receiver under the hostname the receiver
-answers on (any other path gets `404` and never reaches the platform), and
-keeps every byte both ways under `field-report/captures/<SN>/` -- except
-`Authorization` and `Cookie` headers, which it never writes down. The
-receiver sees the laptop, not the terminal, as the sender, so the dashboard's
-*address* column reads the laptop's; the capture files keep the terminal's. If the stack is
-down it answers the terminal `502`, never `OK`, so the terminal keeps its
-records and retries. Open the dashboard beside it:
-`https://localhost:18443/admin/devices?live=1` (mode A).
+**المفروض تشوف:** سطر زي
+`on the terminal: Server Address = 192.168.1.57   Server Port = 8081`
+← **ده اللي هتكتبه في الجهاز.**
 
-### 5.2 Point the terminal at the laptop
+**افتح الداشبورد في المتصفح:** `https://localhost:18443/admin/devices?live=1`
 
-On `Cloud Server Setting`, with step 2's photo taken:
+- هيطلعلك تحذير الشهادة (certificate) ← اضغط Advanced ثم Proceed.
+- **قبل ما تملى أي فورم** (تخصيص جهاز، أو توكن agent): دوس **Stop live refresh**
+  (إيقاف التحديث المباشر) الأول. الصفحة بتعمل refresh كل 10 ثواني وبتمسح اللي
+  كتبته. رجّعه بعدها بـ **Live: refresh every 10 seconds** (مباشر: تحديث كل 10
+  ثوانٍ).
+- الباسورد: `devpassword`.
+- `?live=1` معناها إن الصفحة بتعمل refresh لوحدها كل 10 ثواني.
+- الداشبورد بيفتح **بالعربي**. الدليل بيكتب أسامي الزراير بالإنجليزي، وده اللي
+  هتلاقيه قدامك (أو اختار English تحت في السايدبار):
 
-1. Server mode **ADMS**; **Enable Domain Name** off.
-2. **Server Address** = the laptop's IP; **Server Port** = `8081`.
-3. **HTTPS** off, **Proxy** off. Save. Reboot the terminal if it asks.
+  | في الدليل | في الداشبورد بالعربي |
+  |---|---|
+  | Attendance devices | أجهزة البصمة |
+  | Terminals waiting to be allocated | أجهزة في انتظار التخصيص |
+  | Allocate to a branch | تخصيص لفرع |
+  | Device time zone | المنطقة الزمنية للجهاز |
+  | Delivered via | طريقة الوصول |
+  | State / verification | الحالة / طريقة التحقق |
+  | On-premises agents | الوكلاء المحليون |
+  | Issue agent token | إصدار رمز وكيل |
+  | Import a USB export | استيراد ملف من فلاشة USB |
+  | Unreadable lines | أسطر غير مقروءة |
+  | Deactivate device | إيقاف الجهاز |
+  | Revoke (جنب الـ agent) | إنهاء |
+  | Restore (agent متلغي) | إعادة تفعيل |
+  | Activate device (جهاز متوقف) | تفعيل الجهاز |
+  | Active / Inactive (الحالة) | نشط / غير نشط |
+  | Stop live refresh | إيقاف التحديث المباشر |
+  | Live: refresh every 10 seconds | مباشر: تحديث كل 10 ثوانٍ |
+  | All companies | كل الشركات |
+  | That serial number is already allocated. | هذا الرقم التسلسلي مخصص بالفعل. |
+  | The file is too large to upload here. | الملف أكبر من المسموح هنا. |
 
-Within a minute `capture` shows `NEW [<SN>] GET /iclock/cdata?...options=all`,
-and the dashboard lists the serial under *Terminals waiting to be allocated*.
-**The terminal is not allocated yet, and that is deliberate:** until it is,
-the receiver sends it no time zone and refuses its uploads with `403`, so it
-keeps every record and nothing about it changes.
+### 5.2 خلّي الجهاز يبعت للابتوب
 
-Nothing in 60 seconds: the laptop firewall (`sudo ufw status`), a different
-subnet, or a firmware that needs a reboot to apply the setting.
+(صوّرت الشاشة دي في الخطوة 2؟ لو لأ، صوّرها دلوقتي.)
 
-### 5.3 Allocate it — with the terminal's own time zone
+على الجهاز: `Cloud Server Setting`:
 
-**Read this before allocating.** Once allocated, the handshake carries
-`TimeZone=<hours>`, and some firmware apply it to their clock. Allocate with
-the zone the terminal is **already** set to (step 2, photo 5):
+1. Server Mode = **ADMS**.
+2. **Enable Domain Name** = OFF.
+3. **Server Address** = IP اللابتوب (من 5.1).
+4. **Server Port** = `8081`.
+5. **HTTPS** = OFF، **Proxy** = OFF.
+6. Save. ولو طلب restart، اعمل restart.
 
-- set to a fixed offset such as +02:00 → `+02:00`
-- following Egypt's daylight saving → `Africa/Cairo`
-- unsure → `+02:00` or `+03:00`, matching the time the terminal shows now
-  against the laptop's clock
+**المفروض تشوف خلال دقيقة:**
 
-In the dashboard: *Allocate to a branch* → serial, vendor ZKTeco, a name,
-that zone, the customer's branch (mode A: any lab branch). After allocating,
-`capture` shows the next handshake carrying `TimeZone=` and then
-`POST /iclock/cdata?...table=ATTLOG` bodies: the terminal uploading its log.
-The receiver asks for everything (`ATTLOGStamp=0`), so the first upload is
-the whole history.
+- في Terminal 3 (الـ capture): سطر فيه `NEW [السيريال] GET /iclock/cdata?...`.
+- في الداشبورد: السيريال ظهر في جدول **"Terminals waiting to be allocated"** (أجهزة في انتظار التخصيص).
+- الجهاز لسه **مش متخصص** (مش مربوط بشركة)، وده مقصود: السيستم بيرفض يستلم منه
+  بصمات (`403`)، فالجهاز بيحتفظ بكل حاجة عنده ومفيش بصمة بتضيع.
+- **خد بالك:** السيستم بيرد عليه بإعدادات الإرسال العادية (`Delay=10`،
+  `TransTimes=00:00;14:05`، `TransInterval=1`، `Realtime=1`، وغيرها)، **من غير
+  الـ time zone**. في أجهزة بتحفظ الإعدادات دي، وعشان كده في الخطوة 10 لازم
+  تتأكد إن برنامج العميل بيستلم بصمة جديدة بعد ما ترجّع الإعداد.
+- في نفس الشاشة: اكتب **فيه اختيار `Enable Domain Name` ولا لأ** (سيبه OFF).
 
-### 5.4 What to check, and how
+**لو مفيش حاجة ظهرت بعد دقيقة:**
 
-Each line answers one item of the hardware checklist (§4 of
-[zkteco-adms-receiver-setup.md](zkteco-adms-receiver-setup.md)). Record the
-answer as you go.
+| السبب المحتمل | اعمل |
+|---|---|
+| الـ firewall | `sudo ufw allow 8081/tcp` و `sudo ufw status` |
+| IP اللابتوب اتغير | بص على `ip -4 addr` وصحّح الـ Server Address |
+| الجهاز محتاج restart | اعمل restart للجهاز |
+| الجهاز واللابتوب مش على نفس الشبكة | من موبايل على نفس الشبكة افتح `http://IP-اللابتوب:8081`؛ لو مافتحش يبقى الشبكة مانعة |
+| Enable Domain Name شغالة أو Proxy شغال | اقفلهم |
+| الـ capture بيطبع `502 UPSTREAM ERROR` | السيستم مش شغال ← وضع A: `scripts/devices-lab.sh up`؛ وضع B: الـ stack بتاع 12.2 (شوف 12.4). **الجهاز مش هيضيع حاجة**، هيعيد المحاولة |
 
-| # | Do | Look at | Record |
+### 5.3 خصّص الجهاز لفرع (ركّز هنا)
+
+> **تحذير:** أول ما تخصّص الجهاز، السيستم بيبعتله الـ time zone في كل اتصال،
+> وفيه أجهزة بتغيّر ساعتها على حسبه. **لازم تختار نفس الـ time zone اللي الجهاز
+> متظبط عليه أصلاً** (صورة رقم 5 من الخطوة 2).
+
+| الجهاز متظبط على | اكتب في Device time zone |
+|---|---|
+| +02:00 ثابت | `+02:00` |
+| +03:00 ثابت | `+03:00` |
+| بيتبع التوقيت الصيفي لمصر لوحده | `Africa/Cairo` |
+| مش متأكد | **ماتخمّنش.** افتح `Date Time` تاني: لو Daylight Saving شغال اختار `Africa/Cairo`؛ لو مقفول اختار الـ offset اللي ساعة الجهاز ماشية عليه دلوقتي (قارنها بساعة اللابتوب) |
+
+**في الداشبورد:** جدول "Terminals waiting" ← زرار **Allocate to a branch** جنب
+السيريال:
+
+- **Serial number:** بيتملى لوحده. **اتأكد إنه نفس الستيكر.**
+- **Vendor:** ZKTeco.
+- **Device name:** أي اسم، مثلاً "بوابة الشركة".
+- **Device time zone:** من الجدول اللي فوق.
+- **Branch:**
+  - وضع A: اختار الفرع **بالاسم** اللي `seed` طبعه (مثلاً "شركة الفجر 5 — فرع الجنوب 22").
+  - وضع B: فرع الشركة الحقيقي.
+- اضغط **Allocate to a branch**.
+
+**المفروض تشوف:**
+
+- صفحة الجهاز اتفتحت.
+- في Terminal 3: بعد الاتصال الجاي، `POST /iclock/cdata?...table=ATTLOG`. ده الجهاز
+  بيبعت **كل سجلاته القديمة** (عادي ياخد شوية لو السجل كبير).
+- الـ `TimeZone=` **مش بيظهر على الشاشة** (الشاشة بتعرض أول 20 حرف من الرد بس).
+  هو في رد الـ handshake (`GET /iclock/cdata`)، **مش** في رد `GET /iclock/getrequest`
+  اللي بيتكرر كل 10 ثواني (ده ردّه `OK` بس). في Terminal 2 (غيّر `SN` للسيريال):
+
+  ```bash
+  grep -l '"path": "/iclock/cdata' field-report/captures/SN/*-GET.json | xargs -r ls -t | head -n 1
+  ```
+
+  - لو طبع `No such file or directory` (bash) أو `no matches found` (zsh): اسم
+    الفولدر غلط. اكتب `SN` بالظبط زي ما هو في `ls field-report/captures/`.
+  - لو **مطبعش حاجة**: الفولدر صح بس مفيش handshake متسجل فيه لسه.
+
+  لو طبع اسم ملف، ده آخر handshake بالوقت (مش بالرقم اللي في أول الاسم: الرقم ده بيبدأ من
+  1 كل مرة الـ capture يتشغّل)، مثلاً `00042-20260916-081502-GET.json`. افتح الملف
+  اللي بنفس الاسم بس آخره `-GET.response.bin`: فيه سطر `TimeZone=`. لو الوقت في
+  اسم الملف **قبل** ما خصّصت الجهاز، يبقى الجهاز لسه ماعملش handshake جديد: غالباً
+  بيعمله لما يتصل من الأول (زي بعد تجربة 5، شيل الكابل). بص تاني بعدها، ولو برضه
+  مفيش اكتبها.
+- في الداشبورد: البصمات بتظهر في صفحة الجهاز.
+
+| لو شفت | يعني | اعمل |
+|---|---|---|
+| البصمات **UNMATCHED** | كود الموظف على الجهاز مش مربوط بموظف عندنا | **في وضع A ده طبيعي** (الداتابيز تجريبية). في وضع B اكتب الأكواد، وهنربطها بعدين |
+| مواعيد البصمات **غلط بساعة أو ساعتين** | الـ time zone في التخصيص مش زي الجهاز | ماتغيّرش حاجة في الجهاز. اكتبها في الـ issue (الخطوة 11)، ولو في وضع B بلّغ صاحب الريبو في نفس اليوم. في وضع A ممكن تمسح اللاب وتبدأ تاني بالخطوات التلاتة اللي في 6.4 ("لو عايز تعيد التجربة"): `down --wipe` لوحده مش كفاية، لأن `seed` بيعمل توكن جديد والـ agent فاكر إنه بعت |
+| في الـ capture `413` بيتكرر لنفس الرفع | الجهاز بيبعت أكتر من 5000 سجل مرة واحدة | **معلومة مهمة**: اكتبها، وقف التجربة، ورجّع الجهاز (الخطوة 10) |
+| `That serial number is already allocated` | السيريال متخصص قبل كده | افتحه من جدول Attendance devices |
+
+### 5.4 التجارب مع الموظف (واكتب النتايج)
+
+> **تجربة 5 و 6 بيأثروا على الجهاز الحقيقي:** اعملهم **بعيد عن مواعيد الحضور
+> والانصراف، ومع الموظف اللي متفق معاه بس**. الجهاز بيحتفظ بالبصمات ومفيش حاجة
+> بتضيع، بس ماينفعش حد تاني يبصم وإنت شايل الكابل.
+
+| # | اعمل | المفروض تشوف | اكتب |
 |---|---|---|---|
-| 1 | nothing more | the handshake arrived at all | Cloud Server / ADMS exists; accepts IP (and domain name, if you try one) |
-| 2 | look at the menu | whether HTTPS can be enabled | HTTPS offered yes/no |
-| 3 | nothing | `captures/<SN>/*-POST.json`, `request_headers.Content-Type` | the Content-Type the firmware sends |
-| 4 | nothing | `*.request.bin` of an ATTLOG upload: `2026-09-16 08:01:02` or a 10-digit number | wall clock or epoch |
-| 5 | nothing | the handshake URL: `pushver=`, `DeviceType=`, `language=`, `PushOptionsFlag=` | each value |
-| 6 | nothing | the first field of each ATTLOG line | PIN format and longest length |
-| 7 | unplug the terminal's cable, have the employee punch twice, plug it back | dashboard: the two punches arrive with the times they were made | offline buffering yes/no, and how long until they arrived |
-| 8 | stop `capture` (Ctrl-C), punch once, wait 1 minute, start `capture` again | the punch arrives after restart; `capture` shows the retry | retry after a failed delivery yes/no, and after how long |
-| 9 | nothing | `Stamp=` on ATTLOG uploads | how the stamp is encoded |
-| 10 | nothing | the largest ATTLOG upload: `request_bytes` and its line count; any `413` | records per upload; whether the 5,000 cap was ever hit |
+| 1 | موظف يعمل بصمة عادي | بصمة جديدة في الداشبورد **خلال ثواني**: الكود والوقت، و *Delivered via* = `PUSH` | وصلت خلال كام ثانية؟ |
+| 2 | يعمل بصمة وهو دايس زرار **Check-Out** (أو F2) | عمود *State / verification*: الرقم الأول اتغير | رقم الدخول = ؟ رقم الخروج = ؟ الموظفين أصلاً بيدوسوا الزرار ده؟ |
+| 3 | يعمل بصمتين ورا بعض في أقل من 10 ثواني | الاتنين اتسجلوا | اتسجلوا؟ |
+| 4 | افتح ملف `*.request.bin` لأي `ATTLOG` في `field-report/captures/السيريال/` | (أ) الوقت مكتوب `2026-09-16 08:01:02` ولا رقم طويل (10 أرقام)؛ (ب) كل سطر فيه كام حقل، والفاصل Tab ولا حاجة تانية؛ (ج) كود الموظف (أول حقل) طوله كام رقم | شكل الوقت، عدد الحقول والفاصل، طول الكود. لو السطور مكتوبة `# unparsed line shape:` يبقى السيستم مش فاهمها: الشكل بيوريك الفاصل والأطوال (قاعدة 7)، **اكتبها** |
+| 5 | **شيل كابل الشبكة من الجهاز**، الموظف يعمل بصمتين، رجّع الكابل | البصمتين يوصلوا بعد ما الكابل يرجع، **بمواعيدهم الأصلية** | وصلوا؟ بعد قد إيه؟ |
+| 6 | في Terminal 3 اضغط **Ctrl+C**، الموظف يعمل بصمة، **استنى 10 دقايق**، شغّل أمر الـ capture تاني (سهم لفوق ثم Enter) | البصمة توصل بعد ما الـ capture يرجع، **بميعادها الأصلي، وتظهر مرة واحدة** في الداشبورد | الجهاز عاد الإرسال؟ بعد قد إيه؟ اتسجلت مرة واحدة؟ |
+| 7 | افتح أي ملف `*-GET.json` الـ path بتاعه بيبدأ بـ `/iclock/cdata` (الـ handshake، مش `getrequest`) | في الـ path: `pushver=` و `DeviceType=` و `language=` و `PushOptionsFlag=` | القيم |
+| 8 | افتح ملف `*-POST.json` لأي ATTLOG | `request_headers` ← `Content-Type`، و `Stamp=` في الـ path | القيمتين (الـ Stamp رقم عادي ولا شكل تاني؟) |
+| 9 | بص على أكبر ملف `ATTLOG` | عدد السطور فيه، وهل فيه `413` | أكبر عدد سجلات في رفعة واحدة |
+| 10 | منيو الجهاز | فيه اختيار HTTPS؟ | أيوه / لأ |
+| 11 | قارن 3 بصمات في الداشبورد بشاشة البحث في الجهاز | نفس الكود ونفس الوقت | متطابقين؟ |
 
-Then with the employee:
+الجدول ده والصور بتاعة الخطوة 2 بيغطوا الـ checklist اللي في الخطوة 4 من
+[zkteco-adms-receiver-setup.md](zkteco-adms-receiver-setup.md). 3 حاجات منه
+**مش بيتختبروا في الزيارة دي**، اكتبهم "لم يُختبر": الـ TLS versions (الـ
+capture شغال HTTP بس)، وهل `TimeZone` بيقبل دقايق (محتاج نغيّر في الجهاز)، و
+"Acknowledgement dropped" (تجربة 6 بتوقف الاستقبال كله، مش بترفض رفعة بعد ما
+الجهاز يبعتها).
 
-- Punch normally → a row appears in the dashboard within seconds
-  (`Realtime=1`): PIN, time, `RECEIVED` if the PIN matched an employee or
-  `UNMATCHED` if not, *delivered via* `PUSH`.
-- Punch with the **Check-Out** key (or *F2*) → the *state / verification*
-  column changes its first number. Note which number means in and which out.
-- Punch twice within ten seconds → both stored; the second may carry a review
-  flag later (pairing debounces, it never rejects).
-- Compare three punches with the terminal's own attendance query.
+---
 
-A `413` repeated for the same upload in `capture` means the firmware does not
-split its batch: stop, write it down (checklist item 10), and point the
-terminal back (step 10) — the receiver's cap needs raising before this model
-can push.
+## 6. جهاز ZKTeco قديم (4370): عن طريق الـ agent
 
-## 6. ZKTeco Over 4370: The Agent
+للجهاز القديم اللي مالوش Cloud Server، **وكمان** لأي جهاز ZKTeco رد على 4370
+(حتى لو بيعمل Push)، عشان نتأكد إن الطريقتين بيدّوا نفس النتيجة.
 
-For every ZKTeco terminal that answered on 4370 — old ones that cannot push,
-and push-capable ones too, because reading the same terminal both ways is
-what proves the two paths agree.
+### 6.1 جهّز
 
-1. Issue a token: dashboard → *On-premises agents* → company → name →
-   *Issue agent token*. Copy it once into `field-report/agent.token`, then
-   `chmod 600 field-report/agent.token`. (Mode A can reuse `lab/agent.token`
-   from `devices-lab.sh seed`.)
-2. Allocate the terminal first (5.3) if it is not already — the agent can
-   only submit for a terminal allocated to its own company.
-3. Write `field-report/agent.toml`:
+1. **خصّص الجهاز الأول** (زي 5.3). لو جهاز قديم مابيظهرش في "Terminals waiting"
+   لوحده، اكتب السيريال بإيدك في فورم **Allocate to a branch** (نفس اللي طلع في
+   `zk-info`). وقّف التحديث المباشر الأول (5.1).
+2. **التوكن:**
+   - **وضع A:** استخدم توكن اللاب اللي عمله `seed` (Terminal 2):
+     `mkdir -p field-report && cp lab/agent.token field-report/agent.token`
+     (التوكن ده تبع شركة اللاب، ولازم الجهاز يكون متخصص **لفرع نفس الشركة**.)
+   - **وضع B:** من الداشبورد ← **On-premises agents** ← اختار الشركة ← اكتب اسم
+     ← **Issue agent token** (بعد ما توقّف التحديث المباشر، 5.1) ← انسخ التوكن **(بيظهر مرة واحدة بس)**. التوكن ده
+     باسورد للبرود، فماتكتبهوش جوه أمر (هيتحفظ في الـ history). اكتب ده في
+     Terminal 2 والصق التوكن لما يطلب (مش هيظهر وإنت بتلصقه):
 
-   ```toml
-   server_url = "https://localhost:18443"   # mode A; mode B: "https://localhost"
-   token_file = "agent.token"
-   spool_path = "spool.sqlite3"
-   insecure_skip_tls_verify = true          # the laptop's own self-signed edge only
-   in_out_field = "punch"
+     ```bash
+     if [ -d workin_devices ]; then
+       mkdir -p field-report
+       printf 'Agent token: '; read -rs TOKEN; echo
+       (umask 077 && printf '%s\n' "$TOKEN" > field-report/agent.token)
+       unset TOKEN; echo saved
+     else echo 'WRONG TERMINAL: use Terminal 2 (devices-agent)'; fi
+     ```
 
-   [[devices]]
-   serial = "<SN from the sticker>"
-   kind = "zk"
-   host = "192.168.1.201"
-   comm_key = 0          # the Comm Key, if any
-   udp = false           # true if step 4 needed --udp
-   ```
+3. (Terminal 2) `chmod 600 field-report/agent.token`
+4. اعمل ملف `field-report/zk.toml`. **جهاز واحد بس في كل ملف:** `once` بيقرأ
+   ويبعت **كل** الأجهزة اللي في الملف. لجهاز ZKTeco تاني اعمل ملف تاني (مثلاً
+   `zk2.toml` بـ `spool_path = "zk2.sqlite3"`).
 
-4. Run, in this order:
+```toml
+server_url = "https://localhost:18443"   # وضع B: "https://localhost"
+token_file = "agent.token"
+spool_path = "zk.sqlite3"
+insecure_skip_tls_verify = true          # عشان الشهادة المحلية بتاعة اللابتوب بس
+in_out_field = "punch"
 
-   ```bash
-   python3 -m workin_devices doctor --config field-report/agent.toml
-   python3 -m workin_devices once   --config field-report/agent.toml
-   python3 -m workin_devices once   --config field-report/agent.toml   # second pass
-   ```
+[[devices]]
+serial = "السيريال زي الستيكر بالظبط"
+kind = "zk"
+host = "192.168.1.201"
+comm_key = 0          # لو فيه Comm Key اكتبه
+udp = false           # true لو zk-info اشتغل بـ --udp بس
+```
 
-   - `doctor` prints the serial the terminal reports (a mismatch means the
-     config names the wrong terminal — nothing is ever submitted then), its
-     counts and clock, and its last three records with `in/out=`. **Compare
-     `in/out=` with the Check-Out test from 5.4.** If the Check-Out punch does
-     not show `1`, set `in_out_field = "status"` and run `doctor` again.
-   - The first `once` stores the whole log; the second stores nothing.
-   - On a terminal that also pushed in step 5, the agent's records arrive as
-     *duplicates*, and the dashboard shows each punch once, *delivered via*
-     `PUSH`. If instead every punch appears twice, the in/out mapping is
-     wrong: that is the finding, and `in_out_field` is the fix.
+> **الترتيب هنا مهم:** `doctor` بيقرأ بس ومابيبعتش حاجة، و `once` بيبعت **السجل
+> كله**. كل بصمة بتتسجل بالـ in/out بتاعها، فلو بعتّ بـ `in_out_field` غلط
+> وبعدين غيّرته، أول `once` بعدها هيبعت **السجل كله تاني** كبصمات جديدة. عشان
+> كده الـ in/out بيتظبط في 6.2 و 6.3 **قبل** أي `once`.
 
-## 7. The USB Export
+### 6.2 اقرأ بس (doctor)
 
-For every ZKTeco terminal, including ones on no network.
+```bash
+python3 -m workin_devices doctor --config field-report/zk.toml   # بيقرأ بس، مابيبعتش
+```
 
-1. On the terminal: `Menu → USB Manager → Download → Attendance Data`, to the
-   FAT32 stick. It writes `<number>_attlog.dat` or `attlog.dat`.
-2. Copy it to `field-report/` and keep the original untouched.
-3. Import it against the allocated terminal:
+**المفروض تشوف:** `OK` والسيريال، وآخر 3 بصمات جنب كل واحدة `in/out=`.
 
-   ```bash
-   python3 -m workin_devices import-usb --config field-report/agent.toml \
-     --serial <SN> --file field-report/1_attlog.dat
-   ```
+### 6.3 الدخول والخروج (قبل ما تبعت أي حاجة)
 
-   (Up to 1 MB also works from the dashboard: the device's page → *Import a
-   USB export*.)
-4. Read the totals. For a terminal already read in steps 5 or 6, a correct
-   import stores almost nothing and reports the rest as `duplicates`. If
-   instead most lines are `stored`, the export orders its columns differently
-   from a push: note it, and send the file's first three lines (PINs replaced)
-   with the report. Any `malformed` lines are visible on the device's page.
+1. الموظف يعمل بصمة **Check-Out** (زي تجربة 2 في 5.4).
+2. شغّل `doctor` تاني ← بص على آخر سطر `in/out=`.
+3. **لو بصمة الخروج `in/out=1`** ← تمام، سيب `in_out_field = "punch"`.
+4. **لو مش `1`** ← غيّرها لـ `in_out_field = "status"` وشغّل `doctor` تاني.
+   **اكتب النتيجة.**
+5. **لو الجهاز بيعمل Push كمان (عملت الخطوة 5):**
+   - نفس بصمة الخروج في الداشبورد: الرقم الأول في *State / verification* لازم
+     يساوي `in/out=` في `doctor`. لو مش بيساويه ← القيمة التانية لـ
+     `in_out_field` هي الصح، جرّبها بـ `doctor`.
+   - لو تجربة 4 في 5.4 طلعت إن الوقت **رقم طويل**: البصمة اللي جاية بالـ Push
+     واللي جاية بالـ agent هيتسجلوا **مرتين** مهما عملت. في وضع B **ماتشغّلش
+     `once` على الجهاز ده**، واكتبها. في وضع A عادي.
+
+### 6.4 ابعت (once)
+
+```bash
+python3 -m workin_devices once --config field-report/zk.toml   # بيقرأ ويبعت
+python3 -m workin_devices once --config field-report/zk.toml   # تاني مرة
+```
+
+**المفروض تشوف:**
+
+- أول `once`:
+  - جهاز قديم (من غير Push): `stored=` رقم كبير (كل السجل).
+  - جهاز بيعمل Push: `stored=0` أو رقم صغير، لأن البصمات دي وصلت بالـ Push قبل
+    كده. وكل بصمة تظهر **مرة واحدة** في الداشبورد (Delivered via = `PUSH`).
+- تاني `once`: `stored=0` ← صح، مفيش حاجة جديدة.
+- في الداشبورد: بصمات الجهاز القديم بـ *Delivered via* = `AGENT`.
+
+**لو كل بصمة ظهرت مرتين** بعد `once`:
+
+- ماتغيّرش `in_out_field` وتبعت تاني: ده هيعمل **نسخة تالتة**.
+- اكتب: شكل الوقت (تجربة 4)، و `in/out=` في `doctor` قدام الرقم الأول في الداشبورد.
+- **وضع A:** لو عايز تعيد التجربة:
+  1. Terminal 1: `scripts/devices-lab.sh down --wipe` ثم `up` ثم `seed` (`seed`
+     بيعمل توكن جديد وبيلغي القديم).
+  2. Terminal 2: امسح **كل** ملفات الـ spool (الـ agent فاكر إنه بعت، واللاب
+     اتمسح كله):
+     `rm -f field-report/zk.sqlite3 field-report/zk2.sqlite3 field-report/hik.sqlite3 field-report/usb.sqlite3` و
+     `cp lab/agent.token field-report/agent.token` (التوكن الجديد).
+  3. خصّص الجهاز تاني.
+- **وضع B:** **ماتشغّلش `once` تاني** على الجهاز ده. البصمات المكررة بتفضل في
+  `device_punches` (مش بتأثر على الحضور دلوقتي، لأن مفيش حاجة بتحوّل البصمات
+  لحضور). اكتبها في الـ issue، وصاحب الريبو هو اللي يقرر تنضيفها.
+
+**مشاكل الـ agent:**
+
+| لو ظهر | يعني | اعمل |
+|---|---|---|
+| `config error: ... chmod 600` | ملف التوكن مفتوح للكل | (Terminal 2) `chmod 600 field-report/agent.token` |
+| `config error: ... is plain http` | الـ `server_url` مكتوب `http` | خليه `https://localhost:18443` |
+| `config error: ... is not a serial the platform accepts` | السيريال فيه مسافة أو حرف غريب | اكتبه زي الستيكر بالظبط |
+| `SERIAL MISMATCH` / `configured as X but the terminal reports Y` | الـ IP ده لجهاز تاني | صحّح `serial` أو `host`. **مش هيبعت حاجة لحد ما يتطابقوا** |
+| `not registered` | الجهاز مش متخصص، أو متخصص لشركة غير شركة التوكن | خصّصه لفرع في **نفس شركة التوكن** |
+| `unauthorized` | التوكن غلط أو اتلغى | وضع A (Terminal 2): `cp lab/agent.token field-report/agent.token` (كل `seed` بيعمل توكن جديد). وضع B: اعمل توكن جديد (6.1 رقم 2) |
+| `did not answer in time` | الجهاز مش بيرد | جرّب `udp = true`، واتأكد من الـ IP |
+| `refused the communication key` | الـ Comm Key غلط | صحّح `comm_key` |
+| `terminal clock is +N seconds` | ساعة الجهاز مش مظبوطة | اكتبها ملاحظة بس. **ماتغيّرش الساعة** |
+| `retry: server answered 503` أو `unreachable` | السيستم واقف | شغّله. السجلات محفوظة ومش هتضيع |
+| `uid:` في الكود بدل رقم | جهاز قديم جداً (نوع سجل 8 bytes) | معلومة مهمة، اكتبها. البصمات دي مش هتتقرأ دلوقتي |
+
+---
+
+## 7. ملف الـ USB
+
+لكل جهاز ZKTeco، حتى اللي مش على الشبكة.
+
+1. **وضع B، لو الجهاز ده اتقرأ قبل كده (خطوة 5 أو 6):** قبل ما تسحب الملف،
+   الموظف يعمل **بصمة دخول عادية وبعدها بصمة Check-Out**، واستنى لحد ما يوصلوا
+   (في الداشبورد بالـ Push، أو في `doctor`). هتحتاجهم في رقم 4.
+2. على الجهاز: `Menu → USB Manager → Download → Attendance Data` على الفلاشة.
+   هيعمل ملف اسمه `1_attlog.dat` أو `attlog.dat` (أو اسم قريب). **اكتب اسمه
+   بالظبط**: الأوامر تحت مكتوب فيها `1_attlog.dat`، غيّره للاسم الحقيقي فيهم كلهم.
+3. انسخه على اللابتوب في `devices-agent/field-report/`، **وسيب الملف الأصلي على
+   الفلاشة زي ما هو.**
+4. **ملف الإعداد:** الرفع محتاج `server_url` والتوكن بس، فأي ملف من 6.1 أو 8 ينفع
+   (`zk.toml` أو `hik.toml`). لو معندكش ولا واحد: اعمل 6.1 رقم 2 و 3 (التوكن)،
+   واعمل `field-report/usb.toml` فيه **أول 4 سطور بس** من ملف 6.1 رقم 4، **وبدّل**
+   سطر `spool_path` فيهم بـ `spool_path = "usb.sqlite3"` (ماتضيفش سطر تاني بنفس
+   الاسم: الملف مش هيتقرأ).
+5. **وضع B، لو الجهاز ده اتقرأ قبل كده (خطوة 5 أو 6):** الرفع بيسجل كل سطر
+   مالوش نسخة. لو ترتيب الأعمدة مختلف، أو الوقت متسجل بشكل تاني، **السجل كله
+   هيتسجل تاني** على البرود. فقبل ما ترفع:
+   - لو تجربة 4 طلعت إن الوقت **رقم طويل**: **ماترفعش في وضع B**. البصمات اللي
+     وصلت بالـ Push متسجلة بالرقم الطويل، والملف بالتاريخ والوقت، فكل سطر هيتسجل
+     تاني مهما كان (نفس سبب 6.3 رقم 5).
+   - غير كده، في Terminal 2:
+
+     ```bash
+     tail -n 20 field-report/1_attlog.dat
+     ```
+
+     لازم تلاقي في الملف **البصمتين** بتوع رقم 1 (نفس الكود ونفس الوقت): واحدة
+     دخول وواحدة خروج. لكل واحدة منهم، **الرقم اللي بعد الوقت** في الملف لازم
+     يساوي الرقم اللي بعد الوقت في ملف `*.request.bin` بتاع `ATTLOG` (تجربة 4)،
+     أو `in/out=` بتاعها في `doctor`. بصمة واحدة مش كفاية: عمود ثابت (مثلاً رقم
+     الجهاز `1`) ممكن يطابق بصمة الخروج بالصدفة.
+   - لو واحدة من الاتنين مش بتساوي، أو مالقيتهمش: **ماترفعش في وضع B**. اكتبها
+     وحط السطور في الـ issue بعد ما تغيّر أكواد الموظفين.
+6. ارفعه (لازم الجهاز يكون متخصص)، من **Terminal 2**:
+
+```bash
+python3 -m workin_devices import-usb --config field-report/zk.toml \
+  --serial SN --file field-report/1_attlog.dat
+```
+
+(غيّر `SN` لسيريال الجهاز، و `zk.toml` لملفك، و `1_attlog.dat` لاسم الملف الحقيقي. ولو الملف أقل من 1 ميجا ممكن ترفعه من الداشبورد:
+صفحة الجهاز ← **Import a USB export**.)
+
+**هيطبع:** `{"lines": ..., "stored": ..., "duplicates": ..., "unmatched": ..., "malformed": ...}`
+
+| النتيجة | يعني |
+|---|---|
+| الجهاز اتقرأ قبل كده (خطوة 5 أو 6) و `stored` قليل جداً و `duplicates` كبير | **تمام** ← ترتيب أعمدة الملف زي الـ Push |
+| الجهاز اتقرأ قبل كده بس `stored` كبير (قريب من `lines`) | **ترتيب الأعمدة مختلف** (وده ماكانش المفروض يحصل في وضع B لو عملت رقم 5) ← اكتبها، وحط أول 3 سطور من الملف في الـ issue (الخطوة 11) **بعد ما تغيّر أكواد الموظفين** |
+| `malformed` أكبر من صفر | سطور مش مفهومة ← هتلاقيها في صفحة الجهاز تحت *Unreadable lines* |
+| `import failed: ... is not an active device` | الجهاز مش متخصص لشركة التوكن ← خصّصه |
+| `No such file or directory` أو `FileNotFoundError` | اسم الملف في الأمر مش زي الملف الحقيقي ← `ls field-report/` وصحّح الاسم في `tail` و `import-usb` |
+| من الداشبورد: `الملف أكبر من المسموح هنا` (The file is too large) | الملف أكبر من 1 ميجا ← استخدم أمر `import-usb` |
+
+---
 
 ## 8. Hikvision
 
-1. The terminal's web page (`http://<IP>`) needs the admin user and password;
-   ask for them. Photograph `Configuration → Network → Advanced → HTTP
-   Listening` before changing anything.
-2. Read it:
+1. افتح صفحة الجهاز في المتصفح: `http://IP-الجهاز`. محتاج **user و password
+   الـ admin**، اسألهم عليهم.
+2. قبل ما تغيّر حاجة صوّر:
+   `Configuration → Network → Advanced → HTTP Listening`.
+3. احفظ الباسورد في ملف واقرأ الجهاز، من **Terminal 2**. **ماتكتبش الباسورد جوه
+   أمر** (هيتحفظ في الـ history): الأمر هيسألك عليه، اكتبه ودوس Enter (مش هيظهر
+   وإنت بتكتبه):
 
    ```bash
-   printf '%s' '<password>' > field-report/hik.pw && chmod 600 field-report/hik.pw
+   if [ -d workin_devices ]; then
+     mkdir -p field-report
+     printf 'Hikvision password: '; read -rs HIK_PW; echo
+     (umask 077 && printf '%s' "$HIK_PW" > field-report/hik.pw)
+     unset HIK_PW; echo saved
+   else echo 'WRONG TERMINAL: use Terminal 2 (devices-agent)'; fi
    python3 -m workin_devices hik-info --host 192.168.1.64 --username admin \
      --password-file field-report/hik.pw --days 7 --dump field-report/hik-events.json
    ```
 
-   `events_with_employee_by_minor` lists the event codes that name an
-   employee. The agent counts `1` (card), `38` (fingerprint) and `75` (face)
-   as attendance. Compare with the terminal's own event search for a known
-   punch; a code that is a real punch but missing from that list is a finding,
-   and `attendance_minors` in the agent config is where it goes.
-3. Allocate it in the dashboard with vendor **Hikvision** and the serial
-   `hik-info` printed, then add it to `agent.toml`:
+   **هتشوف:** `serial` و `model`، و `events_with_employee_by_minor`: أكواد الأحداث
+   اللي فيها موظف، وعدد كل واحد. ملف `hik-events.json` فيه شكل كل حدث بس (قاعدة 7):
+   `major` و `minor` والوقت و `attendanceStatus`، من غير اسم الموظف ولا كوده ولا الكارت
+   ولا الصورة.
+   - إحنا بنعتبر الحضور الأكواد: `1` (كارت)، `38` (بصمة صباع)، `75` (وش).
+   - **قارن:** اعمل بصمة دلوقتي، ودوّر عليها في صفحة الأحداث بتاعة الجهاز: كودها كام؟
+     لو كود غير 1 و38 و75 ← **اكتبه** (هنضيفه في `attendance_minors`).
+
+4. خصّص الجهاز في الداشبورد (وقّف التحديث المباشر الأول، 5.1): **Vendor = Hikvision**، والسيريال اللي طلع من `hik-info`.
+5. اعمل ملف **لوحده** `field-report/hik.toml` (مش في `zk.toml`: `once` بيبعت كل
+   الأجهزة اللي في الملف). لو لسه ماعملتش التوكن، اعمل 6.1 رقم 2 و 3 الأول:
 
    ```toml
+   server_url = "https://localhost:18443"   # وضع B: "https://localhost"
+   token_file = "agent.token"
+   spool_path = "hik.sqlite3"
+   insecure_skip_tls_verify = true          # عشان الشهادة المحلية بتاعة اللابتوب بس
+
    [[devices]]
-   serial = "<serial from hik-info>"
+   serial = "السيريال من hik-info"
    kind = "hikvision"
    host = "192.168.1.64"
    username = "admin"
    password_file = "hik.pw"
    ```
 
-   and run `doctor` and `once` as in step 6.
-4. Optional: record what it pushes. Set *HTTP Listening* to the laptop's IP,
-   port `8081`, URL `/hik/<serial>`, and run `capture` **without**
-   `--upstream` (there is no Hikvision push receiver yet; this is evidence for
-   building one). Standalone, `capture` answers every upload `503`, so the
-   terminal keeps each event queued for whatever else it reports to. Restore the
-   setting in step 10.
+6. شغّل `doctor` وبعده `once` زي 6.2 و 6.4، بس بـ `--config field-report/hik.toml`.
+7. **(اختياري)** سجّل اللي الجهاز بيبعته لوحده:
+   - في `HTTP Listening` حط IP اللابتوب، port `8081`، URL `/hik/السيريال`.
+   - في Terminal 3: وقّف الـ capture اللي شغال (Ctrl+C) الأول، لأن الاتنين على
+     port `8081`. وبعدين شغّل من **غير** `--upstream`:
 
-A PIN containing letters is refused by the receiver as unreadable — note the
-`employeeNoString` format if you see one.
+     ```bash
+     python3 -m workin_devices capture --listen 0.0.0.0:8081 --out field-report/captures
+     ```
 
-## 9. Anything Else
+   - لما تخلص: Ctrl+C، ولو لسه محتاج جهاز الـ Push رجّع أمر 5.1.
+   - الـ capture هيرد على الجهاز بـ `503`، فالجهاز هيحتفظ بالأحداث ومش هتضيع على
+     العميل. إحنا بس بنسجّل شكل البيانات: أسامي الحقول وأكواد الأحداث ودخول/خروج، من
+     غير أسامي الموظفين ولا أكوادهم ولا الكروت ولا الصور (قاعدة 7).
+   - **رجّع الإعداد في الآخر.**
 
-Dahua, Suprema, Anviz or an unknown brand: photograph step 2's screens, keep
-the `scan` output, and if it has any "server" or "cloud" setting, run
-`capture` standalone and point it there. No adapter exists yet; the evidence
-is what makes one possible.
+| لو ظهر | اعمل |
+|---|---|
+| `answered 401` | الـ user أو الباسورد غلط |
+| `failed: ... timed out` | جرّب `--https` لو الصفحة بتفتح بـ https |
+| البصمات `malformed` | كود الموظف فيه حروف. اكتب شكله (السيستم بيقبل أرقام بس دلوقتي) |
 
-## 10. Before Leaving: Put Everything Back
+---
 
-1. On every terminal, restore `Cloud Server Setting` (and Hikvision's *HTTP
-   Listening*) to step 2's photographs — or off, if it was off.
-2. If the customer's software reads the terminals, ask them to confirm it
-   still does: a punch made now appears in it.
-3. Stop `capture` and the stack. `sudo ufw delete allow 8081/tcp`.
-4. Leave nothing plugged in that was not there.
+## 9. أي نوع جهاز تاني (Dahua, Suprema, Anviz...)
 
-What happened on the platform side stays: allocated terminals and their
-punches. In mode A that is the laptop's lab database. In mode B, deactivate
-each allocated terminal in the dashboard (the device's page → *Deactivate
-device*) unless it is meant to stay connected — it keeps its punches and
-accepts nothing more.
+- صوّر شاشات الخطوة 2، واحتفظ بنتيجة `scan`.
+- لو الجهاز فيه إعداد "server" أو "cloud": في Terminal 3 شغّل الـ `capture` من
+  غير `--upstream` (نفس أمر 8 رقم 7، وقّف أي capture شغال الأول) ووجّهه عليه.
+  الـ capture هيكتب شكل الـ JSON أو XML بس (قاعدة 7)؛ لو الجهاز بيبعت شكل تاني،
+  هتلاقي في ملف الـ `.json` الـ path والـ headers ونوع الـ body وحجمه، وده كفاية
+  نعرف منه الجهاز بيتكلم إزاي.
+- **مفيش دعم لسه**، بس المعلومات دي هي اللي هتخلينا نعمل دعم.
 
-## 11. After The Visit
+---
 
-- Copy `field-report/` somewhere private. **Not into the repository.**
-- Fill in, per model, **without PINs or names**:
-  [attendance-device-model-and-firmware-inventory.md](attendance-device-model-and-firmware-inventory.md)
-  and [vendor-capability-matrix.md](vendor-capability-matrix.md), from the
-  table in 5.4 and the notes from steps 4–8.
-- Open an issue with the device-compatibility template
-  (`.github/ISSUE_TEMPLATE/device-compatibility-finding.yml`) for each
-  finding: a `FAIL`, a `413`, a wrong in/out mapping, a USB column order, a
-  Hikvision event code.
-- Captures become regression fixtures only after every PIN and name in them
-  is replaced.
+## 10. قبل ما تمشي: رجّع كل حاجة
 
-## 12. Mode B: The Production Database
+- [ ] **كل جهاز:** رجّع `Cloud Server Setting` زي الصورة بالظبط، أو اقفله لو كان
+      مقفول. وفي Hikvision رجّع `HTTP Listening`.
+- [ ] **لو العميل بيستخدم أي برنامج** (بيقرأ من الجهاز زي ZKTime.Net، أو الجهاز
+      بيبعتله زي BioTime): موظف يعمل بصمة جديدة، وخليهم يتأكدوا إنها وصلت
+      للبرنامج بتاعهم. ده كمان بيغطي إعدادات الإرسال اللي السيستم بعتها (5.2).
+- [ ] وقّف الـ capture (Ctrl+C في Terminal 3).
+- [ ] **وضع B بس:** في الداشبورد ← **On-premises agents** ← الـ agent اللي عملته ←
+      **Revoke** (إنهاء) **مرة واحدة**. الصح: الحالة بقت **Inactive** (غير نشط)،
+      والزرار بقى **Restore** (إعادة تفعيل). **ماتدوسش عليه تاني**: كده بترجّعه.
+- [ ] امسح الباسوردات والتوكن من اللابتوب، في **Terminal 2** (لازم يطبع `deleted`):
 
-The punches go into the production database, the dashboard shows production
-data, and nothing on the laptop is the source of truth. What must already be
-true, in this order:
+  ```bash
+  [ -d workin_devices ] && rm -f field-report/hik.pw field-report/agent.token && echo deleted || echo 'WRONG TERMINAL: use Terminal 2 (devices-agent)'
+  ```
 
-1. **The code is merged**, and the laptop runs that commit. Production is not
-   provisioned from a branch.
-2. **The Phase 1 tables exist on production at the fifteen-table shape.** An
-   operator runs `verify_phase1_tables.sql` (read-only) and follows its
-   verdict: `not applied` → the full procedure in
-   [provisioning-phase1-tables.md](../operations/provisioning-phase1-tables.md);
-   `PRE-AGENTS` → `upgrade_device_agents_and_delivery.sql`; `applied` → nothing.
-   That runbook takes a backup first. This is a production schema change, so
-   it is the repository owner's to run or to authorise explicitly — an agent
-   session never runs it.
-3. **The remote-db stack** ([running-the-backend](../operations/running-the-backend.md),
-   `deploy/env.remote-db.example`) with three more lines in `.env.remote-db`:
+- [ ] `sudo ufw delete allow 8081/tcp`
+- [ ] شيل أي كابل أو switch إنت اللي حطيته.
+- [ ] **وضع B بس:** في الداشبورد افتح كل جهاز خصّصته ← **Deactivate device** (إيقاف
+      الجهاز) **مرة واحدة** (بصماته بتفضل محفوظة، وبيبطل يستقبل جديد). الصح: الحالة
+      بقت **Inactive** (غير نشط)، والزرار بقى **Activate device** (تفعيل الجهاز).
+      **ماتدوسش عليه تاني**: كده بترجّع الجهاز شغال على البرود. وبعدها الخطوة 12.5، وفيها مسح
+      نسخ `.env.remote-db` لو اللابتوب مش جهاز صاحب الريبو.
+
+**مشكلة:** العميل قال البرنامج بتاعهم مش بيستلم بعد ما رجّعت الإعدادات
+← قارن الإعدادات بالصورة تاني حرف حرف، واعمل restart للجهاز. الجهاز محتفظ
+بسجلاته، فبمجرد ما الإعداد يرجع صح البرنامج بتاعهم هيسحبها.
+
+---
+
+## 11. بعد الزيارة
+
+1. انسخ فولدر `devices-agent/field-report/` في مكان خاص. **مش في الريبو.**
+2. **افتح issue لكل جهاز** بالقالب
+   `.github/ISSUE_TEMPLATE/device-compatibility-finding.yml`، وحط فيه **ورقة
+   النتائج** (آخر الدليل) وأي مشكلة (FAIL، `413`، دخول/خروج مقلوب، ترتيب أعمدة
+   USB، كود Hikvision، بصمات مكررة). **من غير أكواد موظفين أو أسامي أو أرقام كروت.**
+3. الإجابات تتنقل في PR للملفين دول، وده اللي بيحوّل معلومات الـ documentation
+   لمعلومات متأكدين منها من جهاز حقيقي:
+   - [attendance-device-model-and-firmware-inventory.md](attendance-device-model-and-firmware-inventory.md)
+   - [vendor-capability-matrix.md](vendor-capability-matrix.md)
+
+---
+
+## 12. وضع B: البصمات على داتابيز البرود
+
+### 12.1 لازم يكون خلص قبل ما تروح (بالترتيب)
+
+1. **اللابتوب على `main` بعد دمج الكود ده**، ومفيش تعديلات محلية (الـ `--build`
+   بيبني من الفولدر زي ما هو). في Terminal 1:
+
+   ```bash
+   git switch main && git pull --ff-only
+   git status --short          # لازم مايطبعش أي حاجة
+   ```
+
+2. **جداول الأجهزة اتعملت على البرود (15 جدول).**
+   - ده تغيير في داتابيز البرود: **صاحب الريبو (repository owner) بس** اللي
+     يشغّله أو يوافق عليه صراحة. أي agent session (AI) **ممنوع** تشغّله؛ مسموحلها
+     تقرأ بس، ولما يتطلب منها.
+   - الخطوات في [provisioning-phase1-tables.md](../operations/provisioning-phase1-tables.md).
+   - أول حاجة شغّل `verify_phase1_tables.sql` (قراءة بس). بيطبع 7 أنواع سطور
+     (`check_name`)، واقرأهم **كلهم**:
+   - **(أ) سطر `phase1 tables present`:** الـ verdict بيبدأ بإيه؟
+
+     الجدول ده بيقول **صاحب الريبو** يعمل إيه. لو إنت مش صاحب الريبو: ماتشغّلش
+     حاجة منه، ابعتله الـ verdict بس، ووضع B مستني لحد ما يطلع `applied`.
+
+     | الـ verdict بيبدأ بـ | صاحب الريبو يعمل |
+     |---|---|
+     | `not applied -- apply it` | الخطوات كاملة في الـ provisioning runbook (فيها backup الأول) |
+     | `PRE-AGENTS -- apply upgrade_device_agents_and_delivery.sql (not --force), then re-run this script` | يشغّل ملف الـ upgrade ده بس، **من غير `--force`**، وبعدين الـ verify تاني |
+     | `applied -- if any table was here before this provisioning, compare definitions` | يكمّل لـ (ب). ولو فيه جدول من الـ 15 كان موجود قبل الـ provisioning، قارن تعريفاته زي الخطوة 1 في الـ provisioning runbook |
+     | أي حاجة تانية (`PARTIAL`، `PRE-DEVICE-TABLES`، ...) | **وقّف**. يعمل اللي مكتوب في الـ verdict نفسه، ووضع B مستني لحد ما يطلع `applied` |
+
+   - **(ب) كل السطور التانية:** الـ verdict لازم يبدأ بـ `ok`، ما عدا سطر
+     `legacy tables` (ده معلومة بس):
+
+     | `check_name` | الصح | لو غير كده |
+     |---|---|---|
+     | `server`، `database` | `ok` | **وقّف** (`CHECK MANUALLY` أو `NOT InnoDB`) |
+     | `column counts` (سطر لكل جدول) | `ok (count only)` | **وقّف**. مثلاً `device_punches=24` مع `PRE-AGENTS` معناها الـ upgrade ماكملش، وكل رفع بصمات هيفشل |
+     | `phase1 collation`، `phase1 column collation` | `ok` | **وقّف** (`WRONG -- CONVERT TO utf8mb4_unicode_ci`): الأسامي والأعداد صح بس مقارنة كود البصمة بكود الموظف هتفشل وإنت في الشركة. صاحب الريبو يصلّحه بالخطوة 4b في الـ provisioning runbook |
+
+     وبعد أي تصليح، الـ verify يتشغّل تاني من الأول.
+
+3. **ملف `deploy/.env.remote-db`:** المفاتيح دي **موجودة أصلاً** في الملف (جاية من
+   `env.remote-db.example` بـ `false` و `devices.example.com`). **غيّر قيمها**،
+   ماتضيفش سطور جديدة:
 
    ```bash
    DEVICES_INGEST_ENABLED=true
    DEVICES_AGENTS_ENABLED=true
    APP_DEVICES_DOMAIN=devices.localhost
+   ADMIN_ACTIONS_ENABLED=true
    ```
+
+   (`ADMIN_ACTIONS_ENABLED=true` هو اللي بيظهر زراير التخصيص والتوكن والإيقاف في
+   الداشبورد. **اكتب قيمته القديمة** عشان ترجّعها في 12.5.)
+
+   واتأكد إن كل مفتاح موجود **مرة واحدة** (الأمر ده بيطبع عدد بس، مش القيم). في
+   **Terminal 1** (`hr-platform`):
 
    ```bash
-   cd deploy
-   docker compose -f compose.remote-db.yaml -f compose.tls.yaml -f compose.field-loopback.yaml \
-     --env-file .env.remote-db up -d --build
+   for k in DEVICES_INGEST_ENABLED DEVICES_AGENTS_ENABLED APP_DEVICES_DOMAIN ADMIN_ACTIONS_ENABLED; do
+     printf '%s ' "$k"; grep -c "^$k=" deploy/.env.remote-db
+   done
    ```
 
-   **`compose.field-loopback.yaml` is not optional on a customer's network.**
-   Without it the edge publishes 80 and 443 on every interface, and anyone on
-   the customer's LAN reaches the production sign-in and API through the
-   laptop; Docker's published ports bypass `ufw`. With it only the laptop can
-   reach them, and terminals reach the receiver through `capture`, which
-   forwards `/iclock` and nothing else. That stack's own header applies
-   unchanged: its admin actions are on, so the PHP admin panel must not be used
-   at the same time.
-4. **Internet at the site** — the laptop reaches the database host over the
-   phone hotspot while its cable is on the customer's LAN.
-5. **The customer's company and branch exist** on production. If they are
-   not a platform customer, stay in mode A.
+   - `1` ← تمام.
+   - `0` ← الملف أقدم من المفتاح ده (مفاتيح الأجهزة اتضافت 2026-09-16): **ضيف** السطر.
+   - `2` أو أكتر ← امسح الزيادة وسيب سطر واحد.
 
-Then steps 5–8 are unchanged except for two values: `capture --upstream
-http://127.0.0.1:80`, and the agent's `server_url = "https://localhost"`.
+4. **`deploy/.env.remote-db` هو ملف صاحب الريبو نفسه**، اللي شغّل بيه Java على
+   البرود آخر مرة. الباسوردات والأسرار اللي فيه (`DB_*` و `JWT_SECRET` و
+   `ADMIN_PASSWORD`) **زي ما هي من غير تغيير**؛ التغيير الوحيد المسموح هو مفاتيح
+   رقم 3. **ماتعملش واحد جديد من الـ example.** السبب:
+   - البرود لسه شغال بـ PHP، فمفيش سيرفر عليه الملف ده. الـ Java بيشتغل على
+     البرود من جهاز صاحب الريبو بس ([checking-against-the-live-database.md](../operations/checking-against-the-live-database.md)).
+   - Java أول ما يقوم بيقارن `ADMIN_PASSWORD` بالـ hash اللي في `platform_admins`
+     على البرود، وده اللي آخر تشغيل Java حطه (مش باسورد لوحة PHP). لو مختلف،
+     **بيغيّره** للقيمة اللي في اللابتوب و**بيطلّع كل اللي عاملين login على داشبورد
+     Java**؛ ولو الصف مش موجود بيعمله.
 
-**What mode B writes to production:** the terminal's registry row and its
-assignment history, unclaimed sightings, `device_punches` (and any unreadable
-or operation-log lines), the agent row, and the admin audit rows. **What it
-does not write:** attendance. Punch-to-attendance pairing has no caller in the
-application yet, so payroll and the attendance pages are unaffected; punches
-stay `RECEIVED` or `UNMATCHED` until pairing is switched on by its own change.
+   لو الملف اللي على اللابتوب نسخة منقولة، قارنه بملف صاحب الريبو **على نفس
+   الجهاز**، من غير ما يتطبع الباسورد أو أي hash ليه (Terminal 1، غيّر المسار
+   التاني لمكان ملف صاحب الريبو):
 
-**Afterwards:** set `DEVICES_INGEST_ENABLED=false` and
-`DEVICES_AGENTS_ENABLED=false` again, or stop the stack; deactivate the
-allocated terminals (step 10). A terminal still pointed at the laptop after
-that is refused, keeps its records, and loses nothing.
+   ```bash
+   L=deploy/.env.remote-db; O=/PATH/TO/OWNER/.env.remote-db
+   if [ "$(grep -c '^ADMIN_PASSWORD=' "$L")" = 1 ] && [ "$(grep -c '^ADMIN_PASSWORD=' "$O")" = 1 ] \
+     && cmp -s <(grep '^ADMIN_PASSWORD=' "$L") <(grep '^ADMIN_PASSWORD=' "$O")
+   then echo same; else echo 'DIFFERENT or unreadable'; fi
+   ```
 
-## 13. When Something Goes Wrong
+   لازم يطبع `same`. لو طبع `DIFFERENT or unreadable` (باسورد مختلف، أو ملف مش
+   موجود، أو المسار لسه `/PATH/TO/OWNER`)، أو مش متأكد إن ده الملف اللي اتشغّل
+   بيه آخر مرة: **ماتشغّلش وضع B**.
+5. **شركة العميل وفرعها موجودين على البرود.** لو مش عملاء عندنا ← استخدم وضع A.
 
-| Symptom | Likely cause | Do |
+### 12.2 تشغيل السيستم في الشركة
+
+**Terminal 1** (`hr-platform`):
+
+```bash
+(cd deploy && docker compose -f compose.remote-db.yaml -f compose.tls.yaml \
+  -f compose.field-loopback.yaml --env-file .env.remote-db up -d --build)
+```
+
+> **`compose.field-loopback.yaml` إجباري في الشركة.** من غيره، أي حد على شبكة
+> العميل يقدر يفتح شاشة دخول البرود من اللابتوب، و`ufw` مش هيحميك لأن Docker
+> بيعدّي من الـ firewall. معاه، اللابتوب بس اللي يوصل للسيستم، والجهاز بيوصل عن
+> طريق الـ `capture` اللي بيعدّي `/iclock` بس.
+
+- محتاج **نت على اللابتوب** (hotspot من الموبايل)، والكابل على شبكة العميل.
+- **الفرق عن وضع A في الأوامر:**
+
+  | الأمر | وضع B |
+  |---|---|
+  | الـ `capture` | `--upstream http://127.0.0.1:80` |
+  | `server_url` في `zk.toml` و `hik.toml` و `usb.toml` | `"https://localhost"` |
+  | الداشبورد | `https://localhost/admin/devices?live=1` (باسورد البرود) |
+
+- في الـ stack ده الـ admin actions شغالة، **فماحدش يستخدم لوحة PHP القديمة في
+  نفس الوقت.**
+
+### 12.3 إيه اللي بيتكتب على البرود
+
+- **أول ما السيستم يقوم:** صف الأدمن في `platform_admins`: بيتعمل لو مش موجود،
+  وبيتغيّر لو `ADMIN_PASSWORD` مختلف عن آخر تشغيل Java على البرود (12.1 رقم 4)،
+  ومعاه إنهاء كل sessions داشبورد Java.
+- **وهو شغال:** الـ login بتاعك (sessions ومحاولات الدخول)، ومسح دوري لمحاولات
+  الدخول القديمة (نفس اللي أي تشغيل Java على البرود بيعمله).
+- **من التجربة:**
+  - الجهاز وتاريخ تخصيصه
+  - الأجهزة اللي في الانتظار
+  - البصمات الخام (`device_punches`) والسطور غير المفهومة
+  - الـ agent
+  - سجل الأدمن (audit)
+- **مش بيتكتب:** **حضور.** مفيش حاجة بتحوّل البصمة لحضور دلوقتي، فالمرتبات وصفحات
+  الحضور مش هتتأثر.
+
+### 12.4 مشاكل وضع B
+
+| المشكلة | اعمل |
+|---|---|
+| السيستم مش بيقوم (unhealthy) | غالباً مفيش نت أو الداتابيز مش بترد ← اتأكد من الـ hotspot، وشوف الـ logs بنفس أمر 12.2 بس بدّل `up -d --build` بـ `logs app` |
+| Phase 1 schema check بيقول جداول أو أعمدة ناقصة | الخطوة 12.1 رقم 2 ماخلصتش ← **وقّف**، ماتكملش |
+| الـ capture بيقول `502` | السيستم مش شغال ← شوف أول سطر |
+| الشركة مش موجودة في قايمة الفروع | ارجع لوضع A |
+| مفيش زرار Allocate أو Issue agent token، وفيه رسالة "إجراءات الإدارة معطّلة في هذا النشر" | `ADMIN_ACTIONS_ENABLED` مش `true` ← 12.1 رقم 3، وبعدها أمر 12.2 تاني |
+
+### 12.5 بعد الزيارة
+
+بالترتيب ده، **كله**:
+
+1. **والسيستم لسه شغال:** اتأكد في الداشبورد إن الأجهزة اللي خصّصتها والـ agent
+   حالتهم **Inactive** (غير نشط)، والزراير بقت **Activate device** (تفعيل الجهاز)
+   و **Restore** (إعادة تفعيل). **ماتدوسش عليهم** (الخطوة 10).
+2. **وقّف الـ stack** (Terminal 1). تعديل الملف لوحده مابيأثرش على السيستم وهو
+   شغال: الـ receiver والـ agent endpoint والـ admin actions بيفضلوا شغالين على
+   البرود لحد ما يقف.
+
+   ```bash
+   (cd deploy && docker compose -f compose.remote-db.yaml -f compose.tls.yaml \
+     -f compose.field-loopback.yaml --env-file .env.remote-db down)
+   ```
+
+3. **رجّع** `DEVICES_INGEST_ENABLED=false` و `DEVICES_AGENTS_ENABLED=false` في
+   `deploy/.env.remote-db`، عشان التشغيل الجاي على البرود (من غير
+   `compose.field-loopback.yaml`) مايفتحش الـ receiver. ورجّع `ADMIN_ACTIONS_ENABLED`
+   للقيمة القديمة اللي كتبتها في 12.1 رقم 3.
+4. **لو اللابتوب مش جهاز صاحب الريبو:** بعد رقم 2 (الأمر محتاج الملف)، امسح **كل**
+   نسخ ملف البرود من اللابتوب. الملف ده فيه باسورد داتابيز البرود و `JWT_SECRET`.
+   (رقم 3 يتعمل ساعتها في ملف صاحب الريبو نفسه.) في **Terminal 1** (`hr-platform`)،
+   ولازم يطبع `deleted`:
+
+   ```bash
+   [ -f deploy/compose.remote-db.yaml ] && rm -f deploy/.env.remote-db && echo deleted || echo 'WRONG TERMINAL: use Terminal 1 (hr-platform)'
+   ```
+
+   ونسخة صاحب الريبو اللي قارنت بيها في 12.1 رقم 4: `rm -f` بمسارها الكامل
+   (`/PATH/TO/OWNER/.env.remote-db`)، وبعدها `ls` بنفس المسار لازم يقول
+   `No such file or directory`.
+
+- لو فيه بصمات اتسجلت مرتين (6.4 أو 7): اكتبها في الـ issue، وصاحب الريبو يقرر.
+- لو جهاز لسه متوجّه للابتوب بالغلط: السيستم هيرفضه، والجهاز هيحتفظ بسجلاته. مفيش حاجة هتضيع.
+
+---
+
+## 13. كل المشاكل في مكان واحد
+
+| المشكلة | السبب المحتمل | اعمل |
 |---|---|---|
-| `capture` shows nothing | firewall, subnet, setting not applied | `sudo ufw status`; ping the laptop from another device; reboot the terminal |
-| `capture` shows `502 UPSTREAM ERROR` | the stack is down | `scripts/devices-lab.sh up` (mode A) or `docker compose ... ps` (mode B); the terminal keeps its records meanwhile |
-| uploads answered `403` | not allocated, or deactivated | allocate it (5.3) |
-| uploads answered `413` again and again | batch above 5,000 records | a finding: restore the terminal (step 10) |
-| punches `UNMATCHED` | the PIN is no employee's `employee_code` | bind PINs to employees (`PUT /api/v1/devices/identities`) or note the mapping |
-| punches on the wrong day or hour | terminal clock or zone | compare `zk-info`'s two clocks; check the allocation zone against step 2's photo |
-| `zk-info`: `comm_key_required` | a Comm Key is set | ask for it; `--comm-key` |
-| `zk-info`: `did not answer in time` | UDP-only firmware, or a busy terminal | `--udp`; retry outside shift change |
-| agent: `SERIAL MISMATCH` | the config names another terminal | fix `serial` or `host` — it will not submit until they agree |
-| agent: `not registered` | not allocated to the token's company | allocate it to that company |
-| agent: `unauthorized` | token wrong or revoked | issue a new one |
-| every punch appears twice | in/out mapping differs between push and agent | `in_out_field = "status"`, and record it |
+| مش لاقي الجهاز في `scan` | WiFi بدل كابل، شبكة مختلفة، IP غلط | كابل، نفس الـ subnet، IP من المنيو |
+| `comm_key_required` | الجهاز عليه Comm Key، أو الـ `--comm-key` اللي حطيته غلط | اسأل عليه، `--comm-key` |
+| `did not answer in time` | الجهاز بيرد UDP بس، أو مشغول | `--udp`، وجرّب بعدين |
+| الـ capture مش بيسجل حاجة | firewall، IP اللابتوب اتغير، الجهاز محتاج restart | `sudo ufw allow 8081/tcp`، صحّح الـ IP، restart |
+| `Address already in use` لما تشغّل الـ capture | فيه capture تاني شغال على 8081 | Ctrl+C في Terminal 3 الأول |
+| `doctor` أو `once` قرأ جهاز مش قصدك | الملف فيه أكتر من جهاز | جهاز واحد في كل ملف (6.1 رقم 4) |
+| داشبورد Java على البرود طلّع الكل أو باسورده اتغير | `ADMIN_PASSWORD` في اللابتوب مختلف عن آخر تشغيل | وقّف الـ stack، وبلّغ صاحب الريبو فوراً (12.1 رقم 4) |
+| `502 UPSTREAM ERROR` | السيستم واقف | وضع A: `scripts/devices-lab.sh up`؛ وضع B: الـ stack بتاع 12.2 (12.4). الجهاز مش هيضيع حاجة |
+| `403` على رفع البصمات | الجهاز مش متخصص أو متوقف | خصّصه (5.3) |
+| `413` بيتكرر | أكتر من 5000 سجل في رفعة | اكتبها، وقف، رجّع الجهاز |
+| البصمات `UNMATCHED` | الكود مش مربوط بموظف | عادي في وضع A. في B اكتب الأكواد |
+| المواعيد غلط بساعة | time zone التخصيص مش زي الجهاز | ماتغيّرش الجهاز. في A: الخطوات التلاتة في 6.4 (`down --wipe` و `seed`، ونسخ التوكن ومسح الـ spool، والتخصيص من تاني) |
+| الداشبورد بيقول certificate غير آمن | شهادة محلية | Advanced ← Proceed |
+| الأجهزة مش ظاهرة في الداشبورد | فلتر الشركة مختار | اختار "All companies" (كل الشركات) |
+| `SERIAL MISMATCH` | الـ IP لجهاز تاني | صحّح `serial` أو `host` |
+| `not registered` | مش متخصص لشركة التوكن | خصّصه لنفس الشركة |
+| `unauthorized` | التوكن غلط أو اتلغى | وضع A: انسخ `lab/agent.token` تاني. وضع B: توكن جديد |
+| `chmod 600` في رسالة خطأ | صلاحيات ملف التوكن | `chmod 600` للملف |
+| كل بصمة ظاهرة مرتين | الوقت بيتبعت رقم طويل (تجربة 4)، أو `in_out_field` غلط | **ماتبعتش تاني.** شوف 6.4. في وضع B ماتشغّلش `once` تاني |
+| USB: `stored` كبير مع إن الجهاز اتقرأ | ترتيب أعمدة مختلف | اكتبها وحط أول 3 سطور في الـ issue بعد تغيير الأكواد. في وضع B اعمل 7 رقم 5 **قبل** الرفع |
+| الـ verify فيه `PRE-AGENTS` أو `UNEXPECTED` | الجداول على البرود مش كاملة | **وقّف وضع B**. صاحب الريبو يكمّل 12.1 |
+| `hik.pw` أو `agent.token` لسه على اللابتوب | ماتمسحوش، أو اتكتب `rm` في terminal غلط | أمر الخطوة 10 في Terminal 2، ولازم يطبع `deleted` |
+| أمر طبع `WRONG TERMINAL` | اتكتب في terminal غلط؛ ماحصلش حاجة | اكتبه تاني في الـ terminal اللي بيقوله |
+| برنامج العميل وقف يستلم | الإعدادات مارجعتش زي الأول | قارن بالصورة، restart للجهاز |
+
+---
+
+## ملحق: ورقة النتائج (املاها لكل جهاز)
+
+```text
+الشركة / الفرع: ....................        التاريخ: ..........
+الماركة والموديل: ....................       السيريال: ....................
+Firmware: ....................              Platform: ....................
+Push / ADMS موجود؟  نعم / لا                 pushver: ..........  DeviceType: ..........
+HTTPS موجود في المنيو؟  نعم / لا              Content-Type: ....................
+الوقت بيتبعت:  تاريخ ووقت / رقم طويل          أكبر عدد سجلات في رفعة: ..........  ظهر 413؟ نعم / لا
+Comm Key؟ نعم / لا        بيرد على:  TCP / UDP
+ساعة الجهاز فرقها عن اللابتوب: ...... ثانية     Time zone الجهاز: ..........
+Daylight Saving: شغال / مقفول               الساعة: NTP / يدوي
+Enable Domain Name موجود؟  نعم / لا            language: ..........  PushOptionsFlag: ..........
+Stamp في رفع ATTLOG: ..........               TLS versions: لم يُختبر   TimeZone بالدقايق: لم يُختبر
+Acknowledgement dropped: لم يُختبر
+سطر ATTLOG: عدد الحقول ....  الفاصل: Tab / غيره   طول كود الموظف: .... أرقام
+عدد السجلات على الجهاز: ..........          عدد الموظفين: ..........
+بصمة وصلت خلال: ...... ثانية
+شلنا الكابل: البصمات وصلت بعد الرجوع؟  نعم / لا  بعد: ......
+وقفنا الـ capture 10 دقايق: الجهاز عاد الإرسال؟  نعم / لا  بعد: ......  اتسجلت مرة واحدة؟ نعم / لا
+الدخول = رقم ....  الخروج = رقم ....       in_out_field الصح: punch / status
+الموظفين بيدوسوا زرار الدخول/الخروج؟  نعم / لا
+USB: ترتيب الأعمدة زي الـ Push؟  نعم / لا
+Hikvision: أكواد الحضور اللي ظهرت: ..........
+مشاكل تانية: ................................................
+```

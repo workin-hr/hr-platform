@@ -256,11 +256,12 @@ def main(argv=None):
     sub.add_argument("--username", required=True)
     sub.add_argument("--password-file", required=True)
     sub.add_argument("--days", type=int, default=7)
-    sub.add_argument("--dump", help="write the raw events to this JSON file")
+    sub.add_argument("--dump", help="write each event's structure (codes, times, in/out; no name, employee, card "
+                                     "or picture) to this JSON file")
     sub.add_argument("--timeout", type=float, default=10.0)
     sub.set_defaults(handler=cmd_hik_info)
 
-    sub = commands.add_parser("capture", help="record everything a terminal sends (site visit)")
+    sub = commands.add_parser("capture", help="record what a terminal sends, never biometrics (site visit)")
     sub.add_argument("--listen", default="0.0.0.0:8081")
     sub.add_argument("--upstream", help="forward to the platform, e.g. http://127.0.0.1:80")
     sub.add_argument("--host-header", help="the name the platform's device receiver answers on, e.g. devices.localhost")

@@ -153,8 +153,8 @@ go before the command.
 | `import-usb --config agent.toml --serial SN --file attlog.dat` | imports a USB export for an allocated terminal, marked as a file |
 | `scan --cidr 192.168.1.0/24` | finds terminals on a LAN (ask first) |
 | `zk-info --host IP [--comm-key N] [--udp] [--backup FILE]` | a ZKTeco terminal's identity, counts and clock; optionally its whole log to a local file |
-| `hik-info --host IP --username U --password-file F [--dump FILE]` | a Hikvision terminal's identity and its event codes |
-| `capture --listen 0.0.0.0:8081 [--upstream URL --host-header NAME]` | the site-visit recorder (field-visit runbook, step 5) |
+| `hik-info --host IP --username U --password-file F [--dump FILE]` | a Hikvision terminal's identity and its event codes; `--dump` writes each event as structure only (codes, times, in/out; no name, employee, card or picture) |
+| `capture --listen 0.0.0.0:8081 [--upstream URL --host-header NAME]` | the site-visit recorder (field-visit runbook, step 5). It forwards every upload unchanged, but writes and prints only what the platform keeps, in the shape the platform parses: `ATTLOG` lines, `OPTIONS` pairs, `OPLOG` lines and command results, each field bounded (an unparsed attendance line is written as its shape, digits as `9` and letters as `a`). Other brands' JSON and XML are written as structure only -- field names, value types and lengths, event and status codes (a number under any other key, such as `pin` or `id`, is written as `<number>`), timestamps, and in/out and verify-mode enumerations. Templates, pictures, names, card numbers, employee codes, enrolment and ID-card records are withheld; the request's `.json` records their kind and size |
 | `sim-zk`, `sim-push`, `sim-hik`, `sim-usb` | lab simulators ([devices-lab.md](devices-lab.md)) |
 
 ## When It Is Not Working
@@ -168,4 +168,4 @@ go before the command.
 | `did not answer in time` | terminal off, wrong IP, or UDP-only | check the address; try `udp = true` |
 | `retry: server answered 503` or `unreachable` | platform or internet down | nothing: records wait in the spool |
 | `terminal clock is +N seconds` | the terminal's clock drifts | fix the clock on the terminal with the customer |
-| a punch appears twice in the dashboard | in/out mapping differs from the terminal's push | switch `in_out_field` |
+| a punch appears twice in the dashboard | the terminal pushes Unix-seconds times, or `in_out_field` differs from the terminal's push | do not send again: changing `in_out_field` re-sends the whole log under new keys. Settle the mapping with `doctor` first (field-visit runbook, 6.3), and on a production database leave the duplicates for the owner to decide |
