@@ -158,7 +158,7 @@
 								<td class="bold">${ListDisplay.strimwidth(item.questionAr(), 60)}</td>
 								<td class="text-muted">${ListDisplay.strimwidth(item.questionEn(), 60)}</td>
 								<td>${item.sortOrder()}</td>
-								<td><span class="badge badge-blue">${item.platform().stored()}</span></td>
+								<td><span class="badge badge-blue">${t.apply(item.platform().labelKey())}</span></td>
 								<td>@template.admin.statusBadge(status = item.active() ? "active" : "inactive", t = t)</td>
 								<td class="col-actions">
 									@if(canWrite)
@@ -243,25 +243,25 @@
 						</div>
 						<div class="form-row">
 							<label for="faq_item_edit_q_ar">${t.apply("question_ar")}</label>
-							<input type="text" id="faq_item_edit_q_ar" name="questionAr" required data-dialog-field="questionAr">
+							<textarea id="faq_item_edit_q_ar" name="questionAr" rows="2" required data-dialog-field="questionAr"></textarea>
 						</div>
 						<div class="form-row">
 							<label for="faq_item_edit_q_en">${t.apply("question_en")}</label>
-							<input type="text" id="faq_item_edit_q_en" name="questionEn" required data-dialog-field="questionEn">
+							<textarea id="faq_item_edit_q_en" name="questionEn" rows="2" required data-dialog-field="questionEn"></textarea>
 						</div>
 						<div class="form-row">
 							<label for="faq_item_edit_a_ar">${t.apply("answer_ar")}</label>
-							<textarea id="faq_item_edit_a_ar" name="answerAr" rows="3" required data-dialog-field="answerAr"></textarea>
+							<textarea id="faq_item_edit_a_ar" name="answerAr" rows="4" required data-dialog-field="answerAr"></textarea>
 						</div>
 						<div class="form-row">
 							<label for="faq_item_edit_a_en">${t.apply("answer_en")}</label>
-							<textarea id="faq_item_edit_a_en" name="answerEn" rows="3" required data-dialog-field="answerEn"></textarea>
+							<textarea id="faq_item_edit_a_en" name="answerEn" rows="4" required data-dialog-field="answerEn"></textarea>
 						</div>
 						<div class="form-row">
 							<label for="faq_item_edit_platform">${t.apply("app_platform")}</label>
 							<select id="faq_item_edit_platform" name="platform" data-dialog-field="platform">
-								@for(Faq.Platform p : Faq.Platform.values())
-									<option value="${p.stored()}">${p.stored()}</option>
+								@for(Faq.Platform p : Faq.Platform.offered())
+									<option value="${p.stored()}">${t.apply(p.labelKey())}</option>
 								@endfor
 							</select>
 						</div>
@@ -286,20 +286,29 @@
 						aria-labelledby="faqCatModal-title">
 					<button type="button" class="modal-close"
 							aria-label="${t.apply("cancel")}">&times;</button>
-					<h2 id="faqCatModal-title">${t.apply("faq_categories")}</h2>
+					<h2 id="faqCatModal-title">${t.apply("add_faq_category")}</h2>
 					<form method="post">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="add_category">
+					<%-- faqCatAddModal (faqs/page.php:153-167): one field to a row. --%>
 					<div class="form-row">
-						<label>${t.apply("name_ar")}<input type="text" name="nameAr" required></label>
-						<label>${t.apply("name_en")}<input type="text" name="nameEn" required></label>
-						<label>${t.apply("sort_order")}<input type="number" name="sortOrder" value="0"></label>
-						<label>
-							<input type="checkbox" name="isActive" value="1" checked>
+						<label for="faq_cat_add_name_ar">${t.apply("name_ar")}</label>
+						<input type="text" id="faq_cat_add_name_ar" name="nameAr" required>
+					</div>
+					<div class="form-row">
+						<label for="faq_cat_add_name_en">${t.apply("name_en")}</label>
+						<input type="text" id="faq_cat_add_name_en" name="nameEn" required>
+					</div>
+					<div class="form-row">
+						<label for="faq_cat_add_sort">${t.apply("sort_order")}</label>
+						<input type="number" id="faq_cat_add_sort" name="sortOrder" value="0">
+					</div>
+					<div class="form-row">
+						<label><input type="checkbox" name="isActive" value="1" checked>
 							<span>${t.apply("status_active")}</span></label>
 					</div>
 					<div class="form-footer">
-						<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
+						<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
 					</div>
 				</form>
 				</div>
@@ -315,40 +324,56 @@
 						aria-labelledby="faqItemModal-title">
 					<button type="button" class="modal-close"
 							aria-label="${t.apply("cancel")}">&times;</button>
-					<h2 id="faqItemModal-title">${t.apply("faq_questions")}</h2>
+					<h2 id="faqItemModal-title">${t.apply("add_faq_question")}</h2>
 					<form method="post">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="add_item">
+					<%-- faqItemAddModal (faqs/page.php:186-217): one field to a row, the
+					     category asked for rather than defaulted to the first, and the
+					     platform labelled and defaulting to both, as legacy's are. --%>
 					<div class="form-row">
-						<label>${t.apply("faq_category")}
-							<select name="categoryId" required>
-								@for(Faq.Category category : categories)
-									<option value="${category.id()}">${arabic ? category.nameAr() : category.nameEn()}</option>
-								@endfor
-							</select></label>
-						<label>${t.apply("app_platform")}
-							<select name="platform">
-								@for(Faq.Platform p : Faq.Platform.values())
-									<option value="${p.stored()}">${p.stored()}</option>
-								@endfor
-							</select></label>
-						<label>${t.apply("sort_order")}<input type="number" name="sortOrder" value="0"></label>
+						<label for="faq_item_add_category">${t.apply("faq_category")}</label>
+						<select id="faq_item_add_category" name="categoryId" required>
+							<option value="">${t.apply("select")}</option>
+							@for(Faq.Category category : categories)
+								<option value="${category.id()}">${arabic ? category.nameAr() : category.nameEn()}</option>
+							@endfor
+						</select>
 					</div>
 					<div class="form-row">
-						<label>${t.apply("question_ar")}<input type="text" name="questionAr" required></label>
-						<label>${t.apply("question_en")}<input type="text" name="questionEn" required></label>
+						<label for="faq_item_add_q_ar">${t.apply("question_ar")}</label>
+						<textarea id="faq_item_add_q_ar" name="questionAr" rows="2" required></textarea>
 					</div>
 					<div class="form-row">
-						<label>${t.apply("answer_ar")}<textarea name="answerAr" rows="3" required></textarea></label>
-						<label>${t.apply("answer_en")}<textarea name="answerEn" rows="3" required></textarea></label>
+						<label for="faq_item_add_q_en">${t.apply("question_en")}</label>
+						<textarea id="faq_item_add_q_en" name="questionEn" rows="2" required></textarea>
 					</div>
 					<div class="form-row">
-						<label>
-							<input type="checkbox" name="isActive" value="1" checked>
+						<label for="faq_item_add_a_ar">${t.apply("answer_ar")}</label>
+						<textarea id="faq_item_add_a_ar" name="answerAr" rows="4" required></textarea>
+					</div>
+					<div class="form-row">
+						<label for="faq_item_add_a_en">${t.apply("answer_en")}</label>
+						<textarea id="faq_item_add_a_en" name="answerEn" rows="4" required></textarea>
+					</div>
+					<div class="form-row">
+						<label for="faq_item_add_platform">${t.apply("app_platform")}</label>
+						<select id="faq_item_add_platform" name="platform">
+							@for(Faq.Platform p : Faq.Platform.offered())
+								<option value="${p.stored()}">${t.apply(p.labelKey())}</option>
+							@endfor
+						</select>
+					</div>
+					<div class="form-row">
+						<label for="faq_item_add_sort">${t.apply("sort_order")}</label>
+						<input type="number" id="faq_item_add_sort" name="sortOrder" value="0">
+					</div>
+					<div class="form-row">
+						<label><input type="checkbox" name="isActive" value="1" checked>
 							<span>${t.apply("status_active")}</span></label>
 					</div>
 					<div class="form-footer">
-						<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
+						<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
 					</div>
 				</form>
 				</div>

@@ -1,5 +1,7 @@
 package com.workin.backend.platformadmin.content;
 
+import java.util.List;
+
 /**
  * The two rows behind {@code dashboard/pages/faqs/page.php}: categories,
  * and the question-and-answer items inside them. Both are read by the
@@ -22,6 +24,16 @@ public final class Faq {
 
 		public String stored() {
 			return this.stored;
+		}
+
+		/** The label {@code faq_platform_label()} and {@code banners_platform_label()} show for it. */
+		public String labelKey() {
+			return "platform_" + this.stored;
+		}
+
+		/** The select's options in legacy's order, {@code both} first and so chosen on an add. */
+		public static List<Platform> offered() {
+			return List.of(BOTH, DESKTOP, MOBILE);
 		}
 
 		/** Anything unrecognised becomes {@code both}, as {@code faq_platform_values()} does. */

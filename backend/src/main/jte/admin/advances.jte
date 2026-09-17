@@ -235,7 +235,7 @@
 						</div>
 						<div class="form-row">
 							<label for="adv_edit_reason">${t.apply("advance_reason")}</label>
-							<input type="text" id="adv_edit_reason" name="reason" maxlength="500" data-dialog-field="reason">
+							<textarea id="adv_edit_reason" name="reason" rows="3" maxlength="500" data-dialog-field="reason"></textarea>
 						</div>
 					`)
 
@@ -268,7 +268,7 @@
 					</div>
 					<div class="form-row">
 						<label for="reason">${t.apply("advance_reason")}</label>
-						<input type="text" id="reason" name="reason" maxlength="500">
+						<textarea id="reason" name="reason" rows="3" maxlength="500"></textarea>
 					</div>
 					</div>
 					<div class="form-footer">

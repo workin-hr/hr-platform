@@ -152,22 +152,31 @@
 					<form method="post">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="add">
+					<%-- gvAddModal (guide_videos/page.php:91-123): one field to a row, the file's
+					     hint under its field. --%>
 					<div class="form-row">
-						<label>${t.apply("title_ar")}
-							<input type="text" name="title_ar" required></label>
-						<label>${t.apply("title_en")}
-							<input type="text" name="title_en" required></label>
-						<label>${t.apply("guide_video_file")}
-							<input type="text" name="video" dir="ltr" required placeholder="1.mp4"></label>
-						<label>${t.apply("sort_order")}
-							<input type="number" name="sort_order" value="0"></label>
-						<label>
-							<input type="checkbox" name="is_active" value="1" checked>
+						<label for="gv_add_title_ar">${t.apply("title_ar")}</label>
+						<input type="text" id="gv_add_title_ar" name="title_ar" required>
+					</div>
+					<div class="form-row">
+						<label for="gv_add_title_en">${t.apply("title_en")}</label>
+						<input type="text" id="gv_add_title_en" name="title_en" required>
+					</div>
+					<div class="form-row">
+						<label for="gv_add_video">${t.apply("guide_video_file")}</label>
+						<input type="text" id="gv_add_video" name="video" dir="ltr" required placeholder="1.mp4">
+						<p class="text-muted">${t.apply("guide_video_hint")}</p>
+					</div>
+					<div class="form-row">
+						<label for="gv_add_sort">${t.apply("sort_order")}</label>
+						<input type="number" id="gv_add_sort" name="sort_order" value="0">
+					</div>
+					<div class="form-row">
+						<label><input type="checkbox" name="is_active" value="1" checked>
 							<span>${t.apply("status_active")}</span></label>
 					</div>
-					<p class="text-muted">${t.apply("guide_video_hint")}</p>
 					<div class="form-footer">
-						<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
+						<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
 					</div>
 				</form>
 				</div>
