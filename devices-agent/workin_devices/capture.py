@@ -2,11 +2,12 @@
 
 It keeps each exchange -- request line, headers, body, and the answer -- under one folder per
 terminal, so what a real firmware sends becomes evidence the team can replay later instead of a
-memory of the visit. It writes, and prints, only what the platform itself keeps (``recordable``):
-attendance, options, operation lines and command results, plus JSON or XML from other brands.
-Fingerprint and face templates, pictures, enrolment and ID-card records never reach the disk --
-the platform discards them, and a recorder that kept them would be the one place they survived,
-on a laptop.
+memory of the visit. It writes, and prints, only what the platform itself keeps, in the shape the
+platform parses it (``recordable``): attendance lines, option pairs, operation lines and command
+results, and the structure -- never the values -- of other brands' JSON and XML. Fingerprint and
+face templates, pictures, names, card numbers and enrolment records never reach the disk: the
+platform discards them, and a recorder that kept them would be the one place they survived, on a
+laptop.
 
 With --upstream it is a recording reverse proxy in front of the platform: the terminal talks to
 the real receiver, and the Host header is set to the name the receiver answers on, so the
@@ -27,6 +28,7 @@ import os
 import re
 import threading
 import time
+import xml.etree.ElementTree
 from datetime import datetime
 from urllib.parse import parse_qs, urlparse
 
@@ -39,73 +41,187 @@ NOT_RECORDED = {"authorization", "cookie", "proxy-authorization"}
 # every path would put the platform's sign-in and API on that LAN through it.
 FORWARDED_PREFIX = "/iclock"
 SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]")
-# What a recording may keep is what the platform itself keeps, and nothing else: ATTLOG and
-# OPTIONS uploads, the OPLOG lines of OPERLOG (ZkTecoAdmsService.upload, ZkTecoOperlogFilter),
-# and command results. Every other table -- templates, photos, enrolment and ID-card records,
-# whatever a firmware calls them -- the platform discards, and so does the recorder. Outside the
-# ZKTeco receiver only JSON and XML are kept. Forwarding is unaffected.
-KEPT_TABLES = {"ATTLOG", "OPTIONS"}
-KEPT_OPERLOG_KIND = "OPLOG"
-COMMAND_RESULT = re.compile(r"^ID=[^&\s]*&Return=-?\d+&CMD=[A-Za-z_]*$")
-STRUCTURED_TYPES = ("application/json", "application/xml", "text/xml")
-# A template or picture carried as base64 inside an otherwise kept body: no attendance, option or
-# event field is this long.
-ENCODED_RUN = re.compile(rb"[A-Za-z0-9+/=_-]{256,}")
+# What a recording may keep is what the platform itself keeps, in the shape it parses it:
+# ATTLOG lines (ZkTecoAttlogParser: a PIN of digits, a wall-clock or Unix-seconds time, short
+# fields), OPTIONS pairs (ZkTecoOptionsUpload: values of at most 100 characters), the OPLOG lines
+# of OPERLOG (ZkTecoOperlogFilter) and command results. Every other table -- templates, photos,
+# enrolment and ID-card records, whatever a firmware calls them -- is withheld whole. The
+# platform receives nothing from other brands' pushes, so their JSON and XML are recorded as
+# structure only: names, value types and lengths, small numbers (event codes) and timestamps.
+# Bounding every kept field is what keeps an encoded template out, however it is wrapped or
+# escaped. Forwarding is unaffected.
+ATTLOG_PIN = re.compile(r"^\d{1,32}$")
+ATTLOG_TIME = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}|\d{9,11})$")
+OPTION_PAIR = re.compile(r"^~?[A-Za-z][A-Za-z0-9_.]{0,63}=[^\r\n]{0,100}$")
+MAX_FIELD = 32
+COMMAND_RESULT = re.compile(r"^ID=[^&\s]{0,32}&Return=-?\d{1,6}&CMD=[A-Za-z_]{0,32}$")
+JSON_TYPES = ("application/json",)
+XML_TYPES = ("application/xml", "text/xml")
+TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:?\d{2})?$")
+NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:-]{0,63}$")
+# Enumerations whose value is what a visit needs to read (in/out, how the employee verified), and
+# which carry no identity: kept when the value is a plain word such as checkIn or cardOrFace.
+ENUM_KEYS = {"attendanceStatus", "currentVerifyMode", "userType", "eventType", "type"}
+ENUM_VALUE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,31}$")
+# A field that names a person or a credential keeps no value at all, not even a small number:
+# an employee number of 7 is as much an identity as "1001".
+IDENTITY_NAME = re.compile(r"employee|card|user|person|name|phone|mail|face|finger|picture|photo", re.IGNORECASE)
+STRUCTURE_ONLY = {"values": "structure only"}
 
 
 def recordable(path: str, content_type: str, body: bytes) -> tuple[bytes, dict | None]:
-    """The part of a request body that may be written to disk, and what was withheld (kinds and
-    sizes, never content). Only what the platform keeps is kept; everything else is withheld."""
+    """The part of a request body that may be written to disk or printed, and what was withheld
+    (kinds and sizes, never content). Only what the platform keeps is kept."""
     if not body:
         return body, None
     parsed = urlparse(path)
+    media = content_type.lower().split(";")[0].strip()
     if parsed.path == FORWARDED_PREFIX or parsed.path.startswith(FORWARDED_PREFIX + "/"):
         if parsed.path == FORWARDED_PREFIX + "/devicecmd":
-            kept, withheld = _kept_lines(body, lambda line: bool(COMMAND_RESULT.match(line.strip())), "other")
-        else:
-            table = (parse_qs(parsed.query).get("table") or [""])[0].upper()
-            if table in KEPT_TABLES:
-                kept, withheld = _kept_lines(body, lambda line: True, None)
-            elif table == "OPERLOG":
-                kept, withheld = _kept_lines(body, lambda line: _kind(line) == KEPT_OPERLOG_KIND, None)
-            else:
-                return b"", {"table": table or "none", "bytes": len(body)}
-    elif content_type.lower().startswith("multipart/"):
+            return _kept_lines(body, lambda line: COMMAND_RESULT.match(line.strip()) is not None, shape=False,
+                               kinds=False)
+        table = (parse_qs(parsed.query).get("table") or [""])[0].upper()
+        if table == "ATTLOG":
+            return _kept_lines(body, _attlog_line, shape=True)
+        if table == "OPTIONS":
+            return _kept_options(body)
+        if table == "OPERLOG":
+            return _kept_lines(body, _oplog_line, shape=False)
+        return b"", {"table": table or "none", "bytes": len(body)}
+    if media.startswith("multipart/"):
         return _recordable_parts(content_type, body)
-    elif content_type.lower().split(";")[0].strip() in STRUCTURED_TYPES:
-        kept, withheld = body, None
-    else:
-        return b"", {"type": content_type or "none", "bytes": len(body)}
-    if kept is None:
-        return b"", withheld
-    return _without_encoded_runs(kept, withheld)
+    return _structure_of(media, body)
 
 
-def _kind(line: str) -> str:
-    stripped = line.strip()
-    return stripped.split(maxsplit=1)[0].upper() if stripped else ""
+def _attlog_line(line: str) -> bool:
+    fields = [field.strip() for field in line.split("\t")]
+    return (len(fields) >= 2 and ATTLOG_PIN.match(fields[0]) is not None and ATTLOG_TIME.match(fields[1]) is not None
+            and all(len(field) <= MAX_FIELD for field in fields[2:]))
 
 
-def _kept_lines(body: bytes, keep, other_label: str | None) -> tuple[bytes | None, dict | None]:
+def _oplog_line(line: str) -> bool:
+    fields = line.strip().split("\t")
+    return fields[0].split(maxsplit=1)[0].upper() == "OPLOG" and all(len(field) <= MAX_FIELD for field in fields)
+
+
+def _shape(line: str) -> str:
+    """What an unparsed line looked like -- separators and lengths -- with no character of it."""
+    masked = re.sub(r"[0-9]", "9", re.sub(r"[^\W\d_]", "a", line.strip()))
+    return masked[:120]
+
+
+def _decoded(body: bytes) -> str | None:
     try:
-        text = body.decode("utf-8")
+        return body.decode("utf-8")
     except UnicodeDecodeError:
-        return None, {"binary": True, "bytes": len(body)}
+        return None
+
+
+def _kind_label(line: str) -> str:
+    """A dropped line's record kind (USER, FP, ...) when it is a plain word; never its content."""
+    first = line.strip().split(maxsplit=1)[0] if line.strip() else ""
+    return first.upper() if re.fullmatch(r"[A-Za-z]{1,16}", first) else "other"
+
+
+def _kept_lines(body: bytes, keep, shape: bool, kinds: bool = True) -> tuple[bytes, dict | None]:
+    text = _decoded(body)
+    if text is None:
+        return b"", {"binary": True, "bytes": len(body)}
     kept, dropped = [], {}
     for line in text.splitlines(keepends=True):
         if not line.strip() or keep(line):
             kept.append(line)
-        else:
-            label = other_label or _kind(line)
-            dropped[label] = dropped.get(label, 0) + 1
+            continue
+        label = "unparsed" if shape else (_kind_label(line) if kinds else "other")
+        dropped[label] = dropped.get(label, 0) + 1
+        if shape:
+            kept.append(f"# unparsed line shape: {_shape(line)}\n")
     return "".join(kept).encode("utf-8"), ({"lines": dropped} if dropped else None)
 
 
-def _without_encoded_runs(kept: bytes, withheld: dict | None) -> tuple[bytes, dict | None]:
-    scrubbed, runs = ENCODED_RUN.subn(lambda m: b"[withheld %d chars]" % len(m.group(0)), kept)
-    if runs:
-        withheld = {**(withheld or {}), "encoded_runs": runs}
-    return scrubbed, withheld
+def _kept_options(body: bytes) -> tuple[bytes, dict | None]:
+    text = _decoded(body)
+    if text is None:
+        return b"", {"binary": True, "bytes": len(body)}
+    kept, unparsed = [], 0
+    for pair in re.split(r"[,\r\n]+", text):
+        if not pair.strip():
+            continue
+        if OPTION_PAIR.match(pair.strip()):
+            kept.append(pair.strip())
+        else:
+            unparsed += 1
+    return ("\n".join(kept) + "\n").encode("utf-8") if kept else b"", ({"lines": {"unparsed": unparsed}} if unparsed else None)
+
+
+def _structure_of(media: str, body: bytes) -> tuple[bytes, dict | None]:
+    text = _decoded(body)
+    if text is not None and media in JSON_TYPES:
+        try:
+            value = json.loads(text)
+        except (ValueError, RecursionError):
+            value = None
+        else:
+            return json.dumps(structure(value), ensure_ascii=False, indent=1).encode("utf-8") + b"\n", STRUCTURE_ONLY
+    if text is not None and media in XML_TYPES and "<!DOCTYPE" not in text and "<!ENTITY" not in text:
+        try:
+            root = xml.etree.ElementTree.fromstring(text)
+        except xml.etree.ElementTree.ParseError:
+            root = None
+        if root is not None:
+            lines = []
+            _xml_structure(root, 0, lines)
+            return ("\n".join(lines) + "\n").encode("utf-8"), STRUCTURE_ONLY
+    return b"", {"type": media or "none", "bytes": len(body)}
+
+
+def _scalar(value, identity: bool = False):
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value if -1000 < value < 1000 and not identity else "<number>"
+    if isinstance(value, str):
+        return value if TIMESTAMP.match(value) else f"<string {len(value)}>"
+    return f"<{type(value).__name__}>"
+
+
+def structure(value, depth: int = 0, identity: bool = False):
+    """A parsed JSON value with its names, types and lengths, small numbers, timestamps and
+    enumerations, and nothing that identifies a person or carries a template."""
+    if depth > 16:
+        return "<nested>"
+    if isinstance(value, dict):
+        return {(key if isinstance(key, str) and NAME.match(key) else f"<key {len(str(key))}>"):
+                (item if key in ENUM_KEYS and isinstance(item, str) and ENUM_VALUE.match(item)
+                 else structure(item, depth + 1, identity or _names_identity(key)))
+                for key, item in list(value.items())[:64]}
+    if isinstance(value, list):
+        return ([structure(item, depth + 1, identity) for item in value] if len(value) <= 16
+                else f"<array {len(value)}>")
+    return _scalar(value, identity)
+
+
+def _names_identity(key) -> bool:
+    return not isinstance(key, str) or (key not in ENUM_KEYS and IDENTITY_NAME.search(key) is not None)
+
+
+def _xml_structure(element, depth: int, lines: list[str], identity: bool = False) -> None:
+    if depth > 16 or len(lines) > 256:
+        return
+    local = element.tag.split("}")[-1]
+    tag = local if NAME.match(local) else f"<tag {len(element.tag)}>"
+    identity = identity or _names_identity(local)
+    attributes = " ".join(f"{name if NAME.match(name) else '<name>'}={_scalar(value, identity or _names_identity(name))}"
+                          for name, value in list(element.attrib.items())[:16])
+    text = (element.text or "").strip()
+    shown = (text if local in ENUM_KEYS and ENUM_VALUE.match(text) else _scalar(_number(text), identity)) if text else None
+    lines.append("  " * depth + tag + (f" [{attributes}]" if attributes else "") + (f": {shown}" if text else ""))
+    for child in list(element)[:64]:
+        _xml_structure(child, depth + 1, lines, identity)
+
+
+def _number(text: str):
+    return int(text) if re.fullmatch(r"-?\d{1,3}", text) else text
 
 
 def _recordable_parts(content_type: str, body: bytes) -> tuple[bytes, dict | None]:
@@ -113,20 +229,16 @@ def _recordable_parts(content_type: str, body: bytes) -> tuple[bytes, dict | Non
         b"Content-Type: " + content_type.encode("latin-1", "replace") + b"\r\n\r\n" + body)
     if not message.is_multipart():
         return b"", {"type": content_type, "bytes": len(body)}
-    kept, withheld = [], []
+    kept, notes = [], []
     for part in message.iter_parts():
         part_type = part.get_content_type()
         payload = part.get_payload(decode=True) or b""
-        label = f"--- part name={part.get_param('name', header='content-disposition')} type={part_type} bytes={len(payload)}"
-        if part_type in STRUCTURED_TYPES:
-            text, inner = _without_encoded_runs(payload, None)
-            kept.append(label.encode("utf-8") + b"\n" + text + b"\n")
-            if inner:
-                withheld.append({"type": part_type, **inner})
-        else:
-            kept.append(label.encode("utf-8") + b" [withheld]\n")
-            withheld.append({"type": part_type, "bytes": len(payload)})
-    return b"".join(kept), ({"parts": withheld} if withheld else None)
+        name = part.get_param("name", header="content-disposition")
+        label = f"--- part name={name if isinstance(name, str) and NAME.match(name) else '<name>'} type={part_type} bytes={len(payload)}"
+        shown, note = _structure_of(part_type, payload)
+        kept.append(label.encode("utf-8") + (b"\n" + shown if shown else b" [withheld]\n"))
+        notes.append({"type": part_type, **(note or {})})
+    return b"".join(kept), {"parts": notes}
 
 
 class Recorder:

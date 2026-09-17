@@ -7,7 +7,7 @@ import threading
 import unittest
 from datetime import datetime, timedelta
 
-from workin_devices import capture, gateway as gw, usb
+from workin_devices import capture, gateway as gw, probe, usb
 from workin_devices.config import DeviceConfig
 from workin_devices.sim.hikvision import HikTerminal, serve
 from workin_devices.sources import HikvisionSource, parse_attlog_lines
@@ -36,6 +36,24 @@ class HikvisionPullReadsAttendanceAndNothingElse(unittest.TestCase):
         self.assertEqual(len(punches), 3 * 2 * 2, "check-in and check-out per employee per day; no door or refused-card events")
         self.assertEqual({punch.status for punch in punches}, {0, 1})
         self.assertTrue(all(len(punch.local_time) == 19 and "T" not in punch.local_time for punch in punches))
+
+    def test_the_event_dump_keeps_codes_and_in_out_but_no_name_card_or_employee(self):
+        with self.terminal.lock:
+            self.terminal.events.append({"major": 5, "minor": 1, "time": datetime.now().replace(microsecond=0).astimezone().isoformat(),
+                                         "serialNo": 99, "employeeNoString": "1001", "employeeNo": 7, "name": "Ahmed Ali",
+                                         "cardNo": "1234567890", "attendanceStatus": "checkIn",
+                                         "pictureURL": "http://10.0.0.5/LOCALS/pic/face.jpg"})
+        with tempfile.TemporaryDirectory() as folder:
+            dump = os.path.join(folder, "hik-events.json")
+            summary = probe.hik_summary(self.device, days=5, dump_path=dump)
+            with open(dump, encoding="utf-8") as handle:
+                written = handle.read()
+        self.assertEqual(summary["events_with_employee_by_minor"]["1"], 1, "the counts are still taken from the real events")
+        for secret in ("Ahmed Ali", "1234567890", '"1001"', "face.jpg"):
+            self.assertNotIn(secret, written)
+        self.assertIn('"attendanceStatus": "checkIn"', written)
+        self.assertIn('"minor": 75', written)
+        self.assertIn('"employeeNo": "<number>"', written, "an identity is withheld even when it is a small number")
 
     def test_a_wrong_password_is_an_error(self):
         self.device.password = "wrong"
@@ -214,19 +232,62 @@ class CaptureRecordsWhatATerminalSends(unittest.TestCase):
         self.assertEqual(note, {"lines": {"IDCARD": 1}})
         kept, note = capture.recordable("/iclock/cdata?SN=X&table=ATTLOG", "text/plain",
                                         b"1001\t2026-09-16 08:00:00\t0\t1\t" + long_template + b"\r\n")
-        self.assertNotIn(long_template, kept, "a long encoded run is withheld even inside a kept upload")
-        self.assertTrue(kept.startswith(b"1001\t2026-09-16 08:00:00\t0\t1\t"))
-        self.assertEqual(note, {"encoded_runs": 1})
+        self.assertNotIn(b"QUJD", kept, "an ATTLOG line the platform could not parse keeps only its shape")
+        self.assertEqual(note, {"lines": {"unparsed": 1}})
         kept, note = capture.recordable("/iclock/devicecmd?SN=X", "text/plain",
                                         b"ID=1&Return=0&CMD=INFO\nPIN=1\tName=Ahmed Ali\n")
         self.assertEqual((kept, note), (b"ID=1&Return=0&CMD=INFO\n", {"lines": {"other": 1}}))
         kept, note = capture.recordable("/hik/DS-K1T", "application/json",
                                         b'{"eventType":"AccessControllerEvent","faceData":"' + long_template + b'"}')
-        self.assertIn(b'"eventType":"AccessControllerEvent"', kept)
-        self.assertNotIn(long_template, kept)
+        self.assertIn(b'"eventType"', kept)
+        self.assertNotIn(b"QUJD", kept)
         for content_type in ("text/plain", "application/x-www-form-urlencoded", ""):
             kept, _ = capture.recordable("/other/brand", content_type, b"name=Ahmed Ali&photo=PHOTO")
             self.assertEqual(kept, b"", content_type)
+
+    def test_other_brands_are_recorded_as_structure_and_zkteco_lines_as_the_platform_parses_them(self):
+        import base64
+        template = base64.b64encode(bytes(range(256)) * 3).decode()
+        chunks = [template[i:i + 40] for i in range(0, len(template), 40)]
+        wrapped = "\n".join(template[i:i + 76] for i in range(0, len(template), 76))
+        bodies = [
+            ("application/json", ('{"template":"' + template.replace("/", "\\/") + '"}').encode()),
+            ("application/json", ('{"template":"' + wrapped.replace("\n", "\\r\\n") + '"}').encode()),
+            ("application/xml", ("<Enroll><Face>" + wrapped + "</Face></Enroll>").encode()),
+            ("application/json", ('{"template":[' + ",".join(str(b) for b in bytes(range(256)) * 2) + "]}").encode()),
+        ]
+        for content_type, body in bodies:
+            kept, note = capture.recordable("/other/brand", content_type, body)
+            for chunk in chunks:
+                self.assertNotIn(chunk.encode(), kept, content_type)
+            self.assertEqual(note, {"values": "structure only"}, content_type)
+        kept, _ = capture.recordable("/other/brand", "application/json", bytes(range(256)) * 2)
+        self.assertEqual(kept, b"", "a body that does not parse is withheld")
+        kept, note = capture.recordable(
+            "/hik/X", "application/json",
+            b'{"AccessControllerEvent":{"majorEventType":5,"subEventType":1,"cardNo":"1234567890",'
+            b'"cardNumber":1234567890,"name":"Ahmed Ali","employeeNoString":"1001","dateTime":"2026-09-16T08:00:00+03:00"}}')
+        for secret in (b"1234567890", b"Ahmed Ali", b'"1001"'):
+            self.assertNotIn(secret, kept)
+        self.assertIn(b'"subEventType": 1', kept)
+        self.assertIn(b'"dateTime": "2026-09-16T08:00:00+03:00"', kept)
+        kept, note = capture.recordable("/hik/X", "application/xml",
+                                        b'<!DOCTYPE x [<!ENTITY e "Ahmed Ali">]><Event><name>&e;</name></Event>')
+        self.assertEqual(kept, b"")
+        kept, note = capture.recordable("/iclock/cdata?SN=X&table=ATTLOG", "text/plain",
+                                        b"   1001\t2026-09-16 08:00:00\t0\t1\t0\r\n1002\t1726462800\t1\r\n"
+                                        b"1003,2026-09-16 08:01:00,0\r\n" + wrapped.encode() + b"\r\n")
+        self.assertTrue(kept.startswith(b"   1001\t2026-09-16 08:00:00\t0\t1\t0\r\n1002\t1726462800\t1\r\n"))
+        self.assertIn(b"9999,9999-99-99 99:99:99,9", kept, "an unparsed line's shape shows its separator and lengths")
+        for chunk in chunks:
+            self.assertNotIn(chunk.encode(), kept)
+        self.assertEqual(note, {"lines": {"unparsed": 1 + len(wrapped.splitlines())}})
+        kept, note = capture.recordable("/iclock/cdata?SN=X&table=options", "text/plain",
+                                        ("~DeviceName=K40,FirmVer=Ver 6.60 Apr 2019,Photo=" + template).encode())
+        self.assertIn(b"~DeviceName=K40", kept)
+        self.assertIn(b"FirmVer=Ver 6.60 Apr 2019", kept)
+        self.assertNotIn(chunks[0].encode(), kept)
+        self.assertEqual(note, {"lines": {"unparsed": 1}})
 
     def test_standalone_keeps_an_events_text_parts_and_withholds_its_pictures(self):
         server = capture.serve("127.0.0.1", 0, self.dir.name, None, None, out=lambda *_: None)
@@ -234,7 +295,9 @@ class CaptureRecordsWhatATerminalSends(unittest.TestCase):
         body = (b"--MIME_boundary\r\n"
                 b"Content-Disposition: form-data; name=\"event_log\"\r\n"
                 b"Content-Type: application/json\r\n\r\n"
-                b"{\"eventType\":\"AccessControllerEvent\",\"majorEventType\":5,\"subEventType\":75}\r\n"
+                b"{\"eventType\":\"AccessControllerEvent\",\"AccessControllerEvent\":{\"majorEventType\":5,"
+                b"\"subEventType\":75,\"name\":\"Ahmed Ali\",\"employeeNoString\":\"1001\",\"cardNo\":\"1234567890\","
+                b"\"attendanceStatus\":\"checkIn\"}}\r\n"
                 b"--MIME_boundary\r\n"
                 b"Content-Disposition: form-data; name=\"Picture\"; filename=\"face.jpg\"\r\n"
                 b"Content-Type: image/jpeg\r\n\r\n"
@@ -246,7 +309,10 @@ class CaptureRecordsWhatATerminalSends(unittest.TestCase):
         server.server_close()
         self.assertEqual(status, 503)
         on_disk = b"".join(self.recorded(".request.bin").values()) + b"".join(self.recorded(".json").values())
-        self.assertIn(b"\"subEventType\":75", on_disk, "the event's shape is what the visit records")
+        self.assertIn(b'"subEventType": 75', on_disk, "the event's shape, and its small codes, are what the visit records")
+        self.assertIn(b'"attendanceStatus": "checkIn"', on_disk, "enumerations are what tell in from out")
+        for identity in (b"Ahmed Ali", b'"1001"', b"1234567890"):
+            self.assertNotIn(identity, on_disk, "other string values are recorded as their type and length")
         self.assertNotIn(b"FACEPICTUREBYTES", on_disk)
         self.assertNotIn(b"RAWPICTUREBYTES", on_disk)
         self.assertIn(b"image/jpeg", on_disk, "a withheld part is still named, so the recording shows it was sent")

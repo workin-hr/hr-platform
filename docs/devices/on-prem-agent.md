@@ -153,8 +153,8 @@ go before the command.
 | `import-usb --config agent.toml --serial SN --file attlog.dat` | imports a USB export for an allocated terminal, marked as a file |
 | `scan --cidr 192.168.1.0/24` | finds terminals on a LAN (ask first) |
 | `zk-info --host IP [--comm-key N] [--udp] [--backup FILE]` | a ZKTeco terminal's identity, counts and clock; optionally its whole log to a local file |
-| `hik-info --host IP --username U --password-file F [--dump FILE]` | a Hikvision terminal's identity and its event codes |
-| `capture --listen 0.0.0.0:8081 [--upstream URL --host-header NAME]` | the site-visit recorder (field-visit runbook, step 5). It forwards every upload unchanged, but writes and prints only what the platform keeps -- `ATTLOG` and `OPTIONS` uploads, `OPLOG` lines, command results, and JSON or XML from other brands -- with long encoded runs removed. Templates, pictures, enrolment and ID-card records are withheld; the request's `.json` records their kind and size |
+| `hik-info --host IP --username U --password-file F [--dump FILE]` | a Hikvision terminal's identity and its event codes; `--dump` writes each event as structure only (codes, times, in/out; no name, employee, card or picture) |
+| `capture --listen 0.0.0.0:8081 [--upstream URL --host-header NAME]` | the site-visit recorder (field-visit runbook, step 5). It forwards every upload unchanged, but writes and prints only what the platform keeps, in the shape the platform parses: `ATTLOG` lines, `OPTIONS` pairs, `OPLOG` lines and command results, each field bounded (an unparsed attendance line is written as its shape, digits as `9` and letters as `a`). Other brands' JSON and XML are written as structure only -- field names, value types and lengths, small numbers, timestamps, and in/out and verify-mode enumerations. Templates, pictures, names, card numbers, enrolment and ID-card records are withheld; the request's `.json` records their kind and size |
 | `sim-zk`, `sim-push`, `sim-hik`, `sim-usb` | lab simulators ([devices-lab.md](devices-lab.md)) |
 
 ## When It Is Not Working
