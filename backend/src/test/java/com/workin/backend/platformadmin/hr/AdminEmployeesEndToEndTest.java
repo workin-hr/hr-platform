@@ -166,6 +166,51 @@ class AdminEmployeesEndToEndTest {
 				"Alpha Day");
 	}
 
+	/**
+	 * org_filter_cascade_form_attrs() (org_helper.php:450-466): the toolbar form carries, for
+	 * org-filter-cascade.js, every company's active branches, each department under the branches
+	 * it is linked to and under its company, each job title under its department, and the
+	 * filtered branch, department and job title to keep -- every company's while the list is
+	 * filtered to one, because the company select changes without a request.
+	 */
+	@Test
+	void theToolbarCarriesEveryCompanysOrgRowsForTheFilterCascade() {
+		long quoted = createBranch(this.companyA, "Alpha \"North\" <2>", true);
+		createBranch(this.companyA, "Alpha Closed", false);
+		this.jdbc.update("INSERT INTO department_branches (department_id, branch_id) VALUES (?, ?)",
+				this.departmentA, quoted);
+		this.jdbc.update("UPDATE job_titles SET department_id = ? WHERE id = ?", this.departmentA, this.jobTitleA);
+
+		String html = body("/admin/employees?company_id=" + this.companyA + "&filter_branch=" + quoted
+				+ "&filter_department=" + this.departmentA + "&filter_job_title=" + this.jobTitleA);
+		Matcher toolbar = TOOLBAR_FORM.matcher(html);
+		assertThat(toolbar.find()).as("the toolbar's filter form").isTrue();
+		String form = toolbar.group(1);
+
+		assertThat(hasAttribute(form, "data-org-filters")).isTrue();
+		assertThat(attribute(form, "data-branches-by-company")).isEqualTo("{\"" + this.companyA + "\":["
+				+ "{\"id\":" + quoted + ",\"name\":\"Alpha \\\"North\\\" <2>\"},"
+				+ "{\"id\":" + this.branchA + ",\"name\":\"Alpha HQ\"}],"
+				+ "\"" + this.companyB + "\":[{\"id\":" + this.branchB + ",\"name\":\"Beta HQ\"}]}");
+		assertThat(attribute(form, "data-departments-by-company")).isEqualTo("{\"" + this.companyA + "\":["
+				+ "{\"id\":" + this.departmentA + ",\"name\":\"Alpha Ops\"}],"
+				+ "\"" + this.companyB + "\":[{\"id\":" + this.departmentB + ",\"name\":\"Beta Ops\"}]}");
+		assertThat(attribute(form, "data-departments-by-branch")).isEqualTo("{\"" + quoted + "\":["
+				+ "{\"id\":" + this.departmentA + ",\"name\":\"Alpha Ops\"}]}");
+		assertThat(attribute(form, "data-job-titles-by-dept")).isEqualTo("{\"" + this.departmentA + "\":["
+				+ "{\"id\":" + this.jobTitleA + ",\"name\":\"Alpha Fitter\"}]}");
+		assertThat(attribute(form, "data-selected-branch")).isEqualTo(String.valueOf(quoted));
+		assertThat(attribute(form, "data-selected-department")).isEqualTo(String.valueOf(this.departmentA));
+		assertThat(attribute(form, "data-selected-job-title")).isEqualTo(String.valueOf(this.jobTitleA));
+		assertThat(attribute(form, "data-filter-all")).isEqualTo("الكل");
+
+		assertThat(html)
+				.contains("<select id=\"emp_branch_f\" name=\"filter_branch\" data-filter-branch>")
+				.contains("<select id=\"emp_dept_f\" name=\"filter_department\" data-filter-department>")
+				.contains("<select id=\"emp_job_f\" name=\"filter_job_title\" data-filter-job-title>")
+				.contains("<script src=\"/admin/_assets/org-filter-cascade.js\"></script>");
+	}
+
 	@Test
 	void eachEmployeeRowLinksToItsDetailPageBeforeEdit() {
 		// employee_helper.php:666-667: the row menu opens with Details, then Edit.
@@ -691,9 +736,16 @@ class AdminEmployeesEndToEndTest {
 
 		String html = get("/admin/employees?company_id=0&action=edit&id=" + id, this.cookie)
 				.getBody();
+		// Except the toolbar's filter cascade, which carries every company's rows for an
+		// administrator, whose reach they are, because its company select changes them without
+		// a request (D-260). Nothing else on the page may name another company's.
+		Matcher toolbar = TOOLBAR_FORM.matcher(html);
+		assertThat(toolbar.find()).as("the toolbar's filter form").isTrue();
+		assertThat(toolbar.group(1)).contains("Beta HQ");
+		String page = html.substring(0, toolbar.start()) + html.substring(toolbar.end());
 
-		assertThat(html).contains("Alpha HQ", "Alpha Ops", "Alpha Fitter", "Alpha Day");
-		assertThat(html)
+		assertThat(page).contains("Alpha HQ", "Alpha Ops", "Alpha Fitter", "Alpha Day");
+		assertThat(page)
 				.doesNotContain("Beta HQ")
 				.doesNotContain("Beta Ops")
 				.doesNotContain("Beta Fitter")
@@ -1287,6 +1339,10 @@ class AdminEmployeesEndToEndTest {
 			return "";
 		}
 	}
+
+	/** The toolbar form's start tag; a quoted attribute value may hold a {@code >}. */
+	private static final Pattern TOOLBAR_FORM = Pattern.compile(
+			"<form method=\"GET\" class=\"toolbar-form toolbar-form--labeled\"((?:[^>\"]|\"[^\"]*\")*)>");
 
 	private static String attribute(String attributes, String name) {
 		Matcher matcher = Pattern.compile("(?:^|\\s)" + name + "=\"([^\"]*)\"").matcher(attributes);

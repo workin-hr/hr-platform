@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ModelAttribute;
 
 import com.workin.backend.platformadmin.org.ActiveCompanies;
+import com.workin.backend.platformadmin.org.OrgCascadeStore;
 import com.workin.legacy.LegacyClock;
 
 /**
@@ -68,12 +69,17 @@ public class AdminViewModelAdvice {
 	/** The active companies the toolbar's company filter lists; an {@link ObjectProvider} for the clock's reason. */
 	private final ObjectProvider<ActiveCompanies> companies;
 
+	/** The rows a toolbar's org filter cascade narrows between; an {@link ObjectProvider} for the clock's reason. */
+	private final ObjectProvider<OrgCascadeStore> cascades;
+
 	public AdminViewModelAdvice(MessageSource messageSource, AdminPageAvailability availability,
-			ObjectProvider<LegacyClock> clock, ObjectProvider<ActiveCompanies> companies) {
+			ObjectProvider<LegacyClock> clock, ObjectProvider<ActiveCompanies> companies,
+			ObjectProvider<OrgCascadeStore> cascades) {
 		this.messageSource = messageSource;
 		this.availability = availability;
 		this.clock = clock;
 		this.companies = companies;
+		this.cascades = cascades;
 	}
 
 	/**
@@ -212,6 +218,31 @@ public class AdminViewModelAdvice {
 				if (this.read == null) {
 					ActiveCompanies store = AdminViewModelAdvice.this.companies.getIfAvailable();
 					this.read = store == null ? List.of() : store.all();
+				}
+				return this.read;
+			}
+		};
+	}
+
+	/**
+	 * The maps a toolbar's company, branch, department and job title selects narrow
+	 * each other from, {@code org_filter_cascade_form_attrs()} (see
+	 * {@link OrgFilterCascade}).
+	 *
+	 * <p>A supplier read at most once per request, for {@link #companyFilterOptions()}'s
+	 * reason: only a page rendering a cascading toolbar should run the queries.
+	 */
+	@ModelAttribute("orgFilterCascade")
+	public Supplier<OrgFilterCascade> orgFilterCascade(HttpServletRequest request) {
+		boolean scoped = session(request).isScopedToOneCompany();
+		return new Supplier<>() {
+			private OrgFilterCascade read;
+
+			@Override
+			public OrgFilterCascade get() {
+				if (this.read == null) {
+					OrgCascadeStore store = AdminViewModelAdvice.this.cascades.getIfAvailable();
+					this.read = scoped || store == null ? OrgFilterCascade.NONE : OrgFilterCascade.of(store.cascade(0));
 				}
 				return this.read;
 			}

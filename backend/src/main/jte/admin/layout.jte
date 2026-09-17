@@ -92,6 +92,9 @@
 	<script src="/admin/_assets/nav-drawer.js"></script>
 	<script src="/admin/_assets/row-actions.js"></script>
 	<script src="/admin/_assets/crud.js"></script>
+	<%-- A toolbar form carrying data-org-filters narrows its company, branch,
+	     department and job title selects; legacy loads it on every page. --%>
+	<script src="/admin/_assets/org-filter-cascade.js"></script>
 	<%-- Opens a row action's dialog and fills it from the row that asked.
 	     Shared, because four list pages need one. --%>
 	<script src="/admin/_assets/row-dialog.js"></script>

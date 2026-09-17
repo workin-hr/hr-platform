@@ -12,6 +12,7 @@
 @param DashboardPage<Employee> result
 @param DashboardListFilters filters
 @param java.util.function.Supplier<java.util.List<com.workin.backend.platformadmin.org.ActiveCompanies.CompanyOption>> companyFilterOptions
+@param java.util.function.Supplier<com.workin.backend.platformadmin.web.OrgFilterCascade> orgFilterCascade
 @param List<Employee.Option> branchOptions
 @param List<Employee.Option> departmentOptions
 @param List<Employee.Option> jobTitleOptions
@@ -75,7 +76,21 @@
 		@endif
 
 		<div class="toolbar page-toolbar page-toolbar-filters">
-			<form method="GET" class="toolbar-form toolbar-form--labeled">
+			<%-- org_filter_cascade_form_attrs() (org_helper.php:450-466), for org-filter-cascade.js. --%>
+			!{var cascade = orgFilterCascade.get();}
+			<form method="GET" class="toolbar-form toolbar-form--labeled"
+			      data-org-filters="${cascade.attached() ? "1" : null}"
+			      data-branches-by-company="${cascade.branchesByCompany()}"
+			      data-departments-by-company="${cascade.departmentsByCompany()}"
+			      data-departments-by-branch="${cascade.departmentsByBranch()}"
+			      data-job-titles-by-dept="${cascade.jobTitlesByDepartment()}"
+			      data-filter-all="${t.apply("filter_all")}"
+			      data-select-company-msg="${t.apply("filter_all_companies")}"
+			      data-pick-branch-first-msg="${t.apply("pick_branch")}"
+			      data-pick-dept-first-msg="${t.apply("pick_department")}"
+			      data-selected-branch="${filterBranch}"
+			      data-selected-department="${filterDepartment}"
+			      data-selected-job-title="${filterJobTitle}">
 				@if(!session.isScopedToOneCompany())
 					@template.admin.companyFilterField(companyId = filters.companyId(), companies = companyFilterOptions, t = t)
 				@endif
@@ -96,7 +111,7 @@
 				</div>
 				<div class="filter-field">
 					<label class="filter-field__label" for="emp_branch_f">${t.apply("branch")}</label>
-					<select id="emp_branch_f" name="filter_branch">
+					<select id="emp_branch_f" name="filter_branch" data-filter-branch>
 						<option value="0">${t.apply("filter_all")}</option>
 						@for(Employee.Option option : branchOptions)
 							<option value="${option.id()}" selected="${filterBranch == option.id()}">${option.label()}</option>
@@ -105,7 +120,7 @@
 				</div>
 				<div class="filter-field">
 					<label class="filter-field__label" for="emp_dept_f">${t.apply("department")}</label>
-					<select id="emp_dept_f" name="filter_department">
+					<select id="emp_dept_f" name="filter_department" data-filter-department>
 						<option value="0">${t.apply("filter_all")}</option>
 						@for(Employee.Option option : departmentOptions)
 							<option value="${option.id()}" selected="${filterDepartment == option.id()}">${option.label()}</option>
@@ -114,7 +129,7 @@
 				</div>
 				<div class="filter-field">
 					<label class="filter-field__label" for="emp_job_f">${t.apply("job_title")}</label>
-					<select id="emp_job_f" name="filter_job_title">
+					<select id="emp_job_f" name="filter_job_title" data-filter-job-title>
 						<option value="0">${t.apply("filter_all")}</option>
 						@for(Employee.Option option : jobTitleOptions)
 							<option value="${option.id()}" selected="${filterJobTitle == option.id()}">${option.label()}</option>

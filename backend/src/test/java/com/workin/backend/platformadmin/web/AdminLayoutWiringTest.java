@@ -372,7 +372,7 @@ class AdminLayoutWiringTest {
 		org.springframework.context.support.StaticMessageSource messages =
 				new org.springframework.context.support.StaticMessageSource();
 		messages.addMessage("admin", java.util.Locale.forLanguageTag("ar"), "أدمن");
-		AdminViewModelAdvice advice = new AdminViewModelAdvice(messages, null, noClock(), companies(null));
+		AdminViewModelAdvice advice = new AdminViewModelAdvice(messages, null, noClock(), companies(null), cascades(null));
 		org.springframework.mock.web.MockHttpServletRequest request =
 				new org.springframework.mock.web.MockHttpServletRequest();
 		// One administrator (ADR-0018), shown by PHP's label for it, not by an id.
@@ -399,7 +399,8 @@ class AdminLayoutWiringTest {
 					}
 				};
 		AdminViewModelAdvice advice = new AdminViewModelAdvice(
-				new org.springframework.context.support.StaticMessageSource(), null, noClock(), companies(store));
+				new org.springframework.context.support.StaticMessageSource(), null, noClock(), companies(store),
+				cascades(null));
 
 		java.util.function.Supplier<List<com.workin.backend.platformadmin.org.ActiveCompanies.CompanyOption>> options =
 				advice.companyFilterOptions();
@@ -452,6 +453,79 @@ class AdminLayoutWiringTest {
 
 			@Override
 			public com.workin.backend.platformadmin.org.ActiveCompanies getIfUnique() {
+				return store;
+			}
+		};
+	}
+
+	/**
+	 * A toolbar's org filter cascade carries every company's rows for an administrator, whose
+	 * company select changes them without a request, and nothing for a session bound to one
+	 * company, which has no company select for legacy's script to read. Read only when a
+	 * toolbar asks, and once per request.
+	 */
+	@Test
+	void theOrgFilterCascadeIsEveryCompanysForAnAdministratorReadOnceAndOnlyWhenAsked() {
+		int[] reads = {0};
+		long[] companyAsked = {-1};
+		com.workin.backend.platformadmin.org.OrgCascadeStore store =
+				new com.workin.backend.platformadmin.org.OrgCascadeStore(null) {
+					@Override
+					public com.workin.backend.platformadmin.org.OrgCascade cascade(long companyId) {
+						reads[0]++;
+						companyAsked[0] = companyId;
+						var branch = new com.workin.backend.platformadmin.org.OrgCascade.Option(3, "Main \"HQ\"");
+						return new com.workin.backend.platformadmin.org.OrgCascade(java.util.Map.of(11L, List.of(branch)),
+								java.util.Map.of(), java.util.Map.of(), java.util.Map.of(), java.util.Map.of());
+					}
+				};
+		org.springframework.mock.web.MockHttpServletRequest request =
+				new org.springframework.mock.web.MockHttpServletRequest();
+		AdminViewModelAdvice advice = new AdminViewModelAdvice(
+				new org.springframework.context.support.StaticMessageSource(), null, noClock(), companies(null),
+				cascades(store));
+
+		java.util.function.Supplier<OrgFilterCascade> cascade = advice.orgFilterCascade(request);
+		assertThat(reads[0]).as("building the model reads nothing").isZero();
+		assertThat(cascade.get().attached()).isTrue();
+		assertThat(companyAsked[0]).as("every company's rows, the administrator's reach").isZero();
+		assertThat(cascade.get().branchesByCompany()).isEqualTo("{\"11\":[{\"id\":3,\"name\":\"Main \\\"HQ\\\"\"}]}");
+		assertThat(reads[0]).as("read once per request").isEqualTo(1);
+
+		AdminViewModelAdvice ownerView = new AdminViewModelAdvice(
+				new org.springframework.context.support.StaticMessageSource(), null, noClock(), companies(null),
+				cascades(store)) {
+			@Override
+			public DashboardSession session(jakarta.servlet.http.HttpServletRequest ignored) {
+				return DashboardSession.company(7L);
+			}
+		};
+		assertThat(ownerView.orgFilterCascade(request).get())
+				.as("a session bound to one company attaches no cascade, and reads nothing")
+				.isEqualTo(OrgFilterCascade.NONE);
+		assertThat(reads[0]).isEqualTo(1);
+	}
+
+	private static org.springframework.beans.factory.ObjectProvider<com.workin.backend.platformadmin.org.OrgCascadeStore>
+			cascades(com.workin.backend.platformadmin.org.OrgCascadeStore store) {
+		return new org.springframework.beans.factory.ObjectProvider<>() {
+			@Override
+			public com.workin.backend.platformadmin.org.OrgCascadeStore getObject() {
+				return store;
+			}
+
+			@Override
+			public com.workin.backend.platformadmin.org.OrgCascadeStore getObject(Object... args) {
+				return store;
+			}
+
+			@Override
+			public com.workin.backend.platformadmin.org.OrgCascadeStore getIfAvailable() {
+				return store;
+			}
+
+			@Override
+			public com.workin.backend.platformadmin.org.OrgCascadeStore getIfUnique() {
 				return store;
 			}
 		};

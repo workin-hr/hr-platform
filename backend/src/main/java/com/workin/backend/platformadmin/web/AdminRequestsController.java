@@ -27,6 +27,8 @@ public class AdminRequestsController {
 
 	private static final String PATH = PlatformAdminWebSecurityConfig.REQUESTS_PATH;
 
+	private static final tools.jackson.databind.ObjectMapper JSON = new tools.jackson.databind.ObjectMapper();
+
 	private final EmployeeRequestStore store;
 
 	private final EmployeeRequestAdminService service;
@@ -65,6 +67,11 @@ public class AdminRequestsController {
 		model.addAttribute("dateFrom", dateFrom == null ? "" : dateFrom);
 		model.addAttribute("dateTo", dateTo == null ? "" : dateTo);
 		model.addAttribute("typeOptions", this.store.typeOptions(filters.companyId()));
+		// hr_request_filter_form_attrs() (hr_list_helper.php:970-979): request-filter-cascade.js
+		// lists the chosen company's types. Nothing for a session bound to one company, which
+		// has no company select: legacy's script throws there and leaves the server's list.
+		model.addAttribute("typesByCompany", current.isScopedToOneCompany()
+				? null : JSON.writeValueAsString(this.store.activeTypesByCompany()));
 		model.addAttribute("result", this.store.paginate(
 				filters, status, typeId, dateFrom, dateTo, showCompany));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "requests"));
