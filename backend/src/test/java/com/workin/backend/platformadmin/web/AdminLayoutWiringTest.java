@@ -127,8 +127,9 @@ class AdminLayoutWiringTest {
 	@Test
 	void theDashboardShipsNoWebFontAndKeepsLegacysSystemStack() throws IOException {
 		String stack = "'Segoe UI', Tahoma, Arial, sans-serif";
-		// JTE's own `@import java...` directives are not CSS imports, so an import must name a URL or a string.
-		Pattern webFont = Pattern.compile("(?i)@font-face|@import\\s+(url\\(|[\"'])|fonts\\.(googleapis|gstatic)\\.com");
+		// JTE's own `@import java...` directives are not CSS imports, so an import must name a URL or a
+		// string. CSS needs no space before either: `@import"x.css"` is an import.
+		Pattern webFont = Pattern.compile("(?i)@font-face|@import\\s*(url\\(|[\"'])|fonts\\.(googleapis|gstatic)\\.com");
 		Pattern family = Pattern.compile("(?i)font-family\\s*:\\s*([^;}]+)");
 		// The shorthand carries the family too: `font: 14px "Cairo", sans-serif`.
 		Pattern shorthand = Pattern.compile("(?i)(?:^|[;{\\s\"'])font\\s*:\\s*([^;}]+)");
