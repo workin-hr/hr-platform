@@ -13,6 +13,15 @@ import { test, expect } from '@playwright/test';
  * rowDialog.jte, and what they do is observed in Chromium.
  */
 
+/**
+ * Waits until no animation or transition is running. Not by awaiting each animation's `finished`
+ * promise: a transition cancelled by the next state change rejects it, and the one replacing it
+ * was never awaited, so a measurement could land mid-flight.
+ */
+async function settled(page) {
+	await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== 'running'));
+}
+
 const asset = (name) => readFileSync(
 	new URL(`../../../backend/src/main/resources/static/admin/_assets/${name}`, import.meta.url),
 	'utf8');
@@ -205,7 +214,7 @@ async function loadListPage(page, rows, { width = 1280, height = 720, cancel = '
 		await page.addScriptTag({ content: asset(script) });
 	}
 	// Let the entrance animations settle into the state they keep.
-	await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+	await settled(page);
 }
 
 async function openFromMenu(page, row) {
@@ -276,7 +285,7 @@ for (const [width, height] of [[1280, 720], [390, 844]]) {
 	test(`at ${width}px the footer does not cover the window's last field`, async ({ page }) => {
 		await loadListPage(page, 3, { width, height, cancel: 'إلغاء', fields: REPLY_FIELDS });
 		await openFromMenu(page, 1);
-		await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+		await settled(page);
 		const modal = page.locator('#edit');
 
 		const last = await modal.locator('#s').boundingBox();
@@ -293,7 +302,7 @@ for (const [width, height] of [[1280, 720], [390, 844]]) {
 	test(`at ${width}px a window longer than the screen keeps Save in view, and its last field clears the footer`, async ({ page }) => {
 		await loadListPage(page, 3, { width, height, fields: LONG_FIELDS });
 		await openFromMenu(page, 1);
-		await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+		await settled(page);
 		const modal = page.locator('#edit .modal');
 		expect(await modal.evaluate((box) => box.scrollHeight > box.clientHeight), 'the window scrolls').toBe(true);
 
