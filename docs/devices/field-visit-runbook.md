@@ -356,7 +356,7 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
 **في الداشبورد:** جدول "Terminals waiting" ← زرار **Allocate to a branch** جنب
 السيريال:
 
-- **Serial number:** بيتملى لوحده. **اتأكد إنه نفس الستيكر.**
+- خانة **Serial number:** بيتملى لوحده. **اتأكد إنه نفس الستيكر.**
 - **Vendor:** ZKTeco.
 - **Device name:** أي اسم، مثلاً "بوابة الشركة".
 - **Device time zone:** من الجدول اللي فوق.
@@ -414,7 +414,7 @@ grep -l '"path": "/iclock/cdata' field-report/captures/SN/*-GET.json | xargs -r 
 | 5 | **شيل كابل الشبكة من الجهاز**، الموظف يعمل بصمتين، رجّع الكابل | البصمتين يوصلوا بعد ما الكابل يرجع، **بمواعيدهم الأصلية** | وصلوا؟ بعد قد إيه؟ |
 | 6 | في Terminal 3 اضغط **Ctrl+C**، الموظف يعمل بصمة، **استنى 10 دقايق**، شغّل أمر الـ capture تاني (سهم لفوق ثم Enter) | البصمة توصل بعد ما الـ capture يرجع، **بميعادها الأصلي، وتظهر مرة واحدة** في الداشبورد | الجهاز عاد الإرسال؟ بعد قد إيه؟ اتسجلت مرة واحدة؟ |
 | 7 | افتح أي ملف <span dir="ltr">`*-GET.json`</span> الـ path بتاعه بيبدأ بـ <span dir="ltr">`/iclock/cdata`</span> (الـ handshake، مش `getrequest`) | في الـ path: <span dir="ltr">`pushver=`</span> و <span dir="ltr">`DeviceType=`</span> و <span dir="ltr">`language=`</span> و <span dir="ltr">`PushOptionsFlag=`</span> | القيم |
-| 8 | افتح ملف <span dir="ltr">`*-POST.json`</span> لأي ATTLOG | `request_headers` ← `Content-Type`، و <span dir="ltr">`Stamp=`</span> في الـ path | القيمتين (الـ Stamp رقم عادي ولا شكل تاني؟) |
+| 8 | افتح ملف <span dir="ltr">`*-POST.json`</span> لأي ATTLOG | الـ `Content-Type` جوه `request_headers`، و <span dir="ltr">`Stamp=`</span> في الـ path | القيمتين (الـ Stamp رقم عادي ولا شكل تاني؟) |
 | 9 | بص على أكبر ملف `ATTLOG` | عدد السطور فيه، وهل فيه `413` | أكبر عدد سجلات في رفعة واحدة |
 | 10 | منيو الجهاز | فيه اختيار HTTPS؟ | أيوه / لأ |
 | 11 | قارن 3 بصمات في الداشبورد بشاشة البحث في الجهاز | نفس الكود ونفس الوقت | متطابقين؟ |
