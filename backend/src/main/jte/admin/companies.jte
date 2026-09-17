@@ -31,7 +31,8 @@
 @param long editCompanyId = 0
 @param EditableCompany editCompany = null
 @param java.util.function.Supplier<PhoneCountryChoices> phoneCountries
-!{var phone = phoneCountries.get();}
+<%-- Read only when the form below renders, which it does only with actions on. --%>
+!{var phone = actionsEnabled ? phoneCountries.get() : PhoneCountryChoices.NONE;}
 <%-- ($row['country_code'] ?? '+20') === $code: an add, or a company with no code, selects +20. --%>
 !{String selectedCode = editCompany == null || editCompany.countryCode() == null ? "+20" : editCompany.countryCode();}
 <%-- dashboard/pages/companies/page.php. --%>

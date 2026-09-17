@@ -32,8 +32,15 @@
         // phone with no code (R-019). A form marked data-phone-keep-untouched
         // lets that pair through, rather than refusing a save the server
         // accepts. Legacy refuses it here and again in page.php.
-        if (form.hasAttribute('data-phone-keep-untouched')
-          && phoneInput.value === openedPhone && countrySelect.value === openedCountry) {
+        //
+        // Leaving the field rewrites it to digits with a restored leading zero,
+        // so the phone counts as opened while it normalizes to what it opened
+        // as, and the opened value is put back: the server compares the stored
+        // text, and would otherwise write the rewrite as a new phone.
+        if (form.hasAttribute('data-phone-keep-untouched') && countrySelect.value === openedCountry
+          && window.WorkinPhoneValidator.normalizeLocal(openedCountry, phoneInput.value)
+            === window.WorkinPhoneValidator.normalizeLocal(openedCountry, openedPhone)) {
+          phoneInput.value = openedPhone;
           return;
         }
         if (!validatePhone(true)) {

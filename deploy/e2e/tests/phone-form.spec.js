@@ -184,6 +184,28 @@ test('an employee edit saves the phone and country it was opened with, even a pa
 	}
 });
 
+test('an employee edit left through its phone field still saves the phone it was opened with, as stored', async ({ context }) => {
+	// Leaving the field rewrites it to digits with a leading zero. A phone stored with a dial
+	// prefix or spaces (register_employee.php stores it as typed), or without its zero, is still
+	// the opened phone, and the save posts the stored text so the server keeps it.
+	for (const opened of [
+		{ phone: '+201012345678', code: '' },
+		{ phone: '010 1234 5678', code: '' },
+		{ phone: '1012345678', code: '+20' },
+	]) {
+		const page = await context.newPage();
+		const session = await open(page, employeeForm({ ...opened, edit: true }));
+		await page.locator('#phone').focus();
+		await page.locator('#phone').blur();
+		expect(await page.locator('#phone').inputValue(), 'the field was rewritten').not.toBe(opened.phone);
+
+		expect(await submit(page, session), JSON.stringify(opened)).toBe(true);
+		expect(session.alerts).toEqual([]);
+		expect(new URLSearchParams(session.posts[0]).get('phone'), 'the stored text, not the rewrite').toBe(opened.phone);
+		await page.close();
+	}
+});
+
 test('an employee edit still checks a phone or a country that was changed', async ({ page }) => {
 	const session = await open(page, employeeForm({ phone: '01012345678', code: '', edit: true }));
 

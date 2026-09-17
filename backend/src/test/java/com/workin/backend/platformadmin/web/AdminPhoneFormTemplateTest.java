@@ -58,6 +58,10 @@ class AdminPhoneFormTemplateTest {
 					if (!source.contains("phoneCountryRules = phone.rules()")) {
 						missing.add("the layout is not handed the rules, so no phone script loads");
 					}
+					String unguarded = readUnlessGuardedLikeTheForm(source, form.start());
+					if (unguarded != null) {
+						missing.add(unguarded);
+					}
 					if (!missing.isEmpty()) {
 						offenders.put(name, missing);
 					}
@@ -67,6 +71,34 @@ class AdminPhoneFormTemplateTest {
 		assertThat(phoneForms).as("legacy's _company_form.php and _employee_form.php")
 				.containsExactly("companies.jte", "employees.jte");
 		assertThat(offenders).isEmpty();
+	}
+
+	/**
+	 * The page reads the countries under the condition its form renders under, so a render
+	 * without the form reads none and loads no phone script. Null when it does; otherwise why not.
+	 */
+	private static String readUnlessGuardedLikeTheForm(String source, int formStart) {
+		Matcher read = Pattern.compile("!\\{var phone = (.+?) \\? phoneCountries\\.get\\(\\) : PhoneCountryChoices\\.NONE;}")
+				.matcher(source);
+		if (!read.find()) {
+			return "the countries are not read under the form's condition";
+		}
+		String opening = "@if(" + read.group(1) + ")";
+		for (int open = source.indexOf(opening); open >= 0 && open < formStart; open = source.indexOf(opening, open + 1)) {
+			Matcher directive = Pattern.compile("@if\\(|@endif").matcher(source);
+			directive.region(open, source.length());
+			int depth = 0;
+			while (directive.find()) {
+				depth += directive.group().equals("@endif") ? -1 : 1;
+				if (depth == 0) {
+					break;
+				}
+			}
+			if (depth == 0 && directive.start() > formStart) {
+				return null;
+			}
+		}
+		return "the countries are read under " + read.group(1) + ", and no @if on it wraps the form";
 	}
 
 	@Test
