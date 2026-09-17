@@ -68,8 +68,22 @@ function employeeForm({ phone = '', code = '', edit = false } = {}) {
 </form>`;
 }
 
-/** Opens a page holding `form`, served with the layout's phone block. Records what posts and what alerts. */
-async function open(page, form) {
+/** companies.jte's modal around its form, opened by crud.js's crudOpenAdd() as the page's "+" button does. */
+function companyModal() {
+	return `<button type="button" id="add-company" onclick="crudOpenAdd('companyModal')">+</button>
+<div class="modal-bg" id="companyModal">
+  <div class="modal">
+    <button type="button" class="modal-close">&times;</button>
+    ${companyForm()}
+  </div>
+</div>`;
+}
+
+/**
+ * Opens a page holding `form`, served with the layout's phone block and then `after` (the
+ * layout loads crud.js after it). Records what posts and what alerts.
+ */
+async function open(page, form, { after = '' } = {}) {
 	const posts = [];
 	const alerts = [];
 	await page.route(`${ORIGIN}/**`, async (route) => {
@@ -86,6 +100,7 @@ async function open(page, form) {
 				body: `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"></head><body>
 ${form}
 ${phoneScripts(RULES)}
+${after}
 </body></html>`,
 			});
 		}
@@ -152,6 +167,23 @@ test('a number the country refuses stops the save with the form\'s message; a va
 	expect(session.alerts).toHaveLength(1);
 });
 
+test('a company form reopened after another country was chosen takes its own country\'s numbers again', async ({ page }) => {
+	// crud.js reopens the form with reset(), which fires no change event on the country.
+	const session = await open(page, companyModal(), { after: '<script src="/admin/_assets/crud.js"></script>' });
+	await page.click('#add-company');
+	await page.selectOption('#co_code', '+966');
+	await expect(page.locator('#co_phone')).toHaveAttribute('maxlength', '10');
+	await page.click('#companyModal .modal-close');
+
+	await page.click('#add-company');
+	await expect(page.locator('#co_code')).toHaveValue('+20');
+	await expect(page.locator('#co_phone')).toHaveAttribute('maxlength', '11');
+	await page.locator('#co_phone').pressSequentially('01012345678');
+	await expect(page.locator('#co_phone')).toHaveValue('01012345678');
+	expect(await submit(page, session)).toBe(true);
+	expect(session.alerts).toEqual([]);
+});
+
 test('a company edit opened with a number its country refuses is refused as legacy refuses it', async ({ page }) => {
 	const session = await open(page, companyForm({ phone: '0712345678', code: '+966' }));
 
@@ -204,6 +236,15 @@ test('an employee edit left through its phone field still saves the phone it was
 		expect(new URLSearchParams(session.posts[0]).get('phone'), 'the stored text, not the rewrite').toBe(opened.phone);
 		await page.close();
 	}
+});
+
+test('an employee edit whose phone is retyped as the same number in full saves what was typed', async ({ page }) => {
+	// Stored without its zero; the admin writes it out. Only a phone nobody typed in is put back.
+	const session = await open(page, employeeForm({ phone: '1012345678', code: '+20', edit: true }));
+
+	await page.locator('#phone').fill('01012345678');
+	expect(await submit(page, session)).toBe(true);
+	expect(new URLSearchParams(session.posts[0]).get('phone')).toBe('01012345678');
 });
 
 test('an employee edit still checks a phone or a country that was changed', async ({ page }) => {
