@@ -292,6 +292,29 @@ class AdminBranchesEndToEndTest {
 				.isEqualTo(String.valueOf(this.companyA));
 	}
 
+	/**
+	 * A save that changes nothing, and a delete of a branch already inactive, still flash their
+	 * success (D-253). Legacy flashes {@code error_required} for both, because its {@code dbUpdate()}
+	 * counts changed rows; this connection counts matched ones ({@code LegacyRowCountStartupCheck}),
+	 * and the row is in the state asked for.
+	 */
+	@Test
+	void anUnchangedSaveAndARepeatDeleteStillFlashTheirSuccess() {
+		long id = seedBranch(this.companyA, "Steady");
+		for (int round = 1; round <= 2; round++) {
+			assertThat(post("/admin/branches", this.cookie, page("/admin/branches?action=edit&id=" + id, this.cookie).csrf(),
+					"action", "save_edit", "id", String.valueOf(id), "company_id", String.valueOf(this.companyA),
+					"name", "Steady", "address", "Same", "radius_meters", "300", "is_active", "1")
+					.getHeaders().getLocation()).as("save %d", round).asString().doesNotContain("action=edit");
+			assertThat(body("/admin/branches")).as("save %d", round).contains("<div class=\"flash flash-success\">تم الحفظ بنجاح ✓</div>");
+		}
+		for (int round = 1; round <= 2; round++) {
+			post("/admin/branches", this.cookie, page("/admin/branches", this.cookie).csrf(),
+					"action", "delete", "id", String.valueOf(id), "company_id", String.valueOf(this.companyA));
+			assertThat(body("/admin/branches")).as("delete %d", round).contains("<div class=\"flash flash-error\">تم الحذف</div>");
+		}
+	}
+
 	@Test
 	void deleteDeactivatesRatherThanRemoving() {
 		long id = seedBranch(this.companyA, "Closing");

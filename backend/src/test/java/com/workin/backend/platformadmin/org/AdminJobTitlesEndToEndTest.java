@@ -340,6 +340,27 @@ class AdminJobTitlesEndToEndTest {
 		assertThat(toolbar.group(1)).contains("data-selected-department=\"" + this.departmentA + "\"");
 	}
 
+	/** As on branches: an unchanged save and a repeat delete flash their success (D-253). */
+	@Test
+	void anUnchangedSaveAndARepeatDeleteStillFlashTheirSuccess() {
+		post("/admin/job_titles", this.cookie, page("/admin/job_titles?action=add", this.cookie).csrf(),
+				"action", "add", "company_id", String.valueOf(this.companyA), "name", "Steady", "work_hours", "8");
+		long id = this.jdbc.queryForObject("SELECT id FROM job_titles WHERE name = 'Steady'", Long.class);
+		body("/admin/job_titles");
+		for (int round = 1; round <= 2; round++) {
+			assertThat(post("/admin/job_titles", this.cookie, page("/admin/job_titles?action=edit&id=" + id, this.cookie).csrf(),
+					"action", "save_edit", "id", String.valueOf(id), "company_id", String.valueOf(this.companyA),
+					"name", "Steady", "department_id", "0", "work_hours", "8", "is_active", "1")
+					.getHeaders().getLocation()).as("save %d", round).asString().doesNotContain("action=edit");
+			assertThat(body("/admin/job_titles")).as("save %d", round).contains("<div class=\"flash flash-success\">تم الحفظ بنجاح ✓</div>");
+		}
+		for (int round = 1; round <= 2; round++) {
+			post("/admin/job_titles", this.cookie, page("/admin/job_titles", this.cookie).csrf(),
+					"action", "delete", "id", String.valueOf(id), "company_id", String.valueOf(this.companyA));
+			assertThat(body("/admin/job_titles")).as("delete %d", round).contains("<div class=\"flash flash-error\">تم الحذف</div>");
+		}
+	}
+
 	@Test
 	void deleteDeactivatesRatherThanRemoving() {
 		post("/admin/job_titles", this.cookie, page("/admin/job_titles?action=add", this.cookie).csrf(),
