@@ -258,6 +258,34 @@ class AdminEmployeesEndToEndTest {
 	}
 
 	@Test
+	void anEmployeeWithABlankNameReadsAsLegacysDashInItsNameCell() {
+		// page.php:343: the name through dashboard_employee_display_name(), whose own fallback
+		// is an em dash; only the avatar beside it passes 'E'.
+		long blank = seedEmployee(this.companyA, "1002", "", "");
+		long named = seedEmployee(this.companyA, "1003", "Aya", "Alpha");
+
+		String html = body("/admin/employees?company_id=" + this.companyA);
+		assertThat(row(html, blank)).contains("<div class=\"bold\">—</div>");
+		assertThat(row(html, named)).contains("<div class=\"bold\">Aya Alpha</div>");
+	}
+
+	@Test
+	void theEditWindowIsTitledEditEmployeeAndTheName() {
+		// page.php:399: __('edit_employee') . ': ' . dashboard_employee_display_name($editEmp).
+		// The row is SELECT e.*, so the helper trims each stored name, joins and trims the
+		// pair, and gives an em dash when both are blank.
+		long blank = seedEmployee(this.companyA, "1002", "", "");
+		long firstOnly = seedEmployee(this.companyA, "1003", "Aya", "");
+		long padded = seedEmployee(this.companyA, "1004", " Aya ", "Alpha");
+
+		assertThat(body("/admin/employees?action=edit&id=" + blank)).contains("<h2>تعديل موظف: —</h2>");
+		assertThat(body("/admin/employees?action=edit&id=" + firstOnly)).contains("<h2>تعديل موظف: Aya</h2>");
+		assertThat(body("/admin/employees?action=edit&id=" + padded)).contains("<h2>تعديل موظف: Aya Alpha</h2>");
+		assertThat(body("/admin/employees?action=add")).as("the add window keeps its own title")
+				.contains("<h2>إضافة موظف</h2>");
+	}
+
+	@Test
 	void theListRendersAnEmployeeWhoHasAContractDuration() {
 		// Every other fixture here leaves contract_duration_months NULL, and
 		// that is why the whole page answered 500 against real data without
@@ -1492,6 +1520,13 @@ class AdminEmployeesEndToEndTest {
 		int start = html.indexOf("<select id=\"country_code\"");
 		assertThat(start).as("the country select renders").isPositive();
 		return html.substring(start, html.indexOf("</select>", start));
+	}
+
+	/** One employee's row of the list, from its opening tag to its end. */
+	private static String row(String html, long employeeId) {
+		int menu = html.indexOf("id=\"row-actions-menu-" + employeeId + "\"");
+		assertThat(menu).as("the row for employee %s", employeeId).isPositive();
+		return html.substring(html.lastIndexOf("<tr", menu), html.indexOf("</tr>", menu));
 	}
 
 	private long seedEmployee(long companyId, String code, String first, String last) {
