@@ -337,6 +337,22 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void aCompanyWithoutANameDrawsLegacysCInItsAvatar() {
+		// company_logo_src() (company_helper.php:173): `trim($name) ?: 'C'`.
+		String cookie = signIn();
+		long companyId = new JdbcTemplate(this.legacyDataSource).queryForObject(
+				"INSERT INTO companies (company_name, phone, password_hash, status)"
+						+ " VALUES (NULL, ?, 'unused-hash', 'active') RETURNING id", Long.class,
+				"+91" + (System.nanoTime() % 100_000_000_000L));
+
+		String html = get("/admin/companies", cookie).response().getBody();
+		int menu = html.indexOf("id=\"row-actions-menu-" + companyId + "\"");
+		assertThat(menu).as("the row for company %s", companyId).isPositive();
+		assertThat(html.substring(html.lastIndexOf("<tr", menu), menu))
+				.contains("<span class=\"emp-tbl-avatar\" aria-hidden=\"true\">C</span>");
+	}
+
+	@Test
 	void aCompanyWithoutANameIsConfirmedByItsPhone() {
 		String cookie = signIn();
 		String phone = "+91" + (System.nanoTime() % 100_000_000_000L);

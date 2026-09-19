@@ -149,6 +149,23 @@ class AdminBranchesEndToEndTest {
 	}
 
 	@Test
+	void anActiveBranchShowsAGreenActiveBadgeAndASuspendedOneAGreySuspendedBadge() {
+		// branches/page.php:174: badge(!empty($row['is_active']) ? 'active' : 'suspended').
+		seedBranch(this.companyA, "Cairo Office", "Nasr City", true);
+		seedBranch(this.companyA, "Giza Office", "Dokki", false);
+
+		String html = body("/admin/branches?lang=en");
+		assertThat(row(html, "Cairo Office")).containsPattern("<span class=\"badge badge-green\">Active</span>");
+		assertThat(row(html, "Giza Office")).containsPattern("<span class=\"badge badge-gray\">Suspended</span>");
+	}
+
+	private static String row(String html, String name) {
+		return java.util.regex.Pattern.compile("(?s)<tr\\b[^>]*>(.*?)</tr>").matcher(html).results()
+				.map(match -> match.group(1)).filter(cells -> cells.contains(">" + name + "<")).findFirst()
+				.orElseThrow(() -> new AssertionError("no row for " + name));
+	}
+
+	@Test
 	void anOutOfRangePageReportsTheLastPageAndShowsNothing() {
 		for (int index = 10; index < 22; index++) {
 			seedBranch(this.companyA, "Branch " + index);

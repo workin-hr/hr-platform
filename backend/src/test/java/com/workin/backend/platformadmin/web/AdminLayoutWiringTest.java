@@ -127,8 +127,9 @@ class AdminLayoutWiringTest {
 	@Test
 	void theDashboardShipsNoWebFontAndKeepsLegacysSystemStack() throws IOException {
 		String stack = "'Segoe UI', Tahoma, Arial, sans-serif";
-		// JTE's own `@import java...` directives are not CSS imports, so an import must name a URL or a string.
-		Pattern webFont = Pattern.compile("(?i)@font-face|@import\\s+(url\\(|[\"'])|fonts\\.(googleapis|gstatic)\\.com");
+		// JTE's own `@import java...` directives are not CSS imports, so an import must name a URL or a
+		// string. CSS needs no space before either: `@import"x.css"` is an import.
+		Pattern webFont = Pattern.compile("(?i)@font-face|@import\\s*(url\\(|[\"'])|fonts\\.(googleapis|gstatic)\\.com");
 		Pattern family = Pattern.compile("(?i)font-family\\s*:\\s*([^;}]+)");
 		// The shorthand carries the family too: `font: 14px "Cairo", sans-serif`.
 		Pattern shorthand = Pattern.compile("(?i)(?:^|[;{\\s\"'])font\\s*:\\s*([^;}]+)");
@@ -136,7 +137,7 @@ class AdminLayoutWiringTest {
 		// `inherit`, and the emoji stack on the one icon rule in app-content.css.
 		Set<String> otherFamilies = Set.of(
 				"inherit", "\"Apple Color Emoji\", \"Segoe UI Emoji\", \"Noto Color Emoji\", sans-serif");
-		List<String> offenders = new ArrayList<>();
+		Set<String> offenders = new LinkedHashSet<>();
 		try (var files = Files.walk(ASSETS)) {
 			for (Path file : files.filter(Files::isRegularFile).sorted().toList()) {
 				String name = ASSETS.relativize(file).toString();
@@ -147,22 +148,24 @@ class AdminLayoutWiringTest {
 				if (!lower.endsWith(".css")) {
 					continue;
 				}
-				String css = Files.readString(file, StandardCharsets.UTF_8);
-				if (webFont.matcher(css).find()) {
-					offenders.add(name + " declares or imports a font");
-				}
-				Matcher families = family.matcher(css);
-				while (families.find()) {
-					String value = families.group(1).trim();
-					if (!otherFamilies.contains(value) && !(stackSheets.contains(name) && value.equals(stack))) {
-						offenders.add(name + " sets font-family " + value);
+				String raw = Files.readString(file, StandardCharsets.UTF_8);
+				for (String css : List.of(raw, cssTokens(raw))) {
+					if (webFont.matcher(css).find()) {
+						offenders.add(name + " declares or imports a font");
 					}
-				}
-				Matcher shorthands = shorthand.matcher(css);
-				while (shorthands.find()) {
-					String value = shorthands.group(1).trim();
-					if (!"inherit".equals(value)) {
-						offenders.add(name + " sets font " + value);
+					Matcher families = family.matcher(css);
+					while (families.find()) {
+						String value = families.group(1).trim();
+						if (!otherFamilies.contains(value) && !(stackSheets.contains(name) && value.equals(stack))) {
+							offenders.add(name + " sets font-family " + value);
+						}
+					}
+					Matcher shorthands = shorthand.matcher(css);
+					while (shorthands.find()) {
+						String value = shorthands.group(1).trim();
+						if (!"inherit".equals(value)) {
+							offenders.add(name + " sets font " + value);
+						}
 					}
 				}
 			}
@@ -174,9 +177,11 @@ class AdminLayoutWiringTest {
 		try (var templates = Files.walk(TEMPLATES)) {
 			for (Path template : templates.filter(file -> file.toString().endsWith(".jte")).sorted().toList()) {
 				String body = Files.readString(template, StandardCharsets.UTF_8);
-				if (webFont.matcher(body).find() || family.matcher(body).find()
-						|| shorthand.matcher(body).find()) {
-					offenders.add(fileName(template) + " carries a font of its own");
+				for (String inline : List.of(body, cssTokens(body))) {
+					if (webFont.matcher(inline).find() || family.matcher(inline).find()
+							|| shorthand.matcher(inline).find()) {
+						offenders.add(fileName(template) + " carries a font of its own");
+					}
 				}
 				Matcher links = link.matcher(body);
 				while (links.find()) {
@@ -195,6 +200,30 @@ class AdminLayoutWiringTest {
 		assertThat(Files.readString(ASSETS.resolve("style.css"), StandardCharsets.UTF_8))
 				.as("the copied style.css still names legacy's stack on body")
 				.contains("font-family: " + stack + ";");
+	}
+
+	private static final Pattern CSS_COMMENT = Pattern.compile("(?s)/\\*.*?\\*/");
+
+	private static final Pattern CSS_ESCAPE = Pattern.compile("\\\\(?:([0-9a-fA-F]{1,6})[ \\t\\r\\n\\f]?|([^\\r\\n\\f0-9a-fA-F]))");
+
+	/**
+	 * CSS as a parser reads it: comments removed and escapes decoded. {@code @import} followed by a
+	 * comment and then a string is an import, and so is {@code @\69mport}; Chromium loads both.
+	 * A {@code /*} that opens no comment -- in a string, a URL, or a JTE comment's
+	 * {@code /admin/_assets/**} -- makes this remove real text up to the next {@code *}{@code /}, so
+	 * the font test matches each text as written too, and either one flags it.
+	 */
+	static String cssTokens(String css) {
+		String uncommented = CSS_COMMENT.matcher(css).replaceAll("");
+		return CSS_ESCAPE.matcher(uncommented).replaceAll(escape -> {
+			if (escape.group(2) != null) {
+				return Matcher.quoteReplacement(escape.group(2));
+			}
+			int codePoint = Integer.parseInt(escape.group(1), 16);
+			boolean valid = codePoint > 0 && codePoint <= Character.MAX_CODE_POINT
+					&& !(codePoint >= Character.MIN_SURROGATE && codePoint <= Character.MAX_SURROGATE);
+			return Matcher.quoteReplacement(Character.toString(valid ? codePoint : 0xFFFD));
+		});
 	}
 
 	/**

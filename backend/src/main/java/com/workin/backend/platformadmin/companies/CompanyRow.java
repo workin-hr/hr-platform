@@ -36,6 +36,17 @@ public record CompanyRow(
 		return this.name == null || this.name.isBlank() ? "—" : this.name;
 	}
 
+	/**
+	 * {@code company_logo_src()} ({@code company_helper.php:173}): the name the fallback avatar is
+	 * drawn from, {@code C} when there is none.
+	 *
+	 * <p>{@code trim($name) ?: 'C'}, and PHP's {@code ?:} treats {@code "0"} as empty too.
+	 */
+	public String avatarName() {
+		String trimmed = this.name == null ? "" : this.name.trim();
+		return trimmed.isEmpty() || "0".equals(trimmed) ? "C" : trimmed;
+	}
+
 	public String activityLabel() {
 		return this.activityName == null || this.activityName.isBlank() ? "—" : this.activityName;
 	}

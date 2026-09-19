@@ -437,11 +437,11 @@
 							<td class="text-muted">${result.from() + index}</td>
 							<td>
 								@if(row.photoUrl() == null || row.photoUrl().isBlank())
-									<span class="emp-tbl-avatar" aria-hidden="true">${EmployeeDisplay.initials(row.employeeName())}</span>
+									<span class="emp-tbl-avatar" aria-hidden="true">${EmployeeDisplay.initials(EmployeeDisplay.displayName(row.employeeName(), "E"))}</span>
 								@else
 									<img src="${row.photoUrl()}" alt="" class="emp-tbl-photo"
 									     width="40" height="40" loading="lazy"
-									     data-fallback-initials="${EmployeeDisplay.initials(row.employeeName())}">
+									     data-fallback-initials="${EmployeeDisplay.initials(EmployeeDisplay.displayName(row.employeeName(), "E"))}">
 								@endif
 							</td>
 							<td>
