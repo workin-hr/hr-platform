@@ -61,12 +61,6 @@ public record Employee(
 				? this.phone : this.countryCode + " " + this.phone;
 	}
 
-	public String hireDateLabel() {
-		String value = this.hireDate == null || this.hireDate.isEmpty()
-				? this.createdAt : this.hireDate;
-		return value == null ? "" : value.substring(0, Math.min(10, value.length()));
-	}
-
 	private static String label(String name) {
 		return name == null || name.isEmpty() ? "—" : name;
 	}

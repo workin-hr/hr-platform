@@ -2,6 +2,9 @@ package com.workin.backend.platformadmin.hr;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Locale;
+
+import com.workin.legacy.LegacyValues;
 
 /**
  * Everything {@code dashboard/pages/employees/detail.php} puts on one page.
@@ -20,6 +23,14 @@ public record EmployeeDetail(
 		List<AttendanceDay> attendance, List<Request> requests, List<Penalty> penalties,
 		List<Advance> advances, Payslip payslip, List<Document> documents) {
 
+	/**
+	 * {@code dashboard_employee_display_name($emp)} ({@code detail.php:36}): the name the title,
+	 * the header and the initials circle all use, an em dash when the stored name is blank.
+	 */
+	public String displayName() {
+		return EmployeeDisplay.displayName(this.employee.employeeName(), "—");
+	}
+
 	/** Days with a check-in in the selected month. */
 	public int daysPresent() {
 		return this.attendance.size();
@@ -36,6 +47,15 @@ public record EmployeeDetail(
 		return total.setScale(1, java.math.RoundingMode.HALF_UP);
 	}
 
+	/**
+	 * {@code round(array_sum(...), 1)} echoed: PHP prints a whole float without its decimal, so
+	 * eight hours read {@code 8} and a month with none reads {@code 0}. The per-row hours are
+	 * one-decimal values, so the exact sum is the float PHP rounds to.
+	 */
+	public String hoursWorkedLabel() {
+		return LegacyValues.toPhpString(hoursWorked().doubleValue());
+	}
+
 	public int penaltyCount() {
 		return this.penalties.size();
 	}
@@ -50,13 +70,12 @@ public record EmployeeDetail(
 	 * read against their own records.
 	 */
 	public String contractTotalLabel() {
-		return this.salary == null ? "—" : this.salary.total().setScale(0,
-				java.math.RoundingMode.HALF_UP).toPlainString();
+		return this.salary == null ? "—" : PayrollDisplay.money(this.salary.total());
 	}
 
+	/** {@code number_format($payslip['net_salary'], 0)}: whole pounds, grouped in threes. */
 	public String netSalaryLabel() {
-		return this.payslip == null ? "—" : this.payslip.netSalary().setScale(0,
-				java.math.RoundingMode.HALF_UP).toPlainString();
+		return this.payslip == null ? "—" : PayrollDisplay.money(this.payslip.netSalary());
 	}
 
 	public String remainingLeaveLabel() {
@@ -72,9 +91,28 @@ public record EmployeeDetail(
 	public record AttendanceDay(
 			String day, String checkIn, String checkOut, String method, BigDecimal hours) {
 
-		/** Legacy prints a dash for an open shift rather than an empty cell. */
-		public String checkOutLabel() {
-			return this.checkOut == null || this.checkOut.isEmpty() ? "—" : this.checkOut;
+		/** {@code substr($a['check_in'], 11, 5)}: the time, to the minute. */
+		public String checkInTime() {
+			return time(this.checkIn);
+		}
+
+		/** Legacy's badge replaces the time while the shift is open. */
+		public boolean open() {
+			return this.checkOut == null || this.checkOut.isEmpty();
+		}
+
+		public String checkOutTime() {
+			return time(this.checkOut);
+		}
+
+		/** {@code $a['hours'] ?? '—'}: an open shift has no hours. */
+		public String hoursLabel() {
+			return this.hours == null ? "—" : this.hours.toPlainString();
+		}
+
+		private static String time(String stored) {
+			return stored == null || stored.length() <= 11
+					? "" : stored.substring(11, Math.min(16, stored.length()));
 		}
 	}
 
@@ -87,6 +125,20 @@ public record EmployeeDetail(
 	}
 
 	public record Advance(BigDecimal amount, BigDecimal remaining, String status) {
+
+		/** {@code number_format($a['amount'], 0)} (detail.php:109). */
+		public String amountDisplay() {
+			return PayrollDisplay.money(this.amount);
+		}
+
+		public String remainingDisplay() {
+			return PayrollDisplay.money(this.remaining);
+		}
+
+		/** {@code $a['remaining'] > 0}: red while any of it is owed, green once none is. */
+		public boolean stillOwed() {
+			return this.remaining != null && this.remaining.signum() > 0;
+		}
 	}
 
 	/**
@@ -101,6 +153,32 @@ public record EmployeeDetail(
 	}
 
 	public record Document(String docType, String fileUrl, String uploadedAt) {
+
+		/**
+		 * The link legacy opens, unless the stored value names a scheme other than http or https.
+		 * The upload endpoint stores its own absolute URL, so this refuses nothing it wrote; it
+		 * keeps a {@code javascript:} value written some other way from becoming a link an
+		 * administrator clicks.
+		 */
+		public String href() {
+			if (this.fileUrl == null || this.fileUrl.isBlank()) {
+				return null;
+			}
+			String url = this.fileUrl.strip();
+			int colon = url.indexOf(':');
+			int path = -1;
+			for (char separator : new char[] {'/', '?', '#'}) {
+				int at = url.indexOf(separator);
+				if (at >= 0 && (path < 0 || at < path)) {
+					path = at;
+				}
+			}
+			if (colon < 0 || (path >= 0 && path < colon)) {
+				return url;
+			}
+			String scheme = url.substring(0, colon).toLowerCase(Locale.ROOT);
+			return scheme.equals("http") || scheme.equals("https") ? url : null;
+		}
 	}
 
 }

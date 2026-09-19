@@ -182,13 +182,13 @@ class AdminEmployeeDetailEndToEndTest {
 	void anOpenShiftHasNoHoursAndReadsAsStillWorking() {
 		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
 		this.jdbc.update("INSERT INTO attendance (employee_id, check_in, method)"
-				+ " VALUES (?, '2026-03-02 09:00:00', 'mobile')", id);
+				+ " VALUES (?, '2026-03-02 09:00:00', 'qr')", id);
 
 		String html = detailBody(id, 3, 2026);
 		assertThat(html).contains("2026-03-02");
 		assertThat(html)
-				.as("TIMESTAMPDIFF over a null check_out is null, which renders as the label")
-				.contains("Still Working");
+				.as("detail.php:87: the badge takes the check-out cell, and the hours cell is a dash")
+				.containsPattern("<td>09:00</td>\\s*<td><span class=\"badge badge-yellow\">Still Working</span></td>\\s*<td>—</td>\\s*<td>qr</td>");
 		assertThat(this.jdbc.queryForObject(
 				"SELECT ROUND(TIMESTAMPDIFF(MINUTE, check_in, check_out) / 60, 1)"
 						+ " FROM attendance WHERE employee_id = " + id, java.math.BigDecimal.class))
@@ -217,8 +217,8 @@ class AdminEmployeeDetailEndToEndTest {
 				+ " transport_allowance, insurance_deduction, effective_from)"
 				+ " VALUES (?, 8000, 300, 100, '2026-01-01')", id);
 
-		// 8000 + 300 - 100, from the later contract only.
-		assertThat(detailBody(id, 3, 2026)).contains("8200");
+		// 8000 + 300 - 100, from the later contract only, through number_format.
+		assertThat(detailBody(id, 3, 2026)).contains("<div class=\"stat-num\">8,200</div>");
 	}
 
 	@Test
@@ -255,8 +255,117 @@ class AdminEmployeeDetailEndToEndTest {
 				+ " overtime_pay, penalties_total, advance_deduction, advances_deduction,"
 				+ " net_salary) VALUES (?, ?, 8000, 300, 100, 50, 20, 20, 8330)", batch, id);
 
-		assertThat(detailBody(id, 3, 2026)).as("the month with a batch").contains("8330");
-		assertThat(detailBody(id, 4, 2026)).as("a month without one").doesNotContain("8330");
+		assertThat(detailBody(id, 3, 2026)).as("the month with a batch").contains("8,330");
+		assertThat(detailBody(id, 4, 2026)).as("a month without one").doesNotContain("8,330");
+	}
+
+	@Test
+	void theHeaderAndStatsReadAsLegacysDo() {
+		long id = seedEmployee(this.companyA, "1001", "aya", "alpha");
+		this.jdbc.update("UPDATE employees SET phone = '1012345678', country_code = '+20' WHERE id = ?", id);
+		seedAttendance(id, "2026-03-02 09:00:00", "2026-03-02 17:00:00");
+
+		String html = detailBody(id, 3, 2026);
+		assertThat(html).as("detail.php:37").contains("<title>Employee — aya alpha");
+		assertThat(html).as("no photo: the initials circle, upper-cased as legacy's label")
+				.contains("<div class=\"emp-detail-avatar\">A A</div>");
+		assertThat(html).as("detail.php:61: the name and legacy's yes badge")
+				.containsPattern("<div class=\"emp-detail-name\">aya alpha\\s*<span class=\"badge badge-green\">Yes</span>\\s*</div>");
+		assertThat(html).as("detail.php:64: the stored phone, without the country code")
+				.contains("<strong>1012345678</strong>").doesNotContain("+20 1012345678");
+		assertThat(html).as("detail.php:68: no hire date is a dash, not the created date")
+				.containsPattern("Hire Date: <strong>—</strong>");
+		assertThat(html).as("eight hours echo as PHP echoes 8.0").contains("<div class=\"stat-num\">8</div>");
+
+		this.jdbc.update("UPDATE employees SET photo_url = 'https://files.example.com/p.jpg' WHERE id = ?", id);
+		assertThat(detailBody(id, 3, 2026)).as("a photo, with the initials it falls back to")
+				.containsPattern("<img src=\"https://files.example.com/p.jpg\" alt=\"\" class=\"emp-detail-photo\"\\s*"
+						+ "data-fallback-initials=\"A A\"\\s*data-fallback-class=\"emp-detail-avatar\">");
+	}
+
+	@Test
+	void anEmployeeWithABlankNameReadsAsLegacysDashInTheTitleHeaderAndAvatar() {
+		// detail.php:36: dashboard_employee_display_name($emp) falls back to an em dash, and the
+		// title, the name and the initials circle all use it.
+		long id = seedEmployee(this.companyA, "1002", "", "");
+
+		String html = detailBody(id, 3, 2026);
+		assertThat(html).contains("<title>Employee — —");
+		assertThat(html).contains("<div class=\"emp-detail-avatar\">—</div>");
+		assertThat(html).containsPattern("<div class=\"emp-detail-name\">—\\s*<span class=\"badge badge-green\">");
+	}
+
+	@Test
+	void theAttendanceTableHasLegacysColumnsAndTimes() {
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		seedAttendance(id, "2026-03-02 09:05:00", "2026-03-02 17:35:00");
+
+		String html = detailBody(id, 3, 2026);
+		assertThat(html).as("detail.php:85: hours before method")
+				.containsPattern("<th>Check In</th>\\s*<th>Check Out</th><th>Hours</th>\\s*<th>Method</th>");
+		assertThat(html).as("detail.php:87: times to the minute")
+				.containsPattern("<td>2026-03-02</td>\\s*<td>09:05</td>\\s*<td>17:35</td>\\s*<td>8.5</td>\\s*<td>app</td>");
+	}
+
+	@Test
+	void theRequestPenaltyAndAdvanceTablesDrawLegacysBadgesAndFigures() {
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		long typeId = seedRequestType(this.companyA, "Sick leave");
+		this.jdbc.update("INSERT INTO requests (employee_id, request_type_id, from_date, to_date, status, created_at)"
+				+ " VALUES (?, ?, '2026-03-01', '2026-03-02', 'approved', NOW())", id, typeId);
+		this.jdbc.update("INSERT INTO penalties (employee_id, penalty_date, penalty_type, penalty_days, applied_to_payroll)"
+				+ " VALUES (?, '2026-03-05', 'late', 1.5, 1), (?, '2026-03-01', 'absent', 1, 0)", id, id);
+		this.jdbc.update("INSERT INTO advances (employee_id, amount, remaining, status, created_at)"
+				+ " VALUES (?, 1500, 250.5, 'pending', '2026-03-02 10:00:00'), (?, 900, 0, 'approved', '2026-03-01 10:00:00')",
+				id, id);
+
+		String html = detailBody(id, 3, 2026);
+		assertThat(html).as("detail.php:95: the request's status as legacy's badge")
+				.containsPattern("<td>Sick leave</td><td>2026-03-01</td><td>2026-03-02</td>\\s*<td>\\s*<span class=\"badge badge-green\">Approved</span>\\s*</td>");
+		assertThat(html).as("detail.php:102: type, red days, date, and yes or no")
+				.containsPattern("<td>late</td>\\s*<td class=\"text-red\">1.5</td>\\s*<td>2026-03-05</td>\\s*"
+						+ "<td>\\s*<span class=\"badge badge-green\">Yes</span>\\s*</td>")
+				.containsPattern("<td>absent</td>\\s*<td class=\"text-red\">1.0</td>\\s*<td>2026-03-01</td>\\s*"
+						+ "<td>\\s*<span class=\"badge badge-gray\">No</span>\\s*</td>");
+		assertThat(html).as("detail.php:109: whole pounds, remaining red while owed, and the status badge")
+				.containsPattern("<td>1,500</td>\\s*<td class=\"text-red\">251</td>\\s*"
+						+ "<td>\\s*<span class=\"badge badge-yellow\">Pending</span>\\s*</td>")
+				.containsPattern("<td>900</td>\\s*<td class=\"text-green\">0</td>\\s*"
+						+ "<td>\\s*<span class=\"badge badge-green\">Approved</span>\\s*</td>");
+	}
+
+	@Test
+	void thePayslipShowsLegacysSevenFiguresAndItsCurrency() {
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		long batch = seedPayrollBatch(this.companyA, 3, 2026);
+		this.jdbc.update("INSERT INTO payslips (batch_id, employee_id, basic_salary, allowances, overtime_pay,"
+				+ " penalties_total, advance_deduction, advances_deduction, net_salary)"
+				+ " VALUES (?, ?, 8000, 1300, 100, 50, 20, 35, 9295)", batch, id);
+
+		String html = detailBody(id, 3, 2026);
+		assertThat(html).as("detail.php:118-127")
+				.containsPattern("Basic Salary</div><div class=\"bold\">8,000</div>")
+				.containsPattern("Allowances</div><div class=\"bold\">1,300</div>")
+				.containsPattern("Overtime Pay</div><div class=\"bold text-green\">100</div>")
+				.containsPattern("Penalties</div><div class=\"bold text-red\">50</div>")
+				.as("detail.php:124: labelled medical insurance, showing advances_deduction")
+				.containsPattern("Medical Insurance</div><div class=\"bold text-red\">35</div>")
+				.containsPattern("<div class=\"bold text-red\">20</div>")
+				.containsPattern("<div class=\"emp-detail-net-value\">9,295 ج.م</div>");
+	}
+
+	@Test
+	void theDocumentsAreLinksToTheirFilesUnlessTheStoredUrlIsNotAWebAddress() {
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update("INSERT INTO employee_docs (employee_id, doc_type, file_url, uploaded_at) VALUES"
+				+ " (?, 'id_card', 'https://files.example.com/docs/id.pdf', '2026-03-02 10:00:00'),"
+				+ " (?, 'contract', 'javascript:alert(1)', '2026-03-01 10:00:00')", id, id);
+
+		String html = detailBody(id, 3, 2026);
+		assertThat(html).as("detail.php:132-138: a chip opening the file")
+				.contains("<a href=\"https://files.example.com/docs/id.pdf\" target=\"_blank\" rel=\"noopener\""
+						+ " class=\"emp-detail-doc\">id_card</a>");
+		assertThat(html).contains("<span class=\"emp-detail-doc\">contract</span>").doesNotContain("javascript:alert");
 	}
 
 	@Test
@@ -356,7 +465,7 @@ class AdminEmployeeDetailEndToEndTest {
 
 	private void seedAttendance(long employeeId, String checkIn, String checkOut) {
 		this.jdbc.update("INSERT INTO attendance (employee_id, check_in, check_out, method)"
-				+ " VALUES (?, ?, ?, 'mobile')", employeeId, checkIn, checkOut);
+				+ " VALUES (?, ?, ?, 'app')", employeeId, checkIn, checkOut);
 	}
 
 	private long seedRequestType(long companyId, String name) {

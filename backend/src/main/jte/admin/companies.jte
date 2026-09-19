@@ -152,9 +152,9 @@
 										@if(row.hasLogo())
 											<img src="${row.logoUrl()}" alt="" class="tbl-photo company-tbl-logo"
 											     width="40" height="40" loading="lazy"
-											     data-fallback-initials="${EmployeeDisplay.initials(row.nameLabel())}">
+											     data-fallback-initials="${EmployeeDisplay.initials(row.avatarName())}">
 										@else
-											<span class="emp-tbl-avatar" aria-hidden="true">${EmployeeDisplay.initials(row.nameLabel())}</span>
+											<span class="emp-tbl-avatar" aria-hidden="true">${EmployeeDisplay.initials(row.avatarName())}</span>
 										@endif
 									</td>
 									<td>
