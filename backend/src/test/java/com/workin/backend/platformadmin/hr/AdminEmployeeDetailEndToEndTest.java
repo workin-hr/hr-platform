@@ -447,6 +447,26 @@ class AdminEmployeeDetailEndToEndTest {
 				.contains("2026-03-02");
 	}
 
+	/** Legacy's {@code (int)} keeps 3000000000, which names no employee; bounding it to an int would not. */
+	@Test
+	void anIdPastTheIntRangeFindsNoEmployeeRatherThanTheLastIntId() {
+		this.jdbc.update("INSERT INTO employees (id, company_id, branch_id, employee_code,"
+				+ " first_name, last_name, role, is_active, is_mobile_attendance_enabled,"
+				+ " can_check_in_any_branch, join_request_status, token_version, created_at,"
+				+ " updated_at) VALUES (2147483647, ?, ?, 'MAX', 'Max', 'Int', 'employee', 1, 1, 0,"
+				+ " 'accepted', 1, NOW(), NOW())", this.companyA, this.branchA);
+		try {
+			for (String id : new String[] {"3000000000", "1e10"}) {
+				assertThat(get("/admin/employee_detail?id=" + id, this.cookie).getHeaders().getLocation())
+						.as(id).asString().endsWith("/admin/employees?error=no_data");
+			}
+			assertThat(get("/admin/employee_detail?id=2147483647", this.cookie).getStatusCode())
+					.as("the row itself still opens").isEqualTo(HttpStatus.OK);
+		} finally {
+			this.jdbc.update("DELETE FROM employees WHERE id = 2147483647");
+		}
+	}
+
 	@Test
 	void anAnonymousRequestNeverReachesThePage() {
 		ResponseEntity<String> response = this.restTemplate.exchange(

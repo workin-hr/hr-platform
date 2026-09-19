@@ -75,7 +75,9 @@ public class AdminEmployeeDetailController {
 			return "redirect:" + PlatformAdminWebSecurityConfig.PATH_PREFIX;
 		}
 
-		long employeeId = asInt(id, 0);
+		// An id keeps PHP's 64-bit value: bounding it to an int would open
+		// employee 2147483647 for an id past that range, where legacy finds none.
+		long employeeId = id == null || id.isBlank() ? 0 : PhpCast.intval(id);
 		Employee employee = employeeId > 0 ? this.store.find(employeeId) : null;
 		if (employee == null
 				|| !DashboardOrgScope.canOpenRow(current, filters, employee.companyId())) {
@@ -95,7 +97,8 @@ public class AdminEmployeeDetailController {
 	}
 
 	/**
-	 * PHP's {@code (int)} cast, which these three parameters all go through.
+	 * PHP's {@code (int)} cast, which the id, month and year all go through; the month
+	 * and year are then bounded to the {@code int} range they are used in.
 	 *
 	 * <p>Binding them as {@code long}/{@code Integer} instead would answer 400
 	 * to {@code ?id=abc}, where legacy reads zero and redirects to the list --

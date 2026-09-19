@@ -21,13 +21,16 @@ import org.junit.jupiter.api.Test;
  *
  * <p>A Java parse standing in for it refuses {@code "5abc"} and {@code "1e2"}, which PHP reads as
  * 5 and 100, and a parser that keeps the leading digits reads {@code "1e2"} as 1. Nineteen such
- * helpers had drifted from the cast. This fails on a new one.
+ * helpers had drifted from the cast. This fails on a new one written as {@code parseInt},
+ * {@code parseLong}, {@code valueOf}, {@code decode} or {@code new BigInteger}; a digit loop
+ * written by hand is not caught.
  */
 class AdminPhpIntCastTest {
 
 	private static final Path SOURCES = Path.of("src", "main", "java", "com", "workin", "backend", "platformadmin");
 
-	private static final Pattern JAVA_PARSE = Pattern.compile("\\b(?:Integer\\.parseInt|Long\\.parseLong)\\(");
+	private static final Pattern JAVA_PARSE = Pattern.compile(
+			"\\b(?:Integer\\.(?:parseInt|valueOf|decode)|Long\\.(?:parseLong|valueOf|decode))\\(|\\bnew\\s+BigInteger\\(");
 
 	/** A parse that is not a stand-in for PHP's cast, and why. */
 	private static final Map<String, String> NOT_A_PHP_CAST = Map.of(
