@@ -18,6 +18,7 @@ import com.workin.backend.platformadmin.hr.AttendanceRecord;
 import com.workin.backend.platformadmin.hr.AttendanceStore;
 import com.workin.backend.platformadmin.hr.EmployeeStore;
 import com.workin.legacy.LegacyClock;
+import com.workin.legacy.PhpCast;
 import com.workin.legacy.wire.LegacyMessages;
 
 /** {@code dashboard/pages/attendance/page.php}. */
@@ -179,15 +180,12 @@ public class AdminAttendanceController {
 		return raw == null || raw.isEmpty() ? fallback : raw;
 	}
 
+	/** {@code max(1, (int) ($_GET['agg_page'] ?? 1))}, read with {@link PhpCast#intval}. */
 	private static int positiveOr(String raw, int fallback) {
 		if (raw == null || raw.isEmpty()) {
 			return fallback;
 		}
-		try {
-			return Math.max(fallback, Integer.parseInt(raw.trim()));
-		} catch (NumberFormatException notANumber) {
-			return fallback;
-		}
+		return Math.max(fallback, Math.clamp(PhpCast.intval(raw), Integer.MIN_VALUE, Integer.MAX_VALUE));
 	}
 
 }

@@ -355,6 +355,27 @@ class AdminSettingsEndToEndTest {
 				.isEqualTo("leave_kind");
 	}
 
+	/**
+	 * {@code (int) ($post['sort_order'] ?? 0)}, bounded to the {@code int} column (D-263): a
+	 * narrowing cast wrapped 3000000000 to -1294967296 and moved the row to the top.
+	 */
+	@Test
+	void aSortOrderPastTheIntRangeIsStoredAtItsBound() {
+		long id = createDefinition("k_sort", "ع", "E");
+		postForm("action", "edit_definition", "id", String.valueOf(id),
+				"label_ar", "ع", "label_en", "E", "sort_order", "3000000000");
+		assertThat(definitionField(id, "sort_order")).isEqualTo("2147483647");
+
+		postForm("action", "add_option", "setting_definition_id", String.valueOf(id),
+				"value", "far", "label_en", "Far", "sort_order", "1e10");
+		long option = optionId(id, "far");
+		assertThat(optionField(option, "sort_order")).isEqualTo("2147483647");
+
+		postForm("action", "edit_option", "id", String.valueOf(option),
+				"value", "far", "label_en", "Far", "sort_order", "-3000000000");
+		assertThat(optionField(option, "sort_order")).isEqualTo("-2147483648");
+	}
+
 	@Test
 	void aDefinitionWithABlankLabelIsRefused() {
 		long id = createDefinition("k1", "ع", "E");

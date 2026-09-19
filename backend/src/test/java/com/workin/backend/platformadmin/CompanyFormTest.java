@@ -97,6 +97,17 @@ class CompanyFormTest {
 	}
 
 	@Test
+	void theLookupIdsArePhpsIntCast() {
+		CompanyForm.Result result = CompanyForm.validate(this.phoneNumbers, CODES, false,
+				"Workin", "Karim", "Taha", "+20", "01000000002", "123456", "Cairo",
+				"2e0", " 3abc", "4.7", null);
+		assertThat(result.ok()).isTrue();
+		assertThat(result.write().activityId()).isEqualTo(2L);
+		assertThat(result.write().titleId()).isEqualTo(3L);
+		assertThat(result.write().sizeId()).isEqualTo(4L);
+	}
+
+	@Test
 	void anEditToleratesABlankPasswordAndReportsItAsUnchanged() {
 		CompanyForm.Result result = CompanyForm.validate(this.phoneNumbers, CODES, true,
 				"Workin", "Karim", "Taha", "+20", "01000000002", "", "Cairo",

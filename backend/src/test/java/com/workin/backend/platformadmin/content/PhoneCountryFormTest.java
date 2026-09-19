@@ -22,6 +22,14 @@ class PhoneCountryFormTest {
 	}
 
 	@Test
+	void theLengthAndSortOrderArePhpsIntCast() {
+		assertThat(validate("+20", "1e1", "").country().phoneLength()).as("(int) \"1e1\"").isEqualTo(10);
+		assertThat(validate("+20", "10.9", "").country().phoneLength()).isEqualTo(10);
+		assertThat(PhoneCountryForm.validate("+20", "مصر", "Egypt", "", "10", "", true, "2e0").country().sortOrder())
+				.isEqualTo(2);
+	}
+
+	@Test
 	void acceptsAWellFormedCountry() {
 		PhoneCountryForm.Result result = validate("+20", "10", "10, 11, 12");
 

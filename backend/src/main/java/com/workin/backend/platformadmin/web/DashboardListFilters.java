@@ -7,6 +7,8 @@ import java.util.SequencedMap;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+import com.workin.legacy.PhpCast;
+
 /**
  * {@code org_list_read_filters()}: the query bundle every org list page reads.
  *
@@ -48,10 +50,9 @@ public record DashboardListFilters(
 				request.getParameter("filter") == null ? "all" : request.getParameter("filter"),
 				positive(request.getParameter("filter_branch")),
 				positive(request.getParameter("filter_department")),
-				Math.max(1, (int) positive(request.getParameter("page"))),
-				Math.max(1, Math.min(
-						(int) intOr(request.getParameter("per_page"), DashboardPage.SIZE_DEFAULT),
-						DashboardPage.SIZE_MAX)),
+				Math.clamp(positive(request.getParameter("page")), 1, Integer.MAX_VALUE),
+				Math.clamp(intOr(request.getParameter("per_page"), DashboardPage.SIZE_DEFAULT),
+						1, DashboardPage.SIZE_MAX),
 				session.isScopedToOneCompany());
 	}
 
@@ -68,31 +69,13 @@ public record DashboardListFilters(
 	/**
 	 * {@code (int) $raw} with a default when absent.
 	 *
-	 * <p>PHP's cast takes the leading integer and yields 0 otherwise, so
-	 * {@code ?page=abc} is page 0 -- which {@code max(1, ...)} then makes page
-	 * 1. An exception here would refuse a URL legacy serves.
+	 * <p>PHP's cast reads the leading number, exponent included, and yields 0
+	 * otherwise, so {@code ?page=abc} is page 0 -- which {@code max(1, ...)}
+	 * then makes page 1 -- and {@code ?page=1e2} is page 100. An exception here
+	 * would refuse a URL legacy serves.
 	 */
 	private static long intOr(String raw, long fallback) {
-		if (raw == null) {
-			return fallback;
-		}
-		String trimmed = raw.trim();
-		int end = 0;
-		if (end < trimmed.length() && (trimmed.charAt(end) == '+' || trimmed.charAt(end) == '-')) {
-			end++;
-		}
-		while (end < trimmed.length() && Character.isDigit(trimmed.charAt(end))) {
-			end++;
-		}
-		String digits = trimmed.substring(0, end);
-		if (digits.isEmpty() || "+".equals(digits) || "-".equals(digits)) {
-			return 0L;
-		}
-		try {
-			return Long.parseLong(digits);
-		} catch (NumberFormatException ex) {
-			return 0L;
-		}
+		return raw == null ? fallback : PhpCast.intval(raw);
 	}
 
 	/** {@code org_apply_status_filter()}: only these two values narrow anything. */

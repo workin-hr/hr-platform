@@ -531,6 +531,18 @@ class AdminBranchesEndToEndTest {
 		return this.jdbc.queryForObject("SELECT id FROM companies WHERE phone = ?", Long.class, phone);
 	}
 
+	@Test
+	void aPageAtTheEndOfTheIntRangeListsNothingRatherThanFailing() {
+		// ?page=1e10 is page 10000000000 in PHP; the port bounds it to Integer.MAX_VALUE, whose
+		// offset wrapped to a negative OFFSET in an int.
+		seedBranch(this.companyA, "Alpha Far");
+		for (String page : List.of("2147483647", "1e10")) {
+			ResponseEntity<String> response = get("/admin/branches?page=" + page, this.cookie);
+			assertThat(response.getStatusCode()).as("page=%s", page).isEqualTo(HttpStatus.OK);
+			assertThat(response.getBody()).doesNotContain("Alpha Far");
+		}
+	}
+
 	private long seedBranch(long companyId, String name) {
 		return seedBranch(companyId, name, null, true);
 	}
