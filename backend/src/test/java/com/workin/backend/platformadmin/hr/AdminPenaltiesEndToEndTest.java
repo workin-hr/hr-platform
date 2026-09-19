@@ -403,6 +403,35 @@ class AdminPenaltiesEndToEndTest {
 				.isEqualTo(this.employeeA);
 	}
 
+	/**
+	 * hr_render_table_employee_cells() and hr_penalties_row_actions() (hr_list_helper.php:69, 660)
+	 * print the name through dashboard_employee_display_name(): a blank one is an em dash in the
+	 * cell, in the edit's subject, and in the label the edit's picker falls back to, which keeps
+	 * the code.
+	 */
+	@Test
+	void anEmployeeWithABlankNameReadsAsLegacysDash() {
+		long blank = seedPenalty(createEmployee(this.companyA, "A200", "", ""), "Lateness", "1", false);
+		long named = seedPenalty(this.employeeA, "Lateness", "1", false);
+
+		String html = body("/admin/penalties?company_id=" + this.companyA);
+		assertThat(row(html, blank))
+				.containsPattern("<td class=\"text-muted\">A200</td>\\s*<td class=\"bold\">—</td>")
+				.containsPattern("data-dialog=\"penalty-edit\"[^>]*data-dialog-subject=\"—\"")
+				.contains("data-dialog-employee_label=\"— (A200)\"");
+		assertThat(row(html, named))
+				.containsPattern("<td class=\"text-muted\">A100</td>\\s*<td class=\"bold\">Aya Alpha</td>")
+				.containsPattern("data-dialog=\"penalty-edit\"[^>]*data-dialog-subject=\"Aya Alpha\"")
+				.contains("data-dialog-employee_label=\"Aya Alpha (A100)\"");
+	}
+
+	/** One row of the list, from its opening tag to its end. */
+	private static String row(String html, long rowId) {
+		int menu = html.indexOf("id=\"row-actions-menu-" + rowId + "\"");
+		assertThat(menu).as("the row for %s", rowId).isPositive();
+		return html.substring(html.lastIndexOf("<tr", menu), html.indexOf("</tr>", menu));
+	}
+
 	@Test
 	void thePickerListsEveryActiveEmployeeUnderLegacysLabels() {
 		insertActiveEmployees(this.companyB, 520);

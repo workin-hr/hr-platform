@@ -1,5 +1,6 @@
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.hr.EmployeeDisplay
 @import com.workin.backend.platformadmin.hr.LeaveBalance
 @import com.workin.backend.platformadmin.hr.EmployeePicker
 @import com.workin.backend.platformadmin.web.DashboardListFilters
@@ -104,10 +105,13 @@
 				<tbody>
 					@for(int index = 0; index < result.data().size(); index++)
 						!{LeaveBalance row = result.data().get(index);}
+						<%-- dashboard_employee_display_name(): a blank name reads as an em dash, in
+						     the cell and in the row's actions (hr_list_helper.php:69, 614). --%>
+						!{String employeeName = EmployeeDisplay.displayName(row.employeeName(), "—");}
 						<tr>
 							<td>${result.from() + index}</td>
 							<td class="text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
-							<td class="bold">${row.employeeName()}</td>
+							<td class="bold">${employeeName}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
@@ -124,7 +128,7 @@
 										<button type="button" role="menuitem" class="row-actions__item"
 												data-dialog="leave-edit"
 												data-dialog-id="${row.id()}"
-												data-dialog-subject="${row.employeeName()}"
+												data-dialog-subject="${employeeName}"
 												data-dialog-total="${row.totalDisplay()}"
 												data-dialog-used="${row.usedDisplay()}">${t.apply("edit")}</button>
 										<form method="POST" class="row-actions__form" role="none"

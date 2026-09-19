@@ -39,7 +39,10 @@ public final class EmployeePicker {
 
 	/**
 	 * One employee's label. A row passes no company: legacy labels a row's own
-	 * employee without one ({@code hr_advances_row_actions}).
+	 * employee without one ({@code hr_advances_row_actions}). A row also passes
+	 * its name through {@link EmployeeDisplay#displayName} first, as legacy's row
+	 * actions do, so a row with no name reads "— (CODE)" where an option reads
+	 * the code alone.
 	 */
 	public static String label(String name, String code, String companyName) {
 		String shownName = trimmed(name);

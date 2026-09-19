@@ -1,5 +1,6 @@
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.hr.EmployeeDisplay
 @import com.workin.backend.platformadmin.hr.AttendanceDisplay
 @import com.workin.backend.platformadmin.hr.AttendanceRecord
 @import com.workin.backend.platformadmin.hr.EmployeePicker
@@ -179,10 +180,14 @@
 				<tbody>
 					@for(int index = 0; index < result.data().size(); index++)
 						!{AttendanceRecord.Row row = result.data().get(index);}
+						<%-- dashboard_employee_display_name(): a blank name reads as an em dash, in
+						     the cell and in the row's actions (hr_list_helper.php:69,
+						     payroll_list_helper.php:494). --%>
+						!{String employeeName = EmployeeDisplay.displayName(row.employeeName(), "—");}
 						<tr>
 							<td>${result.from() + index}</td>
 							<td class="text-muted">${row.empCode() == null ? "—" : row.empCode()}</td>
-							<td class="bold">${row.employeeName()}</td>
+							<td class="bold">${employeeName}</td>
 							<%-- page.php:202-206. Whether a punch fell on a Friday is the
 							     difference between an absence and a weekend; legacy puts it in
 							     its own column rather than leaving the reader to work it out. --%>
@@ -208,7 +213,7 @@
 										<button type="button" role="menuitem" class="row-actions__item"
 												data-dialog="attendance-edit"
 												data-dialog-id="${row.id()}"
-												data-dialog-subject="${row.employeeName()}"
+												data-dialog-subject="${employeeName}"
 												data-dialog-check_in="${row.checkIn() == null ? "" : row.checkIn().replace(' ', 'T')}"
 												data-dialog-check_out="${row.checkOut() == null ? "" : row.checkOut().replace(' ', 'T')}"
 												data-dialog-exception_type_id="${row.exceptionTypeId() == null ? "0" : String.valueOf(row.exceptionTypeId())}"
@@ -266,6 +271,8 @@
 						<tr>
 							<td>${aggregateResult.from() + index}</td>
 							<td class="text-muted">${row.empCode() == null || row.empCode().isEmpty() ? "—" : row.empCode()}</td>
+							<%-- page.php:242 prints the name its SQL returns, not through
+							     dashboard_employee_display_name(), so a blank one stays blank. --%>
 							<td class="bold">${row.employeeName()}</td>
 							<td>${row.jobTitleName().isEmpty() ? "—" : row.jobTitleName()}</td>
 							<td class="col-center">${row.daysInPeriod()}</td>

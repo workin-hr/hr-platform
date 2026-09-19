@@ -320,6 +320,32 @@ class AdminLeaveBalancesEndToEndTest {
 		assertThat(response.getHeaders().getLocation()).asString().contains("/admin/login");
 	}
 
+	/**
+	 * hr_render_table_employee_cells() and hr_leave_balance_row_actions() (hr_list_helper.php:69,
+	 * 614) print the name through dashboard_employee_display_name(): a blank one is an em dash in
+	 * the cell and in the edit's subject.
+	 */
+	@Test
+	void anEmployeeWithABlankNameReadsAsLegacysDash() {
+		long blank = seedBalance(createEmployee(this.companyA, "A200", "", ""), 2026, "21", "0");
+		long named = seedBalance(this.employeeA, 2026, "21", "0");
+
+		String html = body("/admin/leave_balances?year=2026&company_id=" + this.companyA);
+		assertThat(row(html, blank))
+				.containsPattern("<td class=\"text-muted\">A200</td>\\s*<td class=\"bold\">—</td>")
+				.containsPattern("data-dialog=\"leave-edit\"[^>]*data-dialog-subject=\"—\"");
+		assertThat(row(html, named))
+				.containsPattern("<td class=\"text-muted\">A100</td>\\s*<td class=\"bold\">Aya Alpha</td>")
+				.containsPattern("data-dialog=\"leave-edit\"[^>]*data-dialog-subject=\"Aya Alpha\"");
+	}
+
+	/** One row of the list, from its opening tag to its end. */
+	private static String row(String html, long rowId) {
+		int menu = html.indexOf("id=\"row-actions-menu-" + rowId + "\"");
+		assertThat(menu).as("the row for %s", rowId).isPositive();
+		return html.substring(html.lastIndexOf("<tr", menu), html.indexOf("</tr>", menu));
+	}
+
 	@Test
 	void thePickerListsEveryActiveEmployeeUnderLegacysLabels() {
 		long company = createCompany("Picker Co");

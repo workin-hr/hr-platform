@@ -160,7 +160,10 @@
 			     stylesheet defines here or in legacy. --%>
 			<div class="modal-bg open">
 				<div class="modal modal--employee-form">
-					<h2>${editRow == null ? t.apply("add_employee") : t.apply("edit")}</h2>
+					<%-- page.php:399: "Edit employee: name", the name through
+					     dashboard_employee_display_name(), so an em dash when it is blank. --%>
+					<h2>${editRow == null ? t.apply("add_employee")
+							: t.apply("edit_employee") + ": " + editRow.displayName()}</h2>
 					<%-- _employee_form.php: employee-form.js, copied from legacy, fills the
 					     branch, department and job title selects from these maps, which carry
 					     only the companies this form may use (R-051); employee-shift.js fills
@@ -445,7 +448,7 @@
 								@endif
 							</td>
 							<td>
-								<div class="bold">${row.employeeName()}</div>
+								<div class="bold">${EmployeeDisplay.displayName(row.employeeName(), "—")}</div>
 								<div class="tbl-sub">${row.employeeCode() == null || row.employeeCode().isBlank()
 									? "—" : row.employeeCode()}</div>
 							</td>
