@@ -336,6 +336,39 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 		});
 	}
 
+	/**
+	 * Approving a company already active, or rejecting one already rejected with the same reason,
+	 * still flashes the success and writes its audit row (D-253). Legacy flashes nothing, because its
+	 * flash sits behind {@code dbUpdate()}'s changed-row count; this connection counts matched rows
+	 * ({@code LegacyRowCountStartupCheck}), and the company is in the state asked for.
+	 */
+	@Test
+	void reapprovingOrRerejectingACompanyStillFlashesItsSuccessAndIsAudited() {
+		String cookie = signIn();
+		long adminId = adminId();
+		long approved = createCompany();
+		long rejected = createCompany();
+		new JdbcTemplate(this.legacyDataSource).update(
+				"UPDATE companies SET status = 'rejected', rejection_reason = 'no registration' WHERE id = ?", rejected);
+
+		post("/admin/companies/action", cookie, get("/admin/companies", cookie).csrf(),
+				"action", "COMPANY_APPROVE", "companyId", String.valueOf(approved));
+		assertThat(get("/admin/companies", cookie).response().getBody())
+				.contains("<div class=\"flash flash-success\">تم القبول ✓</div>");
+		post("/admin/companies/action", cookie, get("/admin/companies", cookie).csrf(),
+				"action", "COMPANY_REJECT", "companyId", String.valueOf(rejected), "reason", "no registration");
+		assertThat(get("/admin/companies", cookie).response().getBody())
+				.contains("<div class=\"flash flash-warning\">تم الرفض</div>");
+
+		assertThat(statusOf(approved)).isEqualTo("active");
+		assertThat(statusOf(rejected)).isEqualTo("rejected");
+		assertThat(new JdbcTemplate(this.legacyDataSource).queryForObject(
+				"SELECT COUNT(*) FROM platform_admin_audit_events WHERE platform_admin_id = ?"
+						+ " AND event_type IN ('COMPANY_APPROVED', 'COMPANY_REJECTED') AND target_id IN (?, ?)",
+				Integer.class, adminId, String.valueOf(approved), String.valueOf(rejected)))
+				.isEqualTo(2);
+	}
+
 	@Test
 	void aCompanyWithoutANameDrawsLegacysCInItsAvatar() {
 		// company_logo_src() (company_helper.php:173): `trim($name) ?: 'C'`.

@@ -172,6 +172,24 @@ class AdminShiftsEndToEndTest {
 				.isEqualTo(String.valueOf(this.companyA));
 	}
 
+	/** As on branches: an unchanged save and a repeat delete flash their success (D-253). */
+	@Test
+	void anUnchangedSaveAndARepeatDeleteStillFlashTheirSuccess() {
+		long id = seedShift(this.companyA, "Steady");
+		for (int round = 1; round <= 2; round++) {
+			assertThat(post("/admin/shifts", this.cookie, page("/admin/shifts?action=edit&id=" + id, this.cookie).csrf(),
+					"action", "save_edit", "id", String.valueOf(id), "company_id", String.valueOf(this.companyA),
+					"name", "Steady", "start_time", "10:00", "end_time", "18:00", "is_active", "1")
+					.getHeaders().getLocation()).as("save %d", round).asString().doesNotContain("action=edit");
+			assertThat(body("/admin/shifts")).as("save %d", round).contains("<div class=\"flash flash-success\">تم الحفظ بنجاح ✓</div>");
+		}
+		for (int round = 1; round <= 2; round++) {
+			post("/admin/shifts", this.cookie, page("/admin/shifts", this.cookie).csrf(),
+					"action", "delete", "id", String.valueOf(id), "company_id", String.valueOf(this.companyA));
+			assertThat(body("/admin/shifts")).as("delete %d", round).contains("<div class=\"flash flash-error\">تم الحذف</div>");
+		}
+	}
+
 	@Test
 	void deleteDeactivatesAndLeavesAssignmentsAlone() {
 		long id = seedShift(this.companyA, "Closing");
