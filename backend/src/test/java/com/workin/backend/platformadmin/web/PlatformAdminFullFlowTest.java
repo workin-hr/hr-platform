@@ -532,6 +532,226 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 		assertThat(companyExists(companyId)).isTrue();
 	}
 
+	/**
+	 * companies/detail.php (D-264): the quick links, the header card, six counts and three tables,
+	 * each read from this company's rows alone, in legacy's order. A second company with rows of
+	 * every kind shows none of them.
+	 */
+	@Test
+	void theCompanyDetailPageShowsLegacysCardCountsAndTablesForThatCompanyAlone() {
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		String cookie = signIn();
+		long nano = System.nanoTime();
+		String name = "Flow Detail " + nano;
+		String phone = "+93" + (nano % 100_000_000_000L);
+		long companyId = jdbc.queryForObject("INSERT INTO companies (company_name, phone, password_hash, email,"
+				+ " otp_verified, logo_url, commercial_reg_url, status, created_at) VALUES (?, ?, 'unused-hash', ?,"
+				+ " 1, '/uploads/logos/flow.png', '/uploads/docs/flow.pdf', 'active', '2026-01-02 10:11:12')"
+				+ " RETURNING id", Long.class, name, phone, "flow" + nano + "@example.test");
+		long zeta = seedBranch(companyId, "Zeta " + nano, true);
+		long alpha = seedBranch(companyId, "Alpha " + nano, true);
+		seedBranch(companyId, "Mid " + nano, false);
+		String ayaPhone = uniquePhone();
+		String basemPhone = uniquePhone();
+		String carlPhone = uniquePhone();
+		String dinaPhone = uniquePhone();
+		long aya = seedEmployee(companyId, zeta, "Aya", "Alpha", "A-1", "manager", true, "2024-02-03", ayaPhone);
+		long basem = seedEmployee(companyId, zeta, "Basem", "Beta", "  ", "hr", true, null, basemPhone);
+		long carl = seedEmployee(companyId, alpha, "Carl", "Gamma", "C-3", "company_admin", false, "2023-01-01", carlPhone);
+		long dina = seedEmployee(companyId, alpha, "Dina", "Delta", "D-4", "employee", true, "2025-05-06", dinaPhone);
+		checkIn(aya, 0, "09:00:00");
+		checkIn(aya, 0, "13:00:00");
+		checkIn(dina, 0, "09:30:00");
+		checkIn(basem, 1, "09:00:00");
+		long leave = jdbc.queryForObject("INSERT INTO request_types (company_id, name) VALUES (?, 'Flow leave')"
+				+ " RETURNING id", Long.class, companyId);
+		request(aya, leave, "pending");
+		request(basem, leave, "approved");
+		advance(aya, "pending");
+		advance(dina, "pending");
+		advance(carl, "rejected");
+
+		long other = createCompany();
+		long otherBranch = seedBranch(other, "Other " + nano, true);
+		String omarPhone = uniquePhone();
+		long omar = seedEmployee(other, otherBranch, "Omar", "Other" + nano, "O-1", "hr", true, "2022-02-02", omarPhone);
+		checkIn(omar, 0, "09:00:00");
+		long otherLeave = jdbc.queryForObject("INSERT INTO request_types (company_id, name) VALUES (?, 'Other leave')"
+				+ " RETURNING id", Long.class, other);
+		request(omar, otherLeave, "pending");
+		advance(omar, "pending");
+
+		ResponseEntity<String> page = get("/admin/companies/" + companyId, cookie).response();
+		assertThat(page.getStatusCode()).isEqualTo(HttpStatus.OK);
+		String html = page.getBody();
+
+		assertThat(html).as("detail.php:29: the title names the company")
+				.contains("<h1 class=\"page-title\">" + arabic("admin-messages", "company") + " — " + name + "</h1>");
+		assertThat(html).as("detail.php:33-38: back, then this company's branches, employees and payroll")
+				.containsSubsequence("<div class=\"company-detail-bar\">",
+						"<a href=\"/admin/companies\" class=\"btn btn-outline btn-sm\">← " + arabic("admin-messages", "back") + "</a>",
+						"<a href=\"/admin/branches?company_id=" + companyId + "\" class=\"btn btn-blue btn-sm\">"
+								+ arabic("admin-messages", "nav_branches") + "</a>",
+						"<a href=\"/admin/employees?company_id=" + companyId + "\" class=\"btn btn-green btn-sm\">"
+								+ arabic("admin-messages", "employees") + "</a>",
+						"<a href=\"/admin/payroll?company_id=" + companyId + "\" class=\"btn btn-yellow btn-sm\">"
+								+ arabic("admin-messages", "nav_payroll") + "</a>");
+
+		assertThat(html).as("detail.php:40-52: the logo, the name and status, four fields and the registration")
+				.containsPattern("<img src=\"/uploads/logos/flow\\.png\" alt=\"\" class=\"company-detail-logo\"\\s+"
+						+ "data-fallback-initials=\"F D\"\\s+data-fallback-class=\"company-detail-avatar\">")
+				.containsPattern("<div class=\"company-detail-name\">" + Pattern.quote(name)
+						+ "\\s*<span class=\"badge badge-green\">" + arabic("admin-messages", "status_active") + "</span>\\s*</div>")
+				.contains("<span>&#9632; " + arabic("admin-messages", "company_phone") + ": <strong>" + phone + "</strong></span>")
+				.contains("<span>&#9632; " + arabic("admin-messages", "company_email") + ": <strong>flow" + nano
+						+ "@example.test</strong></span>")
+				.containsPattern("<span>&#9632; OTP: <strong>\\s*<span class=\"badge badge-green\">"
+						+ arabic("admin-messages", "yes") + "</span>\\s*</strong></span>")
+				.contains("<span>&#9632; " + arabic("admin-messages", "reg_date") + ": <strong>2026-01-02</strong></span>")
+				.containsPattern("<a href=\"/uploads/docs/flow\\.pdf\" target=\"_blank\" rel=\"noopener\"\\s+"
+						+ "class=\"btn btn-outline btn-sm company-detail-reg\">" + arabic("admin-messages", "commercial_reg") + "</a>");
+
+		assertThat(html).as("detail.php:54-61: six counts, in legacy's order and colours")
+				.containsPattern("<div class=\"stats-grid company-detail-stats\">\\s*"
+						+ stat("green", "3", arabic("admin-messages", "total_employees"))
+						+ stat("blue", "4", arabic("admin-messages", "employees"))
+						+ stat("blue", "3", arabic("admin-messages", "branches"))
+						+ stat("green", "2", arabic("admin-messages", "checked_in_today"))
+						+ stat("yellow", "1", arabic("admin-messages", "pending_requests"))
+						+ stat("yellow", "2", arabic("admin-messages", "pending_advances")) + "</div>");
+
+		assertThat(html).containsPattern("<h2>" + arabic("admin-messages", "branches") + " \\(3\\)</h2>\\s*<a href=\"/admin/branches\\?company_id="
+				+ companyId + "\" class=\"btn btn-outline btn-sm\">" + arabic("admin-messages", "edit") + "</a>");
+		assertThat(bodyRows(html, "<h2>" + arabic("admin-messages", "branches") + " (3)</h2>"))
+				.as("every branch, active or not, by name, each with its active employees")
+				.containsExactly("<td>Alpha " + nano + "</td><td>1</td>", "<td>Mid " + nano + "</td><td>0</td>",
+						"<td>Zeta " + nano + "</td><td>2</td>");
+
+		assertThat(bodyRows(html, "<h2>HR / " + arabic("admin-messages", "manager") + "</h2>"))
+				.as("the company's admins, HR and managers, in the role enum's order")
+				.containsExactly(
+						"<td>" + carlPhone + "</td><td><span class=\"badge badge-blue\">" + arabic("admin-messages", "role_admin") + "</span></td>",
+						"<td>" + basemPhone + "</td><td><span class=\"badge badge-green\">" + arabic("admin-messages", "role_hr") + "</span></td>",
+						"<td>" + ayaPhone + "</td><td><span class=\"badge badge-yellow\">" + arabic("admin-messages", "role_manager") + "</span></td>");
+
+		String employees = "<h2>" + arabic("admin-messages", "employees") + " (4)</h2>";
+		assertThat(html).containsPattern(Pattern.quote(employees) + "\\s*<a href=\"/admin/employees\\?company_id="
+				+ companyId + "\" class=\"btn btn-outline btn-sm\">" + arabic("admin-messages", "all") + "</a>");
+		assertThat(bodyRows(html, employees))
+				.as("active first, then by name: the code or the id, the name, phone, branch, hire date or a dash")
+				.containsExactly(
+						employeeRow(1, "A-1", "Aya Alpha", ayaPhone, "Zeta " + nano, "2024-02-03", true, aya),
+						employeeRow(2, String.valueOf(basem), "Basem Beta", basemPhone, "Zeta " + nano, "—", true, basem),
+						employeeRow(3, "D-4", "Dina Delta", dinaPhone, "Alpha " + nano, "2025-05-06", true, dina),
+						employeeRow(4, "C-3", "Carl Gamma", carlPhone, "Alpha " + nano, "2023-01-01", false, carl));
+
+		assertThat(html).as("the other company's rows").doesNotContain("Other " + nano, omarPhone,
+				"employee_detail?id=" + omar, "company_id=" + other);
+
+		assertThat(get("/admin/companies/" + companyId + "?lang=en", cookie).response().getBody())
+				.as("the title in English").contains("<h1 class=\"page-title\">Company — " + name + "</h1>");
+	}
+
+	/** detail.php:79-82: fifteen rows, then "and N more" with a link to them all. */
+	@Test
+	void theEmployeesTableListsFifteenAndCountsTheRestFromTheSixteenth() {
+		String cookie = signIn();
+		long companyId = createCompany();
+		long branch = seedBranch(companyId, "Flow many", true);
+		List<Long> listed = new java.util.ArrayList<>();
+		for (int at = 1; at <= 15; at++) {
+			listed.add(seedEmployee(companyId, branch, String.format("E%02d", at), "Flow", null, "employee", true,
+					null, uniquePhone()));
+		}
+		String employees = "<h2>" + arabic("admin-messages", "employees") + " (%d)</h2>";
+
+		String fifteen = get("/admin/companies/" + companyId, cookie).response().getBody();
+		assertThat(bodyRows(fifteen, employees.formatted(15))).hasSize(15);
+		assertThat(fifteen).as("no more to count").doesNotContain("company-detail-more");
+
+		// First by name, but inactive, so it sorts after the fifteen and is the one left out.
+		long sixteenth = seedEmployee(companyId, branch, "A00", "Flow", null, "employee", false, null, uniquePhone());
+		String sixteen = get("/admin/companies/" + companyId, cookie).response().getBody();
+		List<String> rows = bodyRows(sixteen, employees.formatted(16));
+		assertThat(rows).hasSize(16);
+		for (int at = 0; at < 15; at++) {
+			assertThat(rows.get(at)).startsWith("<td>" + (at + 1) + "</td>")
+					.contains("employee_detail?id=" + listed.get(at) + "\"");
+		}
+		assertThat(rows.get(15)).isEqualTo("<td colspan=\"8\" class=\"company-detail-more\">و 1 "
+				+ arabic("admin-messages", "employee") + " — <a href=\"/admin/employees?company_id=" + companyId + "\">"
+				+ arabic("admin-messages", "all") + "</a></td>");
+		assertThat(sixteen).doesNotContain("employee_detail?id=" + sixteenth + "\"");
+	}
+
+	/**
+	 * A signup with no name, no email and nothing under it: legacy's blanks, zero counts and three
+	 * empty tables. The port's approve and reject stay.
+	 */
+	@Test
+	void aCompanyWithNothingUnderItShowsLegacysBlanksAndEmptyTables() {
+		String cookie = signIn();
+		long companyId = new JdbcTemplate(this.legacyDataSource).queryForObject(
+				"INSERT INTO companies (company_name, phone, password_hash, status)"
+						+ " VALUES (NULL, ?, 'unused-hash', 'pending') RETURNING id", Long.class,
+				"+94" + (System.nanoTime() % 100_000_000_000L));
+
+		String html = get("/admin/companies/" + companyId, cookie).response().getBody();
+
+		assertThat(html).contains("<h1 class=\"page-title\">" + arabic("admin-messages", "company") + " — </h1>")
+				.contains("<span class=\"company-detail-avatar\" aria-hidden=\"true\">C</span>")
+				.containsPattern("<div class=\"company-detail-name\">\\s*<span class=\"badge badge-yellow\">"
+						+ arabic("admin-messages", "status_pending") + "</span>\\s*</div>")
+				.contains(": <strong>—</strong></span>")
+				.containsPattern("<span>&#9632; OTP: <strong>\\s*<span class=\"badge badge-gray\">"
+						+ arabic("admin-messages", "no") + "</span>\\s*</strong></span>")
+				.doesNotContain("company-detail-logo", "company-detail-reg", "company-detail-more")
+				.containsPattern("<div class=\"stats-grid company-detail-stats\">\\s*"
+						+ stat("green", "0", arabic("admin-messages", "total_employees"))
+						+ stat("blue", "0", arabic("admin-messages", "employees"))
+						+ stat("blue", "0", arabic("admin-messages", "branches"))
+						+ stat("green", "0", arabic("admin-messages", "checked_in_today"))
+						+ stat("yellow", "0", arabic("admin-messages", "pending_requests"))
+						+ stat("yellow", "0", arabic("admin-messages", "pending_advances")) + "</div>");
+		assertThat(bodyRows(html, "<h2>" + arabic("admin-messages", "branches") + " (0)</h2>")).isEmpty();
+		assertThat(bodyRows(html, "<h2>HR / " + arabic("admin-messages", "manager") + "</h2>")).isEmpty();
+		assertThat(bodyRows(html, "<h2>" + arabic("admin-messages", "employees") + " (0)</h2>")).isEmpty();
+		assertThat(html).as("the port's lifecycle actions")
+				.contains("value=\"COMPANY_APPROVE\"", "data-dialog=\"company-reject\"");
+	}
+
+	/**
+	 * D-262's rule for a stored file URL, on the detail page's button and the list's link: a script
+	 * or data URL, however a browser would still read it as one, is not linked; a web address is.
+	 */
+	@Test
+	void aCommercialRegistrationIsLinkedOnlyWhenItIsAWebAddress() {
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		String cookie = signIn();
+		List<String> refused = List.of("javascript:alert(1)", " JavaScript:alert(1)", "\u0001javascript:alert(1)",
+				"java\tscript:alert(1)", "java\nscript:alert(1)", "data:text/html,<script>alert(1)</script>");
+		java.util.Map<Long, String> scripts = new java.util.LinkedHashMap<>();
+		for (String url : refused) {
+			long companyId = createCompany();
+			jdbc.update("UPDATE companies SET commercial_reg_url = ? WHERE id = ?", url, companyId);
+			scripts.put(companyId, url);
+		}
+		long web = createCompany();
+		jdbc.update("UPDATE companies SET commercial_reg_url = 'https://files.example.test/reg.pdf' WHERE id = ?", web);
+
+		String list = get("/admin/companies", cookie).response().getBody();
+		scripts.forEach((companyId, url) -> {
+			assertThat(get("/admin/companies/" + companyId, cookie).response().getBody()).as("detail, stored %s", url)
+					.doesNotContain("company-detail-reg", "alert(1)");
+			assertThat(listRow(list, companyId)).as("list, stored %s", url).doesNotContain("tbl-sub", "alert(1)");
+		});
+		assertThat(get("/admin/companies/" + web, cookie).response().getBody()).containsPattern(
+				"<a href=\"https://files\\.example\\.test/reg\\.pdf\" target=\"_blank\" rel=\"noopener\"\\s+"
+						+ "class=\"btn btn-outline btn-sm company-detail-reg\">");
+		assertThat(listRow(list, web)).containsPattern(
+				"<a href=\"https://files\\.example\\.test/reg\\.pdf\" target=\"_blank\" rel=\"noopener\"\\s+class=\"tbl-sub\">");
+	}
+
 	@Test
 	void aWrongPasswordIsRefusedAndOpensNothing() {
 		Page loginForm = get("/admin/login", null);
@@ -707,6 +927,73 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 	private static Pattern statCard(String number, String label) {
 		return Pattern.compile("<div class=\"stat-num\">" + Pattern.quote(number) + "</div>\\s*"
 				+ "<div class=\"stat-label\">" + Pattern.quote(label) + "</div>");
+	}
+
+	/** One whole stat card, colour included, and the space after it: companies/detail.php:55-60. */
+	private static String stat(String colour, String number, String label) {
+		return "<div class=\"stat-card " + colour + "\"><div class=\"stat-num\">" + number + "</div>\\s*"
+				+ "<div class=\"stat-label\">" + Pattern.quote(label) + "</div></div>\\s*";
+	}
+
+	/** The rows of the table under a heading, each with the space between its tags removed. */
+	private static List<String> bodyRows(String html, String heading) {
+		int start = html.indexOf(heading);
+		assertThat(start).as("the section headed %s", heading).isPositive();
+		int body = html.indexOf("<tbody>", start);
+		String rows = html.substring(body, html.indexOf("</tbody>", body));
+		return Pattern.compile("(?s)<tr>(.*?)</tr>").matcher(rows).results()
+				.map(row -> row.group(1).replaceAll(">\\s+<", "><").strip()).toList();
+	}
+
+	/** One row of the detail page's employees table, as companies/detail.php:80 draws it. */
+	private static String employeeRow(int number, String code, String name, String phone, String branch,
+			String hired, boolean active, long employeeId) {
+		return "<td>" + number + "</td><td class=\"text-muted\">" + code + "</td><td class=\"bold\">" + name
+				+ "</td><td>" + phone + "</td><td>" + branch + "</td><td>" + hired + "</td><td><span class=\"badge "
+				+ (active ? "badge-green\">" + arabic("admin-messages", "yes") : "badge-gray\">" + arabic("admin-messages", "no"))
+				+ "</span></td><td><a href=\"/admin/employee_detail?id=" + employeeId + "\" class=\"btn btn-blue btn-sm\">"
+				+ arabic("admin-messages", "details") + "</a></td>";
+	}
+
+	/** The companies list's row for one company, up to its actions menu. */
+	private static String listRow(String html, long companyId) {
+		int menu = html.indexOf("id=\"row-actions-menu-" + companyId + "\"");
+		assertThat(menu).as("the row for company %s", companyId).isPositive();
+		return html.substring(html.lastIndexOf("<tr", menu), menu);
+	}
+
+	private long seedBranch(long companyId, String name, boolean active) {
+		return new JdbcTemplate(this.legacyDataSource).queryForObject(
+				"INSERT INTO branches (company_id, name, is_active) VALUES (?, ?, ?) RETURNING id",
+				Long.class, companyId, name, active ? 1 : 0);
+	}
+
+	private long seedEmployee(long companyId, long branchId, String first, String last, String code,
+			String role, boolean active, String hired, String phone) {
+		return new JdbcTemplate(this.legacyDataSource).queryForObject("INSERT INTO employees (company_id, branch_id,"
+				+ " first_name, last_name, employee_code, phone, password_hash, role, join_request_status, is_active,"
+				+ " hire_date, created_at) VALUES (?, ?, ?, ?, ?, ?, 'unused-hash', ?, 'accepted', ?, ?, NOW())"
+				+ " RETURNING id", Long.class, companyId, branchId, first, last, code, phone, role, active ? 1 : 0, hired);
+	}
+
+	private static String uniquePhone() {
+		return "+81" + (System.nanoTime() % 100_000_000_000L);
+	}
+
+	/** A check-in some days before today, in the zone CURDATE() answers in. */
+	private void checkIn(long employeeId, int daysAgo, String time) {
+		new JdbcTemplate(this.legacyDataSource).update("INSERT INTO attendance (employee_id, check_in, method)"
+				+ " VALUES (?, CONCAT(CURDATE() - INTERVAL ? DAY, ' ', ?), 'app')", employeeId, daysAgo, time);
+	}
+
+	private void request(long employeeId, long typeId, String status) {
+		new JdbcTemplate(this.legacyDataSource).update("INSERT INTO requests (employee_id, request_type_id,"
+				+ " from_date, to_date, status) VALUES (?, ?, '2026-03-01', '2026-03-01', ?)", employeeId, typeId, status);
+	}
+
+	private void advance(long employeeId, String status) {
+		new JdbcTemplate(this.legacyDataSource).update("INSERT INTO advances (employee_id, amount, remaining, status,"
+				+ " request_date) VALUES (?, 100, 100, ?, '2026-03-02')", employeeId, status);
 	}
 
 

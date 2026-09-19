@@ -159,8 +159,8 @@
 									</td>
 									<td>
 										<div class="bold">${row.nameLabel()}</div>
-										@if(row.hasCommercialReg())
-											<a href="${row.commercialRegUrl()}" target="_blank" rel="noopener"
+										@if(row.commercialRegHref() != null)
+											<a href="${row.commercialRegHref()}" target="_blank" rel="noopener"
 											   class="tbl-sub">${t.apply("commercial_reg")}</a>
 										@endif
 									</td>

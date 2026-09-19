@@ -14,9 +14,9 @@ import java.util.List;
  * them -- is what made it fail to start on MySQL with
  * {@code NoSuchBeanDefinitionException: CompanyRepository}.
  *
- * <p>Deliberately narrow. The admin surface needs to list companies and change
- * one company's lifecycle status; it has no business with the rest of either
- * entity, and a wider interface would invite it to grow one.
+ * <p>The lifecycle actions run through {@link CompanyView} alone. What only a
+ * page shows stays out of it: the list's columns in {@code CompanyDirectoryStore},
+ * and the detail page's card, counts and tables in {@link CompanyDetail}.
  */
 public interface PlatformAdminCompanyDirectory {
 
@@ -29,14 +29,92 @@ public interface PlatformAdminCompanyDirectory {
 	}
 
 	/**
-	 * One company, with the counts an operator needs before deciding.
+	 * One company as {@code dashboard/pages/companies/detail.php} shows it: the header card, six
+	 * counts and three tables, plus the rejection reason the port's own actions show beside them.
 	 *
-	 * <p>Mirrors what the PHP dashboard's {@code detail.php} shows: the work
-	 * outstanding against a company is the thing that makes suspending it a
-	 * decision rather than a click.
+	 * @param activeEmployees  {@code dbCount('employees', ['company_id' => $cid, 'is_active' => 1])},
+	 *                         which legacy labels {@code total_employees}
+	 * @param totalEmployees   every employee row, active or not; also the employees table's count
+	 * @param checkedInToday   distinct employees with a check-in dated {@code CURDATE()}
+	 * @param branches         every branch, active or not, by name
+	 * @param staff            the HR, manager and company-admin employees, by role
+	 * @param employees        the first {@link #EMPLOYEES_LISTED} employees, active first, then by name
 	 */
-	record CompanyDetail(CompanyView company, String rejectionReason,
-			long pendingRequests, long pendingAdvances) {
+	record CompanyDetail(CompanyView company, Profile profile, String rejectionReason,
+			long activeEmployees, long totalEmployees, long checkedInToday,
+			long pendingRequests, long pendingAdvances,
+			List<Branch> branches, List<StaffUser> staff, List<Employee> employees) {
+
+		/** {@code array_slice($employees, 0, 15)} ({@code detail.php:80}). */
+		public static final int EMPLOYEES_LISTED = 15;
+
+		/** {@code detail.php:82}'s "and N more", zero when the table lists every employee. */
+		public long moreEmployees() {
+			return Math.max(0L, this.totalEmployees - EMPLOYEES_LISTED);
+		}
+
+		/** {@code company_logo_src()}'s fallback name: {@code trim($name) ?: 'C'}. */
+		public String avatarName() {
+			return com.workin.backend.platformadmin.companies.CompanyRow.avatarName(this.company.name());
+		}
+
+		/** The header card's fields, which the lifecycle actions have no use for. */
+		public record Profile(String phone, String email, boolean otpVerified, String createdAt,
+				String logoUrl, String commercialRegUrl) {
+
+			/** {@code $company['email'] ?? '—'}: a dash only for no value, not for an empty one. */
+			public String emailLabel() {
+				return this.email == null ? "—" : this.email;
+			}
+
+			/** {@code substr($company['created_at'], 0, 10)}. */
+			public String registeredOn() {
+				return com.workin.backend.platformadmin.hr.EmployeeDisplay.date(this.createdAt);
+			}
+
+			public boolean hasLogo() {
+				return this.logoUrl != null && !this.logoUrl.isBlank();
+			}
+
+			/** The commercial registration button's link, or null for no button. */
+			public String commercialRegHref() {
+				return com.workin.backend.platformadmin.hr.StoredUrl.href(this.commercialRegUrl);
+			}
+		}
+
+		/** A branch and its active employees ({@code detail.php:14}'s {@code ec}). */
+		public record Branch(String name, long activeEmployees) {
+		}
+
+		/** An HR, manager or company-admin employee: the phone and the role badge. */
+		public record StaffUser(String phone, String role) {
+		}
+
+		/**
+		 * One row of the employees table.
+		 *
+		 * @param code      {@code dashboard_employee_code_sql()}: the stored code, else the id
+		 * @param name      first and last name joined and trimmed
+		 * @param hireDate  as stored, or null
+		 */
+		public record Employee(long id, String code, String name, String phone, String branchName,
+				String hireDate, boolean active) {
+
+			/** {@code dashboard_employee_display_name($e)}: an em dash for a blank name. */
+			public String nameLabel() {
+				return com.workin.backend.platformadmin.hr.EmployeeDisplay.displayName(this.name, "—");
+			}
+
+			/** {@code $e['branch_name'] ?? '—'}: an employee whose branch row is gone. */
+			public String branchLabel() {
+				return this.branchName == null ? "—" : this.branchName;
+			}
+
+			/** {@code $e['hire_date'] ? substr($e['hire_date'], 0, 10) : '—'}. */
+			public String hireDateLabel() {
+				return com.workin.backend.platformadmin.hr.EmployeeDisplay.date(this.hireDate);
+			}
+		}
 	}
 
 	List<CompanyView> list(int limit);

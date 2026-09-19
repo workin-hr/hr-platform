@@ -43,7 +43,12 @@ public record CompanyRow(
 	 * <p>{@code trim($name) ?: 'C'}, and PHP's {@code ?:} treats {@code "0"} as empty too.
 	 */
 	public String avatarName() {
-		String trimmed = this.name == null ? "" : this.name.trim();
+		return avatarName(this.name);
+	}
+
+	/** {@link #avatarName()} for a company's stored name; the detail page draws the same fallback. */
+	public static String avatarName(String name) {
+		String trimmed = name == null ? "" : name.trim();
 		return trimmed.isEmpty() || "0".equals(trimmed) ? "C" : trimmed;
 	}
 
@@ -63,8 +68,13 @@ public record CompanyRow(
 		return this.logoUrl != null && !this.logoUrl.isBlank();
 	}
 
-	public boolean hasCommercialReg() {
-		return this.commercialRegUrl != null && !this.commercialRegUrl.isBlank();
+	/**
+	 * The commercial registration's link, or null for none. Legacy's list prefixes any stored value
+	 * that is not http or https with its own host ({@code dashboard_media_url()}), so it never links
+	 * another scheme either.
+	 */
+	public String commercialRegHref() {
+		return com.workin.backend.platformadmin.hr.StoredUrl.href(this.commercialRegUrl);
 	}
 
 	/** {@code company_lookup_activities()} and its two siblings. */
