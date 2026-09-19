@@ -28,9 +28,13 @@ import java.util.List;
  * @param pages   total pages, {@code 0} when there are no rows at all
  * @param from    1-based index of the first row shown, {@code 0} when empty
  * @param to      1-based index of the last row shown
+ *
+ * <p>{@code from}, {@code to} and the offset are {@code long}: a page number reaches
+ * {@code Integer.MAX_VALUE}, and its offset does not fit an {@code int}. Wrapped, it
+ * became a negative {@code OFFSET}, which the database refuses.
  */
 public record DashboardPage<T>(
-		List<T> data, int total, int page, int perPage, int pages, int from, int to) {
+		List<T> data, int total, int page, int perPage, int pages, long from, long to) {
 
 	/** {@code PAGE_SIZE_DEFAULT}. */
 	public static final int SIZE_DEFAULT = 10;
@@ -49,7 +53,7 @@ public record DashboardPage<T>(
 			List<T> rows, int total, int requestedPage, int requestedPerPage) {
 		int perPage = Math.max(1, Math.min(requestedPerPage, SIZE_MAX));
 		int page = Math.max(1, requestedPage);
-		int offset = (page - 1) * perPage;
+		long offset = (page - 1L) * perPage;
 		int pages = total > 0 ? (int) Math.ceil((double) total / perPage) : 0;
 		// The clamp lands here, after the offset above was already taken.
 		int clampedPage = Math.min(page, Math.max(1, pages));
@@ -60,8 +64,8 @@ public record DashboardPage<T>(
 	}
 
 	/** The {@code LIMIT ? OFFSET ?} arguments, from the <em>requested</em> page. */
-	public static int offsetFor(int requestedPage, int perPage) {
-		return (Math.max(1, requestedPage) - 1) * Math.max(1, Math.min(perPage, SIZE_MAX));
+	public static long offsetFor(int requestedPage, int perPage) {
+		return (Math.max(1, requestedPage) - 1L) * Math.max(1, Math.min(perPage, SIZE_MAX));
 	}
 
 	public boolean isEmpty() {

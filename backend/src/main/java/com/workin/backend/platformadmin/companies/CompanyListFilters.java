@@ -6,6 +6,7 @@ import java.util.SequencedMap;
 import jakarta.servlet.http.HttpServletRequest;
 
 import com.workin.backend.platformadmin.web.DashboardPage;
+import com.workin.legacy.PhpCast;
 
 /**
  * {@code company_filter_query_params()} plus the paging the same page reads.
@@ -32,9 +33,9 @@ public record CompanyListFilters(
 				positive(request.getParameter("filter_activity")),
 				positive(request.getParameter("filter_title")),
 				positive(request.getParameter("filter_size")),
-				Math.max(1, (int) intOr(request.getParameter("page"), 1)),
-				Math.max(1, Math.min((int) intOr(request.getParameter("per_page"),
-						DashboardPage.SIZE_DEFAULT), DashboardPage.SIZE_MAX)));
+				Math.clamp(intOr(request.getParameter("page"), 1), 1, Integer.MAX_VALUE),
+				Math.clamp(intOr(request.getParameter("per_page"), DashboardPage.SIZE_DEFAULT),
+						1, DashboardPage.SIZE_MAX));
 	}
 
 	/** The filters worth carrying in a page link, in link order. */
@@ -63,29 +64,9 @@ public record CompanyListFilters(
 		return value > 0 ? value : 0L;
 	}
 
-	/** PHP's {@code (int)} cast: the leading integer, or zero. */
+	/** PHP's {@code (int)} cast ({@link PhpCast#intval}), with a default when absent. */
 	private static long intOr(String raw, long fallback) {
-		if (raw == null) {
-			return fallback;
-		}
-		String trimmed = raw.trim();
-		int end = 0;
-		if (end < trimmed.length() && (trimmed.charAt(end) == '+' || trimmed.charAt(end) == '-')) {
-			end++;
-		}
-		while (end < trimmed.length() && Character.isDigit(trimmed.charAt(end))) {
-			end++;
-		}
-		String digits = trimmed.substring(0, end);
-		if (digits.isEmpty() || "+".equals(digits) || "-".equals(digits)) {
-			return 0L;
-		}
-		try {
-			return Long.parseLong(digits);
-		}
-		catch (NumberFormatException ex) {
-			return 0L;
-		}
+		return raw == null ? fallback : PhpCast.intval(raw);
 	}
 
 }

@@ -124,8 +124,8 @@ public class AdminWorkforcePlanningController {
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
-		// The store reads and writes planned_count as an int, so a count past 2147483647 is
-		// stored at that bound; legacy's int(10) unsigned column keeps up to 4294967295 (D-249).
+		// The store writes planned_count as an int, so a count past 2147483647 is stored at
+		// that bound; legacy's int(10) unsigned column keeps up to 4294967295 (D-249).
 		int plannedCount = (int) Math.max(Integer.MIN_VALUE,
 				Math.min(Integer.MAX_VALUE, com.workin.legacy.PhpCast.intval(plannedCountText)));
 

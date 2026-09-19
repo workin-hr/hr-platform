@@ -152,6 +152,13 @@ class AdminLeaveBalancesEndToEndTest {
 	}
 
 	@Test
+	void theYearIsPhpsIntCastSoAnExponentCounts() {
+		// (int) "2.022e3" is 2022; Integer.parseInt refused it and the page fell back to this year.
+		assertThat(body("/admin/leave_balances?year=2.022e3"))
+				.contains("<input type=\"number\" id=\"add_year\" name=\"year\" value=\"2022\" required>");
+	}
+
+	@Test
 	void anUnreadableYearFallsBackRatherThanFailing() {
 		seedBalance(this.employeeA, java.time.LocalDate.now().getYear(), "21", "0");
 		assertThat(get("/admin/leave_balances?year=nonsense", this.cookie).getStatusCode())

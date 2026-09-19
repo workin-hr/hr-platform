@@ -2,6 +2,7 @@ package com.workin.backend.platformadmin.content;
 
 import java.util.List;
 
+import com.workin.legacy.PhpCast;
 import com.workin.legacy.guide.LegacyGuideVideoService;
 
 /**
@@ -60,14 +61,9 @@ public final class GuideVideoForm {
 		return value == null ? "" : value.trim();
 	}
 
-	/** {@code (int) ($post['sort_order'] ?? 0)}: anything unparseable is zero. */
+	/** {@code (int) ($post['sort_order'] ?? 0)} ({@link PhpCast#intval}), bounded to the {@code int} column. */
 	private static int parseInt(String value) {
-		try {
-			return value == null || value.isBlank() ? 0 : Integer.parseInt(value.trim());
-		}
-		catch (NumberFormatException notANumber) {
-			return 0;
-		}
+		return Math.clamp(PhpCast.intval(value), Integer.MIN_VALUE, Integer.MAX_VALUE);
 	}
 
 }

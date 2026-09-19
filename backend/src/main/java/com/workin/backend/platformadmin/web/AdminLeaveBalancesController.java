@@ -14,6 +14,7 @@ import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.LeaveBalanceAdminService;
 import com.workin.backend.platformadmin.hr.LeaveBalanceStore;
 import com.workin.legacy.LegacyClock;
+import com.workin.legacy.PhpCast;
 
 /**
  * {@code dashboard/pages/leave_balances/page.php}, the first of the HR pages.
@@ -75,17 +76,18 @@ public class AdminLeaveBalancesController {
 		return VIEW;
 	}
 
-	/** {@code (int) ($_GET['year'] ?? date('Y'))}: an unreadable year is this one. */
+	/**
+	 * {@code (int) ($_GET['year'] ?? date('Y'))}, read with {@link PhpCast#intval}.
+	 *
+	 * <p>A blank, unreadable or non-positive year is this one. Legacy's cast gives 0, or the negative
+	 * number, and lists and writes that year (D-263).
+	 */
 	private static int year(String raw, int fallback) {
 		if (raw == null || raw.isBlank()) {
 			return fallback;
 		}
-		try {
-			int parsed = Integer.parseInt(raw.trim());
-			return parsed > 0 ? parsed : fallback;
-		} catch (NumberFormatException ex) {
-			return fallback;
-		}
+		int parsed = Math.clamp(PhpCast.intval(raw), Integer.MIN_VALUE, Integer.MAX_VALUE);
+		return parsed > 0 ? parsed : fallback;
 	}
 
 	@AuthenticatedUseCase(reason = "Creates, edits or deletes one employee's annual leave "

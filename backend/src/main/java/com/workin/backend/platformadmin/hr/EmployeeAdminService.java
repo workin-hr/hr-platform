@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.workin.backend.platformadmin.PlatformAdminAuditEventType;
 import com.workin.backend.platformadmin.PlatformAdminAuditService;
 import com.workin.backend.platformadmin.web.DashboardSession;
+import com.workin.legacy.PhpCast;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
 
 /**
@@ -223,25 +224,21 @@ public class EmployeeAdminService {
 	/**
 	 * {@code employee_parse_contract_months()}: a blank or non-positive
 	 * duration is null, and years are stored as months.
+	 *
+	 * <p>{@code (int) $raw} is {@link PhpCast#intval}, so {@code "1e1"} is ten. The stored
+	 * months are bounded to an {@code int}, the column's type (D-263); PHP's arithmetic is
+	 * 64-bit and legacy's insert fails past it.
 	 */
 	static Integer contractMonths(String rawDuration, String unit) {
 		String raw = rawDuration == null ? "" : rawDuration.trim();
 		if (raw.isEmpty()) {
 			return null;
 		}
-		int months;
-		try {
-			months = Integer.parseInt(raw);
-		}
-		catch (NumberFormatException ex) {
-			// PHP's (int) cast yields 0 for anything unparseable, which the
-			// next check turns into null.
-			months = 0;
-		}
+		long months = Math.min(PhpCast.intval(raw), Integer.MAX_VALUE);
 		if (months <= 0) {
 			return null;
 		}
-		return "years".equals(unit) ? months * 12 : months;
+		return Math.clamp("years".equals(unit) ? months * 12 : months, 1, Integer.MAX_VALUE);
 	}
 
 	@Transactional

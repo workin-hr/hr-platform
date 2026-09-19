@@ -2,6 +2,8 @@ package com.workin.backend.platformadmin.org;
 
 import java.math.BigDecimal;
 
+import com.workin.legacy.PhpCast;
+
 /**
  * A row of {@code branches} as the dashboard's list and form need it
  * ({@code dashboard/pages/branches}).
@@ -21,7 +23,7 @@ public record Branch(
 
 	/** {@code org_branch_radius_meters()}: below 1 becomes the 200 m default, above 5 km is capped. */
 	public static int radiusMeters(String raw) {
-		int radius = (int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, phpInt(raw)));
+		int radius = Math.clamp(PhpCast.intval(raw), Integer.MIN_VALUE, Integer.MAX_VALUE);
 		if (radius < 1) {
 			return 200;
 		}
@@ -58,30 +60,6 @@ public record Branch(
 	/** {@code is_numeric()} for a form field: decimal and exponent, no hex. */
 	private static final java.util.regex.Pattern NUMERIC =
 			java.util.regex.Pattern.compile("^[+-]?(\\d+(\\.\\d*)?|\\.\\d+)([eE][+-]?\\d+)?$");
-
-	/** {@code (int) $value}: the leading integer, or 0. */
-	private static long phpInt(String raw) {
-		if (raw == null) {
-			return 0L;
-		}
-		String trimmed = raw.trim();
-		int end = 0;
-		if (end < trimmed.length() && (trimmed.charAt(end) == '+' || trimmed.charAt(end) == '-')) {
-			end++;
-		}
-		while (end < trimmed.length() && Character.isDigit(trimmed.charAt(end))) {
-			end++;
-		}
-		String digits = trimmed.substring(0, end);
-		if (digits.isEmpty() || "+".equals(digits) || "-".equals(digits)) {
-			return 0L;
-		}
-		try {
-			return Long.parseLong(digits);
-		} catch (NumberFormatException ex) {
-			return 0L;
-		}
-	}
 
 	/**
 	 * {@code org_branch_qr_is_active()}: a code with an expiry still in the
