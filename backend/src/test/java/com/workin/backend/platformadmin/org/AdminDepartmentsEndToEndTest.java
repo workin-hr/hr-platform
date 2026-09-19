@@ -283,6 +283,30 @@ class AdminDepartmentsEndToEndTest {
 	}
 
 	@Test
+	void anUnchangedSaveAndARepeatDeleteStillFlashTheirSuccess() {
+		post("/admin/departments", this.cookie, page("/admin/departments?action=add", this.cookie).csrf(),
+				"action", "add", "company_id", String.valueOf(this.companyA), "name", "Steady",
+				"branch_ids", String.valueOf(this.branchA1));
+		long id = this.jdbc.queryForObject("SELECT id FROM departments WHERE name = 'Steady'", Long.class);
+		body("/admin/departments");
+		for (int round = 1; round <= 2; round++) {
+			assertThat(post("/admin/departments", this.cookie,
+					page("/admin/departments?action=edit&id=" + id, this.cookie).csrf(),
+					"action", "save_edit", "id", String.valueOf(id), "company_id", String.valueOf(this.companyA),
+					"name", "Steady", "branch_ids", String.valueOf(this.branchA1), "is_active", "1")
+					.getHeaders().getLocation()).as("save %d", round).asString().doesNotContain("action=edit");
+			assertThat(body("/admin/departments")).as("save %d", round)
+					.contains("<div class=\"flash flash-success\">تم الحفظ بنجاح ✓</div>");
+		}
+		for (int round = 1; round <= 2; round++) {
+			post("/admin/departments", this.cookie, page("/admin/departments", this.cookie).csrf(),
+					"action", "delete", "id", String.valueOf(id), "company_id", String.valueOf(this.companyA));
+			assertThat(body("/admin/departments")).as("delete %d", round)
+					.contains("<div class=\"flash flash-error\">تم الحذف</div>");
+		}
+	}
+
+	@Test
 	void theBranchFilterNarrowsToDepartmentsSpanningThatBranch() {
 		post("/admin/departments", this.cookie, page("/admin/departments?action=add", this.cookie).csrf(),
 				"action", "add", "company_id", String.valueOf(this.companyA), "name", "North Only",
