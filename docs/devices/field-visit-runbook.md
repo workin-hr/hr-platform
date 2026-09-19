@@ -793,12 +793,14 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 --out field-report/captu
 ### 12.1 لازم يكون خلص قبل ما تروح (بالترتيب)
 
 **1) اللابتوب على `main` بعد دمج الكود ده**، ومفيش تعديلات محلية (الـ <span dir="ltr">`--build`</span>
-بيبني من الفولدر زي ما هو). في Terminal 1 (الأمر التاني لازم مايطبعش أي حاجة):
+بيبني من الفولدر زي ما هو). في Terminal 1:
 
 ```bash
 git switch main && git pull --ff-only
 git status --short
 ```
+
+أمر `git status --short` لازم مايطبعش أي حاجة.
 
 **2) جداول الأجهزة اتعملت على البرود (15 جدول).**
 
