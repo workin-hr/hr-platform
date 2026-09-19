@@ -1,6 +1,9 @@
 package com.workin.backend.platformadmin.web;
 
 import java.net.http.HttpClient;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -95,7 +98,7 @@ class PlatformAdminAssetsExposureTest extends AbstractIntegrationTest {
 				this.restTemplate.getForEntity(url("/admin/_assets/favicon-32.png"), byte[].class);
 
 		assertThat(response.getHeaders().getCacheControl()).isEqualTo("max-age=604800");
-		assertThat(response.getHeaders().getETag()).matches("\"[0-9a-f]{64}\"");
+		assertThat(response.getHeaders().getETag()).isEqualTo(contentEtag(response.getBody()));
 		assertThat(response.getHeaders().getLastModified()).isEqualTo(-1);
 	}
 
@@ -107,11 +110,12 @@ class PlatformAdminAssetsExposureTest extends AbstractIntegrationTest {
 	 */
 	@Test
 	void aStylesheetIsRevalidatedAgainstItsContentRatherThanItsTimestamp() {
-		ResponseEntity<String> first = this.restTemplate.getForEntity(url("/admin/_assets/style.css"), String.class);
+		ResponseEntity<byte[]> first = this.restTemplate.getForEntity(url("/admin/_assets/style.css"), byte[].class);
 		assertThat(first.getHeaders().getCacheControl()).isEqualTo("no-cache");
 		assertThat(first.getHeaders().getLastModified()).isEqualTo(-1);
 		String etag = first.getHeaders().getETag();
-		assertThat(etag).matches("\"[0-9a-f]{64}\"");
+		assertThat(etag).as("the ETag names the content, so a deploy that changes the file changes it")
+				.isEqualTo(contentEtag(first.getBody()));
 
 		org.springframework.http.HttpHeaders current = new org.springframework.http.HttpHeaders();
 		current.setIfNoneMatch(etag);
@@ -122,13 +126,22 @@ class PlatformAdminAssetsExposureTest extends AbstractIntegrationTest {
 		org.springframework.http.HttpHeaders stale = new org.springframework.http.HttpHeaders();
 		stale.setIfNoneMatch("\"" + "0".repeat(64) + "\"");
 		stale.setIfModifiedSince(java.time.ZonedDateTime.now().plusYears(1));
-		ResponseEntity<String> after = this.restTemplate.exchange(url("/admin/_assets/style.css"),
-				org.springframework.http.HttpMethod.GET, new org.springframework.http.HttpEntity<>(stale), String.class);
+		ResponseEntity<byte[]> after = this.restTemplate.exchange(url("/admin/_assets/style.css"),
+				org.springframework.http.HttpMethod.GET, new org.springframework.http.HttpEntity<>(stale), byte[].class);
 		assertThat(after.getStatusCode()).as("an old ETag gets the file, whatever the date says").isEqualTo(HttpStatus.OK);
-		assertThat(after.getBody()).isEqualTo(first.getBody());
+		assertThat(after.getBody()).containsExactly(first.getBody());
 
 		assertThat(this.restTemplate.getForEntity(url("/admin/_assets/sidebar.js"), String.class)
 				.getHeaders().getCacheControl()).as("a script too").isEqualTo("no-cache");
+	}
+
+	private static String contentEtag(byte[] body) {
+		try {
+			return "\"" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(body)) + "\"";
+		}
+		catch (NoSuchAlgorithmException impossible) {
+			throw new IllegalStateException(impossible);
+		}
 	}
 
 	/** The negative control the permitAll exists to be bounded by. */

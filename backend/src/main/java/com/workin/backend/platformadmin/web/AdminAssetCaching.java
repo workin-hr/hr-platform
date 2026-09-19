@@ -51,9 +51,9 @@ class AdminAssetCaching implements WebMvcConfigurer {
 	}
 
 	/**
-	 * A strong ETag of the file's content, or none if it cannot be read, in which case the
-	 * response is still {@code no-cache} and the browser downloads it again rather than keeping a
-	 * stale copy.
+	 * A strong ETag of the file's content, or none if it cannot be read. Without one, a stylesheet
+	 * or script is downloaded again on every load rather than kept stale, and an image is kept for
+	 * its seven days with nothing to revalidate against.
 	 */
 	private @Nullable String etag(Resource resource) {
 		String key;
