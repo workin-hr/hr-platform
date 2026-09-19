@@ -416,7 +416,7 @@ class Visit:
         return self.choose(question, options if default else options[::-1])
 
     def enter(self, text: str) -> None:
-        self.console.ask(f"👉 {text}، ودوس Enter")
+        self.console.ask(f"👉 {text}" if "Enter" in text else f"👉 {text}، ودوس Enter")
 
     # -- the visit -------------------------------------------------------------------------
 
@@ -921,7 +921,7 @@ class Visit:
         self.enter("وقّفت الاستقبال. لما تدوس Enter خلّي الموظف يعمل بصمة")
         remaining = self.pause_seconds
         while remaining > 0:
-            self.say(f"   ⏳ باقي {remaining / 60:.0f} دقيقة...")
+            self.say(f"   ⏳ فاضل {int(remaining) // 60:02d}:{int(remaining) % 60:02d}")
             step = min(60.0, remaining)
             self.sleep(step)
             remaining -= step
@@ -1138,7 +1138,7 @@ class Visit:
         self.title("10. قبل ما تمشي: رجّع كل حاجة")
         if self.receiver is not None and self.receiver.server is not None:
             self.stop_receiver()
-            self.say("✅ وقّفت الاستقبال على port 8081.")
+            self.say(f"✅ وقّفت الاستقبال على port {self.receiver.port}.")
         checks = []
         if self.push_configured:
             checks.append(("رجّعت إعداد الـ server على الجهاز (Cloud Server Setting) زي الصورة بالظبط، أو قفلته لو كان مقفول؟",
