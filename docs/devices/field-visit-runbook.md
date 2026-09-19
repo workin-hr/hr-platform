@@ -6,18 +6,23 @@
 This file is Arabic and renders right to left on GitHub. GitHub gives every heading,
 paragraph and list dir="auto", so each one takes its direction from its first letter.
 When editing it:
-- Keep everything inside <div dir="rtl"> ... </div>; tables take their direction from it.
-- Start every heading, paragraph and list item with an Arabic word, not an English word
-  or a code span ("في **Terminal 2**:", not "**Terminal 2:**").
+- Keep everything below the title inside <div dir="rtl"> ... </div>; tables take their
+  direction from it. The title stays above it for markdownlint, and starts in Arabic.
+- Start every heading, every paragraph and the first item of every list with an Arabic
+  word, not an English word or a code span ("في **Terminal 2**:", not "**Terminal 2:**").
+  Later items in a list follow the list's direction, so they may start in English.
 - Leave no blank line inside a list, and put no code block or table in one. A list
   with either shows its numbers or bullets on the left. For numbered steps that need a
   code block, write the number in bold at the start of a paragraph: **1)**, **2)**.
-- Keep Arabic out of code blocks, comments included, and out of code spans. Explain a
-  command in the text above it, and write placeholders in English (SN, DEVICE-IP).
-- Wrap an inline code span in <span dir="ltr">...</span> when it starts with anything
-  but a Latin letter or ends with anything but a letter or digit: `--udp`,
-  `field-report/`, `*.request.bin`, `2026-09-16 08:01:02`. Otherwise those characters
-  are drawn on the wrong side of the text.
+- Keep Arabic out of code blocks, comments included. Explain a command in the text above
+  it, and write placeholders in English (SN, DEVICE-IP). In a code span, Arabic appears
+  only where it quotes program output word for word.
+- Wrap in <span dir="ltr">...</span> an inline code span that starts or ends with
+  punctuation, starts with a digit without being a plain number, or holds Arabic:
+  `--udp`, `field-report/`, `*.request.bin`, `1_attlog.dat`, `2026-09-16 08:01:02`.
+  Plain numbers such as `8081`, `0.1.0` or `192.168.1.57/24` need no wrapping. Wrap a
+  date or a signed number in plain text the same way (2026-09-16, +02:00). Otherwise
+  those characters are drawn on the wrong side of the text.
 -->
 
 <div dir="rtl">
@@ -348,8 +353,8 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 \
 
 | الجهاز متظبط على | اكتب في Device time zone |
 |---|---|
-| +02:00 ثابت | <span dir="ltr">`+02:00`</span> |
-| +03:00 ثابت | <span dir="ltr">`+03:00`</span> |
+| <span dir="ltr">+02:00</span> ثابت | <span dir="ltr">`+02:00`</span> |
+| <span dir="ltr">+03:00</span> ثابت | <span dir="ltr">`+03:00`</span> |
 | بيتبع التوقيت الصيفي لمصر لوحده | `Africa/Cairo` |
 | مش متأكد | **ماتخمّنش.** افتح `Date Time` تاني: لو Daylight Saving شغال اختار `Africa/Cairo`؛ لو مقفول اختار الـ offset اللي ساعة الجهاز ماشية عليه دلوقتي (قارنها بساعة اللابتوب) |
 
@@ -475,7 +480,7 @@ insecure_skip_tls_verify = true
 in_out_field = "punch"
 
 [[devices]]
-serial = "SN"
+serial = "SERIAL FROM STICKER"
 kind = "zk"
 host = "192.168.1.201"
 comm_key = 0
@@ -484,7 +489,8 @@ udp = false
 
 غيّر في الملف:
 
-- **السيريال** (`serial`): اكتبه مكان `SN` زي الستيكر بالظبط.
+- **السيريال** (`serial`): اكتبه مكان `SERIAL FROM STICKER` زي الستيكر بالظبط. لو نسيته، `doctor`
+  هيطلع خطأ `is not a serial the platform accepts` ومش هيقرأ حاجة.
 - **الـ Comm Key** (`comm_key`): لو الجهاز عليه Comm Key اكتبه، غير كده سيبه `0`.
 - **الـ UDP** (`udp`): خليه `true` لو `zk-info` اشتغل بـ <span dir="ltr">`--udp`</span> بس.
 - **وضع B:** <span dir="ltr">`server_url = "https://localhost"`</span>.
@@ -683,7 +689,7 @@ spool_path = "hik.sqlite3"
 insecure_skip_tls_verify = true
 
 [[devices]]
-serial = "SN"
+serial = "SERIAL FROM HIK-INFO"
 kind = "hikvision"
 host = "192.168.1.64"
 username = "admin"
@@ -692,7 +698,8 @@ password_file = "hik.pw"
 
 غيّر في الملف:
 
-- **السيريال** (`serial`): اكتبه مكان `SN`، زي ما طلع من `hik-info`.
+- **السيريال** (`serial`): اكتبه مكان `SERIAL FROM HIK-INFO`، زي ما طلع من `hik-info`. لو
+  نسيته، `doctor` هيطلع خطأ `is not a serial the platform accepts` ومش هيقرأ حاجة.
 - **وضع B:** <span dir="ltr">`server_url = "https://localhost"`</span>.
 - **الشهادة:** `insecure_skip_tls_verify = true` عشان الشهادة المحلية بتاعة اللابتوب
   بس.
@@ -846,7 +853,7 @@ done
 ```
 
 - لو طبع `1` ← تمام.
-- لو طبع `0` ← الملف أقدم من المفتاح ده (مفاتيح الأجهزة اتضافت 2026-09-16): **ضيف** السطر.
+- لو طبع `0` ← الملف أقدم من المفتاح ده (مفاتيح الأجهزة اتضافت <span dir="ltr">2026-09-16</span>): **ضيف** السطر.
 - لو طبع `2` أو أكتر ← امسح الزيادة وسيب سطر واحد.
 
 **4) ملف `deploy/.env.remote-db` هو ملف صاحب الريبو نفسه**، اللي شغّل بيه Java على
