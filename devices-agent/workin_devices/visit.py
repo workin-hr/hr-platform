@@ -101,7 +101,6 @@ class Lab:
     """The local lab stack, where a Mode A visit delivers everything (scripts/devices-lab.sh)."""
 
     def __init__(self, root: Path = AGENT_DIR.parent, env=os.environ):
-        self.root = root
         self.script = root / "scripts" / "devices-lab.sh"
         self.token_path = root / "devices-agent" / "lab" / "agent.token"
         self.server_url = f"https://localhost:{env.get('LAB_HTTPS_PORT', '18443')}"
@@ -241,7 +240,6 @@ class Push:
     serial: str
     in_value: str | None = None
     out_value: str | None = None
-    wall_clock: bool | None = None
 
 
 def accepted_lines(exchanges: list[Exchange], serial: str) -> list[tuple[float, list[str]]]:
@@ -844,7 +842,6 @@ class Visit:
         self.punch_tests(serial)
         facts, findings = push_facts(self.receiver.exchanges, serial)
         self.sheet.update(facts)
-        self.push.wall_clock = facts.get("الوقت بيتبعت") == "تاريخ ووقت"
         for finding in findings:
             self.note(finding.level, finding.text, finding.fix)
         told = next((exchange for exchange in self.receiver.exchanges[allocated:]
