@@ -380,8 +380,8 @@ def make_handler(recorder: Recorder, upstream: str | None, host_header: str | No
 
 
 def serve(listen_host: str, listen_port: int, out_dir: str, upstream: str | None = None, host_header: str | None = None,
-          out=print) -> http.server.ThreadingHTTPServer:
+          out=print, recorder: Recorder | None = None) -> http.server.ThreadingHTTPServer:
     server = http.server.ThreadingHTTPServer((listen_host, listen_port),
-                                             make_handler(Recorder(out_dir), upstream, host_header, out))
+                                             make_handler(recorder or Recorder(out_dir), upstream, host_header, out))
     server.daemon_threads = True
     return server

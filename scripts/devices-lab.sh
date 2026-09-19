@@ -6,6 +6,8 @@
 #   scripts/devices-lab.sh seed       allocate lab terminals, issue a lab agent token
 #   scripts/devices-lab.sh simulate   run every simulator and the agent, then summarise
 #   scripts/devices-lab.sh status     punches per terminal and how they arrived
+#   scripts/devices-lab.sh allocate SERIAL VENDOR ZONE
+#                                     allocate a real terminal to the lab branch (the visit wizard)
 #   scripts/devices-lab.sh down       stop the lab (add --wipe to delete its database)
 #
 # Never touches production: the stack is the sanitised seed on its own ports and
@@ -187,6 +189,52 @@ cmd_status() {
   sql "SELECT name, agent_version, last_seen_at, is_active FROM device_agents ORDER BY id" | column -t
 }
 
+cmd_allocate() {
+  # What the dashboard's "Allocate to a branch" does (DeviceManagementService.allocate):
+  # the registry row, its first history row from now, and the waiting-list entry
+  # removed, in one transaction. The branch is the one seed allocated the lab
+  # terminals to, so the lab agent token's company owns it.
+  local serial="${1:-}" vendor="${2:-}" zone="${3:-}" row existing
+  if ! [[ "$serial" =~ ^[A-Za-z0-9][A-Za-z0-9._:@-]{0,63}$ ]]; then
+    echo "STOPPED: '$serial' is not a serial the platform accepts" >&2
+    return 2
+  fi
+  if [ "$vendor" != zkteco ] && [ "$vendor" != hikvision ]; then
+    echo "STOPPED: vendor must be zkteco or hikvision" >&2
+    return 2
+  fi
+  # The platform accepts any whole-hour zone; the visit offers these (runbook 5.3).
+  if ! [[ "$zone" =~ ^([+-](0[0-9]|1[0-4]):00|Africa/Cairo)$ ]]; then
+    echo "STOPPED: zone must be a whole-hour offset such as +02:00, or Africa/Cairo" >&2
+    return 2
+  fi
+  row="$(sql "SELECT company_id, branch_id FROM attendance_devices WHERE serial_number = 'SIM-ZK4370-001'")"
+  if [ -z "$row" ]; then
+    echo "STOPPED: the lab is not seeded; run: scripts/devices-lab.sh seed" >&2
+    return 1
+  fi
+  existing="$(sql "SELECT company_id, device_time_zone, is_active FROM attendance_devices
+                    WHERE serial_number = '$serial'")"
+  if [ -n "$existing" ]; then
+    if [ "$(cut -f1 <<<"$existing")" != "$(cut -f1 <<<"$row")" ]; then
+      echo "STOPPED: $serial is allocated to a company other than the lab agent's" >&2
+      return 1
+    fi
+    echo "already allocated $serial zone $(cut -f2 <<<"$existing") active $(cut -f3 <<<"$existing")"
+    return 0
+  fi
+  sql "START TRANSACTION;
+       INSERT INTO attendance_devices (company_id, branch_id, vendor, serial_number, name, device_time_zone,
+         is_active, created_at, updated_at)
+       VALUES ($(cut -f1 <<<"$row"), $(cut -f2 <<<"$row"), '$vendor', '$serial', 'Visit $serial', '$zone', 1, NOW(), NOW());
+       INSERT INTO device_assignment_history (device_id, company_id, branch_id, device_time_zone, effective_from_utc, created_at)
+       SELECT id, company_id, branch_id, device_time_zone, UTC_TIMESTAMP(), NOW()
+         FROM attendance_devices WHERE serial_number = '$serial';
+       DELETE FROM unclaimed_device_sightings WHERE serial_number = '$serial';
+       COMMIT;"
+  echo "allocated $serial zone $zone"
+}
+
 cmd_down() {
   if [ "${1:-}" = "--wipe" ]; then
     compose down -v
@@ -200,6 +248,7 @@ case "${1:-}" in
   seed) cmd_seed ;;
   simulate) cmd_simulate ;;
   status) cmd_status ;;
+  allocate) shift; cmd_allocate "$@" ;;
   down) shift; cmd_down "${1:-}" ;;
-  *) sed -n '2,10p' "$0"; exit 2 ;;
+  *) sed -n '2,12p' "$0"; exit 2 ;;
 esac

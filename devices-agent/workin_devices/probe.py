@@ -105,6 +105,39 @@ def probe_host(ip: str, timeout: float = 0.6, udp_probe: bool = True) -> dict | 
     return found
 
 
+VIRTUAL_INTERFACES = ("lo", "docker", "br-", "veth", "virbr", "tun", "wg")
+
+
+def lan_networks(ip_output: str | None = None) -> list[tuple[str, str]]:
+    """This computer's addresses on a real LAN, each with its network: what a terminal is told as
+    its server address, and what a scan covers. Every interface, not only the default route's: at
+    a site the laptop is often on the customer's LAN by cable and on a phone's hotspot for the
+    internet, and the terminal can reach only the first."""
+    if ip_output is None:
+        import subprocess
+        try:
+            ip_output = subprocess.run(["ip", "-o", "-4", "addr", "show"], capture_output=True, text=True,
+                                       timeout=5).stdout
+        except (OSError, subprocess.SubprocessError):
+            ip_output = ""
+    found = []
+    for line in ip_output.splitlines():
+        fields = line.split()
+        if len(fields) < 4 or fields[2] != "inet" or fields[1].startswith(VIRTUAL_INTERFACES):
+            continue
+        interface = ipaddress.ip_interface(fields[3])
+        found.append((str(interface.ip), str(interface.network)))
+    if found:
+        return found
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("10.255.255.255", 1))
+            address = sock.getsockname()[0]
+    except OSError:
+        return []
+    return [] if address.startswith("127.") else [(address, str(ipaddress.ip_interface(f"{address}/24").network))]
+
+
 def scan(cidr: str, timeout: float = 0.6, workers: int = 96, out=print) -> list[dict]:
     network = ipaddress.ip_network(cidr, strict=False)
     if network.num_addresses > 1024:
