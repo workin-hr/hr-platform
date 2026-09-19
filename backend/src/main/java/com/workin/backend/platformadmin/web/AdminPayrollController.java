@@ -17,6 +17,7 @@ import com.workin.backend.platformadmin.hr.PayrollAdminService;
 import com.workin.backend.platformadmin.hr.PayrollRecord;
 import com.workin.backend.platformadmin.hr.PayrollStore;
 import com.workin.legacy.LegacyClock;
+import com.workin.legacy.PhpCast;
 import com.workin.legacy.payroll.LegacyPayslipService;
 import com.workin.legacy.wire.LegacyMessages;
 
@@ -286,19 +287,12 @@ public class AdminPayrollController {
 	}
 
 	private static int positiveOr(String raw, int fallback) {
-		return (int) longOr(raw, fallback);
+		return Math.clamp(longOr(raw, fallback), 0, Integer.MAX_VALUE);
 	}
 
+	/** {@code (int) $raw} ({@link PhpCast#intval}), kept at zero or above: a negative id or period is none. */
 	private static long longOr(String raw, long fallback) {
-		if (raw == null || raw.isEmpty()) {
-			return fallback;
-		}
-		try {
-			return Math.max(0, Long.parseLong(raw.trim()));
-		}
-		catch (NumberFormatException notANumber) {
-			return fallback;
-		}
+		return raw == null || raw.isEmpty() ? fallback : Math.max(0, PhpCast.intval(raw));
 	}
 
 }

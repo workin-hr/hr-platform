@@ -435,6 +435,39 @@ class AdminEmployeeDetailEndToEndTest {
 	}
 
 	@Test
+	void theIdMonthAndYearArePhpsIntCast() {
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		seedAttendance(id, "2026-03-02 09:00:00", "2026-03-02 17:00:00");
+
+		// (int) "3e0" is 3 and (int) "2.026e3" is 2026; Integer.parseInt refused both.
+		String html = get("/admin/employee_detail?id=" + id + "e0&month=3e0&year=2.026e3&lang=en", this.cookie)
+				.getBody();
+		assertThat(html).contains("<option value=\"3\" selected>3</option>")
+				.contains("<option value=\"2026\" selected>2026</option>")
+				.contains("2026-03-02");
+	}
+
+	/** Legacy's {@code (int)} keeps 3000000000, which names no employee; bounding it to an int would not. */
+	@Test
+	void anIdPastTheIntRangeFindsNoEmployeeRatherThanTheLastIntId() {
+		this.jdbc.update("INSERT INTO employees (id, company_id, branch_id, employee_code,"
+				+ " first_name, last_name, role, is_active, is_mobile_attendance_enabled,"
+				+ " can_check_in_any_branch, join_request_status, token_version, created_at,"
+				+ " updated_at) VALUES (2147483647, ?, ?, 'MAX', 'Max', 'Int', 'employee', 1, 1, 0,"
+				+ " 'accepted', 1, NOW(), NOW())", this.companyA, this.branchA);
+		try {
+			for (String id : new String[] {"3000000000", "1e10"}) {
+				assertThat(get("/admin/employee_detail?id=" + id, this.cookie).getHeaders().getLocation())
+						.as(id).asString().endsWith("/admin/employees?error=no_data");
+			}
+			assertThat(get("/admin/employee_detail?id=2147483647", this.cookie).getStatusCode())
+					.as("the row itself still opens").isEqualTo(HttpStatus.OK);
+		} finally {
+			this.jdbc.update("DELETE FROM employees WHERE id = 2147483647");
+		}
+	}
+
+	@Test
 	void anAnonymousRequestNeverReachesThePage() {
 		ResponseEntity<String> response = this.restTemplate.exchange(
 				"/admin/employee_detail?id=1", HttpMethod.GET,

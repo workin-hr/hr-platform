@@ -3,6 +3,7 @@ package com.workin.backend.platformadmin;
 import java.util.List;
 import java.util.regex.Pattern;
 
+import com.workin.legacy.PhpCast;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
 
 /**
@@ -148,14 +149,8 @@ public final class CompanyForm {
 		return value == null ? "" : value.trim();
 	}
 
+	/** PHP's {@code (int)} ({@link PhpCast#intval}): a non-numeric id is 0, which the caller rejects as required. */
 	private static long parseId(String raw) {
-		try {
-			return Long.parseLong(trim(raw));
-		}
-		catch (NumberFormatException notANumber) {
-			// PHP's (int) cast on a non-numeric string is 0, which the caller
-			// rejects as required.
-			return 0L;
-		}
+		return PhpCast.intval(raw);
 	}
 }

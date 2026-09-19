@@ -19,6 +19,7 @@ import com.workin.backend.platformadmin.hr.EmployeeStore;
 import com.workin.backend.platformadmin.org.ActiveCompanies;
 import com.workin.backend.platformadmin.org.OrgCascade;
 import com.workin.backend.platformadmin.org.OrgCascadeStore;
+import com.workin.legacy.PhpCast;
 
 /** {@code dashboard/pages/employees/page.php}. */
 @Controller
@@ -237,14 +238,9 @@ public class AdminEmployeesController {
 		return value == null ? fallback : value.trim();
 	}
 
+	/** PHP's {@code (int) ($_POST[$name] ?? 0)} ({@link PhpCast#intval}). */
 	private static long number(HttpServletRequest request, String name) {
-		try {
-			return Long.parseLong(parameter(request, name, "0"));
-		}
-		catch (NumberFormatException ex) {
-			// PHP's (int) cast, which reads anything unparseable as zero.
-			return 0L;
-		}
+		return PhpCast.intval(parameter(request, name, "0"));
 	}
 
 	/** Zero means "none" on these three columns, which are nullable. */

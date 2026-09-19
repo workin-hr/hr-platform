@@ -13,6 +13,7 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.EmployeeRequestAdminService;
 import com.workin.backend.platformadmin.hr.EmployeeRequestStore;
+import com.workin.legacy.PhpCast;
 
 /**
  * {@code dashboard/pages/requests/page.php}.
@@ -82,16 +83,10 @@ public class AdminRequestsController {
 		return VIEW;
 	}
 
+	/** {@code (int) ($_GET['type_id'] ?? 0)}, and only a positive id filters. */
 	private static long positive(String raw) {
-		if (raw == null || raw.isBlank()) {
-			return 0L;
-		}
-		try {
-			long value = Long.parseLong(raw.trim());
-			return value > 0 ? value : 0L;
-		} catch (NumberFormatException ex) {
-			return 0L;
-		}
+		long value = PhpCast.intval(raw);
+		return value > 0 ? value : 0L;
 	}
 
 	@AuthenticatedUseCase(reason = "Approves, rejects or deletes one employee request. "

@@ -117,7 +117,7 @@ public class AdminSettingsController {
 					this.service.editDefinition(adminId, number(request, "id"),
 							param(request, "label_ar"), param(request, "label_en"),
 							param(request, "description_ar"), param(request, "description_en"),
-							(int) number(request, "sort_order"));
+							sortOrder(request));
 					AdminFlash.saved(redirect, model);
 					return redirect("setting_templates", null, null);
 				}
@@ -125,14 +125,14 @@ public class AdminSettingsController {
 					this.service.addOption(adminId,
 							number(request, "setting_definition_id"),
 							param(request, "value"), param(request, "label_ar"),
-							param(request, "label_en"), (int) number(request, "sort_order"));
+							param(request, "label_en"), sortOrder(request));
 					AdminFlash.saved(redirect, model);
 					return redirect("setting_templates", null, null);
 				}
 				case "edit_option" -> {
 					this.service.editOption(adminId, number(request, "id"),
 							param(request, "value"), param(request, "label_ar"),
-							param(request, "label_en"), (int) number(request, "sort_order"));
+							param(request, "label_en"), sortOrder(request));
 					AdminFlash.saved(redirect, model);
 					return redirect("setting_templates", null, null);
 				}
@@ -190,6 +190,14 @@ public class AdminSettingsController {
 	private static String param(HttpServletRequest request, String name) {
 		String value = request.getParameter(name);
 		return value == null ? "" : value;
+	}
+
+	/**
+	 * A sort order, PHP's {@code (int)} cast bounded to its {@code int} column. A narrowing
+	 * cast would wrap 3000000000 to a negative order and move the row; legacy's insert fails.
+	 */
+	private static int sortOrder(HttpServletRequest request) {
+		return Math.clamp(number(request, "sort_order"), Integer.MIN_VALUE, Integer.MAX_VALUE);
 	}
 
 	/** PHP's {@code (int)} cast of a posted field. */

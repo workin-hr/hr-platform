@@ -32,7 +32,7 @@ public class WorkforcePlanStore {
 			rs.getString("department_name"),
 			rs.getLong("job_title_id"),
 			rs.getString("job_title_name"),
-			rs.getInt("planned_count"),
+			rs.getLong("planned_count"),
 			rs.getInt("actual_count"));
 
 	/**

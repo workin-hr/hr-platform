@@ -93,14 +93,19 @@ class DashboardOrgScopeTest {
 		MockHttpSession session = new MockHttpSession();
 		assertThat(DashboardOrgScope.resolve(ADMIN, request(session, "9abc"))).isEqualTo(9L);
 		assertThat(DashboardOrgScope.resolve(ADMIN, request(session, " 12 "))).isEqualTo(12L);
+		assertThat(DashboardOrgScope.resolve(ADMIN, request(session, "1e1")))
+				.as("PHP reads the exponent too").isEqualTo(10L);
+		assertThat(DashboardOrgScope.resolve(ADMIN, request(session, "1.9e1"))).isEqualTo(19L);
 	}
 
 	@Test
-	void anIdTooLargeForALongClearsRatherThanThrowing() {
+	void anIdTooLargeForALongSaturatesAsPhpsCastDoesAndMatchesNoCompany() {
+		// (int) "99999999999999999999999" is PHP_INT_MAX: the filter is set, to an id no
+		// company has, rather than cleared.
 		MockHttpSession session = new MockHttpSession();
 		DashboardOrgScope.resolve(ADMIN, request(session, "9"));
 		assertThat(DashboardOrgScope.resolve(ADMIN, request(session, "99999999999999999999999")))
-				.isZero();
+				.isEqualTo(Long.MAX_VALUE);
 	}
 
 	@Test

@@ -215,6 +215,15 @@ class AdminEmployeesEndToEndTest {
 	}
 
 	@Test
+	void theToolbarsFilterIdsArePhpsIntCast() {
+		// (int) $_GET['filter_job_title']: "<id>e0" is the id.
+		String html = body("/admin/employees?company_id=" + this.companyA + "&filter_job_title=" + this.jobTitleA + "e0");
+		Matcher toolbar = TOOLBAR_FORM.matcher(html);
+		assertThat(toolbar.find()).as("the toolbar's filter form").isTrue();
+		assertThat(attribute(toolbar.group(1), "data-selected-job-title")).isEqualTo(String.valueOf(this.jobTitleA));
+	}
+
+	@Test
 	void eachEmployeeRowLinksToItsDetailPageBeforeEdit() {
 		// employee_helper.php:666-667: the row menu opens with Details, then Edit.
 		// The detail page existed with no way to reach it from the list.

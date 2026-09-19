@@ -13,10 +13,14 @@ package com.workin.backend.platformadmin.hr;
  * keys that each belong to a company, which makes it the fullest <b>D-176</b>
  * case on this surface: the ownership column and everything that depends on it
  * are writable in a single request.
+ *
+ * @param plannedCount a {@code long}: legacy's {@code int(10) unsigned} column keeps up to
+ *                     4294967295, and the driver refuses to read a count past 2147483647 as an
+ *                     {@code int}, which failed the whole list (D-249)
  */
 public record WorkforcePlan(
 		long id, long companyId, long branchId, String branchName, long departmentId,
-		String departmentName, long jobTitleId, String jobTitleName, int plannedCount,
+		String departmentName, long jobTitleId, String jobTitleName, long plannedCount,
 		int actualCount) {
 
 	/**

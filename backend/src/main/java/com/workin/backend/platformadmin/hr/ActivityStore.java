@@ -131,7 +131,7 @@ public class ActivityStore {
 	 *     branch is permitted, which legacy returns rather than failing
 	 */
 	public Result list(long companyId, String kind, String from, String to,
-			int limit, int offset, boolean canSeeAttendance, boolean canSeeRequests) {
+			int limit, long offset, boolean canSeeAttendance, boolean canSeeRequests) {
 
 		List<Branch> branches = new ArrayList<>();
 		if (!"request".equals(kind) && canSeeAttendance) {

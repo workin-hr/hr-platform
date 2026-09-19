@@ -1,5 +1,7 @@
 package com.workin.backend.platformadmin.content;
 
+import com.workin.legacy.PhpCast;
+
 /**
  * Validates a submitted FAQ category or item, reproducing
  * {@code faq_category_validate_post()} and {@code faq_item_validate_post()}.
@@ -63,20 +65,14 @@ public final class FaqForm {
 		return value == null ? "" : value.trim();
 	}
 
+	/** {@code (int) ($post['sort_order'] ?? 0)} ({@link PhpCast#intval}), bounded to the {@code int} column. */
 	private static int parseInt(String value) {
-		try {
-			return value == null || value.isBlank() ? 0 : Integer.parseInt(value.trim());
-		} catch (NumberFormatException ex) {
-			return 0;
-		}
+		return Math.clamp(PhpCast.intval(value), Integer.MIN_VALUE, Integer.MAX_VALUE);
 	}
 
+	/** {@code (int) ($post['faq_category_id'] ?? 0)}. */
 	private static long parseLong(String value) {
-		try {
-			return value == null || value.isBlank() ? 0L : Long.parseLong(value.trim());
-		} catch (NumberFormatException ex) {
-			return 0L;
-		}
+		return PhpCast.intval(value);
 	}
 
 }

@@ -16,6 +16,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class BannerFormTest {
 
+	@Test
+	void theSortOrderIsPhpsIntCastBoundedToItsColumn() {
+		assertThat(sortOrder("4e0")).isEqualTo(4);
+		assertThat(sortOrder("99999999999")).isEqualTo(Integer.MAX_VALUE);
+		assertThat(sortOrder("x")).isZero();
+	}
+
+	private static int sortOrder(String raw) {
+		return BannerForm.validate("https://files.example.com/b.png", null, null, null, null, null, null,
+				"both", "none", null, null, null, true, raw).banner().sortOrder();
+	}
+
 	private static String value(Banner.Action action, String raw) {
 		return BannerForm.resolveActionValue(action, raw, null, null);
 	}

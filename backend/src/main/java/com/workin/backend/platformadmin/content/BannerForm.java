@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
+import com.workin.legacy.PhpCast;
+
 /**
  * Validates a submitted banner, reproducing
  * {@code banner_fields_from_post()}.
@@ -154,12 +156,9 @@ public final class BannerForm {
 		return trimmed.isEmpty() ? null : trimmed;
 	}
 
+	/** {@code (int) ($post['sort_order'] ?? 0)} ({@link PhpCast#intval}), bounded to the {@code int} column. */
 	private static int parseInt(String value) {
-		try {
-			return value == null || value.isBlank() ? 0 : Integer.parseInt(value.trim());
-		} catch (NumberFormatException ex) {
-			return 0;
-		}
+		return Math.clamp(PhpCast.intval(value), Integer.MIN_VALUE, Integer.MAX_VALUE);
 	}
 
 }

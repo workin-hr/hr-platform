@@ -19,8 +19,8 @@
 @param int pageNumber
 @param int pages
 @param int perPage
-@param int rangeFrom
-@param int rangeTo
+@param long rangeFrom
+@param long rangeTo
 @param String currentPage
 @param String lang
 @param DashboardSession session

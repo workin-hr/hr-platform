@@ -195,6 +195,20 @@ class AdminAttendanceEndToEndTest {
 	}
 
 	@Test
+	void theAggregatePageIsPhpsIntCast() {
+		long zed = createEmployee(this.companyA, "A900", "Zed", "Zulu");
+		attendance(this.employeeA, "2026-03-02 09:00:00", "2026-03-02 17:00:00", null);
+		attendance(zed, "2026-03-03 09:00:00", "2026-03-03 17:00:00", null);
+
+		// One row a page, by name: page 1 is Aya, page 2 is Zed. (int) "2e0" is 2; read with
+		// Integer.parseInt it was refused and fell back to page 1.
+		String html = body(PATH + range() + "&company_id=" + this.companyA + "&per_page=1&agg_page=2e0");
+		String aggregate = html.substring(html.indexOf("<h2 class=\"data-table-title\">\u0627\u0644\u062a\u0642\u0631\u064a\u0631 \u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a"));
+		aggregate = aggregate.substring(0, aggregate.indexOf("</table>"));
+		assertThat(aggregate).contains("Zed Zulu").doesNotContain("Aya");
+	}
+
+	@Test
 	void bothTablesRenderTheFilteredRange() {
 		attendance(this.employeeA, "2026-03-02 09:00:00", "2026-03-02 17:00:00", null);
 		String html = body(PATH + range());

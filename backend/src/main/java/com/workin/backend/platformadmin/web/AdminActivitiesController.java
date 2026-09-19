@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.legacy.LegacyClock;
 import com.workin.backend.platformadmin.hr.ActivityStore;
+import com.workin.legacy.PhpCast;
 
 /**
  * {@code dashboard/pages/activities/page.php}.
@@ -74,7 +75,7 @@ public class AdminActivitiesController {
 		// with no rows, where dbPaginate reports 0.
 		int size = Math.max(10, Math.min(100, positive(perPage, 10)));
 		int requested = Math.max(1, positive(page, 1));
-		int offset = (requested - 1) * size;
+		long offset = (requested - 1L) * size;
 
 		boolean canAttendance = DashboardAccess.canViewPayrollSection(current, "attendance");
 		boolean canRequests = DashboardAccess.canViewHrSection(current, "requests");
@@ -110,25 +111,15 @@ public class AdminActivitiesController {
 		return value == null || value.trim().isEmpty();
 	}
 
-	/** PHP's {@code (int)} cast: a leading numeric prefix, or zero. */
+	/**
+	 * PHP's {@code (int)} cast ({@link PhpCast#intval}), bounded to an {@code int}; blank is the
+	 * fallback, which the caller's {@code max()} makes what PHP's 0 would.
+	 */
 	private static int positive(String raw, int fallback) {
 		if (blank(raw)) {
 			return fallback;
 		}
-		int end = 0;
-		String trimmed = raw.trim();
-		while (end < trimmed.length() && Character.isDigit(trimmed.charAt(end))) {
-			end++;
-		}
-		if (end == 0) {
-			return 0;
-		}
-		try {
-			return Integer.parseInt(trimmed.substring(0, end));
-		}
-		catch (NumberFormatException ex) {
-			return 0;
-		}
+		return Math.clamp(PhpCast.intval(raw), Integer.MIN_VALUE, Integer.MAX_VALUE);
 	}
 
 }

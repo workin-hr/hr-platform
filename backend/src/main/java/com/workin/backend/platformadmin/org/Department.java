@@ -2,6 +2,8 @@ package com.workin.backend.platformadmin.org;
 
 import java.util.List;
 
+import com.workin.legacy.PhpCast;
+
 /**
  * A row of {@code departments} as the dashboard's list and form need it
  * ({@code dashboard/pages/departments}).
@@ -55,36 +57,12 @@ public record Department(
 		}
 		java.util.LinkedHashSet<Long> ids = new java.util.LinkedHashSet<>();
 		for (String value : raw) {
-			long id = phpInt(value);
+			long id = PhpCast.intval(value);
 			if (id > 0) {
 				ids.add(id);
 			}
 		}
 		return List.copyOf(ids);
-	}
-
-	/** {@code (int) $value}: the leading integer, or 0. */
-	private static long phpInt(String raw) {
-		if (raw == null) {
-			return 0L;
-		}
-		String trimmed = raw.trim();
-		int end = 0;
-		if (end < trimmed.length() && (trimmed.charAt(end) == '+' || trimmed.charAt(end) == '-')) {
-			end++;
-		}
-		while (end < trimmed.length() && Character.isDigit(trimmed.charAt(end))) {
-			end++;
-		}
-		String digits = trimmed.substring(0, end);
-		if (digits.isEmpty() || "+".equals(digits) || "-".equals(digits)) {
-			return 0L;
-		}
-		try {
-			return Long.parseLong(digits);
-		} catch (NumberFormatException ex) {
-			return 0L;
-		}
 	}
 
 	/** One row of the branch picker: {@code org_branches_for_company()}. */
