@@ -641,7 +641,7 @@ python3 -m workin_devices import-usb --config field-report/zk.toml \
 | `malformed` أكبر من صفر | سطور مش مفهومة ← هتلاقيها في صفحة الجهاز تحت *Unreadable lines* |
 | `import failed: ... is not an active device` | الجهاز مش متخصص لشركة التوكن ← خصّصه |
 | `No such file or directory` أو `FileNotFoundError` | اسم الملف في الأمر مش زي الملف الحقيقي ← <span dir="ltr">`ls field-report/`</span> وصحّح الاسم في `tail` و `import-usb` |
-| من الداشبورد: `الملف أكبر من المسموح هنا` (The file is too large) | الملف أكبر من 1 ميجا ← استخدم أمر `import-usb` |
+| من الداشبورد: <span dir="ltr">`الملف أكبر من المسموح هنا`</span> (The file is too large) | الملف أكبر من 1 ميجا ← استخدم أمر `import-usb` |
 
 ---
 
