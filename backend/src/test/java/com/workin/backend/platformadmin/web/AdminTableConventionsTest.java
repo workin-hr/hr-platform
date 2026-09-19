@@ -168,8 +168,21 @@ class AdminTableConventionsTest {
 	 * legacy's {@code badge()} is one map of status to colour and label ({@code layout.php:77-107}).
 	 * A page choosing its own colours is how pending came to be grey here and yellow there.
 	 */
-	private static final Pattern LITERAL_BADGE = Pattern.compile(
-			"(?s)<span\\b[^>]*?(?<![\\w-])class=\"(?=[^\"]*(?<![\\w-])badge(?![\\w-]))[^\"]*(?<![\\w-])badge-[\\w-]+[^\"]*\"[^>]*>(.*?)</span>");
+	private static final Pattern BADGE = Pattern.compile("(?<![\\w-])badge(?![\\w-])");
+
+	private static final Pattern BADGE_COLOUR = Pattern.compile("(?<![\\w-])badge-[\\w-]+");
+
+	/** The badge class in any spelling an expression can hold: {@code "badge "}, {@code "badge-" + colour}. */
+	private static final Pattern ANY_BADGE = Pattern.compile("(?<![\\w-])badge(?!\\w)");
+
+	/** Where a class stops being text: an expression, or a JTE directive that picks between texts. */
+	private static final Pattern COMPUTED = Pattern.compile("\\$(?:unsafe)?\\{|@(?:if|elseif|else|for)\\b");
+
+	private static final Pattern DIRECTIVE = Pattern.compile("@(?:if|elseif|for)\\s*\\(");
+
+	private static final Pattern SPAN = Pattern.compile("<span\\b");
+
+	private static final Pattern CLASS_ATTRIBUTE = Pattern.compile("(?<![\\w-])class=\"");
 
 	/**
 	 * The label keys statusBadge.jte gives a status; a page that prints one in a badge is drawing a status.
@@ -178,12 +191,11 @@ class AdminTableConventionsTest {
 	private static final Pattern STATUS_LABEL = Pattern.compile("\"((status|gender|method|role)_[^\"]*|yes|no)\"");
 
 	/**
-	 * A badge whose colour class is computed: {@code class="badge ${...}"}, {@code badge-${...}}, or a
-	 * {@code badge} class anywhere beside an expression. Only statusBadge.jte may choose a colour.
+	 * Each span's tag and class are read to the {@code >} and {@code "} that close them outside any
+	 * expression, because an expression may hold both: {@code class="${ok ? "badge badge-green" : …}"}.
+	 * A class held in a variable and printed as {@code class="${cls}"} names no badge here and is not
+	 * caught.
 	 */
-	private static final Pattern COMPUTED_BADGE = Pattern.compile(
-			"<span\\b[^>]*?(?<![\\w-])class=\"(?=[^\"]*(?<![\\w-])badge(?:-\\$\\{|(?![\\w-])))(?=[^\"]*\\$\\{)[^\"]*");
-
 	@Test
 	void everyStatusBadgeComesFromTheSharedPartial() throws IOException {
 		List<String> offenders = new ArrayList<>();
@@ -193,22 +205,74 @@ class AdminTableConventionsTest {
 				continue;
 			}
 			String source = Files.readString(template, StandardCharsets.UTF_8);
-			Matcher computed = COMPUTED_BADGE.matcher(source);
-			while (computed.find()) {
-				offenders.add(name + ": " + computed.group());
-			}
-			// A badge with a fixed colour is a count, a time or a value; one labelled with a status is
-			// a status badge that chose its own colour.
-			Matcher badge = LITERAL_BADGE.matcher(source);
-			while (badge.find()) {
-				if (STATUS_LABEL.matcher(badge.group(1)).find()) {
-					offenders.add(name + ": " + badge.group().replaceAll("\\s+", " "));
+			Matcher span = SPAN.matcher(source);
+			while (span.find()) {
+				int tagEnd = outsideExpressions(source, span.start(), '>');
+				String tag = source.substring(span.start(), tagEnd + 1);
+				Matcher attribute = CLASS_ATTRIBUTE.matcher(tag);
+				if (!attribute.find()) {
+					continue;
+				}
+				String value = tag.substring(attribute.end(), outsideExpressions(tag, attribute.end(), '"'));
+				if (COMPUTED.matcher(value).find()) {
+					if (ANY_BADGE.matcher(value).find()) {
+						offenders.add(name + ": " + tag.replaceAll("\\s+", " "));
+					}
+					continue;
+				}
+				// A badge with a fixed colour is a count, a time or a value; one labelled with a status is
+				// a status badge that chose its own colour.
+				if (BADGE.matcher(value).find() && BADGE_COLOUR.matcher(value).find()) {
+					int close = source.indexOf("</span>", tagEnd);
+					String label = source.substring(tagEnd + 1, close < 0 ? source.length() : close);
+					if (STATUS_LABEL.matcher(label).find()) {
+						offenders.add(name + ": " + (tag + label).replaceAll("\\s+", " "));
+					}
 				}
 			}
 		}
 		assertThat(offenders)
 				.as("a status badge picks its colour in statusBadge.jte, not in the page")
 				.isEmpty();
+	}
+
+	/**
+	 * The first {@code stop} at or after {@code from} outside any expression or directive condition,
+	 * and, when looking for a tag's {@code >}, outside its quoted attribute values.
+	 */
+	static int outsideExpressions(String text, int from, char stop) {
+		for (int i = from; i < text.length(); i++) {
+			if (text.startsWith("${", i) || text.startsWith("$unsafe{", i)) {
+				i = closing(text, text.indexOf('{', i), '{', '}');
+			} else if (DIRECTIVE.matcher(text).region(i, text.length()).lookingAt()) {
+				i = closing(text, text.indexOf('(', i), '(', ')');
+			} else if (stop == '>' && text.charAt(i) == '"') {
+				i = outsideExpressions(text, i + 1, '"');
+			} else if (text.charAt(i) == stop) {
+				return i;
+			}
+		}
+		return text.length() - 1;
+	}
+
+	/** Where the bracket at {@code at} closes, past any string or character literal inside it. */
+	private static int closing(String text, int at, char open, char close) {
+		int depth = 0;
+		for (int i = at; i < text.length(); i++) {
+			char c = text.charAt(i);
+			if (c == '"' || c == '\'') {
+				for (i++; i < text.length() && text.charAt(i) != c; i++) {
+					if (text.charAt(i) == '\\') {
+						i++;
+					}
+				}
+			} else if (c == open) {
+				depth++;
+			} else if (c == close && --depth == 0) {
+				return i;
+			}
+		}
+		return text.length() - 1;
 	}
 
 	/** Legacy closes the table card and only then draws the pager ({@code requests/page.php:137-140}). */

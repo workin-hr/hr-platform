@@ -137,7 +137,7 @@ class AdminLayoutWiringTest {
 		// `inherit`, and the emoji stack on the one icon rule in app-content.css.
 		Set<String> otherFamilies = Set.of(
 				"inherit", "\"Apple Color Emoji\", \"Segoe UI Emoji\", \"Noto Color Emoji\", sans-serif");
-		List<String> offenders = new ArrayList<>();
+		Set<String> offenders = new LinkedHashSet<>();
 		try (var files = Files.walk(ASSETS)) {
 			for (Path file : files.filter(Files::isRegularFile).sorted().toList()) {
 				String name = ASSETS.relativize(file).toString();
@@ -148,22 +148,24 @@ class AdminLayoutWiringTest {
 				if (!lower.endsWith(".css")) {
 					continue;
 				}
-				String css = cssTokens(Files.readString(file, StandardCharsets.UTF_8));
-				if (webFont.matcher(css).find()) {
-					offenders.add(name + " declares or imports a font");
-				}
-				Matcher families = family.matcher(css);
-				while (families.find()) {
-					String value = families.group(1).trim();
-					if (!otherFamilies.contains(value) && !(stackSheets.contains(name) && value.equals(stack))) {
-						offenders.add(name + " sets font-family " + value);
+				String raw = Files.readString(file, StandardCharsets.UTF_8);
+				for (String css : List.of(raw, cssTokens(raw))) {
+					if (webFont.matcher(css).find()) {
+						offenders.add(name + " declares or imports a font");
 					}
-				}
-				Matcher shorthands = shorthand.matcher(css);
-				while (shorthands.find()) {
-					String value = shorthands.group(1).trim();
-					if (!"inherit".equals(value)) {
-						offenders.add(name + " sets font " + value);
+					Matcher families = family.matcher(css);
+					while (families.find()) {
+						String value = families.group(1).trim();
+						if (!otherFamilies.contains(value) && !(stackSheets.contains(name) && value.equals(stack))) {
+							offenders.add(name + " sets font-family " + value);
+						}
+					}
+					Matcher shorthands = shorthand.matcher(css);
+					while (shorthands.find()) {
+						String value = shorthands.group(1).trim();
+						if (!"inherit".equals(value)) {
+							offenders.add(name + " sets font " + value);
+						}
 					}
 				}
 			}
@@ -175,10 +177,11 @@ class AdminLayoutWiringTest {
 		try (var templates = Files.walk(TEMPLATES)) {
 			for (Path template : templates.filter(file -> file.toString().endsWith(".jte")).sorted().toList()) {
 				String body = Files.readString(template, StandardCharsets.UTF_8);
-				String inline = cssTokens(body);
-				if (webFont.matcher(inline).find() || family.matcher(inline).find()
-						|| shorthand.matcher(inline).find()) {
-					offenders.add(fileName(template) + " carries a font of its own");
+				for (String inline : List.of(body, cssTokens(body))) {
+					if (webFont.matcher(inline).find() || family.matcher(inline).find()
+							|| shorthand.matcher(inline).find()) {
+						offenders.add(fileName(template) + " carries a font of its own");
+					}
 				}
 				Matcher links = link.matcher(body);
 				while (links.find()) {
@@ -206,7 +209,9 @@ class AdminLayoutWiringTest {
 	/**
 	 * CSS as a parser reads it: comments removed and escapes decoded. {@code @import} followed by a
 	 * comment and then a string is an import, and so is {@code @\69mport}; Chromium loads both.
-	 * Removing a comment can join two tokens a browser keeps apart, which only ever adds an offender.
+	 * A {@code /*} that opens no comment -- in a string, a URL, or a JTE comment's
+	 * {@code /admin/_assets/**} -- makes this remove real text up to the next {@code *}{@code /}, so
+	 * the font test matches each text as written too, and either one flags it.
 	 */
 	static String cssTokens(String css) {
 		String uncommented = CSS_COMMENT.matcher(css).replaceAll("");
