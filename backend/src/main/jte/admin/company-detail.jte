@@ -47,9 +47,11 @@
 
 		<div class="company-detail-card">
 			<%-- company_logo_src() falls back to a ui-avatars.com image. The fallback is
-			     drawn locally instead, as the list draws its own (img-fallback.js). --%>
+			     drawn locally instead, as the list draws its own (img-fallback.js). It is
+			     also what a stored value StoredUrl refuses draws, so no card fetches
+			     another origin; legacy reaches its own host check first. --%>
 			@if(detail.profile().hasLogo())
-				<img src="${detail.profile().logoUrl()}" alt="" class="company-detail-logo"
+				<img src="${detail.profile().logoSrc()}" alt="" class="company-detail-logo"
 				     data-fallback-initials="${EmployeeDisplay.initials(detail.avatarName())}"
 				     data-fallback-class="company-detail-avatar">
 			@else

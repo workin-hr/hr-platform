@@ -3,7 +3,7 @@ package com.workin.backend.platformadmin.hr;
 import java.util.Locale;
 
 /**
- * A file URL read from the database, as the link a page opens (D-262).
+ * A file URL read from the database, as the address a page opens or loads (D-262).
  *
  * <p>Legacy writes a stored URL into an {@code href} as it is. The upload endpoints store their own
  * absolute URL, so nothing they wrote names another scheme; this keeps a {@code javascript:} value
@@ -11,9 +11,19 @@ import java.util.Locale;
  *
  * <p>A value with no scheme is a path on this host, and stays one. Two leading separators name
  * another origin instead, whichever way they lean -- a browser reads {@code \} as {@code /} here,
- * so {@code //host}, {@code \\host}, {@code /\host} and {@code \/host} are all refused. A value
- * carrying a control character is refused outright: browsers drop those before parsing, so the
- * text checked here would not be the URL the browser follows.
+ * so {@code //host}, {@code \\host}, {@code /\host} and {@code \/host} are all refused.
+ *
+ * <p>Any character below {@code U+0020}, and {@code U+007F}, is refused outright. Part of that is
+ * a browser dropping the character before it parses -- tab, newline and carriage return anywhere,
+ * and a leading control -- which would leave the text checked here different from the URL the
+ * browser follows. The rest is refused because no value this system writes carries one: the
+ * upload endpoints store their own path. The refusal is therefore wider than the disagreement,
+ * and it diverges from legacy for a value that stays on this host: legacy links
+ * {@code /uploads/a<LF>b.pdf} and the browser fetches {@code /uploads/ab.pdf} from this host,
+ * where this draws no link at all (D-264).
+ *
+ * <p>The same decision governs an image a page loads, not only a link it opens: an
+ * {@code <img src>} that leaves this host tells a third party who is looking at the page.
  */
 public final class StoredUrl {
 

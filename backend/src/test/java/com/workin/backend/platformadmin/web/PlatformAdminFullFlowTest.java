@@ -752,6 +752,45 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 				"<a href=\"https://files\\.example\\.test/reg\\.pdf\" target=\"_blank\" rel=\"noopener\"\\s+class=\"tbl-sub\">");
 	}
 
+	/**
+	 * The same rule on the logo the card and the list load. {@code company_logo_src()} reaches
+	 * {@code dashboard_media_url()} only for a value naming http or https, or for a file on this
+	 * server ({@code company_helper.php:146-176}), so legacy draws an avatar rather than fetching
+	 * {@code //host/p.png}; this has no file check, and keeps the same values out of the src.
+	 */
+	@Test
+	void aStoredLogoIsLoadedOnlyWhenItStaysOnThisHost() {
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		String cookie = signIn();
+		List<String> refused = List.of("//evil.example/pixel.png", "\\\\evil.example/pixel.png",
+				"/\\evil.example/pixel.png", "\\/evil.example/pixel.png", "/\u0009/evil.example/pixel.png",
+				"javascript:alert(1)");
+		java.util.Map<Long, String> offHost = new java.util.LinkedHashMap<>();
+		for (String url : refused) {
+			long companyId = createCompany();
+			jdbc.update("UPDATE companies SET logo_url = ? WHERE id = ?", url, companyId);
+			offHost.put(companyId, url);
+		}
+		long here = createCompany();
+		jdbc.update("UPDATE companies SET logo_url = '/uploads/logos/a.png' WHERE id = ?", here);
+
+		String list = get("/admin/companies", cookie).response().getBody();
+		offHost.forEach((companyId, url) -> {
+			assertThat(get("/admin/companies/" + companyId, cookie).response().getBody())
+					.as("detail, stored %s", url)
+					.doesNotContain("company-detail-logo", "evil.example", "alert(1)")
+					.contains("<span class=\"company-detail-avatar\" aria-hidden=\"true\">");
+			assertThat(listRow(list, companyId)).as("list, stored %s", url)
+					.doesNotContain("company-tbl-logo", "evil.example", "alert(1)")
+					.contains("<span class=\"emp-tbl-avatar\" aria-hidden=\"true\">");
+		});
+		assertThat(get("/admin/companies/" + here, cookie).response().getBody())
+				.as("a path on this host is still loaded")
+				.contains("<img src=\"/uploads/logos/a.png\" alt=\"\" class=\"company-detail-logo\"");
+		assertThat(listRow(list, here))
+				.contains("<img src=\"/uploads/logos/a.png\" alt=\"\" class=\"tbl-photo company-tbl-logo\"");
+	}
+
 	@Test
 	void aWrongPasswordIsRefusedAndOpensNothing() {
 		Page loginForm = get("/admin/login", null);

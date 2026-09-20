@@ -64,8 +64,16 @@ public record CompanyRow(
 		return this.sizeName == null || this.sizeName.isBlank() ? "—" : this.sizeName;
 	}
 
+	/**
+	 * The logo this row loads, or null to draw the initials instead. The detail page's card reads
+	 * the same column through the same rule; see {@code PlatformAdminCompanyDirectory.Profile}.
+	 */
+	public String logoSrc() {
+		return com.workin.backend.platformadmin.hr.StoredUrl.href(this.logoUrl);
+	}
+
 	public boolean hasLogo() {
-		return this.logoUrl != null && !this.logoUrl.isBlank();
+		return logoSrc() != null;
 	}
 
 	/**

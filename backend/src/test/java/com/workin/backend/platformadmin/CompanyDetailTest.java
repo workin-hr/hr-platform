@@ -28,6 +28,10 @@ class CompanyDetailTest {
 				.as("and an empty one printed as it is").isEmpty();
 		assertThat(none.registeredOn()).isEqualTo("2026-01-02");
 		assertThat(none.hasLogo()).isFalse();
+		assertThat(new CompanyDetail.Profile("0100", null, false, null, "//evil.example/p.png", null).hasLogo())
+				.as("a logo naming another origin is not loaded either").isFalse();
+		assertThat(new CompanyDetail.Profile("0100", null, false, null, "/uploads/logos/a.png", null).logoSrc())
+				.isEqualTo("/uploads/logos/a.png");
 		assertThat(none.commercialRegHref()).isNull();
 		assertThat(new CompanyDetail.Profile("0100", null, false, null, null, "javascript:alert(1)").commercialRegHref())
 				.isNull();

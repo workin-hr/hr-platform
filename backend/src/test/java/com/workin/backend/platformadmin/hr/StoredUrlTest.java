@@ -33,12 +33,15 @@ class StoredUrlTest {
 	/**
 	 * A value that opens with two separators names another origin without naming a scheme, so
 	 * the schemeless branch must not pass it through as a path on this host. A browser reads a
-	 * backslash as a slash in that position, so all four combinations are the same attack, and
-	 * #292's review round 2 defeated a plain {@code //} prefix test with the other three.
+	 * backslash as a slash in that position, so all four pairs are the same attack, and #292's
+	 * review round 2 defeated a plain {@code //} prefix test with the other three. Each pair is
+	 * written as the two characters the rule reads; round 3 found two of them written three
+	 * characters long, which left the {@code \/} pair unasserted. The three-character forms stay
+	 * as their own cases.
 	 */
 	@Test
 	void aValueOpeningWithTwoSeparatorsIsNotLinkedThoughItNamesNoScheme() {
-		for (String opening : new String[] {"//", "\\\\", "/\\\\", "\\\\/"}) {
+		for (String opening : new String[] {"//", "\\\\", "/\\", "\\/", "/\\\\", "\\\\/"}) {
 			assertThat(StoredUrl.href(opening + "evil.example/reg.pdf")).as(opening).isNull();
 			assertThat(StoredUrl.href("  " + opening + "evil.example/reg.pdf")).as("%s after whitespace", opening).isNull();
 		}
@@ -47,9 +50,11 @@ class StoredUrlTest {
 	}
 
 	/**
-	 * A browser drops a control character before it parses, so the text checked here would not
-	 * be the URL it follows: {@code /\u0009/evil.example} arrives as {@code //evil.example}.
-	 * Round 2 read five such values out of the running page.
+	 * A browser drops some of these before it parses, so the text checked here would not be the
+	 * URL it follows: {@code /\u0009/evil.example} arrives as {@code //evil.example}. It keeps
+	 * others -- {@code U+007F} is percent-encoded, and the address is followed as written -- and
+	 * those are refused anyway, because no value this system writes carries one. Round 2 read
+	 * five such values out of the running page.
 	 */
 	@Test
 	void aValueCarryingAControlCharacterIsNotLinkedAtAll() {

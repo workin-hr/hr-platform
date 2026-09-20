@@ -72,8 +72,20 @@ public interface PlatformAdminCompanyDirectory {
 				return com.workin.backend.platformadmin.hr.EmployeeDisplay.date(this.createdAt);
 			}
 
+			/**
+			 * The logo the card loads, or null to draw the initials instead.
+			 * {@code company_logo_src()} reaches {@code dashboard_media_url()} only for a value
+			 * that names http or https, or that is a file on this server
+			 * ({@code company_media_file_exists()}, {@code company_helper.php:146-176}); anything
+			 * else falls back to an avatar, so legacy never fetches {@code //host/p.png}. This
+			 * has no file check, and uses {@code StoredUrl} to keep the same value off the page.
+			 */
+			public String logoSrc() {
+				return com.workin.backend.platformadmin.hr.StoredUrl.href(this.logoUrl);
+			}
+
 			public boolean hasLogo() {
-				return this.logoUrl != null && !this.logoUrl.isBlank();
+				return logoSrc() != null;
 			}
 
 			/**
