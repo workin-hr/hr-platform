@@ -250,6 +250,7 @@ class AdminRowDialogButtonsTest {
 
 	private static void checkFormRows(String where, String fields, List<String> offenders, int[] labels) {
 		Deque<Integer> rows = new ArrayDeque<>();
+		Deque<Boolean> formRows = new ArrayDeque<>();
 		Map<Integer, Integer> labelsPerRow = new HashMap<>();
 		Matcher tag = Pattern.compile("<div\\b[^>]*>|</div>|<label\\b").matcher(fields);
 		while (tag.find()) {
@@ -259,12 +260,20 @@ class AdminRowDialogButtonsTest {
 				// row only when it has no cell of its own. Legacy lays three controls across one row
 				// in `_employee_form.php:90-114`, each in its own cell of a nested grid, so counting
 				// per row alone would read that as three fields sharing a row.
-				boolean container = token.matches("(?s).*class=\"([^\"]*\\s)?form-row(\\s[^\"]*)?\".*")
-						|| token.matches("(?s).*\\bclass=\"[^\"]+\".*");
-				rows.push(container ? tag.start() : -1);
+				//
+				// A classed div is a cell only INSIDE a `.form-row`. Outside one, labels still fall
+				// together into the "no row" bucket and two of them are still an offence: #297's
+				// review round 2 found the first form of this rule made every classed div a cell
+				// anywhere in a window, which let that bucket through.
+				boolean row = token.matches("(?s).*class=\"([^\"]*\\s)?form-row(\\s[^\"]*)?\".*");
+				boolean cell = !row && formRows.contains(Boolean.TRUE)
+						&& token.matches("(?s).*\\bclass=\"[^\"]+\".*");
+				rows.push(row || cell ? tag.start() : -1);
+				formRows.push(row);
 			}
 			else if (token.equals("</div>")) {
 				rows.pop();
+				formRows.pop();
 			}
 			else {
 				int row = rows.stream().filter(start -> start >= 0).findFirst().orElse(-1);

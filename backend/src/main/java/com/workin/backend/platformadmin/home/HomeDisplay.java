@@ -59,9 +59,11 @@ public final class HomeDisplay {
 	 * feed and complaints panel, and on the join requests page. Legacy calls it
 	 * in four places: {@code index.php:160} and {@code :242} for those two
 	 * panels, {@code home_service.php:1079} for the activity row's own side
-	 * time, and {@code join_requests/page.php:57}. The three ported call sites
-	 * are the ones above; nothing here reads the fourth, which is legacy's own
-	 * feed builder.
+	 * time, and {@code join_requests/page.php:57}. Three of those are ported:
+	 * the activity feed's side time and the complaints panel's meta line in
+	 * {@code home.jte}, and the join requests date. The fourth,
+	 * {@code index.php:242}, is legacy's join-requests panel on its own home
+	 * page, which this dashboard does not render.
 	 *
 	 * <p>Nothing stored is an em dash, and a value no date can be read out of is
 	 * returned as it came, both as legacy's {@code strtotime()} branch does. The
