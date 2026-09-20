@@ -62,7 +62,7 @@
 				<div class="filter-field">
 					<label class="filter-field__label" for="pn_search">${t.apply("search")}</label>
 					<input type="search" id="pn_search" name="search"
-					       placeholder="${t.apply("leave_balances_search_placeholder")}"
+					       placeholder="${t.apply("penalties_search_placeholder")}"
 					       value="${filters.search()}">
 				</div>
 				<div class="filter-field">
