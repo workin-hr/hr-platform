@@ -864,6 +864,40 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 				"SELECT id FROM platform_admins WHERE phone = 'admin'", Long.class);
 	}
 
+	/**
+	 * Rows that tie on legacy's ordering keys come out by their id (D-264): two branches with one
+	 * name, two employees with one name, and two staff with one role. This pins the orderings as a
+	 * whole; it cannot prove the tie-break alone, because a server is free to return ties in the
+	 * same order without being asked to.
+	 */
+	@Test
+	void rowsThatTieOnLegacysKeysComeOutByTheirId() {
+		String cookie = signIn();
+		long nano = System.nanoTime();
+		long companyId = createCompany();
+		String branchName = "Tied branch " + nano;
+		long firstBranch = seedBranch(companyId, branchName, true);
+		long secondBranch = seedBranch(companyId, branchName, true);
+		String firstStaffPhone = uniquePhone();
+		String secondStaffPhone = uniquePhone();
+		// Both are HR, and both are named the same, so they tie on every key but the id.
+		seedEmployee(companyId, firstBranch, "Tie", "Same " + nano, "T-1", "hr", true, "2024-01-01", firstStaffPhone);
+		seedEmployee(companyId, secondBranch, "Tie", "Same " + nano, "T-2", "hr", true, "2024-01-01", secondStaffPhone);
+		// A third employee, so the two branches differ by their active-employee count.
+		seedEmployee(companyId, secondBranch, "Zed", "Later " + nano, "T-3", "employee", true, "2024-01-02", uniquePhone());
+
+		String html = get("/admin/companies/" + companyId, cookie).response().getBody();
+
+		assertThat(firstBranch).isLessThan(secondBranch);
+		assertThat(html).as("two branches of one name: the older row, with one employee, first")
+				.containsSubsequence("<td>" + branchName + "</td><td>1</td>",
+						"<td>" + branchName + "</td><td>2</td>");
+		assertThat(html).as("two employees of one name: by id, so by the code each was seeded with")
+				.containsSubsequence(">T-1<", ">T-2<");
+		assertThat(html).as("two staff of one role: by id, so by phone")
+				.containsSubsequence(firstStaffPhone, secondStaffPhone);
+	}
+
 	private long createCompany() {
 		return new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"INSERT INTO companies (company_name, phone, password_hash, status) VALUES (?, ?, 'unused-hash', 'active') RETURNING id",

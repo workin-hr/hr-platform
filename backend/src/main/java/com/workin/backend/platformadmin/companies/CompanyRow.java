@@ -71,10 +71,12 @@ public record CompanyRow(
 	/**
 	 * The commercial registration's link, or null for none. Legacy's list prefixes any stored value
 	 * that is not http or https with its own host ({@code dashboard_media_url()}), so it never links
-	 * another scheme either.
+	 * another scheme either -- though it still draws the anchor, where this draws none (D-264).
+	 * {@code page.php:218} gates it on {@code !empty()}, so a stored {@code "0"} draws none.
 	 */
 	public String commercialRegHref() {
-		return com.workin.backend.platformadmin.hr.StoredUrl.href(this.commercialRegUrl);
+		return "0".equals(this.commercialRegUrl) ? null
+				: com.workin.backend.platformadmin.hr.StoredUrl.href(this.commercialRegUrl);
 	}
 
 	/** {@code company_lookup_activities()} and its two siblings. */

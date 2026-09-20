@@ -76,9 +76,14 @@ public interface PlatformAdminCompanyDirectory {
 				return this.logoUrl != null && !this.logoUrl.isBlank();
 			}
 
-			/** The commercial registration button's link, or null for no button. */
+			/**
+			 * The commercial registration button's link, or null for no button.
+			 * {@code detail.php:50} gates the button on PHP truthiness, so a stored {@code "0"}
+			 * draws none; {@code StoredUrl} then decides whether the value may be a link.
+			 */
 			public String commercialRegHref() {
-				return com.workin.backend.platformadmin.hr.StoredUrl.href(this.commercialRegUrl);
+				return "0".equals(this.commercialRegUrl) ? null
+						: com.workin.backend.platformadmin.hr.StoredUrl.href(this.commercialRegUrl);
 			}
 		}
 

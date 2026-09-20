@@ -26,6 +26,10 @@ class CompanyRowTest {
 		assertThat(withRegistration("javascript:alert(1)").commercialRegHref()).isNull();
 		assertThat(withRegistration(" ").commercialRegHref()).isNull();
 		assertThat(withRegistration(null).commercialRegHref()).isNull();
+		assertThat(withRegistration("0").commercialRegHref())
+				.as("page.php:218 gates the link on !empty(), and \"0\" is empty there").isNull();
+		assertThat(withRegistration("//evil.example/reg.pdf").commercialRegHref())
+				.as("another origin, named without a scheme").isNull();
 	}
 
 	private static CompanyRow row(String name) {

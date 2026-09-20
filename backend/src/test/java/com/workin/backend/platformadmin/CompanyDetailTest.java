@@ -31,6 +31,12 @@ class CompanyDetailTest {
 		assertThat(none.commercialRegHref()).isNull();
 		assertThat(new CompanyDetail.Profile("0100", null, false, null, null, "javascript:alert(1)").commercialRegHref())
 				.isNull();
+		assertThat(new CompanyDetail.Profile("0100", null, false, null, null, "0").commercialRegHref())
+				.as("detail.php:50 gates the button on PHP truthiness, and \"0\" is falsy there").isNull();
+		assertThat(new CompanyDetail.Profile("0100", null, false, null, null, "//evil.example/r.pdf").commercialRegHref())
+				.as("another origin, named without a scheme").isNull();
+		assertThat(new CompanyDetail.Profile("0100", null, false, null, null, "https://f.example/r.pdf").commercialRegHref())
+				.isEqualTo("https://f.example/r.pdf");
 		assertThat(detail(null, 0).avatarName()).as("company_logo_src()'s `?: 'C'`").isEqualTo("C");
 		assertThat(detail(" Acme ", 0).avatarName()).isEqualTo("Acme");
 	}

@@ -30,4 +30,16 @@ class StoredUrlTest {
 		assertThat(StoredUrl.href(null)).isNull();
 	}
 
+	/**
+	 * A protocol-relative value names another origin without naming a scheme, so the
+	 * schemeless branch must not pass it through as a path on this host.
+	 */
+	@Test
+	void aProtocolRelativeUrlIsNotLinkedEitherThoughItNamesNoScheme() {
+		assertThat(StoredUrl.href("//evil.example/reg.pdf")).isNull();
+		assertThat(StoredUrl.href("  //evil.example/reg.pdf")).as("after whitespace").isNull();
+		assertThat(StoredUrl.href("\\\\evil.example\\reg.pdf")).as("the backslash form a browser reads the same way").isNull();
+		assertThat(StoredUrl.href("/uploads/a.pdf")).as("one slash is still a path here").isEqualTo("/uploads/a.pdf");
+	}
+
 }

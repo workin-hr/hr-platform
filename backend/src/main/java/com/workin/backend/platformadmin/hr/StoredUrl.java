@@ -8,6 +8,9 @@ import java.util.Locale;
  * <p>Legacy writes a stored URL into an {@code href} as it is. The upload endpoints store their own
  * absolute URL, so nothing they wrote names another scheme; this keeps a {@code javascript:} value
  * written some other way from becoming a link an administrator clicks.
+ *
+ * <p>A value with no scheme is a path on this host, and stays one: {@code //host/path} and
+ * {@code \\host\path} name another origin without naming a scheme, so they are refused too.
  */
 public final class StoredUrl {
 
@@ -23,6 +26,10 @@ public final class StoredUrl {
 			return null;
 		}
 		String url = stored.strip();
+		// Protocol-relative, and its backslash form, which browsers read the same way.
+		if (url.startsWith("//") || url.startsWith("\\\\")) {
+			return null;
+		}
 		int colon = url.indexOf(':');
 		int path = -1;
 		for (char separator : new char[] {'/', '?', '#'}) {
