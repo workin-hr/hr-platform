@@ -775,8 +775,10 @@ class AdminLayoutWiringTest {
 					continue;
 				}
 				String source = Files.readString(path, StandardCharsets.UTF_8);
-				for (int at = source.indexOf(OPEN_WINDOW); at >= 0;
-						at = source.indexOf(OPEN_WINDOW, at + 1)) {
+				for (int at : serverOpenedWindows(source)) {
+					if (insideAGate(source, at, path)) {
+						continue;
+					}
 					windows++;
 					String window = source.substring(at, endOfWindow(source, at, path));
 					// A window with no Cancel at all would satisfy the loop below vacuously,
@@ -825,8 +827,7 @@ class AdminLayoutWiringTest {
 					continue;
 				}
 				String source = Files.readString(path, StandardCharsets.UTF_8);
-				for (int at = source.indexOf(OPEN_WINDOW); at >= 0;
-						at = source.indexOf(OPEN_WINDOW, at + 1)) {
+				for (int at : serverOpenedWindows(source)) {
 					String window = source.substring(at, endOfWindow(source, at, path));
 					if (!window.contains("role=\"dialog\"") || !window.contains("aria-modal=\"true\"")
 							|| !window.contains("aria-labelledby=")) {
@@ -844,7 +845,42 @@ class AdminLayoutWiringTest {
 			"administrative-decisions", "branch-form", "departments", "employees",
 			"job-titles", "payroll", "shifts", "workforce-planning");
 
-	private static final String OPEN_WINDOW = "<div class=\"modal-bg open\"";
+	/**
+	 * A window that can be on screen when the page loads: its class holds
+	 * {@code open} literally, or a template expression that can render it
+	 * ({@code class="modal-bg${formOpen ? " open" : ""}"}). Matching the
+	 * literal alone left {@code companies.jte} and {@code banners.jte} out of
+	 * both rules entirely (#305's review round 2).
+	 */
+	private static List<Integer> serverOpenedWindows(String source) {
+		List<Integer> starts = new ArrayList<>();
+		for (int at = source.indexOf(WINDOW); at >= 0; at = source.indexOf(WINDOW, at + 1)) {
+			int close = source.indexOf('>', at);
+			if (close > 0 && source.substring(at, close).contains("open")) {
+				starts.add(at);
+			}
+		}
+		return starts;
+	}
+
+	private static final String WINDOW = "<div class=\"modal-bg";
+
+	/**
+	 * Whether the whole window sits inside a gate that removes it, rather than
+	 * rendering with the switch off. {@code banners.jte} writes its window
+	 * inside {@code @if(canWrite)}: with the switch off there is no window at
+	 * all, so it cannot strand anyone and neither rule applies to it.
+	 */
+	private static boolean insideAGate(String source, int at, Path path) {
+		for (String gate : List.of(WRITE_GATE, "@if(actionsEnabled)", "@if(canManage && actionsEnabled)")) {
+			for (int start = source.indexOf(gate); start >= 0; start = source.indexOf(gate, start + 1)) {
+				if (start < at && endOfBlock(source, start, path) > at) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
 
 	private static final String WRITE_GATE = "@if(canWrite)";
 
