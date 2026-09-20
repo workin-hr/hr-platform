@@ -399,6 +399,28 @@ port = {self.emulator.port}
         self.assertTrue(warned, [f.text for f in visited.findings])
         self.assertIn("مفيش ولا سجل جديد اتسجل في السيستم", warned[0].text)
 
+    def test_a_terminal_clock_that_moves_during_the_visit_is_a_finding(self):
+        def check_out_and_the_clock_jumps():
+            self.terminal.add_punch(PIN, in_out=1, verify=15)
+            # What firmware that applies the platform's TimeZone line does to itself.
+            self.terminal.clock_offset = timedelta(hours=1)
+            return ""
+
+        answers = VisitStart() + [
+            ("أنهي جهاز", "2"), ("اكتب IP", f"127.0.0.1:{self.emulator.port}"), ("نوع الجهاز", "1"),
+            ("الستيكر", "1"), ("عدد السجلات", "1"), ("Cloud Server Setting", "1"),
+            ("الجهاز متظبط على إيه", "3"), ("بتتظبط لوحدها", "3"),
+            ("بصمة دخول", lambda: self.terminal.add_punch(PIN, in_out=0, verify=15) and ""),
+            ("Check-Out", check_out_and_the_clock_jumps),
+            ("ملف USB", "1"), ("برنامج", "1"), ("كابل أو switch", "1"),
+        ]
+        console = ScriptedConsole(answers)
+        visited = quick_visit(console, self.lab, self.out)
+        code = visited.run()
+        self.assertEqual(console.answers, [])
+        self.assertEqual(code, 1)
+        self.assertIn("ساعة الجهاز اتغيرت", report_of(self.out))
+
     def test_a_check_out_punch_that_changes_neither_code_to_the_out_value_is_reported_not_guessed(self):
         answers = VisitStart() + [
             ("أنهي جهاز", "2"), ("اكتب IP", f"127.0.0.1:{self.emulator.port}"), ("نوع الجهاز", "1"),

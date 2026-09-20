@@ -726,14 +726,33 @@ class Visit:
         self.sheet["عدد الموظفين"] = str(summary.get("users"))
         self.note("ok", f"الجهاز رد: {summary['serial']}، firmware {summary.get('firmware')}، "
                         f"{summary.get('records')} سجل، {summary.get('users')} موظف")
-        skew = (datetime.fromisoformat(summary["device_time"]) - datetime.fromisoformat(summary["laptop_time"]))
-        seconds = round(skew.total_seconds())
+        seconds = self.clock_skew(summary)
         self.sheet["فرق ساعة الجهاز عن اللابتوب"] = (f"{seconds} ثانية قدام اللابتوب" if seconds > 0 else
                                                   f"{-seconds} ثانية ورا اللابتوب" if seconds < 0 else "مفيش فرق")
         if abs(seconds) > 120:
             self.note("warn", f"ساعة الجهاز بعيدة عن ساعة اللابتوب بـ {abs(seconds)} ثانية",
                       "ماتغيّرهاش (قاعدة 2): اكتبها بس في الـ issue")
         return summary
+
+    def clock_skew(self, summary: dict) -> int:
+        return round((datetime.fromisoformat(summary["device_time"])
+                      - datetime.fromisoformat(summary["laptop_time"])).total_seconds())
+
+    def check_the_clock_did_not_move(self, before: int) -> None:
+        """Rule 2: the visit must not change the terminal's clock. It does not set one -- but the
+        platform sends an allocated terminal its time zone on every handshake, and some firmware
+        applies it. Reading the clock again is the only way to notice that happening."""
+        host, port, key, udp = self.zk_link
+        summary = probe.zk_summary(host, port, key, udp, timeout=8)
+        if "error" in summary or "device_time" not in summary:
+            return
+        moved = self.clock_skew(summary) - before
+        if abs(moved) > 120:
+            self.note("bad", f"ساعة الجهاز اتغيرت {abs(moved)} ثانية من أول الزيارة",
+                      "ماتغيّرهاش إنت: بلّغ العميل، وشوف الـ time zone اللي اتخصص للجهاز، "
+                      "واكتبها في الـ issue فوراً (ده معناه إن الجهاز بيغيّر ساعته من السيستم)")
+        else:
+            self.note("ok", "ساعة الجهاز زي ما كانت من أول الزيارة")
 
     def backup(self, serial: str) -> bool:
         host, port, key, udp = self.zk_link
@@ -767,6 +786,7 @@ class Visit:
                         f"\n[[devices]]\nserial = {_toml(serial)}\nkind = \"zk\"\nhost = {_toml(host)}\n"
                         f"port = {port}\ncomm_key = {key}\nudp = {'true' if udp else 'false'}\n", encoding="utf-8")
         self.send_twice(path)
+        self.check_the_clock_did_not_move(self.clock_skew(summary))
 
     def find_in_out(self) -> str | None:
         """Runbook 6.3, before anything is sent: which of the record's two codes carries in/out.
