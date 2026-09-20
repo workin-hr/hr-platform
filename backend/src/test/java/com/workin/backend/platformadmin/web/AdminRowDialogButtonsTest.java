@@ -152,7 +152,13 @@ class AdminRowDialogButtonsTest {
 	}
 
 	/**
-	 * The same rule for every window a page writes itself, its add modals included: legacy's add
+	 * Each control is its own labelled cell: no two labels share a {@code .form-row} directly, and
+	 * no two share the innermost classed element around them. Legacy does lay several controls
+	 * across one row -- the employees window's country, phone and password sit in one
+	 * {@code .form-row} as a nested grid ({@code _employee_form.php:90-114}) -- and each of those
+	 * still has its own labelled cell, which is what this reads.
+	 *
+	 * <p>The same rule for every window a page writes itself, its add modals included: legacy's add
 	 * windows write one field to a row too ({@code faqs/page.php:153-217},
 	 * {@code phone_countries/page.php:95-138}, {@code guide_videos/page.php:91-123},
 	 * {@code banners/page.php:111-232}, {@code notifications/page.php:233-296}), and a page's add
@@ -249,7 +255,13 @@ class AdminRowDialogButtonsTest {
 		while (tag.find()) {
 			String token = tag.group();
 			if (token.startsWith("<div")) {
-				rows.push(token.matches("(?s).*class=\"([^\"]*\\s)?form-row(\\s[^\"]*)?\".*") ? tag.start() : -1);
+				// A label belongs to the innermost classed element around it -- its cell -- and to the
+				// row only when it has no cell of its own. Legacy lays three controls across one row
+				// in `_employee_form.php:90-114`, each in its own cell of a nested grid, so counting
+				// per row alone would read that as three fields sharing a row.
+				boolean container = token.matches("(?s).*class=\"([^\"]*\\s)?form-row(\\s[^\"]*)?\".*")
+						|| token.matches("(?s).*\\bclass=\"[^\"]+\".*");
+				rows.push(container ? tag.start() : -1);
 			}
 			else if (token.equals("</div>")) {
 				rows.pop();
@@ -261,7 +273,7 @@ class AdminRowDialogButtonsTest {
 		}
 		labelsPerRow.forEach((row, count) -> {
 			if (count > 1) {
-				offenders.add(where + ": " + count + " labels in one .form-row");
+				offenders.add(where + ": " + count + " labels in one row or cell");
 			}
 		});
 		Matcher label = LABEL.matcher(fields);

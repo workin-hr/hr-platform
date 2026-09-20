@@ -56,9 +56,12 @@ public final class HomeDisplay {
 	 * time, in Arabic with ص and م and in English with PHP's {@code M j, Y g:i A}.
 	 * The port printed the stored timestamp cut to sixteen characters instead --
 	 * an ISO date and a twenty-four-hour clock -- on the home page's activity
-	 * feed and complaints panel, and on the join requests page, which are the
-	 * three places legacy calls this ({@code index.php:160,242},
-	 * {@code home_service.php:1079}, {@code join_requests/page.php:57}).
+	 * feed and complaints panel, and on the join requests page. Legacy calls it
+	 * in four places: {@code index.php:160} and {@code :242} for those two
+	 * panels, {@code home_service.php:1079} for the activity row's own side
+	 * time, and {@code join_requests/page.php:57}. The three ported call sites
+	 * are the ones above; nothing here reads the fourth, which is legacy's own
+	 * feed builder.
 	 *
 	 * <p>Nothing stored is an em dash, and a value no date can be read out of is
 	 * returned as it came, both as legacy's {@code strtotime()} branch does. The
