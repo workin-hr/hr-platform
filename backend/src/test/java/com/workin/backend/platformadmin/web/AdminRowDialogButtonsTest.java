@@ -90,7 +90,7 @@ class AdminRowDialogButtonsTest {
 				while (tag.find()) {
 					String token = tag.group();
 					if (token.startsWith("<div")) {
-						open.push(token.matches("(?s).*class=\"([^\"]*\\s)?form-row(\\s[^\"]*)?\".*"));
+						open.push(hasClass(classesOf(token), "form-row"));
 					}
 					else if (token.equals("</div>")) {
 						assertThat(open).as("%s closes a div it did not open", template.getFileName()).isNotEmpty();
@@ -253,50 +253,66 @@ class AdminRowDialogButtonsTest {
 	}
 
 	/**
-	 * A tag's class attribute as the browser will see it -- its literal text, with every JTE
-	 * expression taken out -- or empty when it has none.
+	 * The value of a tag's own {@code class} attribute as the browser will see it -- its literal
+	 * text, with every JTE expression taken out -- or empty when it has none.
 	 *
-	 * <p>Three shapes were being read as a class that is not one. {@code data-dialog-class="x"} ends
-	 * in {@code class="x"} on a word boundary, so a tag carrying only that attribute counted as a
-	 * cell and released the labels inside it; the attribute has to start where an attribute starts.
-	 * {@code class="${row.cssClass()}"} is text in the template and can render to nothing, so an
-	 * element that is a cell here and no element at all in the browser would do the same. And an
-	 * expression carries its own quotes ({@code class="${t.apply("x")}"}), which a
-	 * {@code class="([^"]*)"} pattern cuts in the middle, leaving half an expression that reads as a
-	 * class. So the value is scanned rather than matched: quotes and braces inside {@code ${...}}
-	 * belong to the expression, and the attribute ends at the first quote outside one.
+	 * <p>Four shapes were being read as a class that is not one, each of which hides an offence
+	 * rather than inventing one. {@code data-dialog-class="x"} ends in {@code class="x"} on a word
+	 * boundary. {@code class="${row.cssClass()}"} is text in the template and can render to nothing.
+	 * An expression carries its own quotes ({@code class="${t.apply("x")}"}), which a
+	 * {@code class="([^"]*)"} pattern cuts in the middle and leaves half an expression reading as a
+	 * class. And a {@code class="..."} sequence inside a different attribute's single-quoted value
+	 * is not this element's class at all. So the tag's attributes are walked in order: a name, then
+	 * a quoted value whose quotes and braces belong to any {@code ${...}} around them, and only the
+	 * one named {@code class} is read.
 	 *
-	 * <p>A tag whose class attribute never closes -- which is what a {@code >} inside an expression
-	 * looks like, because the caller's tag pattern stops there -- fails rather than passing as
-	 * unclassed.
+	 * <p>Two things fail rather than passing as unclassed: an attribute that never closes, which is
+	 * what a {@code >} inside an expression looks like because the caller's tag pattern stops there,
+	 * and -- because the walk only reads quoted values -- an unquoted class, which no template
+	 * writes, simply reads as no class, which is the strict direction.
 	 */
 	private static String classesOf(String tag) {
-		Matcher attribute = CLASS_ATTRIBUTE.matcher(tag);
-		if (!attribute.find()) {
-			return "";
+		Matcher attribute = ATTRIBUTE.matcher(tag);
+		int from = tag.indexOf(' ');
+		while (from >= 0 && attribute.find(from)) {
+			char quote = tag.charAt(attribute.end());
+			StringBuilder value = new StringBuilder();
+			int depth = 0;
+			int at = attribute.end() + 1;
+			for (; at < tag.length(); at++) {
+				char character = tag.charAt(at);
+				if (character == '$' && at + 1 < tag.length() && tag.charAt(at + 1) == '{') {
+					depth++;
+					at++;
+				}
+				else if (depth > 0) {
+					depth += character == '{' ? 1 : character == '}' ? -1 : 0;
+				}
+				else if (character == quote) {
+					break;
+				}
+				else {
+					value.append(character);
+				}
+			}
+			if (at >= tag.length()) {
+				throw new AssertionError("an attribute that never closes: " + tag);
+			}
+			if (attribute.group(1).equals("class")) {
+				return value.toString().replaceAll("\\s+", " ").trim();
+			}
+			from = at + 1;
 		}
-		StringBuilder literal = new StringBuilder();
-		int depth = 0;
-		for (int at = attribute.end(); at < tag.length(); at++) {
-			char character = tag.charAt(at);
-			if (character == '$' && at + 1 < tag.length() && tag.charAt(at + 1) == '{') {
-				depth++;
-				at++;
-			}
-			else if (depth > 0) {
-				depth += character == '{' ? 1 : character == '}' ? -1 : 0;
-			}
-			else if (character == '"') {
-				return literal.toString().replaceAll("\\s+", " ").trim();
-			}
-			else {
-				literal.append(character);
-			}
-		}
-		throw new AssertionError("a class attribute that never closes: " + tag);
+		return "";
 	}
 
-	private static final Pattern CLASS_ATTRIBUTE = Pattern.compile("(?s)\\sclass=\"");
+	/** Whether {@code classes}, as {@link #classesOf} read them, hold {@code name} as a whole class. */
+	private static boolean hasClass(String classes, String name) {
+		return (" " + classes + " ").contains(" " + name + " ");
+	}
+
+	/** An attribute's name, up to the quote its value opens with; a valueless attribute has none. */
+	private static final Pattern ATTRIBUTE = Pattern.compile("(?s)\\s([\\w:@.-]+)=(?=[\"'])");
 
 	private static void checkFormRows(String where, String fields, List<String> offenders, int[] labels) {
 		Deque<Integer> rows = new ArrayDeque<>();
@@ -317,7 +333,7 @@ class AdminRowDialogButtonsTest {
 				// anywhere in a window, which let that bucket through. Round 3 found the reading of
 				// the attribute itself too loose, in both directions: see `classesOf`.
 				String classes = classesOf(token);
-				boolean row = (" " + classes + " ").contains(" form-row ");
+				boolean row = hasClass(classes, "form-row");
 				boolean cell = !row && formRows.contains(Boolean.TRUE) && !classes.isEmpty();
 				rows.push(row || cell ? tag.start() : -1);
 				formRows.push(row);
