@@ -124,9 +124,11 @@ the API already has — and the platform admin acting *as* a company
 must be explicit, audited, and impossible to reach by accident. This is
 the largest risk the decision carries and is tracked as **R-044**.
 
-**`/admin/assets/**` is public.** A stylesheet is not a secret, and
+**`/admin/_assets/**` is public.** A stylesheet is not a secret, and
 inlining 2,500 lines of CSS per page is not an alternative. The prefix
-holds no handler and resolves only against the static classpath;
+holds no controller: only `AdminAssetCaching`'s two resource handlers,
+which resolve against `classpath:/static/admin/_assets/` and nothing
+else, and which decide how each file is cached (**D-266**).
 `PlatformAdminAssetsExposureTest` pins both that the assets are served
 and that the exception reaches nothing else.
 
