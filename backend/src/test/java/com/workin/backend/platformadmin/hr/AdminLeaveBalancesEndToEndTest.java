@@ -173,6 +173,140 @@ class AdminLeaveBalancesEndToEndTest {
 		assertThat(body("/admin/leave_balances?year=2026")).contains("15.5");
 	}
 
+	/**
+	 * page.php:104: the export sits beside the add button and carries the filters the list is
+	 * under, so the file is the list on the screen. Legacy offers it to anyone who can open the
+	 * page, managing rights or not.
+	 */
+	@Test
+	void theExportLinkCarriesTheListsOwnFilters() {
+		assertThat(headActions(body("/admin/leave_balances?year=2026")))
+				.contains("<a href=\"/admin/leave_balances?export=csv&amp;year=2026\""
+						+ " class=\"btn btn-green btn-sm\">" + arabic("export_csv") + "</a>");
+
+		assertThat(headActions(body(
+				"/admin/leave_balances?year=2026&company_id=" + this.companyA + "&search=Aya+A")))
+				.as("every filter the pager carries, and the search encoded as a link encodes it")
+				.contains("<a href=\"/admin/leave_balances?export=csv&amp;search=Aya+A&amp;company_id="
+						+ this.companyA + "&amp;year=2026\"");
+	}
+
+	/**
+	 * hr_export_leave_balances_csv() (hr_list_helper.php:1012-1048) with csv_export_send()
+	 * (query.php:375-405): every row the filter admits, not the page on the screen, ordered by
+	 * the employee's name, as the spreadsheet legacy's button has always downloaded -- the helper
+	 * rewrites its own .csv name to .xlsx (hr-legacy#23).
+	 */
+	@Test
+	void theExportSendsEveryFilteredRowAsLegacysSpreadsheet() {
+		seedBalance(this.employeeA, 2026, "21", "5.5");
+		seedBalance(createEmployee(this.companyA, "A200", "Zeina", "Alpha"), 2026, "10", "1");
+		seedBalance(this.employeeB, 2026, "30", "0");
+		seedBalance(this.employeeA, 2025, "12", "0");
+
+		ResponseEntity<byte[]> response = getBytes(
+				"/admin/leave_balances?export=csv&company_id=" + this.companyA + "&year=2026&per_page=1");
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getHeaders().getContentType()).asString()
+				.isEqualTo("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+		assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION))
+				.isEqualTo("attachment; filename=\"leave_balances_2026.xlsx\"");
+		assertThat(new String(response.getBody(), 0, 2, java.nio.charset.StandardCharsets.US_ASCII))
+				.as("XLSX is a ZIP container").isEqualTo("PK");
+
+		List<List<String>> rows = sheetRows(response.getBody());
+		assertThat(rows.get(0)).as("legacy's six headers, in the page's language").containsExactly(
+				arabic("emp_code"), arabic("employee_name"), arabic("year"),
+				arabic("total_days"), arabic("used_days"), arabic("remaining_days"));
+		assertThat(rows.subList(1, rows.size()))
+				.as("both of this company's 2026 rows, by employee name, whatever the page size")
+				.containsExactly(
+						List.of("A100", "Aya Alpha", "2026", "21.0", "5.5", "15.5"),
+						List.of("A200", "Zeina Alpha", "2026", "10.0", "1.0", "9.0"));
+	}
+
+	/** The filter is the boundary: another company's balances are not in this company's file. */
+	@Test
+	void theExportNeverReachesPastTheFilter() {
+		seedBalance(this.employeeA, 2026, "21", "0");
+		seedBalance(this.employeeB, 2026, "30", "0");
+
+		List<List<String>> alpha = sheetRows(getBytes(
+				"/admin/leave_balances?export=csv&company_id=" + this.companyA + "&year=2026").getBody());
+		assertThat(alpha).as("a header and Alpha's one employee").hasSize(2);
+		assertThat(alpha.get(1)).contains("Aya Alpha").doesNotContain("Basma Beta");
+
+		assertThat(sheetRows(getBytes("/admin/leave_balances?export=csv&company_id=&year=2026").getBody()))
+				.as("unfiltered, an administrator's file holds both companies")
+				.hasSize(3);
+	}
+
+	/** An empty list exports the headers and nothing else, rather than failing. */
+	@Test
+	void anEmptyListStillExports() {
+		List<List<String>> rows = sheetRows(
+				getBytes("/admin/leave_balances?export=csv&year=2026").getBody());
+		assertThat(rows).hasSize(1);
+		assertThat(rows.get(0)).first().isEqualTo(arabic("emp_code"));
+	}
+
+	/** The actions beside the list's title. */
+	private static String headActions(String html) {
+		Matcher actions = Pattern.compile("(?s)<div class=\"data-table-head__actions\">.*?</div>")
+				.matcher(html);
+		assertThat(actions.find()).as("the list's head actions").isTrue();
+		return actions.group();
+	}
+
+	private ResponseEntity<byte[]> getBytes(String path) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.add(HttpHeaders.COOKIE, "WORKIN_ADMIN_SESSION=" + this.cookie);
+		return this.restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(headers), byte[].class);
+	}
+
+	/** The workbook's one sheet, row by row, each cell's inline string. */
+	private static List<List<String>> sheetRows(byte[] workbook) {
+		String sheet = null;
+		try (java.util.zip.ZipInputStream zip = new java.util.zip.ZipInputStream(
+				new java.io.ByteArrayInputStream(workbook))) {
+			for (java.util.zip.ZipEntry entry = zip.getNextEntry(); entry != null;
+					entry = zip.getNextEntry()) {
+				if ("xl/worksheets/sheet1.xml".equals(entry.getName())) {
+					sheet = new String(zip.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+				}
+			}
+		} catch (java.io.IOException ex) {
+			throw new AssertionError("the response is not a readable ZIP container", ex);
+		}
+		assertThat(sheet).as("the workbook's sheet").isNotNull();
+		List<List<String>> rows = new ArrayList<>();
+		Matcher row = Pattern.compile("(?s)<row\\b.*?</row>").matcher(sheet);
+		while (row.find()) {
+			List<String> cells = new ArrayList<>();
+			Matcher cell = Pattern.compile("(?s)<is><t[^>]*>(.*?)</t></is>").matcher(row.group());
+			while (cell.find()) {
+				cells.add(HtmlUtils.htmlUnescape(cell.group(1)));
+			}
+			rows.add(cells);
+		}
+		return rows;
+	}
+
+	/** One label as the dashboard's default language renders it. */
+	private static String arabic(String key) {
+		java.util.Properties catalogue = new java.util.Properties();
+		try (java.io.InputStream in = AdminLeaveBalancesEndToEndTest.class
+				.getResourceAsStream("/i18n/admin-messages_ar.properties")) {
+			catalogue.load(new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8));
+		} catch (java.io.IOException ex) {
+			throw new java.io.UncheckedIOException(ex);
+		}
+		String value = catalogue.getProperty(key);
+		assertThat(value).as("the catalogue's %s", key).isNotNull();
+		return value;
+	}
+
 	@Test
 	void editingUpdatesBothDayCounts() {
 		long id = seedBalance(this.employeeA, 2026, "21", "0");

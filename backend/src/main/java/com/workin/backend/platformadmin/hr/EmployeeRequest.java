@@ -17,12 +17,6 @@ public record EmployeeRequest(
 		String toDate, String fromTime, String toTime, String notes, String reply,
 		String decidedAt, String createdAt) {
 
-	/** {@code substr((string) $row['created_at'], 0, 10)}. */
-	public String createdDate() {
-		return this.createdAt == null
-				? "" : this.createdAt.substring(0, Math.min(10, this.createdAt.length()));
-	}
-
 	public boolean isPending() {
 		return "pending".equals(this.status);
 	}

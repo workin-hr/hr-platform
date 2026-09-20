@@ -1,7 +1,14 @@
 package com.workin.backend.platformadmin.web;
 
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+
 import jakarta.servlet.http.HttpServletRequest;
 
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -15,6 +22,7 @@ import com.workin.backend.platformadmin.hr.LeaveBalanceAdminService;
 import com.workin.backend.platformadmin.hr.LeaveBalanceStore;
 import com.workin.legacy.LegacyClock;
 import com.workin.legacy.PhpCast;
+import com.workin.legacy.spreadsheet.LegacyXlsxWriter;
 
 /**
  * {@code dashboard/pages/leave_balances/page.php}, the first of the HR pages.
@@ -30,6 +38,19 @@ public class AdminLeaveBalancesController {
 	private static final String VIEW = "admin/leave-balances";
 
 	private static final String PATH = PlatformAdminWebSecurityConfig.LEAVE_BALANCES_PATH;
+
+	/**
+	 * What {@code csv_export_send()} actually sends ({@code query.php:375-405}).
+	 *
+	 * <p>The button says CSV and the file is a spreadsheet: the helper rewrites
+	 * a {@code .csv} name to {@code .xlsx} and sends the OOXML type
+	 * ({@code hr-legacy#23}). Reproduced rather than corrected, because what
+	 * #23 asks for -- a content type and an extension that match the bytes --
+	 * is already true here; only the button's wording is legacy's, and changing
+	 * a label is a decision for the owner, not for this port.
+	 */
+	private static final MediaType XLSX = MediaType.parseMediaType(
+			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 
 	private final LeaveBalanceStore store;
 
@@ -74,6 +95,49 @@ public class AdminLeaveBalancesController {
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
 		model.addAttribute("errorKey", error);
 		return VIEW;
+	}
+
+	/**
+	 * {@code hr_export_leave_balances_csv()} ({@code leave_balances/page.php:7-9}):
+	 * the list this page is showing, as a spreadsheet, before anything is
+	 * rendered.
+	 *
+	 * <p>Legacy exports every row the filter admits, not the page on the
+	 * screen, and orders them by employee name rather than newest first. Both
+	 * are reproduced. The scoping is not relaxed for it: the same
+	 * {@link DashboardListFilters} the page reads, so an administrator filtered
+	 * to one company exports that company, and a session bound to one company
+	 * can export no other.
+	 *
+	 * <p>If it fails, the operator sees the dashboard's error page rather than
+	 * a download, and the request appears in the access log as a 500 on
+	 * {@code /admin/leave_balances?export=csv}; nothing is written either way.
+	 */
+	@AuthenticatedUseCase(reason = "One company's annual leave balances, or every "
+			+ "company's, as a spreadsheet. Read-only, and narrowed by exactly the "
+			+ "filter that narrows the page.")
+	@GetMapping(value = PATH, params = "export=csv")
+	public ResponseEntity<byte[]> export(
+			@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
+			HttpServletRequest request, Model model) {
+
+		DashboardSession session = (DashboardSession) model.getAttribute("session");
+		DashboardListFilters filters = DashboardListFilters.read(session, request);
+		int year = year(request.getParameter("year"), this.clock.now().getYear());
+		Function<String, String> t = AdminFlash.t(model);
+
+		byte[] body = LegacyXlsxWriter.build(
+				List.of(t.apply("emp_code"), t.apply("employee_name"), t.apply("year"),
+						t.apply("total_days"), t.apply("used_days"), t.apply("remaining_days")),
+				this.store.exportRows(filters, year),
+				// csv_export_send()'s own sheet name and default options.
+				"Export", List.of(), List.of(), 1, Map.of());
+
+		return ResponseEntity.ok()
+				.contentType(XLSX)
+				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\""
+						+ LegacyXlsxWriter.sanitizeFilename("leave_balances_" + year + ".xlsx") + "\"")
+				.body(body);
 	}
 
 	/**
