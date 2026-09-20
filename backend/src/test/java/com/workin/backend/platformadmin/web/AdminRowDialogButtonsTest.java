@@ -318,8 +318,14 @@ class AdminRowDialogButtonsTest {
 		return "";
 	}
 
-	/** Stands in for a JTE expression's unknown rendered text inside a {@code class} value. */
-	private static final char EXPRESSION_MARKER = '￿';
+	/**
+	 * Stands in for a JTE expression's unknown rendered text inside a {@code class} value.
+	 *
+	 * <p>{@code U+FFFF} is a noncharacter: no template can contain one, so it cannot collide with
+	 * real class text. It is written as an escape rather than as itself, because a literal
+	 * noncharacter in source is invisible and an editor may drop it.
+	 */
+	private static final char EXPRESSION_MARKER = '\uFFFF';
 
 	/** Whether {@code classes}, as {@link #classesOf} read them, hold {@code name} as a whole class. */
 	private static boolean hasClass(String classes, String name) {
