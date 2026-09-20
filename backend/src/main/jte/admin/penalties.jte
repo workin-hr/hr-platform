@@ -1,5 +1,6 @@
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.hr.EmployeeDisplay
 @import com.workin.backend.platformadmin.hr.ListDisplay
 @import com.workin.backend.platformadmin.hr.Penalty
 @import com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption
@@ -114,10 +115,13 @@
 				<tbody>
 					@for(int index = 0; index < result.data().size(); index++)
 						!{Penalty row = result.data().get(index);}
+						<%-- dashboard_employee_display_name(): a blank name reads as an em dash, in
+						     the cell and in the row's actions (hr_list_helper.php:69, 660). --%>
+						!{String employeeName = EmployeeDisplay.displayName(row.employeeName(), "—");}
 						<tr>
 							<td>${result.from() + index}</td>
 							<td class="text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
-							<td class="bold">${row.employeeName()}</td>
+							<td class="bold">${employeeName}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
@@ -146,9 +150,9 @@
 											<button type="button" role="menuitem" class="row-actions__item"
 													data-dialog="penalty-edit"
 													data-dialog-id="${row.id()}"
-													data-dialog-subject="${row.employeeName()}"
+													data-dialog-subject="${employeeName}"
 													data-dialog-employee_id="${row.employeeId()}"
-													data-dialog-employee_label="${EmployeePicker.label(row.employeeName(), row.employeeCode(), null)}"
+													data-dialog-employee_label="${EmployeePicker.label(employeeName, row.employeeCode(), null)}"
 													data-dialog-penalty_type="${row.penaltyType()}"
 													data-dialog-penalty_days="${row.daysDisplay()}"
 													data-dialog-penalty_date="${row.penaltyDate() == null ? "" : row.penaltyDate()}"

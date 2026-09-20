@@ -1,5 +1,6 @@
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.hr.EmployeeDisplay
 @import com.workin.backend.platformadmin.hr.PayrollDisplay
 @import com.workin.backend.platformadmin.hr.PayrollRecord
 @import com.workin.backend.platformadmin.web.DashboardListFilters
@@ -77,6 +78,8 @@
 			     stylesheet defines here or in legacy. --%>
 			<div class="modal-bg open">
 				<div class="modal">
+					<%-- page.php:335 titles it with the name its SQL returns, not through
+					     dashboard_employee_display_name(), so a blank one stays blank. --%>
 					<h2>${t.apply("edit")} — ${editDetail.employeeName()}</h2>
 					<form method="POST">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -238,7 +241,9 @@
 					<tbody>
 						@for(java.util.Map<String, Object> row : detailResult.data())
 							<tr>
-								<td class="bold">${String.valueOf(row.get("employee_name"))}
+								<%-- hr_render_table_employee_cells() (page.php:281): a blank name reads as
+								     dashboard_employee_display_name()'s em dash. --%>
+								<td class="bold">${EmployeeDisplay.displayName((String) row.get("employee_name"), "—")}
 									<span class="text-muted">${String.valueOf(row.get("emp_code"))}</span></td>
 								<td class="text-muted">${cell.apply(row, "branch_name")}</td>
 								<td class="text-muted">${cell.apply(row, "department_name")}</td>
