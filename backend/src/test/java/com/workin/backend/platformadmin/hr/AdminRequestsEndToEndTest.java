@@ -130,8 +130,9 @@ class AdminRequestsEndToEndTest {
 	 * (:119-132) -- so the table read one column wider than the dashboard it replaces, and the
 	 * empty row spanned one column too many.
 	 *
-	 * <p>The company column is the port's own, for the administrator's unfiltered view, and is
-	 * the thirteenth only when there is no company filter.
+	 * <p>The company column is the port's own, for the administrator's unfiltered view. It is a
+	 * thirteenth column, but not the last one: it renders fourth, straight after the employee's
+	 * name (`requests.jte:124`), and only when no company is chosen.
 	 */
 	@Test
 	void theTableCarriesLegacysTwelveColumnsAndNotTheRegistrationDate() {
@@ -151,8 +152,12 @@ class AdminRequestsEndToEndTest {
 		assertThat(body("/admin/requests?company_id=" + this.companyA + "&search=nobody"))
 				.contains("<td colspan=\"12\" class=\"data-table-empty\">");
 		assertThat(headers(body("/admin/requests?company_id=")))
-				.as("unfiltered, the port's own company column joins them")
-				.hasSize(13).contains(arabic("company"));
+				.as("unfiltered, the port's own company column joins them fourth")
+				.containsExactly(
+						"#", arabic("emp_code"), arabic("employee_name"), arabic("company"),
+						arabic("request_type"), arabic("from_date"), arabic("to_date"),
+						arabic("from_time"), arabic("to_time"), arabic("request_notes"),
+						arabic("decision_reply"), arabic("status"), arabic("actions"));
 	}
 
 	/**

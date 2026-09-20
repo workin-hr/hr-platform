@@ -143,10 +143,16 @@ public class LeaveBalanceStore {
 	 * -- {@code dashboard_employee_order_by_sql('e')}, the employee's name,
 	 * rather than the newest-first order the table uses.
 	 *
-	 * <p>One query, no {@code LIMIT}: the row count is one per employee per
-	 * year inside the filter, so the largest export is the platform's employee
-	 * count (2,871 at the migration baseline) rather than anything that grows
-	 * with time.
+	 * <p>One query, no {@code LIMIT}. The intended shape is one row per
+	 * employee per year, which the year filter -- and a company filter when one
+	 * is chosen -- would bound by the employee count rather than by anything
+	 * that grows with time. **That bound is not enforced and has not been
+	 * measured:** `leave_balance` carries no unique key on
+	 * {@code (employee_id, year)} and neither {@link #insert} nor
+	 * {@code LeaveBalanceAdminService.add} refuses a duplicate, so a year can
+	 * hold more rows for an employee than one. #302 carries the measurement,
+	 * which is two read-only counts an operator runs; until it is done, treat
+	 * the size as unknown rather than bounded.
 	 *
 	 * <p>The values are read as the database renders them, which is what PDO
 	 * hands legacy: {@code decimal(5,1)} as {@code "21.0"}.
