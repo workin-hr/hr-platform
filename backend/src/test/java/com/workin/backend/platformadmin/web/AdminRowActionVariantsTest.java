@@ -44,8 +44,6 @@ class AdminRowActionVariantsTest {
 
 	private static final Pattern CLASS = Pattern.compile("class=\"([^\"]*)\"");
 
-	private static final Pattern JTE_COMMENT = Pattern.compile("<%--.*?--%>", Pattern.DOTALL);
-
 	@Test
 	void everyRowMenuActionCarriesLegacysVariant() throws IOException {
 		List<String> missing = new ArrayList<>();
@@ -83,7 +81,7 @@ class AdminRowActionVariantsTest {
 
 	/** The template with its comments blanked, keeping line numbers. */
 	private static String withoutComments(String template) {
-		return JTE_COMMENT.matcher(template).replaceAll(comment -> comment.group().replaceAll("[^\n]", ""));
+		return TemplateText.blankComments(template);
 	}
 
 	private static long lineOf(String text, int index) {

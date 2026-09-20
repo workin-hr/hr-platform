@@ -36,9 +36,6 @@ class AdminTemplateIdsTest {
 
 	private static final Pattern ID = Pattern.compile("\\sid=\"([A-Za-z][\\w-]*)\"");
 
-	/** A template comment, which renders nothing and so writes no id. */
-	private static final Pattern JTE_COMMENT = Pattern.compile("(?s)<%--.*?--%>");
-
 	@Test
 	void noTemplateWritesTheSameIdTwice() throws IOException {
 		Map<String, List<String>> duplicates = new LinkedHashMap<>();
@@ -46,8 +43,8 @@ class AdminTemplateIdsTest {
 		try (var files = Files.list(TEMPLATES)) {
 			for (Path template : files.filter(file -> file.toString().endsWith(".jte")).sorted().toList()) {
 				Map<String, Integer> seen = new LinkedHashMap<>();
-				String source = JTE_COMMENT.matcher(
-						Files.readString(template, StandardCharsets.UTF_8)).replaceAll("");
+				String source = TemplateText.withoutComments(
+						Files.readString(template, StandardCharsets.UTF_8));
 				Matcher id = ID.matcher(source);
 				while (id.find()) {
 					ids++;

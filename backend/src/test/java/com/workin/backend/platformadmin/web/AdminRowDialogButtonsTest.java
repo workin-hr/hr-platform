@@ -34,12 +34,10 @@ class AdminRowDialogButtonsTest {
 
 	private static final Pattern SUBMIT = Pattern.compile("type=\"submit\"");
 
-	private static final Pattern JTE_COMMENT = Pattern.compile("<%--.*?--%>", Pattern.DOTALL);
-
 	@Test
 	void theWindowIsLegacysModalAndSaveIsItsOnlySubmitButton() throws IOException {
 		// The markup only: the template's comments explain the old dialog, by name.
-		String template = JTE_COMMENT.matcher(Files.readString(ROW_DIALOG, StandardCharsets.UTF_8)).replaceAll("");
+		String template = TemplateText.withoutComments(Files.readString(ROW_DIALOG, StandardCharsets.UTF_8));
 
 		assertThat(template)
 				.as("legacy's window, which crud.js and modal-a11y.js open, close and make keyboard-usable")
@@ -142,7 +140,7 @@ class AdminRowDialogButtonsTest {
 		for (Path template : templates()) {
 			Matcher call = CALL.matcher(Files.readString(template, StandardCharsets.UTF_8));
 			while (call.find()) {
-				String fields = JTE_COMMENT.matcher(call.group(2)).replaceAll("");
+				String fields = TemplateText.withoutComments(call.group(2));
 				String where = template.getFileName() + " " + call.group(1).replaceAll("\\s+", " ").trim();
 				checkFormRows(where, fields, offenders, labels);
 			}
@@ -178,7 +176,7 @@ class AdminRowDialogButtonsTest {
 		int[] labels = {0};
 		int written = 0;
 		for (Path template : templates()) {
-			String source = JTE_COMMENT.matcher(Files.readString(template, StandardCharsets.UTF_8)).replaceAll("");
+			String source = TemplateText.withoutComments(Files.readString(template, StandardCharsets.UTF_8));
 			written += (int) Pattern.compile("\\bmodal-bg\\b").matcher(source).results().count();
 			for (int at = source.indexOf(WINDOW); at >= 0; at = source.indexOf(WINDOW, at + 1)) {
 				// A window's opening tag holds JTE expressions but no markup, so it ends before the next '<'.

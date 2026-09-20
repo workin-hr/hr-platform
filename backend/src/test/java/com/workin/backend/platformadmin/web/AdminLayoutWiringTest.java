@@ -775,7 +775,7 @@ class AdminLayoutWiringTest {
 					continue;
 				}
 				String source = TemplateText.withoutComments(Files.readString(path, StandardCharsets.UTF_8));
-				for (int at : serverOpenedWindows(source)) {
+				for (int at : serverOpenedWindows(source, path)) {
 					if (insideAGate(source, at, path)) {
 						continue;
 					}
@@ -787,10 +787,11 @@ class AdminLayoutWiringTest {
 					if (!window.contains(CANCEL)) {
 						without.add(fileName(path));
 					}
-					for (int gate = window.indexOf(WRITE_GATE); gate >= 0;
-							gate = window.indexOf(WRITE_GATE, gate + 1)) {
-						if (window.substring(gate, endOfBlock(window, gate, path)).contains(CANCEL)) {
-							gated.add(fileName(path));
+					for (String gate : ACTION_GATES) {
+						for (int at2 = window.indexOf(gate); at2 >= 0; at2 = window.indexOf(gate, at2 + 1)) {
+							if (window.substring(at2, endOfBlock(window, at2, path)).contains(CANCEL)) {
+								gated.add(fileName(path));
+							}
 						}
 					}
 				}
@@ -827,7 +828,7 @@ class AdminLayoutWiringTest {
 					continue;
 				}
 				String source = TemplateText.withoutComments(Files.readString(path, StandardCharsets.UTF_8));
-				for (int at : serverOpenedWindows(source)) {
+				for (int at : serverOpenedWindows(source, path)) {
 					String window = source.substring(at, endOfWindow(source, at, path));
 					if (!window.contains("role=\"dialog\"") || !window.contains("aria-modal=\"true\"")
 							|| !window.contains("aria-labelledby=")) {
@@ -846,32 +847,47 @@ class AdminLayoutWiringTest {
 			"job-titles", "payroll", "shifts", "workforce-planning");
 
 	/**
-	 * A window that can be on screen when the page loads: its class holds
-	 * {@code open} literally, or a template expression that can render it
-	 * ({@code class="modal-bg${formOpen ? " open" : ""}"}). Matching the
-	 * literal alone left {@code companies.jte} and {@code banners.jte} out of
-	 * both rules entirely (#305's review round 2).
+	 * The shapes the scan must and must not enrol, which the templates cannot ask
+	 * it: every window written today is a plain {@code modal-bg open} or the built
+	 * form, so a scan that went back to matching substrings would stay green while
+	 * enrolling a dropdown that happens to be open (#305's review round 4).
 	 */
+	@Test
+	void theWindowScanReadsWholeClassTokens() {
+		Path synthetic = Path.of("synthetic.jte");
+		assertThat(serverOpenedWindows("<div class=\"modal-bg open\">", synthetic))
+				.as("written open").hasSize(1);
+		assertThat(serverOpenedWindows("<div class=\"modal-bg${formOpen ? \" open\" : \"\"}\">", synthetic))
+				.as("built open, which companies.jte and banners.jte write").hasSize(1);
+		assertThat(serverOpenedWindows("<div class=\"modal-bg-open\">", synthetic))
+				.as("one hyphenated class, not two").isEmpty();
+		assertThat(serverOpenedWindows("<div class=\"modal-bg dropdown-open\">", synthetic))
+				.as("a dropdown that is open, inside a window that is not").isEmpty();
+		assertThat(serverOpenedWindows("<div data-open-label=\"x\" class=\"modal-bg\">", synthetic))
+				.as("open in another attribute entirely").isEmpty();
+	}
+
 	/**
 	 * Where each window that can be on screen when the page loads begins.
 	 *
 	 * <p>Its class holds {@code modal-bg} and can render {@code open}: written
 	 * literally, or built ({@code class="modal-bg${formOpen ? " open" : ""}"},
 	 * which {@code companies.jte} and {@code banners.jte} do). The class is read
-	 * by {@link TemplateText#rawClassOf(String)}, so an expression's own quotes do
+	 * by {@link TemplateText#rawClassOf(String, Object)}, so an expression's own quotes do
 	 * not cut the value in half and {@code open} in some other attribute does not
 	 * enrol a window the server never opens -- both of which a fixed prefix and a
 	 * naive attribute pattern got wrong in turn (#305's rounds 2 and 3).
 	 */
-	private static List<Integer> serverOpenedWindows(String source) {
+	private static List<Integer> serverOpenedWindows(String source, Path path) {
 		List<Integer> starts = new ArrayList<>();
 		Matcher tag = DIV.matcher(source);
 		while (tag.find()) {
 			// The raw class, expressions included: this asks what the class *could* be,
 			// not what it certainly is, because a window built as
 			// `class="modal-bg${formOpen ? " open" : ""}"` is one of these.
-			String classes = TemplateText.rawClassOf(tag.group());
-			if (classes.contains("modal-bg") && classes.contains("open")) {
+			String classes = TemplateText.rawClassOf(tag.group(), path);
+			// Whole class tokens: `modal-bg-open` and `dropdown-open` are not this window.
+			if (CLASS_MODAL_BG.matcher(classes).find() && CLASS_OPEN.matcher(classes).find()) {
 				starts.add(tag.start());
 			}
 		}
@@ -880,6 +896,10 @@ class AdminLayoutWiringTest {
 
 	private static final Pattern DIV = Pattern.compile("(?s)<div\\b[^>]*>");
 
+	private static final Pattern CLASS_MODAL_BG = Pattern.compile("(?<![\\w-])modal-bg(?![\\w-])");
+
+	private static final Pattern CLASS_OPEN = Pattern.compile("(?<![\\w-])open(?![\\w-])");
+
 	/**
 	 * Whether the whole window sits inside a gate that removes it, rather than
 	 * rendering with the switch off. {@code banners.jte} writes its window
@@ -887,15 +907,21 @@ class AdminLayoutWiringTest {
 	 * all, so it cannot strand anyone and neither rule applies to it.
 	 */
 	private static boolean insideAGate(String source, int at, Path path) {
-		for (String gate : List.of(WRITE_GATE, "@if(actionsEnabled)")) {
+		for (String gate : ACTION_GATES) {
 			for (int start = source.indexOf(gate); start >= 0; start = source.indexOf(gate, start + 1)) {
 				int end = endOfBlock(source, start, path);
 				// Only the gate's own arm. A window in the `@else` renders exactly when the
 				// switch is OFF, which is the case these rules exist for, so skipping it
 				// would be the one direction that hides a defect (#305's review round 3).
-				int otherwise = source.indexOf("@else", start);
-				if (otherwise > 0 && otherwise < end && depthAt(source, start, otherwise) == 1) {
-					end = otherwise;
+				for (int otherwise = source.indexOf("@else", start); otherwise > 0 && otherwise < end;
+						otherwise = source.indexOf("@else", otherwise + 1)) {
+					// The gate's OWN else, which is the first at depth 1: an `@else` belonging to
+					// an `@if` nested inside it sits deeper, and taking that one would end the arm
+					// early and skip a window the switch does render (round 4).
+					if (depthAt(source, start, otherwise) == 1) {
+						end = otherwise;
+						break;
+					}
 				}
 				if (start < at && end > at) {
 					return true;
@@ -915,7 +941,13 @@ class AdminLayoutWiringTest {
 		return depth;
 	}
 
-	private static final String WRITE_GATE = "@if(canWrite)";
+	/**
+	 * Both spellings of the actions switch a template writes. Round 4 found the
+	 * in-window scan below knowing only the first while {@link #insideAGate} knew
+	 * both, so a Cancel wrapped in {@code @if(actionsEnabled)} -- thirteen live
+	 * occurrences across six templates -- passed the rule named after that switch.
+	 */
+	private static final List<String> ACTION_GATES = List.of("@if(canWrite)", "@if(actionsEnabled)");
 
 	private static final String CANCEL = "t.apply(\"cancel\")";
 
