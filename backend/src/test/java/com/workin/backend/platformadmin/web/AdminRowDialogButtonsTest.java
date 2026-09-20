@@ -90,7 +90,7 @@ class AdminRowDialogButtonsTest {
 				while (tag.find()) {
 					String token = tag.group();
 					if (token.startsWith("<div")) {
-						open.push(token.matches("(?s).*class=\"([^\"]*\\s)?form-row(\\s[^\"]*)?\".*"));
+						open.push(hasClass(classesOf(token), "form-row"));
 					}
 					else if (token.equals("</div>")) {
 						assertThat(open).as("%s closes a div it did not open", template.getFileName()).isNotEmpty();
@@ -152,7 +152,17 @@ class AdminRowDialogButtonsTest {
 	}
 
 	/**
-	 * The same rule for every window a page writes itself, its add modals included: legacy's add
+	 * Each control is its own labelled cell. A label belongs to the innermost element that is a
+	 * cell around it, and two labels in one of those is the offence: two directly in a
+	 * {@code .form-row}, two in one classed element inside a {@code .form-row}, or two loose in a
+	 * window with no {@code .form-row} around them at all. Legacy does lay several controls across
+	 * one row -- the employees window's country, phone and password sit in one {@code .form-row} as
+	 * a nested grid ({@code _employee_form.php:90-114}) -- and each of those still has its own
+	 * labelled cell, which is what this reads. A classed element counts as a cell only inside a
+	 * {@code .form-row}: #297's review found the first form of this rule made every classed element
+	 * a cell anywhere in a window, which let two loose labels through.
+	 *
+	 * <p>The same rule for every window a page writes itself, its add modals included: legacy's add
 	 * windows write one field to a row too ({@code faqs/page.php:153-217},
 	 * {@code phone_countries/page.php:95-138}, {@code guide_videos/page.php:91-123},
 	 * {@code banners/page.php:111-232}, {@code notifications/page.php:233-296}), and a page's add
@@ -242,17 +252,95 @@ class AdminRowDialogButtonsTest {
 		assertThat(inputs).isEmpty();
 	}
 
+	/**
+	 * The value of a tag's own {@code class} attribute as the browser will see it -- its literal
+	 * text, with every JTE expression taken out -- or empty when it has none.
+	 *
+	 * <p>Four shapes were being read as a class that is not one, each of which hides an offence
+	 * rather than inventing one. {@code data-dialog-class="x"} ends in {@code class="x"} on a word
+	 * boundary. {@code class="${row.cssClass()}"} is text in the template and can render to nothing.
+	 * An expression carries its own quotes ({@code class="${t.apply("x")}"}), which a
+	 * {@code class="([^"]*)"} pattern cuts in the middle and leaves half an expression reading as a
+	 * class. And a {@code class="..."} sequence inside a different attribute's single-quoted value
+	 * is not this element's class at all. So the tag's attributes are walked in order: a name, then
+	 * a quoted value whose quotes and braces belong to any {@code ${...}} around them, and only the
+	 * one named {@code class} is read.
+	 *
+	 * <p>Two things fail rather than passing as unclassed: an attribute that never closes, which is
+	 * what a {@code >} inside an expression looks like because the caller's tag pattern stops there,
+	 * and -- because the walk only reads quoted values -- an unquoted class, which no template
+	 * writes, simply reads as no class, which is the strict direction.
+	 */
+	private static String classesOf(String tag) {
+		Matcher attribute = ATTRIBUTE.matcher(tag);
+		int from = tag.indexOf(' ');
+		while (from >= 0 && attribute.find(from)) {
+			char quote = tag.charAt(attribute.end());
+			StringBuilder value = new StringBuilder();
+			int depth = 0;
+			int at = attribute.end() + 1;
+			for (; at < tag.length(); at++) {
+				char character = tag.charAt(at);
+				if (character == '$' && at + 1 < tag.length() && tag.charAt(at + 1) == '{') {
+					depth++;
+					at++;
+				}
+				else if (depth > 0) {
+					depth += character == '{' ? 1 : character == '}' ? -1 : 0;
+				}
+				else if (character == quote) {
+					break;
+				}
+				else {
+					value.append(character);
+				}
+			}
+			if (at >= tag.length()) {
+				throw new AssertionError("an attribute that never closes: " + tag);
+			}
+			if (attribute.group(1).equals("class")) {
+				return value.toString().replaceAll("\\s+", " ").trim();
+			}
+			from = at + 1;
+		}
+		return "";
+	}
+
+	/** Whether {@code classes}, as {@link #classesOf} read them, hold {@code name} as a whole class. */
+	private static boolean hasClass(String classes, String name) {
+		return (" " + classes + " ").contains(" " + name + " ");
+	}
+
+	/** An attribute's name, up to the quote its value opens with; a valueless attribute has none. */
+	private static final Pattern ATTRIBUTE = Pattern.compile("(?s)\\s([\\w:@.-]+)=(?=[\"'])");
+
 	private static void checkFormRows(String where, String fields, List<String> offenders, int[] labels) {
 		Deque<Integer> rows = new ArrayDeque<>();
+		Deque<Boolean> formRows = new ArrayDeque<>();
 		Map<Integer, Integer> labelsPerRow = new HashMap<>();
 		Matcher tag = Pattern.compile("<div\\b[^>]*>|</div>|<label\\b").matcher(fields);
 		while (tag.find()) {
 			String token = tag.group();
 			if (token.startsWith("<div")) {
-				rows.push(token.matches("(?s).*class=\"([^\"]*\\s)?form-row(\\s[^\"]*)?\".*") ? tag.start() : -1);
+				// A label belongs to the innermost classed element around it -- its cell -- and to the
+				// row only when it has no cell of its own. Legacy lays three controls across one row
+				// in `_employee_form.php:90-114`, each in its own cell of a nested grid, so counting
+				// per row alone would read that as three fields sharing a row.
+				//
+				// A classed div is a cell only INSIDE a `.form-row`. Outside one, labels still fall
+				// together into the "no row" bucket and two of them are still an offence: #297's
+				// review round 2 found the first form of this rule made every classed div a cell
+				// anywhere in a window, which let that bucket through. Round 3 found the reading of
+				// the attribute itself too loose, in both directions: see `classesOf`.
+				String classes = classesOf(token);
+				boolean row = hasClass(classes, "form-row");
+				boolean cell = !row && formRows.contains(Boolean.TRUE) && !classes.isEmpty();
+				rows.push(row || cell ? tag.start() : -1);
+				formRows.push(row);
 			}
 			else if (token.equals("</div>")) {
 				rows.pop();
+				formRows.pop();
 			}
 			else {
 				int row = rows.stream().filter(start -> start >= 0).findFirst().orElse(-1);
@@ -261,7 +349,7 @@ class AdminRowDialogButtonsTest {
 		}
 		labelsPerRow.forEach((row, count) -> {
 			if (count > 1) {
-				offenders.add(where + ": " + count + " labels in one .form-row");
+				offenders.add(where + ": " + count + " labels in one row or cell");
 			}
 		});
 		Matcher label = LABEL.matcher(fields);

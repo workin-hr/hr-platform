@@ -349,12 +349,72 @@ class AdminJoinRequestsEndToEndTest {
 	}
 
 	@Test
-	void theDecisionReturnsToTheFilterItWasMadeFrom() {
+	void aRefusalReturnsToTheFilterItWasMadeFrom() {
+		// page.php:8-10. An approval does not: it goes to the new employee's
+		// form, which is the test below.
 		long id = createJoinRequest(this.companyA, "Wael", "01000000018", "pending");
 		ResponseEntity<String> response = post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
-				"action", "accept_join", "id", String.valueOf(id),
+				"action", "reject_join", "id", String.valueOf(id),
 				"redirect_status", "all");
 		assertThat(response.getHeaders().getLocation().toString()).contains("status=all");
+	}
+
+	/**
+	 * {@code home_service.php:669-673}: an approval flashes {@code approved_ok}
+	 * and hands the operator straight to {@code employees.php?action=edit&id=},
+	 * because a join request carries a name and a phone and nothing else -- no
+	 * code, branch, shift, hire date or salary. The port returned to the list,
+	 * leaving a half-filled employee behind with nothing saying so.
+	 */
+	@Test
+	void anApprovalOpensTheNewEmployeesForm() {
+		long id = createJoinRequest(this.companyA, "Youssef", "01000000020", "pending");
+
+		ResponseEntity<String> response = post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+				"action", "accept_join", "id", String.valueOf(id), "redirect_status", "all");
+
+		assertThat(response.getHeaders().getLocation()).asString()
+				.endsWith("/admin/employees?action=edit&id=" + id);
+		assertThat(statusOf(id)).isEqualTo("accepted");
+
+		String form = get("/admin/employees&action=edit&id=" + id, this.cookie).getBody();
+		assertThat(form).as("the window opens on the employee that was just admitted")
+				.contains("name=\"action\" value=\"save_edit\"")
+				.contains("<input type=\"hidden\" name=\"id\" value=\"" + id + "\">")
+				.contains("Youssef");
+		assertThat(form).as("carrying legacy's flash, which the redirect must not drop")
+				.contains("flash flash-success");
+	}
+
+	/**
+	 * {@code page.php:57}: {@code home_format_datetime()}
+	 * ({@code home_service.php:1043-1072}) -- the day, the month's name, the
+	 * year and a twelve-hour time, Arabic with ص and م. The port printed the
+	 * stored timestamp with its {@code T} swapped for a space.
+	 */
+	@Test
+	void theRequestDateReadsAsLegacyFormatsIt() {
+		long afternoon = createJoinRequest(this.companyA, "Zeinab", "01000000021", "pending");
+		long midnight = createJoinRequest(this.companyA, "Amir", "01000000022", "pending");
+		this.jdbc.update("UPDATE employees SET created_at = '2026-03-05 14:07:00' WHERE id = ?", afternoon);
+		this.jdbc.update("UPDATE employees SET created_at = '2026-12-31 00:30:00' WHERE id = ?", midnight);
+
+		String english = body(PATH);
+		assertThat(english).as("PHP's M j, Y g:i A").contains("<td>Mar 5, 2026 2:07 PM</td>");
+		assertThat(english).as("midnight is twelve, not zero").contains("<td>Dec 31, 2026 12:30 AM</td>");
+		assertThat(english).doesNotContain("2026-03-05 14:07");
+
+		String arabic = bodyInArabic(PATH);
+		assertThat(arabic).contains("<td>5 مارس 2026 2:07 م</td>");
+		assertThat(arabic).contains("<td>31 ديسمبر 2026 12:30 ص</td>");
+	}
+
+	/** The page in Arabic; {@link #body} asks every other request for English. */
+	private String bodyInArabic(String path) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.add(HttpHeaders.COOKIE, "WORKIN_ADMIN_SESSION=" + this.cookie);
+		return this.restTemplate.exchange(path + "?lang=ar", HttpMethod.GET,
+				new HttpEntity<>(headers), String.class).getBody();
 	}
 
 	private String postForm(String... fields) {

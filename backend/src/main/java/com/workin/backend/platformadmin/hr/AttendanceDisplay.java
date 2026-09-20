@@ -119,7 +119,7 @@ public final class AttendanceDisplay {
 	 * ({@code LegacyJdbcValues}). Legacy shows the zero date as "30 November -0001", "Tuesday" and
 	 * "00:00", and {@code 2026-00-10} as "10 December 2025"; each cell here is a dash.
 	 */
-	static LocalDateTime parse(String stored) {
+	public static LocalDateTime parse(String stored) {
 		String normalized = ListDisplay.trim(stored).replace('T', ' ');
 		if (normalized.isEmpty()) {
 			return null;

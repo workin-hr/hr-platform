@@ -189,8 +189,12 @@
 										</div>
 										<p class="home-activity-detail">${row.detail(t, lang)}</p>
 									</div>
-									<span class="home-activity-side">${row.occurredAt() == null
-										? "" : HomeDisplay.dateTime(row.occurredAt().toString())}</span>
+									<%-- home_present_activity()'s side_time (home_service.php:1079):
+									     home_format_datetime() of the punch or request time, so an
+									     em dash when there is none. --%>
+									<span class="home-activity-side">${HomeDisplay.dateTime(
+										row.occurredAt() == null ? null : row.occurredAt().toString(),
+										"ar".equals(lang))}</span>
 								</div>
 							@endfor
 						@endif
@@ -224,7 +228,7 @@
 								!{String who = row.name() == null || row.name().isBlank()
 										? (row.phone() == null || row.phone().isBlank() ? "—" : row.phone())
 										: row.name();}
-								!{String meta = HomeDisplay.dateTime(row.createdAt());}
+								!{String meta = HomeDisplay.dateTime(row.createdAt(), "ar".equals(lang));}
 								!{String company = row.companyName() == null ? "" : row.companyName();}
 								!{String whatsapp = HomeDisplay.whatsapp(row.phone());}
 								<div class="home-join-row">
