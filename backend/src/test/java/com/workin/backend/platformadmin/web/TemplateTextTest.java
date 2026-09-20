@@ -66,6 +66,32 @@ class TemplateTextTest {
 		assertThat(TemplateText.rawClassOf("<div data-open-label=\"x\" class=\"modal\">", "t"))
 				.as("`open` in another attribute is not this element's class").isEqualTo("modal");
 		assertThat(TemplateText.rawClassOf("<div>", "t")).isEmpty();
+		assertThat(TemplateText.rawClassOf("<div\tclass=\"modal-bg open\">", "t"))
+				.as("a tab before the attribute, which #304 found the other accessor missing")
+				.isEqualTo("modal-bg open");
+		assertThat(TemplateText.rawClassOf("<div data-dialog-class=\"x\" class=\"modal-bg open\">", "t"))
+				.as("an attribute whose name merely ends in `class`").isEqualTo("modal-bg open");
+		assertThat(TemplateText.rawClassOf("<div data-help='pick class=\"cell\"' class=\"modal-bg open\">", "t"))
+				.as("a class= sequence inside another attribute's value").isEqualTo("modal-bg open");
+	}
+
+	/**
+	 * What a class can put in front of a browser, which is not the same as what
+	 * its text contains: an expression's code is not rendered, its string
+	 * literals are.
+	 */
+	@Test
+	void possibleClassTextKeepsTheStringsAndDropsTheCode() {
+		assertThat(TemplateText.possibleClassText("modal-bg open")).isEqualTo("modal-bg open");
+		assertThat(TemplateText.possibleClassText("modal-bg${formOpen ? \" open\" : \"\"}"))
+				.as("the string the expression can render").contains("modal-bg").contains("open");
+		assertThat(TemplateText.possibleClassText("modal-bg${row.open() ? 'a' : 'b'}"))
+				.as("a method named open is code, not class text").doesNotContain("open");
+		assertThat(TemplateText.possibleClassText("modal-bg ${state}"))
+				.as("a wholly unknown value renders nothing this can name").isEqualTo("modal-bg ");
+		assertThat(TemplateText.possibleClassText("${t.apply(\"x\")} form-row"))
+				.as("an expression carrying its own quotes, then a literal class")
+				.contains("form-row");
 	}
 
 	/**

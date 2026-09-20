@@ -1,6 +1,7 @@
 package com.workin.backend.platformadmin.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -787,12 +788,8 @@ class AdminLayoutWiringTest {
 					if (!window.contains(CANCEL)) {
 						without.add(fileName(path));
 					}
-					for (String gate : ACTION_GATES) {
-						for (int at2 = window.indexOf(gate); at2 >= 0; at2 = window.indexOf(gate, at2 + 1)) {
-							if (window.substring(at2, endOfBlock(window, at2, path)).contains(CANCEL)) {
-								gated.add(fileName(path));
-							}
-						}
+					if (cancelIsBehindTheSwitch(window, path)) {
+						gated.add(fileName(path));
 					}
 				}
 			}
@@ -865,6 +862,16 @@ class AdminLayoutWiringTest {
 				.as("a dropdown that is open, inside a window that is not").isEmpty();
 		assertThat(serverOpenedWindows("<div data-open-label=\"x\" class=\"modal-bg\">", synthetic))
 				.as("open in another attribute entirely").isEmpty();
+		assertThat(serverOpenedWindows("<div class=\"modal-bg${row.open() ? 'a' : 'b'}\">", synthetic))
+				.as("`open` as a method name in the expression, which renders neither a nor b as it")
+				.isEmpty();
+		assertThat(serverOpenedWindows("<div class=\"modal-bg${row.wide() ? \" open\" : \"\"}\">", synthetic))
+				.as("the same shape where the expression's own string does render it").hasSize(1);
+		// The silent direction, kept deliberately and stated so it is not mistaken for an
+		// oversight: what `${state}` renders is unknown, so a window built that way is not
+		// enrolled. No template writes one; the alternative is enrolling every dynamic class.
+		assertThat(serverOpenedWindows("<div class=\"modal-bg ${state}\">", synthetic))
+				.as("a class whose second token is wholly unknown").isEmpty();
 	}
 
 	/**
@@ -885,7 +892,9 @@ class AdminLayoutWiringTest {
 			// The raw class, expressions included: this asks what the class *could* be,
 			// not what it certainly is, because a window built as
 			// `class="modal-bg${formOpen ? " open" : ""}"` is one of these.
-			String classes = TemplateText.rawClassOf(tag.group(), path);
+			// The class as text that can reach the browser: an expression's string literals,
+			// not its code, so a method named `open()` in it does not enrol a window (round 5).
+			String classes = TemplateText.possibleClassText(TemplateText.rawClassOf(tag.group(), path));
 			// Whole class tokens: `modal-bg-open` and `dropdown-open` are not this window.
 			if (CLASS_MODAL_BG.matcher(classes).find() && CLASS_OPEN.matcher(classes).find()) {
 				starts.add(tag.start());
@@ -905,25 +914,22 @@ class AdminLayoutWiringTest {
 	 * rendering with the switch off. {@code banners.jte} writes its window
 	 * inside {@code @if(canWrite)}: with the switch off there is no window at
 	 * all, so it cannot strand anyone and neither rule applies to it.
+	 *
+	 * <p>Narrow is the safe direction here, which is why this reads only a
+	 * condition that <b>is</b> the switch, where
+	 * {@link #cancelIsBehindTheSwitch} reads any condition that names it.
+	 * Skipping is the permissive direction -- a window skipped is a window no
+	 * rule looks at -- so a condition like {@code @if(canWrite && somethingElse)}
+	 * does not skip it: with the switch off that window may still render.
 	 */
 	private static boolean insideAGate(String source, int at, Path path) {
-		for (String gate : ACTION_GATES) {
+		for (String gate : List.of("@if(canWrite)", "@if(actionsEnabled)")) {
 			for (int start = source.indexOf(gate); start >= 0; start = source.indexOf(gate, start + 1)) {
 				int end = endOfBlock(source, start, path);
 				// Only the gate's own arm. A window in the `@else` renders exactly when the
 				// switch is OFF, which is the case these rules exist for, so skipping it
 				// would be the one direction that hides a defect (#305's review round 3).
-				for (int otherwise = source.indexOf("@else", start); otherwise > 0 && otherwise < end;
-						otherwise = source.indexOf("@else", otherwise + 1)) {
-					// The gate's OWN else, which is the first at depth 1: an `@else` belonging to
-					// an `@if` nested inside it sits deeper, and taking that one would end the arm
-					// early and skip a window the switch does render (round 4).
-					if (depthAt(source, start, otherwise) == 1) {
-						end = otherwise;
-						break;
-					}
-				}
-				if (start < at && end > at) {
+				if (start < at && armEnd(source, start, end) > at) {
 					return true;
 				}
 			}
@@ -942,12 +948,150 @@ class AdminLayoutWiringTest {
 	}
 
 	/**
-	 * Both spellings of the actions switch a template writes. Round 4 found the
-	 * in-window scan below knowing only the first while {@link #insideAGate} knew
-	 * both, so a Cancel wrapped in {@code @if(actionsEnabled)} -- thirteen live
-	 * occurrences across six templates -- passed the rule named after that switch.
+	 * The conditions this rule must read as a gate and the ones it must not,
+	 * which the templates cannot ask it: every window written today gates with a
+	 * bare {@code @if(canWrite)} or nothing at all, so each of the four earlier
+	 * forms of this rule was green against the whole tree while blind to a
+	 * spelling a reviewer then wrote by hand (#305's rounds 1 to 5).
+	 *
+	 * <p>The two false directions are both here: a Cancel written in the gate's
+	 * {@code @else} arm renders exactly when the switch is off and must not be
+	 * reported, and a Cancel in the arm of a negated condition renders only when
+	 * it is on and must be.
 	 */
-	private static final List<String> ACTION_GATES = List.of("@if(canWrite)", "@if(actionsEnabled)");
+	@Test
+	void aCancelBehindTheSwitchIsFoundHoweverTheConditionIsWritten() {
+		Path synthetic = Path.of("synthetic.jte");
+		String cancel = "<a class=\"btn\">${" + CANCEL + "}</a>";
+		assertThat(cancelIsBehindTheSwitch("@if(canWrite)" + cancel + "@endif", synthetic))
+				.as("the plain write gate").isTrue();
+		assertThat(cancelIsBehindTheSwitch("@if(actionsEnabled)" + cancel + "@endif", synthetic))
+				.as("the switch by its other name").isTrue();
+		assertThat(cancelIsBehindTheSwitch("@if(canWrite && qrRow != null)" + cancel + "@endif", synthetic))
+				.as("the switch and something else, which four templates write").isTrue();
+		assertThat(cancelIsBehindTheSwitch("@if(row.ready() && actionsEnabled)" + cancel + "@endif", synthetic))
+				.as("the switch written second").isTrue();
+		assertThat(cancelIsBehindTheSwitch("@if(!canWrite)<span>x</span>@else" + cancel + "@endif", synthetic))
+				.as("negated, so the else arm is the one that needs the switch on").isTrue();
+		assertThat(cancelIsBehindTheSwitch("@if(canWrite)<span>x</span>@else" + cancel + "@endif", synthetic))
+				.as("the correct shape: Cancel exactly when the switch is off").isFalse();
+		assertThat(cancelIsBehindTheSwitch("@if(!canWrite)" + cancel + "@endif", synthetic))
+				.as("negated, Cancel in the arm that renders with the switch off").isFalse();
+		assertThat(cancelIsBehindTheSwitch("@if(row.editable())" + cancel + "@endif", synthetic))
+				.as("a condition that is not about the switch at all").isFalse();
+		assertThat(cancelIsBehindTheSwitch("@if(canWrite)<span>x</span>@endif" + cancel, synthetic))
+				.as("outside the gate, where every window keeps it").isFalse();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(canWrite)@if(row.wide())<span>a</span>@else<span>b</span>@endif@endif" + cancel, synthetic))
+				.as("a nested @else inside the gate does not end its arm early").isFalse();
+		assertThatThrownBy(() -> cancelIsBehindTheSwitch(
+				"@if(canWrite && !actionsEnabled)" + cancel + "@endif", synthetic))
+				.as("a condition naming the switch both ways is not guessed at")
+				.isInstanceOf(AssertionError.class)
+				.hasMessageContaining("synthetic.jte")
+				.hasMessageContaining("both ways");
+	}
+
+	/**
+	 * Whether this window's Cancel renders only when the actions switch is on.
+	 *
+	 * <p>Every {@code @if} in the window is read by its <b>condition</b>, not by
+	 * the text it is written with. Rounds 1 to 5 each found this rule green for a
+	 * Cancel that was gated: the control absent entirely, the window invisible,
+	 * a comment read as markup, {@code @if(actionsEnabled)} unknown to the scan,
+	 * and then {@code @if(canWrite && ...)} -- four spellings of one idea, each
+	 * added to a literal list after a reviewer found it. A condition that names
+	 * the switch is a gate whatever else it says, so a fifth spelling is covered
+	 * without being enumerated.
+	 *
+	 * <p>Polarity decides <em>which arm</em> is the gated one, and both directions
+	 * are real: under {@code @if(canWrite)} the then-arm needs the switch on, and
+	 * under {@code @if(!canWrite)} it is the {@code @else} arm that does. A
+	 * condition naming the switch both ways cannot be read here and fails loudly
+	 * rather than being guessed at.
+	 *
+	 * <p>Broad is the safe direction here, and it is the opposite of
+	 * {@link #insideAGate}'s, which skips a window entirely and so reads only a
+	 * condition that <em>is</em> the switch. They no longer share a list.
+	 */
+	private static boolean cancelIsBehindTheSwitch(String window, Path path) {
+		for (Matcher opening = IF.matcher(window); opening.find(); ) {
+			String condition = conditionAt(window, opening.end() - 1, path);
+			if (!SWITCH.matcher(condition).find()) {
+				continue;
+			}
+			int block = opening.start();
+			int end = endOfBlock(window, block, path);
+			int otherwise = armEnd(window, block, end);
+			// The arm that renders only with the switch on: the `@if` arm for a condition
+			// that names the switch plainly, the `@else` arm for one that negates it.
+			String gatedArm = negatesTheSwitch(condition, path)
+					? window.substring(Math.min(otherwise, end), end)
+					: window.substring(block, otherwise);
+			if (gatedArm.contains(CANCEL)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Where {@code @if}'s own arm ends: its {@code @else} if it has one, else the whole block. */
+	private static int armEnd(String source, int block, int end) {
+		for (int otherwise = source.indexOf("@else", block); otherwise > 0 && otherwise < end;
+				otherwise = source.indexOf("@else", otherwise + 1)) {
+			// The block's OWN else, which is the first at depth 1: an `@else` belonging to an
+			// `@if` nested inside it sits deeper, and taking that one ends the arm early.
+			if (depthAt(source, block, otherwise) == 1) {
+				return otherwise;
+			}
+		}
+		return end;
+	}
+
+	/**
+	 * The condition of the {@code @if} whose opening parenthesis is at {@code open},
+	 * with its own parentheses balanced.
+	 */
+	private static String conditionAt(String source, int open, Path path) {
+		int depth = 0;
+		for (int at = open; at < source.length(); at++) {
+			char character = source.charAt(at);
+			depth += character == '(' ? 1 : character == ')' ? -1 : 0;
+			if (depth == 0) {
+				return source.substring(open + 1, at);
+			}
+		}
+		throw new AssertionError(path.getFileName() + ": an @if condition that never closes at " + open);
+	}
+
+	/** Whether a condition names the switch only negated, so its {@code @else} is the gated arm. */
+	private static boolean negatesTheSwitch(String condition, Path path) {
+		boolean negated = false;
+		boolean plain = false;
+		for (Matcher name = SWITCH.matcher(condition); name.find(); ) {
+			String before = condition.substring(0, name.start()).stripTrailing();
+			boolean thisOne = before.endsWith("!");
+			negated |= thisOne;
+			plain |= !thisOne;
+		}
+		if (negated && plain) {
+			// Which arm needs the switch on is then a question about the whole expression,
+			// which this does not evaluate. No template writes one; if one does, it says so.
+			throw new AssertionError(path.getFileName()
+					+ ": a condition that names the actions switch both ways: " + condition);
+		}
+		return negated;
+	}
+
+	/**
+	 * An {@code @if}'s opening, written exactly as {@link #endOfBlock} and
+	 * {@link #depthAt} count it. No template writes {@code @if (} with a space, and a
+	 * pattern here that accepted one would find a block those two would not count.
+	 */
+	private static final Pattern IF = Pattern.compile("@if\\(");
+
+	/** The switch, by either name a template gives it. `canWrite` is `canManage && actionsEnabled`. */
+	private static final Pattern SWITCH = Pattern.compile("\\b(canWrite|actionsEnabled)\\b");
 
 	private static final String CANCEL = "t.apply(\"cancel\")";
 

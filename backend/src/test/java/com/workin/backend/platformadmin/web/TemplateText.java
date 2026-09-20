@@ -95,6 +95,48 @@ final class TemplateText {
 	}
 
 	/**
+	 * The text a class attribute can put in front of a browser: its literal text, plus the string
+	 * literals written inside its expressions, which are what a conditional expression renders.
+	 *
+	 * <p>{@link #rawClassOf(String, Object)} keeps an expression whole, so a rule looking for a
+	 * class in it also reads the expression's <em>code</em>:
+	 * {@code class="modal-bg${row.open() ? 'a' : 'b'}"} contains the word {@code open} as a method
+	 * name and renders neither {@code a} nor {@code b} as it. Only a string literal inside the
+	 * expression can reach the class, so only those are kept ({@code #305}'s review round 5).
+	 *
+	 * <p>What a value with no literal at all renders stays unknown, and unknown reads as "not this
+	 * class" here -- {@code class="modal-bg ${state}"} is not seen as a window the server opens,
+	 * even though {@code state} may render {@code open}. That is the silent direction and it is the
+	 * trade any rule that reads templates as text makes.
+	 */
+	static String possibleClassText(String rawClass) {
+		StringBuilder text = new StringBuilder();
+		int depth = 0;
+		for (int at = 0; at < rawClass.length(); at++) {
+			char character = rawClass.charAt(at);
+			if (character == '$' && at + 1 < rawClass.length() && rawClass.charAt(at + 1) == '{') {
+				depth++;
+				at++;
+			}
+			else if (depth == 0) {
+				text.append(character);
+			}
+			else if (character == '"' || character == '\'') {
+				int close = rawClass.indexOf(character, at + 1);
+				if (close < 0) {
+					return text.toString();
+				}
+				text.append(' ').append(rawClass, at + 1, close).append(' ');
+				at = close;
+			}
+			else {
+				depth += character == '{' ? 1 : character == '}' ? -1 : 0;
+			}
+		}
+		return text.toString();
+	}
+
+	/**
 	 * The value of a tag's own {@code class} attribute as the browser will see it -- its literal
 	 * text, with every JTE expression taken out -- or empty when it has none.
 	 *
