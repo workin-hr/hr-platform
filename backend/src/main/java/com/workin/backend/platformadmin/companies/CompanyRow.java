@@ -43,7 +43,12 @@ public record CompanyRow(
 	 * <p>{@code trim($name) ?: 'C'}, and PHP's {@code ?:} treats {@code "0"} as empty too.
 	 */
 	public String avatarName() {
-		String trimmed = this.name == null ? "" : this.name.trim();
+		return avatarName(this.name);
+	}
+
+	/** {@link #avatarName()} for a company's stored name; the detail page draws the same fallback. */
+	public static String avatarName(String name) {
+		String trimmed = name == null ? "" : name.trim();
 		return trimmed.isEmpty() || "0".equals(trimmed) ? "C" : trimmed;
 	}
 
@@ -59,12 +64,27 @@ public record CompanyRow(
 		return this.sizeName == null || this.sizeName.isBlank() ? "—" : this.sizeName;
 	}
 
-	public boolean hasLogo() {
-		return this.logoUrl != null && !this.logoUrl.isBlank();
+	/**
+	 * The logo this row loads, or null to draw the initials instead. The detail page's card reads
+	 * the same column through the same rule; see {@code PlatformAdminCompanyDirectory.Profile}.
+	 */
+	public String logoSrc() {
+		return com.workin.backend.platformadmin.hr.StoredUrl.href(this.logoUrl);
 	}
 
-	public boolean hasCommercialReg() {
-		return this.commercialRegUrl != null && !this.commercialRegUrl.isBlank();
+	public boolean hasLogo() {
+		return logoSrc() != null;
+	}
+
+	/**
+	 * The commercial registration's link, or null for none. Legacy's list prefixes any stored value
+	 * that is not http or https with its own host ({@code dashboard_media_url()}), so it never links
+	 * another scheme either -- though it still draws the anchor, where this draws none (D-264).
+	 * {@code page.php:218} gates it on {@code !empty()}, so a stored {@code "0"} draws none.
+	 */
+	public String commercialRegHref() {
+		return "0".equals(this.commercialRegUrl) ? null
+				: com.workin.backend.platformadmin.hr.StoredUrl.href(this.commercialRegUrl);
 	}
 
 	/** {@code company_lookup_activities()} and its two siblings. */

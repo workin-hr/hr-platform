@@ -36,20 +36,64 @@ public class LegacyPlatformAdminCompanyDirectory implements PlatformAdminCompany
 			.toList();
 	}
 
+	/**
+	 * {@code dashboard/pages/companies/detail.php:11-27}, query for query, each scoped to the one
+	 * company. Two changes: the employees table reads its fifteen rows with {@code LIMIT} rather
+	 * than every row, its count being the total already counted; and each ordering ends on the id,
+	 * so rows that tie on legacy's keys come in one order rather than whichever the server returns.
+	 */
 	@Override
 	public java.util.Optional<CompanyDetail> detail(long companyId) {
-		return this.companyRepository.findById(companyId).map(company -> new CompanyDetail(
-				new CompanyView(company.getId(), company.getName(), company.getStatus()),
-				this.jdbc.queryForObject(
-						"SELECT rejection_reason FROM companies WHERE id = ?", String.class, companyId),
+		record Company(CompanyView view, CompanyDetail.Profile profile, String rejectionReason) {
+		}
+		java.util.Optional<Company> found = this.jdbc.query("""
+				SELECT id, company_name, status, phone, email, otp_verified, created_at,
+					logo_url, commercial_reg_url, rejection_reason
+				FROM companies WHERE id = ?""",
+				(rs, row) -> new Company(
+						new CompanyView(rs.getLong("id"), rs.getString("company_name"), rs.getString("status")),
+						new CompanyDetail.Profile(rs.getString("phone"), rs.getString("email"),
+								rs.getInt("otp_verified") != 0, rs.getString("created_at"),
+								rs.getString("logo_url"), rs.getString("commercial_reg_url")),
+						rs.getString("rejection_reason")),
+				companyId).stream().findFirst();
+		return found.map(company -> new CompanyDetail(company.view(), company.profile(),
+				company.rejectionReason(),
+				count("SELECT COUNT(*) FROM employees WHERE company_id = ? AND is_active = 1", companyId),
+				count("SELECT COUNT(*) FROM employees WHERE company_id = ?", companyId),
+				count("SELECT COUNT(DISTINCT a.employee_id) FROM attendance a"
+						+ " JOIN employees e ON e.id = a.employee_id"
+						+ " WHERE e.company_id = ? AND DATE(a.check_in) = CURDATE()", companyId),
 				// Legacy's requests and advances carry no company_id, so the
-				// scope comes through employees -- the same join
-				// dashboard/pages/companies/detail.php uses. Status is lower
-				// case here and upper case on PostgreSQL.
+				// scope comes through employees -- the same join detail.php uses.
 				count("SELECT COUNT(*) FROM requests r JOIN employees e ON e.id = r.employee_id "
 						+ "WHERE e.company_id = ? AND r.status = 'pending'", companyId),
 				count("SELECT COUNT(*) FROM advances a JOIN employees e ON e.id = a.employee_id "
-						+ "WHERE e.company_id = ? AND a.status = 'pending'", companyId)));
+						+ "WHERE e.company_id = ? AND a.status = 'pending'", companyId),
+				this.jdbc.query("SELECT b.name, (SELECT COUNT(*) FROM employees"
+						+ " WHERE branch_id = b.id AND is_active = 1) AS active_employees"
+						+ " FROM branches b WHERE b.company_id = ? ORDER BY b.name, b.id",
+						(rs, row) -> new CompanyDetail.Branch(rs.getString("name"), rs.getLong("active_employees")),
+						companyId),
+				// role is an enum, so ORDER BY reads its declared order:
+				// company_admin, hr, manager.
+				this.jdbc.query("SELECT phone, role FROM employees WHERE company_id = ?"
+						+ " AND role IN ('hr', 'manager', 'company_admin') ORDER BY role, id",
+						(rs, row) -> new CompanyDetail.StaffUser(rs.getString("phone"), rs.getString("role")),
+						companyId),
+				this.jdbc.query("""
+						SELECT e.id,
+							COALESCE(NULLIF(TRIM(e.employee_code), ''), CAST(e.id AS CHAR)) AS emp_code,
+							TRIM(CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, ''))) AS employee_name,
+							e.is_active, e.hire_date, e.phone, b.name AS branch_name
+						FROM employees e LEFT JOIN branches b ON b.id = e.branch_id
+						WHERE e.company_id = ?
+						ORDER BY e.is_active DESC, e.first_name, e.last_name, e.id
+						LIMIT ?""",
+						(rs, row) -> new CompanyDetail.Employee(rs.getLong("id"), rs.getString("emp_code"),
+								rs.getString("employee_name"), rs.getString("phone"), rs.getString("branch_name"),
+								rs.getString("hire_date"), rs.getInt("is_active") != 0),
+						companyId, CompanyDetail.EMPLOYEES_LISTED)));
 	}
 
 	@Override
