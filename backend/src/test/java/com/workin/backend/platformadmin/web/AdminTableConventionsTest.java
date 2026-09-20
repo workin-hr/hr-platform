@@ -366,7 +366,9 @@ class AdminTableConventionsTest {
 			Map.entry("banners.jte", List.of("active", "inactive")),
 			Map.entry("branches.jte", List.of("active", "suspended")),
 			Map.entry("companies.jte", List.of()),
-			Map.entry("company-detail.jte", List.of()),
+			// The OTP flag and each employee's active flag (companies/detail.php:47, :80); the company's
+			// status and each HR user's role pass the row's own (:43, :73).
+			Map.entry("company-detail.jte", List.of("1", "0", "1", "0")),
 			Map.entry("complaints.jte", List.of()),
 			Map.entry("departments.jte", List.of("active", "suspended")),
 			// No legacy page: terminals and agents are on or off, and "inactive" says so.

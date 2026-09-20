@@ -2,7 +2,6 @@ package com.workin.backend.platformadmin.hr;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Locale;
 
 import com.workin.legacy.LegacyValues;
 
@@ -154,30 +153,9 @@ public record EmployeeDetail(
 
 	public record Document(String docType, String fileUrl, String uploadedAt) {
 
-		/**
-		 * The link legacy opens, unless the stored value names a scheme other than http or https.
-		 * The upload endpoint stores its own absolute URL, so this refuses nothing it wrote; it
-		 * keeps a {@code javascript:} value written some other way from becoming a link an
-		 * administrator clicks.
-		 */
+		/** The link legacy opens, unless the stored value names a scheme other than http or https. */
 		public String href() {
-			if (this.fileUrl == null || this.fileUrl.isBlank()) {
-				return null;
-			}
-			String url = this.fileUrl.strip();
-			int colon = url.indexOf(':');
-			int path = -1;
-			for (char separator : new char[] {'/', '?', '#'}) {
-				int at = url.indexOf(separator);
-				if (at >= 0 && (path < 0 || at < path)) {
-					path = at;
-				}
-			}
-			if (colon < 0 || (path >= 0 && path < colon)) {
-				return url;
-			}
-			String scheme = url.substring(0, colon).toLowerCase(Locale.ROOT);
-			return scheme.equals("http") || scheme.equals("https") ? url : null;
+			return StoredUrl.href(this.fileUrl);
 		}
 	}
 
