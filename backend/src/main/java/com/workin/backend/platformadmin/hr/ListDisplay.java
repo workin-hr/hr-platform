@@ -68,7 +68,7 @@ public final class ListDisplay {
 	}
 
 	/** PHP's {@code trim($text)}, with null read as empty. */
-	static String trim(String text) {
+	public static String trim(String text) {
 		if (text == null) {
 			return "";
 		}

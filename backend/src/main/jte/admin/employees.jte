@@ -160,6 +160,9 @@
 			     stylesheet defines here or in legacy. --%>
 			<div class="modal-bg open">
 				<div class="modal modal--employee-form">
+					<%-- page.php:383,398: the window's own close, back to the list. --%>
+					<a href="/admin/employees" class="modal-close"
+					   aria-label="${t.apply("close")}">&#215;</a>
 					<%-- page.php:399: "Edit employee: name", the name through
 					     dashboard_employee_display_name(), so an em dash when it is blank. --%>
 					<h2>${editRow == null ? t.apply("add_employee")
@@ -167,8 +170,12 @@
 					<%-- _employee_form.php: employee-form.js, copied from legacy, fills the
 					     branch, department and job title selects from these maps, which carry
 					     only the companies this form may use (R-051); employee-shift.js fills
-					     the shift select when the form names its company (D-250). --%>
-					<form method="POST" data-employee-form
+					     the shift select when the form names its company (D-250).
+
+					     org-form-grid-wrap and the four emp-form-section blocks are legacy's
+					     own (_employee_form.php:54-287): employee-form.css lays the sections'
+					     rows out two across and collapses them to one on a phone. --%>
+					<form method="POST" class="org-form-grid-wrap" data-employee-form
 					      data-branches-by-company="${branchesByCompany}"
 					      data-departments-by-company="${departmentsByCompany}"
 					      data-departments-by-branch="${departmentsByBranch}"
@@ -197,202 +204,291 @@
 						<%-- With no company to add under, _employee_form.php asks for one
 						     rather than posting 0, which the service refuses.
 						     employee-form.js reads it as #emp_company. --%>
-						<div class="form-row">
-							<label for="emp_company">${t.apply("company")} *</label>
-							<select name="company_id" id="emp_company" required>
-								<option value="">${t.apply("search")}...</option>
-								@for(ActiveCompanies.CompanyOption company : companyOptions)
-									<option value="${company.id()}">${company.name()}</option>
-								@endfor
-							</select>
-						</div>
+						<section class="emp-form-section org-form-span-2">
+							<div class="form-row">
+								<label for="emp_company">${t.apply("company")} *</label>
+								<select name="company_id" id="emp_company" required>
+									<option value="">${t.apply("search")}...</option>
+									@for(ActiveCompanies.CompanyOption company : companyOptions)
+										<option value="${company.id()}">${company.name()}</option>
+									@endfor
+								</select>
+							</div>
+						</section>
 					@endif
 
 					<%-- save_edit writes these columns from the post, so each input
 					     carries its stored value: one left empty is one the save
 					     clears. Only the password is left blank, and a blank one
 					     keeps the credential. --%>
-					<div class="form-row">
-						<label for="first_name">${t.apply("first_name")} *</label>
-						<input type="text" id="first_name" name="first_name" required maxlength="255"
-						       value="${editRow == null ? "" : editRow.firstName()}">
-					</div>
-					<div class="form-row">
-						<%-- Not required: legacy checks the first name only. --%>
-						<label for="last_name">${t.apply("last_name")}</label>
-						<input type="text" id="last_name" name="last_name" maxlength="255"
-						       value="${editRow == null ? "" : editRow.lastName()}">
-					</div>
-					<div class="form-row">
-						<%-- The save validates only a replaced code, so the input asks for
-						     one only when the employee has one, and for digits only when
-						     the stored code is digits: a pattern the stored value fails
-						     would stop a browser submitting a form nobody changed. --%>
-						!{boolean codeRequired = editRow == null || !editRow.employeeCode().isBlank();}
-						!{boolean codeIsDigits = editRow == null || editRow.employeeCode().isBlank()
-								|| editRow.employeeCode().matches("[0-9]+");}
-						<label for="emp_code">${t.apply("emp_code")}${codeRequired ? " *" : ""}</label>
-						<input type="text" id="emp_code" name="employee_code" maxlength="64"
-						       required="${codeRequired}"
-						       inputmode="numeric" pattern="${codeIsDigits ? "[0-9]+" : null}" autocomplete="off"
-						       value="${editRow == null ? "" : editRow.employeeCode()}">
-					</div>
-					<div class="form-row">
-						<label for="branch_id">${t.apply("branch")}</label>
-						<select id="branch_id" name="branch_id" data-emp-branch>
-							<option value="0">—</option>
-							@for(Employee.Option option : branchOptions)
-								<option value="${option.id()}"
-								        selected="${editRow != null && editRow.branchId() == option.id()}">${option.label()}</option>
-							@endfor
-						</select>
-					</div>
-					<div class="form-row">
-						<label for="department_id">${t.apply("department")}</label>
-						<select id="department_id" name="department_id" data-emp-department>
-							<option value="0">—</option>
-							@for(Employee.Option option : departmentOptions)
-								<option value="${option.id()}"
-								        selected="${editRow != null && editRow.departmentId() == option.id()}">${option.label()}</option>
-							@endfor
-						</select>
-					</div>
-					<div class="form-row">
-						<label for="job_title_id">${t.apply("job_title")}</label>
-						<select id="job_title_id" name="job_title_id" data-emp-job>
-							<option value="0">—</option>
-							@for(Employee.Option option : jobTitleOptions)
-								<option value="${option.id()}"
-								        selected="${editRow != null && editRow.jobTitleId() == option.id()}">${option.label()}</option>
-							@endfor
-						</select>
-					</div>
-					<div class="form-row">
-						<%-- Required on the create path, and the only foreign key
-						     legacy insists on there. --%>
-						<label for="shift_id">${t.apply("shift")} *</label>
-						<%-- An add's empty choice is legacy's value="", which required
-						     refuses, so a browser keeps an add with no shift, and what was
-						     typed, instead of posting a 0 the service refuses. An edit keeps
-						     0: an employee with no shift must still save unchanged. --%>
-						<select id="shift_id" name="shift_id" required data-emp-shift>
-							<option value="${editRow == null ? "" : "0"}">—</option>
-							@for(Employee.Option option : shiftOptions)
-								<option value="${option.id()}"
-								        selected="${editRow != null && editRow.shiftId() == option.id()}">${option.label()}</option>
-							@endfor
-						</select>
-					</div>
-					<div class="form-row">
-						<%-- The current assignment's own date: the same shift from
-						     the same date is what makes a save add no assignment. --%>
-						<label for="shift_effective_from">${t.apply("shift_effective_from")}</label>
-						<input type="date" id="shift_effective_from" name="shift_effective_from"
-						       value="${editRow == null ? "" : editRow.shiftEffectiveFromInput()}">
-					</div>
-					<div class="form-row">
-						<%-- Before the phone, as _employee_form.php has it. Required
-						     only when a phone is given, and checked before the number
-						     itself is judged. A stored code no active country has is
-						     listed too, labelled as phone_country_option_label() labels
-						     an unknown code, so an unchanged save keeps it: legacy's
-						     select drops it. --%>
-						<label for="country_code">${t.apply("country_code")}</label>
-						<select id="country_code" name="country_code">
-							<option value="">${t.apply("optional")}</option>
-							@if(editRow != null && editRow.countryCode() != null && !editRow.countryCode().isEmpty() && !phone.offers(editRow.countryCode()))
-								<option value="${editRow.countryCode()}" selected>${editRow.countryCode()}</option>
-							@endif
-							@for(PhoneCountryChoices.Option country : phone.options())
-								<option value="${country.code()}"
-								        selected="${editRow != null && country.code().equals(editRow.countryCode())}">${country.label()}</option>
-							@endfor
-						</select>
-					</div>
-					<div class="form-row">
-						<label for="phone">${t.apply("phone")}</label>
-						<input type="text" id="phone" name="phone" inputmode="tel" autocomplete="off"
-						       value="${editRow == null ? "" : editRow.phone()}">
-					</div>
-					<div class="form-row">
-						<label for="password">${t.apply("password")}</label>
-						<input type="password" id="password" name="password" autocomplete="new-password">
-					</div>
-					<div class="form-row">
-						<label for="national_id">${t.apply("national_id")}</label>
-						<input type="text" id="national_id" name="national_id" maxlength="64"
-						       value="${editRow == null ? "" : editRow.nationalId()}">
-					</div>
-					<div class="form-row">
-						<%-- Each date input shows only a date it can hold. A stored
-						     0000-00-00 renders empty, and left empty the save keeps it. --%>
-						<label for="birth_date">${t.apply("birth_date")}</label>
-						<input type="date" id="birth_date" name="birth_date"
-						       value="${editRow == null ? "" : editRow.birthDateInput()}">
-					</div>
-					<div class="form-row">
-						<label for="gender">${t.apply("gender")}</label>
-						<select id="gender" name="gender">
-							<option value="">${t.apply("optional")}</option>
-							<option value="male"
-							        selected="${editRow != null && "male".equals(editRow.gender())}">${t.apply("gender_male")}</option>
-							<option value="female"
-							        selected="${editRow != null && "female".equals(editRow.gender())}">${t.apply("gender_female")}</option>
-							@if(editRow != null && "other".equals(editRow.gender()))
-								<%-- The column allows it and legacy's select does not
-								     offer it, so legacy's own form clears it on save.
-								     Offered only to the employee who already has it. --%>
-								<option value="other" selected>${t.apply("gender_other")}</option>
-							@endif
-						</select>
-					</div>
-					<div class="form-row">
-						<%-- The stored date or nothing. Legacy fills a missing one
-						     with today and the port filled it with created_at: both
-						     write a hire date on a save that changed nothing. --%>
-						<label for="hire_date">${t.apply("hire_date")}</label>
-						<input type="date" id="hire_date" name="hire_date"
-						       value="${editRow == null ? "" : editRow.hireDateInput()}">
-					</div>
-					<div class="form-row">
-						<label for="address">${t.apply("address")}</label>
-						<input type="text" id="address" name="address" maxlength="500"
-						       value="${editRow == null ? "" : editRow.address()}">
-					</div>
-					<div class="form-row">
-						<label for="contract_duration">${t.apply("contract_duration")}</label>
-						<input type="number" id="contract_duration" name="contract_duration" min="1" max="60"
-						       value="${editRow == null ? "" : editRow.contractValue()}">
-					</div>
-					<div class="form-row">
-						<label for="contract_duration_unit">${t.apply("contract_duration_unit")}</label>
-						<select id="contract_duration_unit" name="contract_duration_unit">
-							<option value="months">${t.apply("months")}</option>
-							<option value="years"
-							        selected="${editRow != null && "years".equals(editRow.contractUnit())}">${t.apply("years")}</option>
-						</select>
-					</div>
-					<div class="form-row">
-						<%-- Ticked for a new employee, as legacy's is. Unticked
-						     posts nothing, and nothing saves as off. --%>
-						<label class="emp-checkbox-label">
-							<input type="checkbox" name="is_mobile_attendance_enabled" value="1"
-							       checked="${editRow == null || editRow.mobileAttendance()}">
-							${t.apply("mobile_attendance_enabled")}
-						</label>
-					</div>
-					@if(editRow == null)
-						<div class="form-row">
-							<%-- Create path only: legacy's edit never touches the
-							     salary contract. --%>
-							<label for="basic_salary">${t.apply("basic_salary")}</label>
-							<input type="number" id="basic_salary" name="basic_salary" min="0" step="0.01">
+					<section class="emp-form-section org-form-span-2">
+						<h3 class="emp-form-section__title">${t.apply("personal_data")}</h3>
+						<div class="org-form-grid">
+							<div class="form-row">
+								<label for="first_name">${t.apply("first_name")} *</label>
+								<input type="text" id="first_name" name="first_name" required maxlength="255"
+								       value="${editRow == null ? "" : editRow.firstName()}">
+							</div>
+							<div class="form-row">
+								<%-- Not required here, though legacy's input is: legacy's server
+								     checks the first name only, and its own rows -- a join request
+								     stores one name (R-019) -- would be unsaveable through a form
+								     that insisted on a last one. --%>
+								<label for="last_name">${t.apply("last_name")}</label>
+								<input type="text" id="last_name" name="last_name" maxlength="255"
+								       value="${editRow == null ? "" : editRow.lastName()}">
+							</div>
+							<div class="form-row org-form-span-2">
+								<%-- The save validates only a replaced code, so the input asks for
+								     one only when the employee has one, and for digits only when
+								     the stored code is digits: a pattern the stored value fails
+								     would stop a browser submitting a form nobody changed. --%>
+								!{boolean codeRequired = editRow == null || !editRow.employeeCode().isBlank();}
+								!{boolean codeIsDigits = editRow == null || editRow.employeeCode().isBlank()
+										|| editRow.employeeCode().matches("[0-9]+");}
+								<label for="emp_code">${t.apply("emp_code")}${codeRequired ? " *" : ""}</label>
+								<input type="text" id="emp_code" name="employee_code" maxlength="64"
+								       required="${codeRequired}"
+								       inputmode="numeric" pattern="${codeIsDigits ? "[0-9]+" : null}" autocomplete="off"
+								       value="${editRow == null ? "" : editRow.employeeCode()}">
+							</div>
+							<div class="form-row org-form-span-2 emp-login-credentials">
+								<p class="form-hint emp-login-credentials__hint">${t.apply("employee_mobile_login_hint")}</p>
+								<div class="emp-login-credentials__grid">
+									<div class="emp-login-credentials__country">
+										<%-- Before the phone, as _employee_form.php has it. Required
+										     only when a phone is given, and checked before the number
+										     itself is judged. A stored code no active country has is
+										     listed too, labelled as phone_country_option_label() labels
+										     an unknown code, so an unchanged save keeps it: legacy's
+										     select drops it. --%>
+										<label for="country_code">${t.apply("country_code")}</label>
+										<select id="country_code" name="country_code">
+											<option value="">${t.apply("optional")}</option>
+											@if(editRow != null && editRow.countryCode() != null && !editRow.countryCode().isEmpty() && !phone.offers(editRow.countryCode()))
+												<option value="${editRow.countryCode()}" selected>${editRow.countryCode()}</option>
+											@endif
+											@for(PhoneCountryChoices.Option country : phone.options())
+												<option value="${country.code()}"
+												        selected="${editRow != null && country.code().equals(editRow.countryCode())}">${country.label()}</option>
+											@endfor
+										</select>
+									</div>
+									<div class="emp-login-credentials__phone">
+										<label for="phone">${t.apply("phone")}</label>
+										<input type="text" id="phone" name="phone" inputmode="tel" autocomplete="off"
+										       value="${editRow == null ? "" : editRow.phone()}">
+									</div>
+									<div class="emp-login-credentials__password">
+										<label for="password">${t.apply("password")}</label>
+										<input type="password" id="password" name="password" autocomplete="new-password"
+										       minlength="6"
+										       placeholder="${t.apply(editRow == null ? "password_field_hint" : "password_field_hint_optional")}">
+										@if(editRow != null)
+											<span class="form-hint">${t.apply("password_optional")}</span>
+										@endif
+									</div>
+								</div>
+							</div>
+							<div class="form-row">
+								<%-- Required on the create path, and the only foreign key
+								     legacy insists on there. --%>
+								<label for="shift_id">${t.apply("shift")} *</label>
+								<%-- An add's empty choice is legacy's value="", which required
+								     refuses, so a browser keeps an add with no shift, and what was
+								     typed, instead of posting a 0 the service refuses. An edit keeps
+								     0: an employee with no shift must still save unchanged. --%>
+								<select id="shift_id" name="shift_id" required data-emp-shift>
+									<option value="${editRow == null ? "" : "0"}">—</option>
+									@for(Employee.Option option : shiftOptions)
+										<option value="${option.id()}"
+										        selected="${editRow != null && editRow.shiftId() == option.id()}">${option.label()}</option>
+									@endfor
+								</select>
+							</div>
+							<div class="form-row">
+								<%-- The current assignment's own date: the same shift from
+								     the same date is what makes a save add no assignment. --%>
+								<label for="shift_effective_from">${t.apply("shift_effective_from")}</label>
+								<input type="date" id="shift_effective_from" name="shift_effective_from"
+								       value="${editRow == null ? "" : editRow.shiftEffectiveFromInput()}">
+							</div>
+							<div class="form-row">
+								<label for="national_id">${t.apply("national_id")}</label>
+								<input type="text" id="national_id" name="national_id" maxlength="64"
+								       value="${editRow == null ? "" : editRow.nationalId()}">
+							</div>
+							<div class="form-row">
+								<%-- Each date input shows only a date it can hold. A stored
+								     0000-00-00 renders empty, and left empty the save keeps it. --%>
+								<label for="birth_date">${t.apply("birth_date")}</label>
+								<input type="date" id="birth_date" name="birth_date"
+								       value="${editRow == null ? "" : editRow.birthDateInput()}">
+							</div>
+							<div class="form-row">
+								<label for="gender">${t.apply("gender")}</label>
+								<select id="gender" name="gender">
+									<option value="">${t.apply("optional")}</option>
+									<option value="male"
+									        selected="${editRow != null && "male".equals(editRow.gender())}">${t.apply("gender_male")}</option>
+									<option value="female"
+									        selected="${editRow != null && "female".equals(editRow.gender())}">${t.apply("gender_female")}</option>
+									@if(editRow != null && "other".equals(editRow.gender()))
+										<%-- The column allows it and legacy's select does not
+										     offer it, so legacy's own form clears it on save.
+										     Offered only to the employee who already has it. --%>
+										<option value="other" selected>${t.apply("gender_other")}</option>
+									@endif
+								</select>
+							</div>
+							<div class="form-row org-form-span-2">
+								<label for="address">${t.apply("address")}</label>
+								<input type="text" id="address" name="address" maxlength="500"
+								       value="${editRow == null ? "" : editRow.address()}">
+							</div>
 						</div>
+					</section>
+
+					<section class="emp-form-section org-form-span-2">
+						<h3 class="emp-form-section__title">${t.apply("job_details")}</h3>
+						<div class="org-form-grid">
+							<div class="form-row org-form-span-2">
+								<%-- The stored date or nothing. Legacy fills a missing one
+								     with today and the port filled it with created_at: both
+								     write a hire date on a save that changed nothing. --%>
+								<label for="hire_date">${t.apply("hire_date")}</label>
+								<input type="date" id="hire_date" name="hire_date"
+								       value="${editRow == null ? "" : editRow.hireDateInput()}">
+							</div>
+							<div class="form-row">
+								<%-- Legacy labels this one optional and hints that an employee
+								     with no branch may check in at any of the company's. Neither
+								     is true here: the column is NOT NULL and the save refuses a
+								     missing branch (R-055), where legacy's writes NULL. --%>
+								<label for="branch_id">${t.apply("branch")}</label>
+								<select id="branch_id" name="branch_id" data-emp-branch>
+									<option value="0">—</option>
+									@for(Employee.Option option : branchOptions)
+										<option value="${option.id()}"
+										        selected="${editRow != null && editRow.branchId() == option.id()}">${option.label()}</option>
+									@endfor
+								</select>
+							</div>
+							<div class="form-row">
+								<label for="department_id">${t.apply("department")}</label>
+								<select id="department_id" name="department_id" data-emp-department>
+									<option value="0">—</option>
+									@for(Employee.Option option : departmentOptions)
+										<option value="${option.id()}"
+										        selected="${editRow != null && editRow.departmentId() == option.id()}">${option.label()}</option>
+									@endfor
+								</select>
+							</div>
+							<div class="form-row org-form-span-2">
+								<label for="job_title_id">${t.apply("job_title")}</label>
+								<select id="job_title_id" name="job_title_id" data-emp-job>
+									<option value="0">—</option>
+									@for(Employee.Option option : jobTitleOptions)
+										<option value="${option.id()}"
+										        selected="${editRow != null && editRow.jobTitleId() == option.id()}">${option.label()}</option>
+									@endfor
+								</select>
+							</div>
+							<div class="form-row">
+								<label for="contract_duration">${t.apply("contract_duration")}</label>
+								<input type="number" id="contract_duration" name="contract_duration" min="1" max="60"
+								       value="${editRow == null ? "" : editRow.contractValue()}">
+							</div>
+							<div class="form-row">
+								<label for="contract_duration_unit">${t.apply("contract_duration_unit")}</label>
+								<select id="contract_duration_unit" name="contract_duration_unit">
+									<option value="months">${t.apply("months")}</option>
+									<option value="years"
+									        selected="${editRow != null && "years".equals(editRow.contractUnit())}">${t.apply("years")}</option>
+								</select>
+							</div>
+						</div>
+					</section>
+
+					<section class="emp-form-section org-form-span-2">
+						<h3 class="emp-form-section__title">${t.apply("mobile_attendance")}</h3>
+						<div class="org-form-grid">
+							<div class="form-row org-form-span-2">
+								<%-- Ticked for a new employee, as legacy's is. Unticked
+								     posts nothing, and nothing saves as off. --%>
+								<label class="emp-checkbox-label">
+									<input type="checkbox" name="is_mobile_attendance_enabled" value="1"
+									       checked="${editRow == null || editRow.mobileAttendance()}">
+									${t.apply("mobile_attendance_enabled")}
+								</label>
+							</div>
+						</div>
+					</section>
+
+					@if(editRow == null)
+						<%-- Create path only: legacy's edit never touches the salary
+						     contract (_employee_form.php:231-283). A contract row is
+						     written only for a basic salary above zero, and it carries
+						     all ten components as posted. --%>
+						<section class="emp-form-section org-form-span-2">
+							<h3 class="emp-form-section__title">${t.apply("salary_data")}</h3>
+							<div class="org-form-grid emp-salary-grid">
+								<div>
+									<h4 class="emp-form-subtitle">${t.apply("entitlements")}</h4>
+									<div class="form-row">
+										<label for="basic_salary">${t.apply("basic_salary")} (${t.apply("mandatory")})</label>
+										<input type="number" id="basic_salary" name="basic_salary" step="0.01" min="0" value="0" required>
+									</div>
+									<div class="form-row">
+										<label for="transport">${t.apply("transport_allowance")} (${t.apply("optional")})</label>
+										<input type="number" id="transport" name="transport" step="0.01" min="0" value="0">
+									</div>
+									<div class="form-row">
+										<label for="food">${t.apply("food_allowance")} (${t.apply("optional")})</label>
+										<input type="number" id="food" name="food" step="0.01" min="0" value="0">
+									</div>
+									<div class="form-row">
+										<label for="risk">${t.apply("risk_allowance")} (${t.apply("optional")})</label>
+										<input type="number" id="risk" name="risk" step="0.01" min="0" value="0">
+									</div>
+									<div class="form-row">
+										<label for="incentives">${t.apply("incentives")} (${t.apply("optional")})</label>
+										<input type="number" id="incentives" name="incentives" step="0.01" min="0" value="0">
+									</div>
+								</div>
+								<div>
+									<h4 class="emp-form-subtitle">${t.apply("deductions")}</h4>
+									<div class="form-row">
+										<label for="insurance">${t.apply("insurance_deduction")} (${t.apply("optional")})</label>
+										<input type="number" id="insurance" name="insurance" step="0.01" min="0" value="0">
+									</div>
+									<div class="form-row">
+										<label for="tax">${t.apply("tax_deduction")} (${t.apply("optional")})</label>
+										<input type="number" id="tax" name="tax" step="0.01" min="0" value="0">
+									</div>
+									<div class="form-row">
+										<label for="advances">${t.apply("advances_deduction")} (${t.apply("optional")})</label>
+										<input type="number" id="advances" name="advances" step="0.01" min="0" value="0">
+									</div>
+									<div class="form-row">
+										<label for="fund">${t.apply("fund_deduction")} (${t.apply("optional")})</label>
+										<input type="number" id="fund" name="fund" step="0.01" min="0" value="0">
+									</div>
+									<div class="form-row">
+										<label for="penalty">${t.apply("penalty_deduction")} (${t.apply("optional")})</label>
+										<input type="number" id="penalty" name="penalty" step="0.01" min="0" value="0">
+									</div>
+								</div>
+							</div>
+						</section>
 					@endif
-					<div class="form-footer">
+					<div class="form-footer org-form-span-2">
 						<a href="/admin/employees" class="btn btn-gray">${t.apply("cancel")}</a>
 						@if(canWrite)
-							<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+							<%-- _employee_form.php:286: the add window's button says what it
+							     adds, and the edit window's says Save. --%>
+							<button type="submit" class="btn btn-blue">${editRow == null
+									? t.apply("add_employee") : t.apply("save")}</button>
 						@endif
 					</div>
 					</form>
@@ -480,14 +576,27 @@
 										<a href="/admin/employees?action=edit&id=${row.id()}"
 										   role="menuitem" class="row-actions__item">${t.apply("edit")}</a>
 										@if(canWrite)
-											<form method="POST" class="row-actions__form" role="none">
-												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-												<input type="hidden" name="action"
-												       value="${row.active() ? "deactivate" : "reactivate"}">
-												<input type="hidden" name="id" value="${row.id()}">
-												<button type="submit" role="menuitem" class="row-actions__item">
-													${t.apply(row.active() ? "deactivate" : "reactivate")}</button>
-											</form>
+											<%-- employee_helper.php:671-686: deactivating is a danger
+											     item behind confirm_delete, legacy's own prompt for it;
+											     reactivating is a success item and asks nothing. --%>
+											@if(row.active())
+												<form method="POST" class="row-actions__form" role="none"
+												      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+													<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+													<input type="hidden" name="action" value="deactivate">
+													<input type="hidden" name="id" value="${row.id()}">
+													<button type="submit" role="menuitem"
+													        class="row-actions__item row-actions__item--danger">${t.apply("deactivate")}</button>
+												</form>
+											@else
+												<form method="POST" class="row-actions__form" role="none">
+													<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+													<input type="hidden" name="action" value="reactivate">
+													<input type="hidden" name="id" value="${row.id()}">
+													<button type="submit" role="menuitem"
+													        class="row-actions__item row-actions__item--success">${t.apply("reactivate")}</button>
+												</form>
+											@endif
 											<form method="POST" class="row-actions__form" role="none"
 											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">

@@ -347,6 +347,46 @@ class AdminLayoutWiringTest {
 		assertThat(silent).as("a write legacy confirms with a flash, confirmed with nothing").isEmpty();
 	}
 
+	/**
+	 * The join requests page hides both of its decisions behind the actions
+	 * switch (D-161) and said nothing when it was off, so the row menu was
+	 * simply empty. It now carries the employees page's own banner, word for
+	 * word: {@code canManage && !actionsEnabled}, the condition the sixteen
+	 * pages that also gate on a section permission use. The seven pages an
+	 * administrator alone reaches test {@code !actionsEnabled} on its own, so
+	 * this compares the two pages the change is about rather than all of them.
+	 *
+	 * <p>Two pages still take the switch, gate a control on it and show no
+	 * banner: {@code company-detail.jte} and {@code settings.jte}. They are
+	 * named here so the omission is recorded rather than assumed, and are not
+	 * this change's pages.
+	 */
+	@Test
+	void theJoinRequestsPageSaysWhyItsDecisionsAreMissing() throws IOException {
+		String banner = collapse("@if(canManage && !actionsEnabled)"
+				+ "<div class=\"flash flash-warning\">${t.apply(\"admin_actions_disabled\")}</div>"
+				+ "@endif");
+		assertThat(collapsed(TEMPLATES.resolve("join-requests.jte")))
+				.as("the banner the employees page shows, word for word")
+				.contains(banner);
+		assertThat(collapsed(TEMPLATES.resolve("employees.jte"))).contains(banner);
+
+		for (String page : List.of("company-detail.jte", "settings.jte")) {
+			assertThat(collapsed(TEMPLATES.resolve(page)))
+					.as("%s still has no banner; when it gains one, take it off this list", page)
+					.doesNotContain("admin_actions_disabled");
+		}
+	}
+
+	/** A template with every run of whitespace removed, so indentation is not the assertion. */
+	private static String collapsed(Path template) throws IOException {
+		return collapse(Files.readString(template, StandardCharsets.UTF_8));
+	}
+
+	private static String collapse(String markup) {
+		return markup.replaceAll("\\s+", "");
+	}
+
 	@Test
 	void noControllerSetsTheAdminPhoneItselfAnyMore() throws IOException {
 		// One authority. Fourteen controllers forgot this and six set it, which
