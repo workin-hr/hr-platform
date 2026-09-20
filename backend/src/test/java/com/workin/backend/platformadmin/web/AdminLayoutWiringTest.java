@@ -758,10 +758,16 @@ class AdminLayoutWiringTest {
 	 * where {@code branch-form.jte} beside it had always kept Cancel outside
 	 * the gate. The rule is written here rather than on that one window so the
 	 * next one cannot repeat it.
+	 *
+	 * <p>It asserts two things, because the second without the first is
+	 * vacuous: every one of these windows <b>has</b> a Cancel, and none of them
+	 * puts it behind the gate. Checking only the second would let the control
+	 * be deleted outright, which is the same defect by a shorter route.
 	 */
 	@Test
 	void aServerOpenedWindowsCancelIsNeverGatedByTheActionsSwitch() throws IOException {
 		List<String> gated = new ArrayList<>();
+		List<String> without = new ArrayList<>();
 		int windows = 0;
 		try (var paths = Files.list(TEMPLATES)) {
 			for (Path path : paths.sorted().toList()) {
@@ -773,6 +779,12 @@ class AdminLayoutWiringTest {
 						at = source.indexOf(OPEN_WINDOW, at + 1)) {
 					windows++;
 					String window = source.substring(at, endOfWindow(source, at, path));
+					// A window with no Cancel at all would satisfy the loop below vacuously,
+					// so deleting one would pass the gate that exists to keep it (Codex, on
+					// this pull request). Both halves are asserted.
+					if (!window.contains(CANCEL)) {
+						without.add(fileName(path));
+					}
 					for (int gate = window.indexOf(WRITE_GATE); gate >= 0;
 							gate = window.indexOf(WRITE_GATE, gate + 1)) {
 						if (window.substring(gate, endOfBlock(window, gate, path)).contains(CANCEL)) {
@@ -783,6 +795,7 @@ class AdminLayoutWiringTest {
 			}
 		}
 		assertThat(windows).as("the windows the server renders already open").isGreaterThanOrEqualTo(9);
+		assertThat(without).as("windows on screen with no Cancel at all").isEmpty();
 		assertThat(gated).as("windows on screen with the switch off whose Cancel is not")
 				.isEmpty();
 	}
