@@ -50,8 +50,23 @@ class AdminTemplateMessageKeyTest {
 	private static final Path CONTROLLERS =
 			Path.of("src/main/java/com/workin/backend/platformadmin/web");
 
-	/** A switch arm or return in a {@code messageKey}/{@code errorKey} method: {@code -> "some_key"}. */
-	private static final Pattern REFUSAL_KEY = Pattern.compile("(?:->|return)\\s*\"([a-z][a-z0-9_]*)\"");
+	/**
+	 * A key inside a {@code messageKey}/{@code errorKey} method: the arm's value, a returned
+	 * literal, or a {@code case} label the method passes through as the key itself.
+	 */
+	private static final Pattern REFUSAL_KEY =
+			Pattern.compile("(?:->|return)\\s*\"([a-z][a-z0-9_.]*)\"");
+
+	/** A whole {@code case} label list, which may carry several keys: {@code case "a", "b" ->}. */
+	private static final Pattern CASE_LABELS = Pattern.compile("case\\s+(\"[^\\n]*?)->");
+
+	private static final Pattern QUOTED_KEY = Pattern.compile("\"([a-z][a-z0-9_.]*)\"");
+
+	/** Where a controller puts a key straight into the model, bypassing those methods. */
+	private static final String MODEL_KEY = "addAttribute(\"errorKey\",";
+
+	/** The one family built by concatenation, in {@code AdminDevicesController.errorKey}. */
+	private static final String DEVICE_FAMILY = "device_error_";
 
 	/** {@code t.apply("some_key")}, the only form the templates use. */
 	private static final Pattern LOOKUP = Pattern.compile("t\\.apply\\(\"([a-zA-Z0-9_.]+)\"\\)");
@@ -100,6 +115,12 @@ class AdminTemplateMessageKeyTest {
 		assertThat(byController.get("AdminBranchesController.java"))
 				.as("the scanner reads the arms, not only the method")
 				.contains("error_db", "no_data");
+		assertThat(byController.get("AdminDevicesController.java"))
+				.as("a case label the method passes through is a key too")
+				.contains("device_import_no_file", "device_import_too_large");
+		assertThat(byController.get("PlatformAdminCompaniesController.java"))
+				.as("and a key put straight into the model")
+				.contains("error_not_found", "company_delete_mismatch");
 		for (List<String> bundles : List.of(ENGLISH_BUNDLES, ARABIC_BUNDLES)) {
 			Properties available = load(bundles);
 			List<String> missing = new java.util.ArrayList<>();
@@ -116,9 +137,40 @@ class AdminTemplateMessageKeyTest {
 	}
 
 	/**
-	 * The keys returned by each controller's {@code messageKey} or {@code errorKey} method. Only
-	 * those methods are read: a literal elsewhere in a controller is a view name, a redirect or a
-	 * request parameter, not something the page translates.
+	 * {@code AdminDevicesController.errorKey} turns a {@code devices.<suffix>} code into
+	 * {@code device_error_<suffix>}, so no literal exists to scan. Whatever the family holds must
+	 * hold in both languages: an operator reading Arabic would otherwise see the key itself.
+	 */
+	@Test
+	void everyDeviceErrorKeyExistsInBothCatalogues() throws IOException {
+		Set<String> english = family(load(ENGLISH_BUNDLES));
+		Set<String> arabic = family(load(ARABIC_BUNDLES));
+		assertThat(english).as("the family the devices page builds by concatenation").isNotEmpty();
+		assertThat(arabic).as("the same codes, in the language the dashboard defaults to")
+				.containsExactlyInAnyOrderElementsOf(english);
+	}
+
+	private static Set<String> family(Properties catalogue) {
+		Set<String> keys = new TreeSet<>();
+		for (String key : catalogue.stringPropertyNames()) {
+			if (key.startsWith(DEVICE_FAMILY)) {
+				keys.add(key);
+			}
+		}
+		return keys;
+	}
+
+	/**
+	 * Every key a controller hands a page as a literal: the arms, returns and pass-through
+	 * {@code case} labels of its {@code messageKey}/{@code errorKey} method, and anything it puts
+	 * straight into the model as {@code errorKey}. Other literals in a controller are view names,
+	 * redirects and request parameters, which no page translates.
+	 *
+	 * <p>One key is not a literal anywhere: {@code AdminDevicesController.errorKey} builds
+	 * {@code device_error_<suffix>} from a {@code devices.<suffix>} code the device agent sends,
+	 * so the set is open and cannot be read off the source. {@link
+	 * #everyDeviceErrorKeyExistsInBothCatalogues} holds what can be held there -- that the family
+	 * says the same in both languages -- and #294 tracks pinning the codes themselves.
 	 */
 	private static Map<String, Set<String>> refusalKeysByController() throws IOException {
 		Map<String, Set<String>> found = new LinkedHashMap<>();
@@ -131,6 +183,19 @@ class AdminTemplateMessageKeyTest {
 					while (matcher.find()) {
 						keys.add(matcher.group(1));
 					}
+					Matcher labels = CASE_LABELS.matcher(body);
+					while (labels.find()) {
+						Matcher label = QUOTED_KEY.matcher(labels.group(1));
+						while (label.find()) {
+							keys.add(label.group(1));
+						}
+					}
+				}
+				for (String argument : modelArguments(source)) {
+					Matcher literal = QUOTED_KEY.matcher(argument);
+					while (literal.find()) {
+						keys.add(literal.group(1));
+					}
 				}
 				if (!keys.isEmpty()) {
 					found.put(controller.getFileName().toString(), keys);
@@ -138,6 +203,28 @@ class AdminTemplateMessageKeyTest {
 			}
 		}
 		return found;
+	}
+
+	/**
+	 * The second argument of every {@code addAttribute("errorKey", ...)}, read to its closing
+	 * bracket so an inline {@code switch} is read whole rather than to its first arm.
+	 */
+	private static List<String> modelArguments(String source) {
+		List<String> arguments = new java.util.ArrayList<>();
+		int at = source.indexOf(MODEL_KEY);
+		while (at >= 0) {
+			int from = at + MODEL_KEY.length();
+			int depth = 1;
+			int to = from;
+			while (to < source.length() && depth > 0) {
+				char character = source.charAt(to);
+				depth += character == '(' ? 1 : character == ')' ? -1 : 0;
+				to++;
+			}
+			arguments.add(source.substring(from, Math.max(from, to - 1)));
+			at = source.indexOf(MODEL_KEY, to);
+		}
+		return arguments;
 	}
 
 	/** Each named method's text, from its signature to the line that closes it at one tab. */
