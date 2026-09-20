@@ -228,15 +228,17 @@ class AdminLayoutWiringTest {
 
 	/**
 	 * Legacy's layout and sign-in page name its logo as their favicon and touch icon, and the
-	 * sign-in page shows it twice (D-254). The file is legacy's own {@code logo.png}.
+	 * sign-in page shows it twice (D-254). The file is legacy's own {@code logo.png}. The icons are
+	 * 32 and 180 pixel copies of it, because the 1024 pixel file is 1.3 MB on every page (D-266).
 	 */
 	@Test
 	void theLayoutAndTheSignInPageCarryLegacysLogo() throws Exception {
 		for (String page : List.of("layout", "login")) {
 			assertThat(Files.readString(TEMPLATES.resolve(page + ".jte"), StandardCharsets.UTF_8))
-					.as("%s names the logo as its icons", page)
-					.contains("<link rel=\"icon\" type=\"image/png\" href=\"/admin/_assets/logo.png\">")
-					.contains("<link rel=\"apple-touch-icon\" href=\"/admin/_assets/logo.png\">");
+					.as("%s names the logo's small copies as its icons", page)
+					.contains("<link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"/admin/_assets/favicon-32.png\">")
+					.contains("<link rel=\"apple-touch-icon\" sizes=\"180x180\" href=\"/admin/_assets/apple-touch-icon.png\">")
+					.doesNotContain("rel=\"icon\" type=\"image/png\" href=\"/admin/_assets/logo.png\"");
 		}
 		assertThat(Files.readString(TEMPLATES.resolve("login.jte"), StandardCharsets.UTF_8))
 				.contains("<img src=\"/admin/_assets/logo.png\" alt=\"\" class=\"login-hero-logo\" width=\"40\" height=\"40\">")
