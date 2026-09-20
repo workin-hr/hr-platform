@@ -48,7 +48,6 @@ public class JobTitleAdminService {
 		 */
 		NO_ROW,
 
-
 		/** {@code select_company_first_department}: a department from elsewhere. */
 		FOREIGN_DEPARTMENT,
 

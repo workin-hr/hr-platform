@@ -18,16 +18,24 @@ import org.springframework.stereotype.Component;
  * only sound while the connection reports matched rows -- i.e. while {@code CLIENT_FOUND_ROWS} is
  * in effect, which MariaDB Connector/J controls with {@code useAffectedRows}.
  *
+ * <p>The dashboard's org pages depend on the same property, since D-267: {@code saveEdit} and
+ * {@code delete} on {@code BranchAdminService} and {@code ShiftAdminService}, and {@code delete}
+ * on {@code DepartmentAdminService} and {@code JobTitleAdminService}, refuse a write whose update
+ * matches no row.
+ *
  * <p>With {@code useAffectedRows} enabled, an edit that resubmits the values already stored
  * changes no columns. The guard would misread that legal no-op as a lost race and reject it with
- * {@code 400 cannot_edit_non_pending_advance} or {@code 403 forbidden}. That is a silent data
- * -correctness regression driven purely by a connection string, so this fails closed at startup
- * rather than letting it surface as sporadic user-visible errors.
+ * {@code 400 cannot_edit_non_pending_advance} or {@code 403 forbidden}, and an administrator
+ * saving an org row without changing it would be told {@code no_data} about a row that is sitting
+ * in front of them. That is a silent data-correctness regression driven purely by a connection
+ * string, so this fails closed at startup rather than letting it surface as sporadic
+ * user-visible errors.
  *
  * <p>This guards the deployment-configuration vector only. A change in the driver's own default
- * is caught by {@code LegacyAdvancePayEndToEndTest} and
- * {@code LegacyPayrollBatchCalculateEndToEndTest}, which exercise the semantics against real
- * MariaDB on every build. See {@code docs/legacy/PR120_REVIEW_REMEDIATION.md}.
+ * is caught by {@code LegacyAdvancePayEndToEndTest},
+ * {@code LegacyPayrollBatchCalculateEndToEndTest} and the four org pages'
+ * {@code anUnchangedSaveAndARepeatDeleteStillFlashTheirSuccess}, which exercise the semantics
+ * against real MariaDB on every build. See {@code docs/legacy/PR120_REVIEW_REMEDIATION.md}.
  */
 @Component
 public class LegacyRowCountStartupCheck implements ApplicationRunner {

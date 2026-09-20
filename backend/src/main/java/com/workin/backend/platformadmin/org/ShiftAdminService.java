@@ -40,7 +40,6 @@ public class ShiftAdminService {
 		 */
 		NO_ROW,
 
-
 		/** {@code error_required}: an empty name. */
 		NAME_REQUIRED
 	}

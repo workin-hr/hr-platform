@@ -35,12 +35,23 @@ import org.junit.jupiter.api.Test;
  * <p>Deliberately a test rather than a startup check. A missing key is a
  * mistake in a template, and a template is not something a deployment can fix
  * -- the right time to hear about it is before it ships.
+ *
+ * <p>A page's error key does not come from the template at all: a controller's
+ * {@code messageKey} maps a refusal to a key, the page renders
+ * {@code t.apply(errorKey)}, and the scanner above sees only the variable. So
+ * the keys those methods return are collected here too (#293's review round 1).
  */
 class AdminTemplateMessageKeyTest {
 
 	private static final Path TEMPLATES = Path.of("src/main/jte/admin");
 
 	private static final Path BUNDLES = Path.of("src/main/resources/i18n");
+
+	private static final Path CONTROLLERS =
+			Path.of("src/main/java/com/workin/backend/platformadmin/web");
+
+	/** A switch arm or return in a {@code messageKey}/{@code errorKey} method: {@code -> "some_key"}. */
+	private static final Pattern REFUSAL_KEY = Pattern.compile("(?:->|return)\\s*\"([a-z][a-z0-9_]*)\"");
 
 	/** {@code t.apply("some_key")}, the only form the templates use. */
 	private static final Pattern LOOKUP = Pattern.compile("t\\.apply\\(\"([a-zA-Z0-9_.]+)\"\\)");
@@ -80,7 +91,70 @@ class AdminTemplateMessageKeyTest {
 		assertThat(byTemplate.get("sidebar.jte")).contains("app_name");
 	}
 
-	private static List<String> unresolved(List<String> bundles) throws IOException {
+	@Test
+	void everyKeyAControllerHandsThePageResolvesInBothLanguages() throws IOException {
+		Map<String, Set<String>> byController = refusalKeysByController();
+		assertThat(byController).as("controllers with a messageKey or errorKey method").isNotEmpty();
+		assertThat(byController.values().stream().mapToInt(Set::size).sum())
+				.as("keys found across them").isGreaterThan(20);
+		assertThat(byController.get("AdminBranchesController.java"))
+				.as("the scanner reads the arms, not only the method")
+				.contains("error_db", "no_data");
+		for (List<String> bundles : List.of(ENGLISH_BUNDLES, ARABIC_BUNDLES)) {
+			Properties available = load(bundles);
+			List<String> missing = new java.util.ArrayList<>();
+			for (Map.Entry<String, Set<String>> entry : byController.entrySet()) {
+				for (String key : entry.getValue()) {
+					if (!available.containsKey(key)) {
+						missing.add(entry.getKey() + " -> " + key);
+					}
+				}
+			}
+			assertThat(missing).as("a refusal key with no entry renders as itself on the page, "
+					+ "and no template gate can see it").isEmpty();
+		}
+	}
+
+	/**
+	 * The keys returned by each controller's {@code messageKey} or {@code errorKey} method. Only
+	 * those methods are read: a literal elsewhere in a controller is a view name, a redirect or a
+	 * request parameter, not something the page translates.
+	 */
+	private static Map<String, Set<String>> refusalKeysByController() throws IOException {
+		Map<String, Set<String>> found = new LinkedHashMap<>();
+		try (Stream<Path> files = Files.list(CONTROLLERS)) {
+			for (Path controller : files.filter(path -> path.toString().endsWith(".java")).sorted().toList()) {
+				String source = Files.readString(controller, StandardCharsets.UTF_8);
+				Set<String> keys = new TreeSet<>();
+				for (String body : methodBodies(source, "String messageKey(", "String errorKey(")) {
+					Matcher matcher = REFUSAL_KEY.matcher(body);
+					while (matcher.find()) {
+						keys.add(matcher.group(1));
+					}
+				}
+				if (!keys.isEmpty()) {
+					found.put(controller.getFileName().toString(), keys);
+				}
+			}
+		}
+		return found;
+	}
+
+	/** Each named method's text, from its signature to the line that closes it at one tab. */
+	private static List<String> methodBodies(String source, String... signatures) {
+		List<String> bodies = new java.util.ArrayList<>();
+		for (String signature : signatures) {
+			int at = source.indexOf(signature);
+			while (at >= 0) {
+				int end = source.indexOf("\n\t}", at);
+				bodies.add(end < 0 ? source.substring(at) : source.substring(at, end));
+				at = source.indexOf(signature, at + signature.length());
+			}
+		}
+		return bodies;
+	}
+
+	private static Properties load(List<String> bundles) throws IOException {
 		Properties available = new Properties();
 		for (String bundle : bundles) {
 			Path path = BUNDLES.resolve(bundle);
@@ -90,6 +164,11 @@ class AdminTemplateMessageKeyTest {
 				}
 			}
 		}
+		return available;
+	}
+
+	private static List<String> unresolved(List<String> bundles) throws IOException {
+		Properties available = load(bundles);
 		List<String> missing = new java.util.ArrayList<>();
 		for (Map.Entry<String, Set<String>> entry : keysByTemplate().entrySet()) {
 			for (String key : entry.getValue()) {

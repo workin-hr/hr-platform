@@ -49,7 +49,6 @@ public class DepartmentAdminService {
 		 */
 		NO_ROW,
 
-
 		/** {@code error_required}: an empty name. */
 		NAME_REQUIRED,
 
