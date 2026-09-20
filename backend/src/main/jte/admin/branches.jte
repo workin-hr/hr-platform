@@ -89,8 +89,12 @@
 			     org-form.css's modal chrome, and its status/image/meta ran in the
 			     wrong order with no id="br_qr_expires" for its label. --%>
 			<div class="modal-bg open">
-				<div class="modal modal--org-form modal--branch-qr">
-					<h2>${t.apply("branch_generate_qr")}</h2>
+				<%-- The dialog semantics are the port's, as rowDialog.jte:40 writes them:
+				     legacy's own modal carries none, so a screen reader is handed ordinary
+				     page content under an overlay it cannot see. --%>
+				<div class="modal modal--org-form modal--branch-qr" role="dialog" aria-modal="true"
+				     aria-labelledby="br-qr-title">
+					<h2 id="br-qr-title">${t.apply("branch_generate_qr")}</h2>
 					<p class="branch-qr-branch-name">${qrRow.name()}</p>
 
 					@if(qrRow.qrActive(now))

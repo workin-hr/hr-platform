@@ -80,6 +80,27 @@ class AdminBranchesEndToEndTest {
 	@Autowired
 	private javax.sql.DataSource legacyDataSource;
 
+	/**
+	 * The clock the page dates from, which is the database's offset and not the
+	 * JVM's. It is request-scoped, so a test reaching it has to stand a request
+	 * up around the call; {@link #legacyNow()} does.
+	 */
+	@Autowired
+	private com.workin.legacy.LegacyClock clock;
+
+	/** {@code LegacyClock.now()} from outside a request, which is where tests are. */
+	private java.time.LocalDateTime legacyNow() {
+		org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+				new org.springframework.web.context.request.ServletRequestAttributes(
+						new org.springframework.mock.web.MockHttpServletRequest()));
+		try {
+			return this.clock.now();
+		}
+		finally {
+			org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+		}
+	}
+
 	private JdbcTemplate jdbc;
 
 	private String cookie;
@@ -449,7 +470,9 @@ class AdminBranchesEndToEndTest {
 		String html = body("/admin/branches?action=qr&id=" + id);
 		assertThat(html)
 				.contains("<div class=\"modal-bg open\">")
-				.contains("<div class=\"modal modal--org-form modal--branch-qr\">")
+				.contains("<div class=\"modal modal--org-form modal--branch-qr\" role=\"dialog\" aria-modal=\"true\"")
+				.contains("aria-labelledby=\"br-qr-title\"")
+				.contains("<h2 id=\"br-qr-title\">")
 				.contains("<p class=\"branch-qr-branch-name\">Modalled</p>");
 	}
 
@@ -483,14 +506,17 @@ class AdminBranchesEndToEndTest {
 	@Test
 	void theQrExpiryFieldIsPrefilledAsLegacyPrefillsIt() {
 		long freshId = seedBranch(this.companyA, "Fresh");
-		String today = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+		// The page dates this from LegacyClock, which is the database's offset, not the
+		// JVM's: with the JVM in UTC and legacy at UTC+2 these disagree from 22:00 UTC,
+		// and the test would fail for two hours a day (#305's review round 1, Codex).
+		String today = legacyNow().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
 		assertThat(body("/admin/branches?action=qr&id=" + freshId))
 				.contains("id=\"br_qr_expires\"")
 				.contains("value=\"" + today + "T23:59\"");
 
 		long id = seedBranch(this.companyA, "Coded Prefill");
 		Page qr = page("/admin/branches?action=qr&id=" + id, this.cookie);
-		String expiry = LocalDateTime.now().plusDays(1).format(LOCAL);
+		String expiry = legacyNow().plusDays(1).format(LOCAL);
 		post("/admin/branches", this.cookie, qr.csrf(), "action", "generate_qr",
 				"id", String.valueOf(id), "company_id", String.valueOf(this.companyA), "expires_at", expiry);
 		assertThat(body("/admin/branches?action=qr&id=" + id)).contains("value=\"" + expiry + "\"");

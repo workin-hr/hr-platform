@@ -787,6 +787,50 @@ class AdminLayoutWiringTest {
 				.isEmpty();
 	}
 
+	/**
+	 * A window the server renders already open says it is a dialog, or is named
+	 * here as one that does not yet.
+	 *
+	 * <p>{@code rowDialog.jte:40} is the port's shape -- {@code role="dialog"},
+	 * {@code aria-modal="true"} and an {@code aria-labelledby} pointing at the
+	 * window's own heading. Legacy carries none of it, so this is the port's
+	 * addition rather than a parity item, and without it a screen reader is
+	 * handed ordinary page content underneath an overlay it cannot see.
+	 *
+	 * <p>{@link #NO_DIALOG_SEMANTICS} is a list rather than a count, so that
+	 * fixing one is a visible deletion from this file and a new window cannot
+	 * quietly join them. Every entry predates #305, which added the semantics to
+	 * the window it converted and left the rest to their own pages' changes
+	 * (#306).
+	 */
+	@Test
+	void aServerOpenedWindowSaysItIsADialog() throws IOException {
+		List<String> missing = new ArrayList<>();
+		try (var paths = Files.list(TEMPLATES)) {
+			for (Path path : paths.sorted().toList()) {
+				if (!path.toString().endsWith(".jte")) {
+					continue;
+				}
+				String source = Files.readString(path, StandardCharsets.UTF_8);
+				for (int at = source.indexOf(OPEN_WINDOW); at >= 0;
+						at = source.indexOf(OPEN_WINDOW, at + 1)) {
+					String window = source.substring(at, endOfWindow(source, at, path));
+					if (!window.contains("role=\"dialog\"") || !window.contains("aria-modal=\"true\"")
+							|| !window.contains("aria-labelledby=")) {
+						missing.add(fileName(path));
+					}
+				}
+			}
+		}
+		assertThat(missing).as("windows the server opens with no dialog semantics")
+				.containsExactlyInAnyOrderElementsOf(NO_DIALOG_SEMANTICS);
+	}
+
+	/** Server-opened windows that predate the rule; shrink it, never grow it (#306). */
+	private static final List<String> NO_DIALOG_SEMANTICS = List.of(
+			"administrative-decisions", "branch-form", "departments", "employees",
+			"job-titles", "payroll", "shifts", "workforce-planning");
+
 	private static final String OPEN_WINDOW = "<div class=\"modal-bg open\"";
 
 	private static final String WRITE_GATE = "@if(canWrite)";

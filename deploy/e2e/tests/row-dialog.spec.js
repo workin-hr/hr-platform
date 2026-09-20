@@ -387,3 +387,61 @@ ${WINDOW('typed', `<select name="type" data-dialog-field="type">
 	await page.locator('[data-dialog-id="1"]').click();
 	await expect(retired, 'reopening the row that has it enables it again').toBeEnabled();
 });
+
+/**
+ * A window the server renders already open, which is what `?action=qr&id=N` and
+ * `?action=edit&id=N` produce: the `open` class is in the HTML, so nothing ever
+ * mutates it and modal-a11y.js's observer never fires for it. Before #305 that
+ * left focus outside the overlay, and the Tab trap only engages once focus is
+ * already on the window's first or last control -- so Tab walked the page
+ * behind it. Legacy renders these itself, so it is the normal path, not an edge
+ * case.
+ */
+function serverOpenPage(fields = NAME_FIELD) {
+	return `<!doctype html><html lang="ar" dir="rtl"><body class="lang-ar">
+<div class="shell"><main class="main" id="main-content">
+  <div class="topbar"><h1 class="page-title">list</h1></div>
+  <div class="content hr-page">
+    <a href="/admin/branches" id="behind">a link behind the overlay</a>
+    <div class="modal-bg open">
+      <div class="modal modal--org-form" role="dialog" aria-modal="true" aria-labelledby="t">
+        <h2 id="t">open already</h2>
+        <form method="POST">${fields}
+          <div class="form-footer"><a href="/admin/branches" class="btn btn-gray">cancel</a></div>
+        </form>
+      </div>
+    </div>
+  </div>
+</main></div></body></html>`;
+}
+
+async function loadServerOpen(page) {
+	await page.setViewportSize({ width: 1280, height: 720 });
+	await page.setContent(serverOpenPage());
+	for (const sheet of SHEETS) {
+		await page.addStyleTag({ content: asset(sheet) });
+	}
+	for (const script of ['row-actions.js', 'crud.js', 'row-dialog.js', 'modal-a11y.js']) {
+		await page.addScriptTag({ content: asset(script) });
+	}
+	await settled(page);
+}
+
+test('a window the server renders open takes focus, keeps Tab inside it, and closes on Escape', async ({ page }) => {
+	await loadServerOpen(page);
+
+	expect(await page.evaluate(() => document.activeElement.closest('.modal') !== null),
+		'focus starts inside the window, not on the page behind it').toBe(true);
+	expect(await page.evaluate(() => document.activeElement.id), 'on the first field').toBe('f');
+
+	// From the last control, Tab wraps back inside rather than reaching the page behind.
+	await page.evaluate(() => document.querySelector('.modal .form-footer a').focus());
+	await page.keyboard.press('Tab');
+	expect(await page.evaluate(() => document.activeElement.closest('.modal') !== null),
+		'Tab from the last control stays inside the window').toBe(true);
+	expect(await page.evaluate(() => document.activeElement.id === 'behind'),
+		'and never lands on the link behind the overlay').toBe(false);
+
+	await page.keyboard.press('Escape');
+	await expect(page.locator('.modal-bg')).not.toHaveClass(/\bopen\b/);
+});
