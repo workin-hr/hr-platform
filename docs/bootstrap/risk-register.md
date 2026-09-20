@@ -1311,19 +1311,19 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Evidence | `hr-legacy` `functions.php:534,541,570,584,588,597`; `login_company.php:29`; `login_desktop.php:120`; `register_company.php:146`; `register_employee.php:59`; `complete_company_registration.php:179`. Port: exhaustive greps for `saveLastIp`, `UPDATE employees … SET … ip` and `ADD COLUMN ip` return nothing. |
 | Last Reviewed | 2026-09-09 |
 
-## R-073: Four Dashboard CSV Exports Have No Counterpart, And No Decision Covers Them
+## R-073: Three Of The Four Dashboard CSV Exports Still Have No Counterpart
 
 | Field | Value |
 |---|---|
-| Description | `payroll_list_helper.php:777-880`'s `payroll_export_attendance_csv()` was reworked by `505004f` — `hours_worked` stopped being SQL `ROUND(TIMESTAMPDIFF(...)/60, 1)` and now goes through `attendance_row_worked_minutes()` with `'—'` for a missing check-out. The port has no counterpart. This is **systematic, not specific to that commit**: four dashboard pages expose `?export=csv` in PHP — `attendance`, `leave_balances`, `advances`, `penalties` — and **none of the four is ported**. |
+| Description | `payroll_list_helper.php:777-880`'s `payroll_export_attendance_csv()` was reworked by `505004f` — `hours_worked` stopped being SQL `ROUND(TIMESTAMPDIFF(...)/60, 1)` and now goes through `attendance_row_worked_minutes()` with `'—'` for a missing check-out. The port has no counterpart. This is **systematic, not specific to that commit**: four dashboard pages expose `?export=csv` in PHP — `attendance`, `leave_balances`, `advances`, `penalties` — and when this risk was written **none of the four was ported**. **Leave balances is ported (D-269, #216)**; `attendance`, `advances` and `penalties` are not, and the attendance one is the reworked `payroll_export_attendance_csv()` above. |
 | Category | Migration / Scope |
 | Probability | Confirmed |
 | Impact | Medium. An HR user who exports a register today loses that capability at cutover. Unlike the other findings this is a whole feature area, so the cost of closing it is a build rather than a correction. |
 | Severity | Medium |
-| Owner | Repository owner — **this needs a scope decision, not an implementation** |
-| Why it is a decision | The other nine findings are behaviour `505004f` already determined, so the port simply has to agree with PHP. This one is different: the exports predate the baseline and were never ported at all, and no entry in the decision log disposes of them. Whether the JTE dashboard ships CSV export is a product question. Building four export surfaces unilaterally inside a parity sweep would be exactly the scope creep the sweep is meant to avoid. |
-| Mitigation | Decide: port the four exports, or record that the JTE dashboard deliberately drops CSV export and tell the users who rely on it before cutover. |
+| Owner | Repository owner — **the three that remain need a scope decision, not an implementation** |
+| Why it is a decision | The other nine findings are behaviour `505004f` already determined, so the port simply has to agree with PHP. This one is different: the exports predate the baseline and were never ported at all. Whether the JTE dashboard ships CSV export is a product question, and building four export surfaces unilaterally inside a parity sweep would be exactly the scope creep the sweep is meant to avoid. D-269 disposes of one of them and of nothing else: the leave balances export was in scope because #216 audited that page, and it deliberately did not take the other three with it. The product question is unanswered for those three. |
+| Mitigation | Decide, for the three that remain: port them, or record that the JTE dashboard deliberately drops CSV export there and tell the users who rely on it before cutover. |
 | Trigger | Cutover. |
-| Status | Open — awaiting an owner decision. |
-| Evidence | `hr-legacy` `dashboard/includes/payroll_list_helper.php:777-880`; `?export=csv` in the `attendance`, `leave_balances`, `advances` and `penalties` dashboard pages; `AdminAttendanceController.java` has no export branch and `admin/attendance.jte` no export link; no decision-log entry mentions dashboard CSV export. |
-| Last Reviewed | 2026-09-09 |
+| Status | Open — awaiting an owner decision on the three that remain. |
+| Evidence | `hr-legacy` `dashboard/includes/payroll_list_helper.php:777-880`; `?export=csv` in the `attendance`, `leave_balances`, `advances` and `penalties` dashboard pages; `AdminAttendanceController.java` has no export branch and `admin/attendance.jte` no export link. Leave balances: `AdminLeaveBalancesController`'s `export=csv` branch, `LeaveBalanceStore.exportRows` and D-269. |
+| Last Reviewed | 2026-09-20 |
