@@ -112,23 +112,29 @@
 						<p class="branch-qr-status">${t.apply("branch_qr_none")}</p>
 					@endif
 
-					@if(canWrite)
-						<form method="POST" class="branch-qr-form">
-							<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-							<input type="hidden" name="action" value="generate_qr">
-							<input type="hidden" name="id" value="${qrRow.id()}">
-							<input type="hidden" name="company_id" value="${qrRow.companyId()}">
-							<div class="form-row">
-								<label for="br_qr_expires">${t.apply("branch_qr_expires_at")}</label>
-								<input type="datetime-local" id="br_qr_expires" name="expires_at" required
-								       value="${qrRow.qrExpiresInputValue(now)}">
-							</div>
-							<div class="form-footer">
-								<a href="/admin/branches" class="btn btn-gray">${t.apply("cancel")}</a>
+					<%-- The window is the whole viewport and legacy gives it no close button,
+					     so its Cancel is the only way out that announces itself. It stays
+					     outside the actions gate for that reason, as branch-form.jte:87-92
+					     keeps its own: with the switch off -- which is the shipped default --
+					     gating the footer left a full-screen overlay a reader could dismiss
+					     only by guessing at Escape or the backdrop. --%>
+					<form method="POST" class="branch-qr-form">
+						<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+						<input type="hidden" name="action" value="generate_qr">
+						<input type="hidden" name="id" value="${qrRow.id()}">
+						<input type="hidden" name="company_id" value="${qrRow.companyId()}">
+						<div class="form-row">
+							<label for="br_qr_expires">${t.apply("branch_qr_expires_at")}</label>
+							<input type="datetime-local" id="br_qr_expires" name="expires_at" required
+							       value="${qrRow.qrExpiresInputValue(now)}">
+						</div>
+						<div class="form-footer">
+							<a href="/admin/branches" class="btn btn-gray">${t.apply("cancel")}</a>
+							@if(canWrite)
 								<button type="submit" class="btn btn-yellow">${t.apply(qrRow.qrActive(now) ? "branch_qr_regenerate" : "branch_qr_create")}</button>
-							</div>
-						</form>
-					@endif
+							@endif
+						</div>
+					</form>
 				</div>
 			</div>
 		@endif

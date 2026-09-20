@@ -736,6 +736,94 @@ class AdminLayoutWiringTest {
 	}
 
 	/**
+	 * A window the server renders already open never hides its Cancel behind
+	 * the actions switch.
+	 *
+	 * <p>{@code app.platform-admin.actions.enabled} ships <b>false</b>, so the
+	 * gated path is the normal one, not an edge case. It matters only for the
+	 * windows written {@code modal-bg open}: those are on screen because the
+	 * URL put them there ({@code ?action=edit}, {@code ?action=qr}), and the
+	 * link that puts them there is not itself gated, so a reader reaches them
+	 * with the switch off. They are full-viewport overlays that legacy gives no
+	 * close button, which leaves Cancel as the only way out that announces
+	 * itself -- {@code crud.js} closes on the backdrop and {@code modal-a11y.js}
+	 * on Escape, but nothing on screen says so.
+	 *
+	 * <p>The row dialogs and add modals are deliberately not covered: they are
+	 * written {@code modal-bg} with no {@code open}, and the control that opens
+	 * them is itself behind the same gate, so with the switch off they never
+	 * appear at all and a gated Cancel inside them cannot strand anyone.
+	 *
+	 * <p>#305's review round 1 found the branch QR window gating its footer
+	 * where {@code branch-form.jte} beside it had always kept Cancel outside
+	 * the gate. The rule is written here rather than on that one window so the
+	 * next one cannot repeat it.
+	 */
+	@Test
+	void aServerOpenedWindowsCancelIsNeverGatedByTheActionsSwitch() throws IOException {
+		List<String> gated = new ArrayList<>();
+		int windows = 0;
+		try (var paths = Files.list(TEMPLATES)) {
+			for (Path path : paths.sorted().toList()) {
+				if (!path.toString().endsWith(".jte")) {
+					continue;
+				}
+				String source = Files.readString(path, StandardCharsets.UTF_8);
+				for (int at = source.indexOf(OPEN_WINDOW); at >= 0;
+						at = source.indexOf(OPEN_WINDOW, at + 1)) {
+					windows++;
+					String window = source.substring(at, endOfWindow(source, at, path));
+					for (int gate = window.indexOf(WRITE_GATE); gate >= 0;
+							gate = window.indexOf(WRITE_GATE, gate + 1)) {
+						if (window.substring(gate, endOfBlock(window, gate, path)).contains(CANCEL)) {
+							gated.add(fileName(path));
+						}
+					}
+				}
+			}
+		}
+		assertThat(windows).as("the windows the server renders already open").isGreaterThanOrEqualTo(9);
+		assertThat(gated).as("windows on screen with the switch off whose Cancel is not")
+				.isEmpty();
+	}
+
+	private static final String OPEN_WINDOW = "<div class=\"modal-bg open\"";
+
+	private static final String WRITE_GATE = "@if(canWrite)";
+
+	private static final String CANCEL = "t.apply(\"cancel\")";
+
+	/** Where the window opening at {@code start} closes, by {@code <div>} depth. */
+	private static int endOfWindow(String source, int start, Path path) {
+		Matcher tag = Pattern.compile("<div\\b|</div>").matcher(source).region(start, source.length());
+		int depth = 0;
+		while (tag.find()) {
+			depth += tag.group().equals("</div>") ? -1 : 1;
+			if (depth == 0) {
+				return tag.end();
+			}
+		}
+		throw new AssertionError(path.getFileName() + ": a modal-bg that never closes at " + start);
+	}
+
+	/**
+	 * Where the {@code @if} opening at {@code start} closes, counting the
+	 * {@code @if}s nested inside it. A block that never closes fails here
+	 * rather than reading as an empty one.
+	 */
+	private static int endOfBlock(String source, int start, Path path) {
+		Matcher tag = Pattern.compile("@if\\(|@endif\\b").matcher(source).region(start, source.length());
+		int depth = 0;
+		while (tag.find()) {
+			depth += tag.group().equals("@endif") ? -1 : 1;
+			if (depth == 0) {
+				return tag.end();
+			}
+		}
+		throw new AssertionError(path.getFileName() + ": an @if that never closes at " + start);
+	}
+
+	/**
 	 * A page is a template that renders the shell. The rest -- the layout
 	 * itself, the sidebar, and form fragments like {@code branch-form} that a
 	 * page includes -- have no stylesheets of their own to name.
