@@ -1,7 +1,14 @@
 package com.workin.backend.platformadmin.web;
 
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+
 import jakarta.servlet.http.HttpServletRequest;
 
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -13,6 +20,8 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.AdvanceAdminService;
 import com.workin.backend.platformadmin.hr.AdvanceStore;
+import com.workin.legacy.LegacyClock;
+import com.workin.legacy.spreadsheet.LegacyXlsxWriter;
 
 /** {@code dashboard/pages/advances/page.php}. */
 @Controller
@@ -22,13 +31,24 @@ public class AdminAdvancesController {
 
 	private static final String PATH = PlatformAdminWebSecurityConfig.ADVANCES_PATH;
 
+	/**
+	 * What {@code csv_export_send()} actually sends ({@code query.php:375-405}): the button
+	 * says CSV and the file is a spreadsheet (D-269, {@code hr-legacy#23}), reproduced rather
+	 * than corrected here too.
+	 */
+	private static final MediaType XLSX = MediaType.parseMediaType(
+			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+
 	private final AdvanceStore store;
 
 	private final AdvanceAdminService service;
 
-	public AdminAdvancesController(AdvanceStore store, AdvanceAdminService service) {
+	private final LegacyClock clock;
+
+	public AdminAdvancesController(AdvanceStore store, AdvanceAdminService service, LegacyClock clock) {
 		this.store = store;
 		this.service = service;
+		this.clock = clock;
 	}
 
 	@AuthenticatedUseCase(reason = "One company's salary advances and what remains outstanding "
@@ -62,6 +82,53 @@ public class AdminAdvancesController {
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
 		model.addAttribute("errorKey", error);
 		return VIEW;
+	}
+
+	/**
+	 * {@code hr_export_advances_csv()} ({@code advances/page.php:11-13}): the list this page is
+	 * showing, as a spreadsheet, before anything is rendered.
+	 *
+	 * <p>Legacy exports every row the filter admits, not the page on the screen, ordered by
+	 * {@code created_at} rather than the {@code request_date}-first order the table above it
+	 * uses. Both are reproduced. The scoping is not relaxed for it: the same
+	 * {@link DashboardListFilters} the page reads, so an administrator filtered to one company
+	 * exports that company, and a session bound to one company can export no other. This is a
+	 * read, so it is not behind the actions switch that gates the row actions -- a working
+	 * export must not disappear because writes are turned off.
+	 *
+	 * <p>If it fails, the operator sees the dashboard's error page rather than a download, and
+	 * the request appears in the access log as a 500 on {@code /admin/advances?export=csv};
+	 * nothing is written either way.
+	 */
+	@AuthenticatedUseCase(reason = "One company's salary advances, or every company's, as a "
+			+ "spreadsheet. Read-only, and narrowed by exactly the filter that narrows the page.")
+	@GetMapping(value = PATH, params = "export=csv")
+	public ResponseEntity<byte[]> export(
+			@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
+			HttpServletRequest request, Model model) {
+
+		DashboardSession session = (DashboardSession) model.getAttribute("session");
+		DashboardListFilters filters = DashboardListFilters.read(session, request);
+		String status = request.getParameter("status") == null
+				? "all" : request.getParameter("status");
+		String dateFrom = request.getParameter("date_from");
+		String dateTo = request.getParameter("date_to");
+		Function<String, String> t = AdminFlash.t(model);
+
+		byte[] body = LegacyXlsxWriter.build(
+				List.of(t.apply("emp_code"), t.apply("employee_name"), t.apply("advance_amount"),
+						t.apply("remaining"), t.apply("request_date"), t.apply("advance_reason"),
+						t.apply("rejection_reason"), t.apply("status")),
+				this.store.exportRows(filters, status, dateFrom, dateTo),
+				// csv_export_send()'s own sheet name and default options.
+				"Export", List.of(), List.of(), 1, Map.of());
+
+		return ResponseEntity.ok()
+				.contentType(XLSX)
+				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\""
+						+ LegacyXlsxWriter.sanitizeFilename("advances_" + this.clock.todayAsString() + ".xlsx")
+						+ "\"")
+				.body(body);
 	}
 
 	@AuthenticatedUseCase(reason = "Creates, edits, approves, rejects, marks repaid or deletes "

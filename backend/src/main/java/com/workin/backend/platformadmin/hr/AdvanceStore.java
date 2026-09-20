@@ -47,29 +47,7 @@ public class AdvanceStore {
 			DashboardListFilters filters, String status, String dateFrom, String dateTo,
 			boolean showCompany) {
 		List<Object> params = new ArrayList<>();
-		StringBuilder where = new StringBuilder("1=1");
-		if (filters.companyId() > 0) {
-			where.append(" AND e.company_id = ?");
-			params.add(filters.companyId());
-		}
-		if (!"all".equals(status)) {
-			where.append(" AND a.status = ?");
-			params.add(status);
-		}
-		if (dateFrom != null && !dateFrom.isBlank()) {
-			where.append(" AND a.request_date >= ?");
-			params.add(dateFrom.trim());
-		}
-		if (dateTo != null && !dateTo.isBlank()) {
-			where.append(" AND a.request_date <= ?");
-			params.add(dateTo.trim());
-		}
-		if (!filters.search().isEmpty()) {
-			where.append(" AND (").append(DISPLAY_NAME).append(" LIKE ? OR ")
-					.append(EMP_CODE).append(" LIKE ?)");
-			params.add("%" + filters.search() + "%");
-			params.add("%" + filters.search() + "%");
-		}
+		String where = where(filters, status, dateFrom, dateTo, params);
 
 		String join = showCompany ? " JOIN companies c ON c.id = e.company_id" : "";
 		String companyCol = showCompany ? ", c.company_name" : "";
@@ -95,6 +73,81 @@ public class AdvanceStore {
 				mapper(showCompany), pageParams.toArray());
 
 		return DashboardPage.of(rows, total == null ? 0 : total, filters.page(), filters.perPage());
+	}
+
+	/**
+	 * The one {@code WHERE} of this page ({@code hr_paginate_advances()} /
+	 * {@code hr_export_advances_csv()}, both {@code hr_list_helper.php:331-374, 1110-1152}),
+	 * appending its bound values to {@code params}.
+	 *
+	 * <p>Shared by {@link #paginate} and {@link #exportRows} so the export
+	 * cannot narrow differently from the table above it (D-269's shape for
+	 * {@code LeaveBalanceStore}).
+	 */
+	private static String where(
+			DashboardListFilters filters, String status, String dateFrom, String dateTo,
+			List<Object> params) {
+		StringBuilder where = new StringBuilder("1=1");
+		if (filters.companyId() > 0) {
+			where.append(" AND e.company_id = ?");
+			params.add(filters.companyId());
+		}
+		if (!"all".equals(status)) {
+			where.append(" AND a.status = ?");
+			params.add(status);
+		}
+		if (dateFrom != null && !dateFrom.isBlank()) {
+			where.append(" AND a.request_date >= ?");
+			params.add(dateFrom.trim());
+		}
+		if (dateTo != null && !dateTo.isBlank()) {
+			where.append(" AND a.request_date <= ?");
+			params.add(dateTo.trim());
+		}
+		if (!filters.search().isEmpty()) {
+			where.append(" AND (").append(DISPLAY_NAME).append(" LIKE ? OR ")
+					.append(EMP_CODE).append(" LIKE ?)");
+			params.add("%" + filters.search() + "%");
+			params.add("%" + filters.search() + "%");
+		}
+		return where.toString();
+	}
+
+	/**
+	 * {@code hr_export_advances_csv()} ({@code hr_list_helper.php:1110-1152}): every row the
+	 * list would show for this filter, as eight strings a spreadsheet cell can hold, unpaginated
+	 * and in legacy's own export order -- {@code a.created_at DESC, a.id DESC} -- rather than the
+	 * {@code request_date}-first order the table above it uses.
+	 *
+	 * <p>The values are read as the database renders them, which is what PDO hands legacy:
+	 * {@code decimal(10,2)} as {@code "1000.00"}.
+	 */
+	public List<List<String>> exportRows(
+			DashboardListFilters filters, String status, String dateFrom, String dateTo) {
+		List<Object> params = new ArrayList<>();
+		String where = where(filters, status, dateFrom, dateTo, params);
+
+		return this.jdbcTemplate.query(
+				"SELECT " + EMP_CODE + " AS emp_code, " + DISPLAY_NAME + " AS employee_name,"
+						+ " a.amount, a.remaining, a.request_date, a.reason, a.rejection_reason,"
+						+ " a.status"
+						+ " FROM advances a JOIN employees e ON e.id = a.employee_id"
+						+ " WHERE " + where
+						+ " ORDER BY a.created_at DESC, a.id DESC",
+				(rs, rowNum) -> List.of(
+						blankIfNull(rs.getString("emp_code")),
+						blankIfNull(rs.getString("employee_name")),
+						blankIfNull(rs.getString("amount")),
+						blankIfNull(rs.getString("remaining")),
+						blankIfNull(rs.getString("request_date")),
+						blankIfNull(rs.getString("reason")),
+						blankIfNull(rs.getString("rejection_reason")),
+						blankIfNull(rs.getString("status"))),
+				params.toArray());
+	}
+
+	private static String blankIfNull(String value) {
+		return value == null ? "" : value;
 	}
 
 	/** R-046's lookup: the row's company, through its employee. */

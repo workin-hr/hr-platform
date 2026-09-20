@@ -52,6 +52,44 @@ public class PenaltyStore {
 			DashboardListFilters filters, String applied, String dateFrom, String dateTo,
 			boolean showCompany) {
 		List<Object> params = new ArrayList<>();
+		String where = where(filters, applied, dateFrom, dateTo, params);
+
+		String join = showCompany ? " JOIN companies c ON c.id = e.company_id" : "";
+		String companyCol = showCompany ? ", c.company_name" : "";
+
+		Integer total = this.jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM penalties pen JOIN employees e ON e.id = pen.employee_id"
+						+ join + " WHERE " + where,
+				Integer.class, params.toArray());
+
+		List<Object> pageParams = new ArrayList<>(params);
+		pageParams.add(filters.perPage());
+		pageParams.add(DashboardPage.offsetFor(filters.page(), filters.perPage()));
+
+		List<Penalty> rows = this.jdbcTemplate.query(
+				"SELECT pen.*, e.company_id" + companyCol + ", "
+						+ DISPLAY_NAME + " AS employee_name, " + EMP_CODE + " AS emp_code"
+						+ " FROM penalties pen JOIN employees e ON e.id = pen.employee_id" + join
+						+ " WHERE " + where
+						+ " ORDER BY pen.penalty_date DESC, pen.id DESC"
+						+ " LIMIT ? OFFSET ?",
+				mapper(showCompany), pageParams.toArray());
+
+		return DashboardPage.of(rows, total == null ? 0 : total, filters.page(), filters.perPage());
+	}
+
+	/**
+	 * The one {@code WHERE} of this page ({@code hr_paginate_penalties()} /
+	 * {@code hr_export_penalties_csv()}, both {@code hr_list_helper.php:230-259, 1050-1073}),
+	 * appending its bound values to {@code params}.
+	 *
+	 * <p>Shared by {@link #paginate} and {@link #exportRows} so the export
+	 * cannot narrow differently from the table above it (D-269's shape for
+	 * {@code LeaveBalanceStore}).
+	 */
+	private static String where(
+			DashboardListFilters filters, String applied, String dateFrom, String dateTo,
+			List<Object> params) {
 		StringBuilder where = new StringBuilder("1=1");
 		if (filters.companyId() > 0) {
 			where.append(" AND e.company_id = ?");
@@ -76,29 +114,43 @@ public class PenaltyStore {
 			params.add("%" + filters.search() + "%");
 			params.add("%" + filters.search() + "%");
 		}
+		return where.toString();
+	}
 
-		String join = showCompany ? " JOIN companies c ON c.id = e.company_id" : "";
-		String companyCol = showCompany ? ", c.company_name" : "";
+	/**
+	 * {@code hr_export_penalties_csv()} ({@code hr_list_helper.php:1050-1088}): every row the
+	 * list would show for this filter, as seven strings a spreadsheet cell can hold, unpaginated
+	 * and in the same order the table uses -- legacy's export and its list share one
+	 * {@code ORDER BY}, unlike leave balances'.
+	 *
+	 * <p>The values are read as the database renders them, which is what PDO hands legacy:
+	 * {@code decimal(5,1)} as {@code "0.5"}, {@code tinyint(1)} as {@code "0"}/{@code "1"}.
+	 */
+	public List<List<String>> exportRows(
+			DashboardListFilters filters, String applied, String dateFrom, String dateTo) {
+		List<Object> params = new ArrayList<>();
+		String where = where(filters, applied, dateFrom, dateTo, params);
 
-		Integer total = this.jdbcTemplate.queryForObject(
-				"SELECT COUNT(*) FROM penalties pen JOIN employees e ON e.id = pen.employee_id"
-						+ join + " WHERE " + where,
-				Integer.class, params.toArray());
-
-		List<Object> pageParams = new ArrayList<>(params);
-		pageParams.add(filters.perPage());
-		pageParams.add(DashboardPage.offsetFor(filters.page(), filters.perPage()));
-
-		List<Penalty> rows = this.jdbcTemplate.query(
-				"SELECT pen.*, e.company_id" + companyCol + ", "
-						+ DISPLAY_NAME + " AS employee_name, " + EMP_CODE + " AS emp_code"
-						+ " FROM penalties pen JOIN employees e ON e.id = pen.employee_id" + join
+		return this.jdbcTemplate.query(
+				"SELECT " + EMP_CODE + " AS emp_code, " + DISPLAY_NAME + " AS employee_name,"
+						+ " pen.penalty_type, pen.penalty_days, pen.reason, pen.penalty_date,"
+						+ " pen.applied_to_payroll"
+						+ " FROM penalties pen JOIN employees e ON e.id = pen.employee_id"
 						+ " WHERE " + where
-						+ " ORDER BY pen.penalty_date DESC, pen.id DESC"
-						+ " LIMIT ? OFFSET ?",
-				mapper(showCompany), pageParams.toArray());
+						+ " ORDER BY pen.penalty_date DESC, pen.id DESC",
+				(rs, rowNum) -> List.of(
+						blankIfNull(rs.getString("emp_code")),
+						blankIfNull(rs.getString("employee_name")),
+						blankIfNull(rs.getString("penalty_type")),
+						blankIfNull(rs.getString("penalty_days")),
+						blankIfNull(rs.getString("reason")),
+						blankIfNull(rs.getString("penalty_date")),
+						String.valueOf(rs.getInt("applied_to_payroll"))),
+				params.toArray());
+	}
 
-		return DashboardPage.of(rows, total == null ? 0 : total, filters.page(), filters.perPage());
+	private static String blankIfNull(String value) {
+		return value == null ? "" : value;
 	}
 
 	/** The company a penalty belongs to, through its employee. R-046's lookup. */
