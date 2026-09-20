@@ -57,13 +57,13 @@ public final class HomeDisplay {
 	 * The port printed the stored timestamp cut to sixteen characters instead --
 	 * an ISO date and a twenty-four-hour clock -- on the home page's activity
 	 * feed and complaints panel, and on the join requests page. Legacy calls it
-	 * in four places: {@code index.php:160} and {@code :242} for those two
-	 * panels, {@code home_service.php:1079} for the activity row's own side
-	 * time, and {@code join_requests/page.php:57}. Three of those are ported:
-	 * the activity feed's side time and the complaints panel's meta line in
-	 * {@code home.jte}, and the join requests date. The fourth,
-	 * {@code index.php:242}, is legacy's join-requests panel on its own home
-	 * page, which this dashboard does not render.
+	 * in four places: {@code home_service.php:1079} for the activity row's own
+	 * side time, {@code dashboard/index.php:160} for the complaints panel's
+	 * meta line, {@code join_requests/page.php:57} for the join requests date,
+	 * and {@code dashboard/index.php:242} for the join-requests panel on
+	 * legacy's own home page. The first three are the ones ported: the two
+	 * cells in {@code home.jte} and the join requests date. The fourth is a
+	 * panel this dashboard does not render.
 	 *
 	 * <p>Nothing stored is an em dash, and a value no date can be read out of is
 	 * returned as it came, both as legacy's {@code strtotime()} branch does. The

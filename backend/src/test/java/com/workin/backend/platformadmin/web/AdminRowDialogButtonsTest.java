@@ -152,11 +152,15 @@ class AdminRowDialogButtonsTest {
 	}
 
 	/**
-	 * Each control is its own labelled cell: no two labels share a {@code .form-row} directly, and
-	 * no two share the innermost classed element around them. Legacy does lay several controls
-	 * across one row -- the employees window's country, phone and password sit in one
-	 * {@code .form-row} as a nested grid ({@code _employee_form.php:90-114}) -- and each of those
-	 * still has its own labelled cell, which is what this reads.
+	 * Each control is its own labelled cell. A label belongs to the innermost element that is a
+	 * cell around it, and two labels in one of those is the offence: two directly in a
+	 * {@code .form-row}, two in one classed element inside a {@code .form-row}, or two loose in a
+	 * window with no {@code .form-row} around them at all. Legacy does lay several controls across
+	 * one row -- the employees window's country, phone and password sit in one {@code .form-row} as
+	 * a nested grid ({@code _employee_form.php:90-114}) -- and each of those still has its own
+	 * labelled cell, which is what this reads. A classed element counts as a cell only inside a
+	 * {@code .form-row}: #297's review found the first form of this rule made every classed element
+	 * a cell anywhere in a window, which let two loose labels through.
 	 *
 	 * <p>The same rule for every window a page writes itself, its add modals included: legacy's add
 	 * windows write one field to a row too ({@code faqs/page.php:153-217},
@@ -248,6 +252,52 @@ class AdminRowDialogButtonsTest {
 		assertThat(inputs).isEmpty();
 	}
 
+	/**
+	 * A tag's class attribute as the browser will see it -- its literal text, with every JTE
+	 * expression taken out -- or empty when it has none.
+	 *
+	 * <p>Three shapes were being read as a class that is not one. {@code data-dialog-class="x"} ends
+	 * in {@code class="x"} on a word boundary, so a tag carrying only that attribute counted as a
+	 * cell and released the labels inside it; the attribute has to start where an attribute starts.
+	 * {@code class="${row.cssClass()}"} is text in the template and can render to nothing, so an
+	 * element that is a cell here and no element at all in the browser would do the same. And an
+	 * expression carries its own quotes ({@code class="${t.apply("x")}"}), which a
+	 * {@code class="([^"]*)"} pattern cuts in the middle, leaving half an expression that reads as a
+	 * class. So the value is scanned rather than matched: quotes and braces inside {@code ${...}}
+	 * belong to the expression, and the attribute ends at the first quote outside one.
+	 *
+	 * <p>A tag whose class attribute never closes -- which is what a {@code >} inside an expression
+	 * looks like, because the caller's tag pattern stops there -- fails rather than passing as
+	 * unclassed.
+	 */
+	private static String classesOf(String tag) {
+		Matcher attribute = CLASS_ATTRIBUTE.matcher(tag);
+		if (!attribute.find()) {
+			return "";
+		}
+		StringBuilder literal = new StringBuilder();
+		int depth = 0;
+		for (int at = attribute.end(); at < tag.length(); at++) {
+			char character = tag.charAt(at);
+			if (character == '$' && at + 1 < tag.length() && tag.charAt(at + 1) == '{') {
+				depth++;
+				at++;
+			}
+			else if (depth > 0) {
+				depth += character == '{' ? 1 : character == '}' ? -1 : 0;
+			}
+			else if (character == '"') {
+				return literal.toString().replaceAll("\\s+", " ").trim();
+			}
+			else {
+				literal.append(character);
+			}
+		}
+		throw new AssertionError("a class attribute that never closes: " + tag);
+	}
+
+	private static final Pattern CLASS_ATTRIBUTE = Pattern.compile("(?s)\\sclass=\"");
+
 	private static void checkFormRows(String where, String fields, List<String> offenders, int[] labels) {
 		Deque<Integer> rows = new ArrayDeque<>();
 		Deque<Boolean> formRows = new ArrayDeque<>();
@@ -264,10 +314,11 @@ class AdminRowDialogButtonsTest {
 				// A classed div is a cell only INSIDE a `.form-row`. Outside one, labels still fall
 				// together into the "no row" bucket and two of them are still an offence: #297's
 				// review round 2 found the first form of this rule made every classed div a cell
-				// anywhere in a window, which let that bucket through.
-				boolean row = token.matches("(?s).*class=\"([^\"]*\\s)?form-row(\\s[^\"]*)?\".*");
-				boolean cell = !row && formRows.contains(Boolean.TRUE)
-						&& token.matches("(?s).*\\bclass=\"[^\"]+\".*");
+				// anywhere in a window, which let that bucket through. Round 3 found the reading of
+				// the attribute itself too loose, in both directions: see `classesOf`.
+				String classes = classesOf(token);
+				boolean row = (" " + classes + " ").contains(" form-row ");
+				boolean cell = !row && formRows.contains(Boolean.TRUE) && !classes.isEmpty();
 				rows.push(row || cell ? tag.start() : -1);
 				formRows.push(row);
 			}
