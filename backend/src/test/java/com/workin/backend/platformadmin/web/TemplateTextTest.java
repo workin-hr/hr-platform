@@ -92,6 +92,15 @@ class TemplateTextTest {
 		assertThat(TemplateText.possibleClassText("${t.apply(\"x\")} form-row"))
 				.as("an expression carrying its own quotes, then a literal class")
 				.contains("form-row");
+		assertThat(TemplateText.possibleClassText("modal-bg${x ? \" op\\\"en\" : \" open\"}"))
+				.as("an escaped quote does not end the string, so the second one is still read")
+				.contains("open");
+		// The loud direction, kept and stated: a string an expression only compares against
+		// is read as text it can render, so a window that can never be open may be enrolled.
+		// The rule then asks that window for a Cancel and dialog semantics, which is a
+		// failure someone reads, where the silent direction above is one nobody does.
+		assertThat(TemplateText.possibleClassText("modal-bg ${row.state().equals(\"open\") ? \"a\" : \"\"}"))
+				.as("a comparison operand, which this cannot tell from a result").contains("open");
 	}
 
 	/**

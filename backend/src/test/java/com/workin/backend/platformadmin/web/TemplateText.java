@@ -122,8 +122,14 @@ final class TemplateText {
 				text.append(character);
 			}
 			else if (character == '"' || character == '\'') {
-				int close = rawClass.indexOf(character, at + 1);
-				if (close < 0) {
+				// An escaped quote does not end the string: `${x ? " op\\"en" : " open"}` holds
+				// two of them, and stopping at the escape dropped the second -- the silent
+				// direction, where a window the server can open stops being one (round 6).
+				int close = at + 1;
+				while (close < rawClass.length() && rawClass.charAt(close) != character) {
+					close += rawClass.charAt(close) == '\\' ? 2 : 1;
+				}
+				if (close >= rawClass.length()) {
 					return text.toString();
 				}
 				text.append(' ').append(rawClass, at + 1, close).append(' ');

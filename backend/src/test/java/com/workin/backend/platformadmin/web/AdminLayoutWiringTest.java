@@ -984,12 +984,30 @@ class AdminLayoutWiringTest {
 		assertThat(cancelIsBehindTheSwitch(
 				"@if(canWrite)@if(row.wide())<span>a</span>@else<span>b</span>@endif@endif" + cancel, synthetic))
 				.as("a nested @else inside the gate does not end its arm early").isFalse();
-		assertThatThrownBy(() -> cancelIsBehindTheSwitch(
+		assertThat(cancelIsBehindTheSwitch("@if(!(canWrite))<span>x</span>@else" + cancel + "@endif", synthetic))
+				.as("one pair of parentheses, which round 5 read as no negation at all").isTrue();
+		assertThat(cancelIsBehindTheSwitch("@if(!(canWrite))" + cancel + "@endif", synthetic))
+				.as("the same condition's other arm, which renders with the switch off").isFalse();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(qrRow.name().equals(\") && canWrite\"))" + cancel + "@endif", synthetic))
+				.as("a string holding what looks like structure decides nothing").isFalse();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(qrRow.name().equals(\")\") && canWrite)" + cancel + "@endif", synthetic))
+				.as("a string holding a bracket does not hide the switch beside it").isTrue();
+		assertThat(cancelIsBehindTheSwitch(
 				"@if(canWrite && !actionsEnabled)" + cancel + "@endif", synthetic))
-				.as("a condition naming the switch both ways is not guessed at")
+				.as("both names at once, one negated: the arm still needs the switch on").isTrue();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(canManage && !actionsEnabled)" + cancel + "@endif", synthetic))
+				.as("the banner arm, which renders only when the switch is OFF").isFalse();
+		assertThat(cancelIsBehindTheSwitch("@if(canWrite || row.pinned())" + cancel + "@endif", synthetic))
+				.as("an or: something else can render this arm with the switch off").isFalse();
+		assertThatThrownBy(() -> cancelIsBehindTheSwitch(
+				"@if(canWrite == true)" + cancel + "@endif", synthetic))
+				.as("the switch inside a larger operand is not guessed at")
 				.isInstanceOf(AssertionError.class)
 				.hasMessageContaining("synthetic.jte")
-				.hasMessageContaining("both ways");
+				.hasMessageContaining("canWrite == true");
 	}
 
 	/**
@@ -1023,12 +1041,15 @@ class AdminLayoutWiringTest {
 			int block = opening.start();
 			int end = endOfBlock(window, block, path);
 			int otherwise = armEnd(window, block, end);
-			// The arm that renders only with the switch on: the `@if` arm for a condition
-			// that names the switch plainly, the `@else` arm for one that negates it.
-			String gatedArm = negatesTheSwitch(condition, path)
-					? window.substring(Math.min(otherwise, end), end)
-					: window.substring(block, otherwise);
-			if (gatedArm.contains(CANCEL)) {
+			// Either arm can be the one that needs the switch on, and a condition can make
+			// neither of them so (`@if(canManage && !actionsEnabled)` renders one way or the
+			// other whatever the switch does). Each is asked separately.
+			if (thenArmIsTheGatedOne(condition, path)
+					&& window.substring(block, otherwise).contains(CANCEL)) {
+				return true;
+			}
+			if (elseArmIsTheGatedOne(condition, path)
+					&& window.substring(Math.min(otherwise, end), end).contains(CANCEL)) {
 				return true;
 			}
 		}
@@ -1056,6 +1077,12 @@ class AdminLayoutWiringTest {
 		int depth = 0;
 		for (int at = open; at < source.length(); at++) {
 			char character = source.charAt(at);
+			if (character == '"' || character == '\'') {
+				// A bracket inside a string is text: `@if(name.equals(")") && canWrite)` ends
+				// where the condition ends, not where its first quoted `)` sits (round 6).
+				at = endOfStringLiteral(source, at, path);
+				continue;
+			}
 			depth += character == '(' ? 1 : character == ')' ? -1 : 0;
 			if (depth == 0) {
 				return source.substring(open + 1, at);
@@ -1064,24 +1091,163 @@ class AdminLayoutWiringTest {
 		throw new AssertionError(path.getFileName() + ": an @if condition that never closes at " + open);
 	}
 
-	/** Whether a condition names the switch only negated, so its {@code @else} is the gated arm. */
-	private static boolean negatesTheSwitch(String condition, Path path) {
-		boolean negated = false;
-		boolean plain = false;
-		for (Matcher name = SWITCH.matcher(condition); name.find(); ) {
-			String before = condition.substring(0, name.start()).stripTrailing();
-			boolean thisOne = before.endsWith("!");
-			negated |= thisOne;
-			plain |= !thisOne;
+	/** Where the literal opening at {@code quote} ends, escapes skipped. */
+	private static int endOfStringLiteral(String source, int quote, Path path) {
+		char delimiter = source.charAt(quote);
+		for (int at = quote + 1; at < source.length(); at++) {
+			char character = source.charAt(at);
+			if (character == '\\') {
+				at++;
+			}
+			else if (character == delimiter) {
+				return at;
+			}
 		}
-		if (negated && plain) {
-			// Which arm needs the switch on is then a question about the whole expression,
-			// which this does not evaluate. No template writes one; if one does, it says so.
-			throw new AssertionError(path.getFileName()
-					+ ": a condition that names the actions switch both ways: " + condition);
-		}
-		return negated;
+		throw new AssertionError(path.getFileName() + ": a string that never closes at " + quote);
 	}
+
+	/**
+	 * Whether the {@code @else} arm is the one that needs the switch on, rather than
+	 * the {@code @if} arm.
+	 *
+	 * <p>The condition is evaluated with the switch <b>off</b>, which is the only state
+	 * this rule is about, and with every other operand unknown. An arm that cannot
+	 * render in that state is the gated one, and a Cancel there is a Cancel the reader
+	 * does not get. Round 5 decided this by asking whether a {@code !} sat immediately
+	 * before the switch's name, which read {@code @if(!(canWrite))} as un-negated and
+	 * was wrong in both directions at once (round 6). Evaluating is barely longer than
+	 * pattern-matching and has no next spelling to miss.
+	 */
+	private static boolean elseArmIsTheGatedOne(String condition, Path path) {
+		return Boolean.TRUE.equals(withTheSwitchOff(condition, path));
+	}
+
+	/** Whether the {@code @if} arm itself is the gated one. */
+	private static boolean thenArmIsTheGatedOne(String condition, Path path) {
+		return Boolean.FALSE.equals(withTheSwitchOff(condition, path));
+	}
+
+	/**
+	 * {@code condition} with the actions switch off: {@code TRUE}, {@code FALSE}, or
+	 * {@code null} when the operands this cannot see decide it.
+	 *
+	 * <p>{@code canWrite} and {@code actionsEnabled} are false and everything else is
+	 * unknown, so three answers are possible and each means something this rule needs:
+	 * {@code FALSE} says the {@code @if} arm cannot render with the switch off,
+	 * {@code TRUE} says the {@code @else} arm cannot, and {@code null} -- which
+	 * {@code @if(canManage && !actionsEnabled)} gives -- says neither arm is the
+	 * switch's to hide.
+	 *
+	 * <p>It is a boolean expression and nothing more: {@code &&}, {@code ||}, {@code !}
+	 * and parentheses over opaque operands. String literals are blanked first, so a
+	 * bracket or a quote inside one cannot move the parsing (round 6). An operand that
+	 * holds the switch's name inside something larger, such as {@code canWrite == true},
+	 * is not read: it fails naming the file, the condition and what to do, because
+	 * guessing is how this rule was wrong five times.
+	 */
+	private static Boolean withTheSwitchOff(String condition, Path path) {
+		String source = BLANKABLE_STRING.matcher(condition).replaceAll("\"\"");
+		int[] at = {0};
+		Boolean value = orExpression(source, at, path);
+		skipSpace(source, at);
+		if (at[0] < source.length()) {
+			throw unreadable(condition, path, "it does not parse as a boolean expression");
+		}
+		return value;
+	}
+
+	private static Boolean orExpression(String source, int[] at, Path path) {
+		Boolean value = andExpression(source, at, path);
+		while (peek(source, at, "||")) {
+			Boolean right = andExpression(source, at, path);
+			value = Boolean.TRUE.equals(value) || Boolean.TRUE.equals(right) ? Boolean.TRUE
+					: value == null || right == null ? null : Boolean.FALSE;
+		}
+		return value;
+	}
+
+	private static Boolean andExpression(String source, int[] at, Path path) {
+		Boolean value = unary(source, at, path);
+		while (peek(source, at, "&&")) {
+			Boolean right = unary(source, at, path);
+			value = Boolean.FALSE.equals(value) || Boolean.FALSE.equals(right) ? Boolean.FALSE
+					: value == null || right == null ? null : Boolean.TRUE;
+		}
+		return value;
+	}
+
+	private static Boolean unary(String source, int[] at, Path path) {
+		skipSpace(source, at);
+		if (peek(source, at, "!")) {
+			Boolean value = unary(source, at, path);
+			return value == null ? null : !value;
+		}
+		if (peek(source, at, "(")) {
+			Boolean value = orExpression(source, at, path);
+			if (!peek(source, at, ")")) {
+				throw unreadable(source, path, "a parenthesis never closes");
+			}
+			return value;
+		}
+		int start = at[0];
+		// An operand runs to the next thing that is structure: `&&`, `||`, a `!` that is not
+		// the `!=` of a comparison, or a bracket that is not its own. `canWrite && qrRow !=
+		// null` is two operands, and `row.ready() && actionsEnabled` is two as well -- a call's
+		// brackets belong to the operand, a grouping's do not (round 6's own probe shapes).
+		int calls = 0;
+		while (at[0] < source.length()) {
+			char here = source.charAt(at[0]);
+			if (here == '(' && at[0] > start) {
+				calls++;
+			}
+			else if (here == ')' && calls > 0) {
+				calls--;
+			}
+			else if (calls == 0 && (here == '(' || here == ')'
+					|| source.startsWith("&&", at[0]) || source.startsWith("||", at[0])
+					|| (here == '!' && !source.startsWith("!=", at[0])))) {
+				break;
+			}
+			at[0]++;
+		}
+		String operand = source.substring(start, at[0]).trim();
+		if (operand.isEmpty()) {
+			throw unreadable(source, path, "an operand is missing");
+		}
+		if (operand.equals("canWrite") || operand.equals("actionsEnabled")) {
+			return Boolean.FALSE;
+		}
+		if (SWITCH.matcher(operand).find()) {
+			throw unreadable(source, path, "the operand `" + operand + "` holds the actions switch "
+					+ "inside a larger expression, which this rule does not evaluate. Write the "
+					+ "switch as its own operand, or extend this test to read the shape");
+		}
+		return null;
+	}
+
+	private static boolean peek(String source, int[] at, String token) {
+		skipSpace(source, at);
+		if (source.startsWith(token, at[0])) {
+			at[0] += token.length();
+			return true;
+		}
+		return false;
+	}
+
+	private static void skipSpace(String source, int[] at) {
+		while (at[0] < source.length() && Character.isWhitespace(source.charAt(at[0]))) {
+			at[0]++;
+		}
+	}
+
+	private static AssertionError unreadable(String condition, Path path, String why) {
+		return new AssertionError(path.getFileName() + ": a condition this rule cannot read -- "
+				+ why + ": " + condition);
+	}
+
+	/** A string literal's contents, escapes included, which are text and never structure. */
+	private static final Pattern BLANKABLE_STRING =
+			Pattern.compile("\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*'");
 
 	/**
 	 * An {@code @if}'s opening, written exactly as {@link #endOfBlock} and
