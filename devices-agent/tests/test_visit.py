@@ -6,7 +6,9 @@ import subprocess
 import tempfile
 import threading
 import time
+import urllib.request
 import unittest
+from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -18,6 +20,10 @@ from tests.support import FakePlatform
 
 ROOT = Path(__file__).resolve().parents[2]
 PIN = "90417"
+
+
+class Unscripted(BaseException):
+    """Not an Exception: the visit catches those, and a test's complaint must reach the test."""
 
 
 class ScriptedConsole:
@@ -39,11 +45,11 @@ class ScriptedConsole:
     def ask(self, prompt):
         question = prompt if prompt.startswith("👉") else self.question
         if not self.answers:
-            raise AssertionError(f"unexpected question {question!r}; last output:\n" + "\n".join(self.output[-15:]))
+            raise Unscripted(f"unexpected question {question!r}; last output:\n" + "\n".join(self.output[-15:]))
         fragment, answer = self.answers.pop(0)
         if fragment not in question:
-            raise AssertionError(f"expected a question about {fragment!r}, got {question!r}; last output:\n"
-                                 + "\n".join(self.output[-15:]))
+            raise Unscripted(f"expected a question about {fragment!r}, got {question!r}; last output:\n"
+                             + "\n".join(self.output[-15:]))
         return answer() if callable(answer) else answer
 
     secret = ask
@@ -83,7 +89,7 @@ class FakeReceiver:
                 return self._answer(200, "OK")
 
             def do_POST(self):
-                body = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode()
+                body = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode("utf-8", "replace")
                 serial = re.search(r"SN=([^&]+)", self.path).group(1)
                 if serial not in receiver.allocated:
                     return self._answer(403, "ERROR: device is not registered")
@@ -128,15 +134,25 @@ class PushDevice:
         self.pending = [adms.punch_line(PIN, datetime.now() - timedelta(days=1, hours=hours), hours % 2)
                         for hours in range(1, 5)]
         self.lock = threading.Lock()
+        self.tick = 0
         self.connected = True
         self.stopped = threading.Event()
         self.terminal.handshake()
         threading.Thread(target=self._loop, daemon=True).start()
 
-    def punch(self, in_out=0, seconds_ago=0):
-        when = (datetime.now() - timedelta(seconds=seconds_ago)).replace(microsecond=0)
+    def send_old_batch(self, lines=3, in_out=1):
+        """A batch of old records, sent now and synchronously: a backlog still draining."""
+        old = datetime.now() - timedelta(days=2)
+        return self.terminal.attlog([adms.punch_line(PIN, old + timedelta(minutes=n), in_out, 15)
+                                     for n in range(lines)])
+
+    def punch(self, in_out=0):
+        """One scan. Its clock moves forward between punches, as a terminal's does -- a test where
+        every punch shares one second would not tell a live punch from a re-sent one."""
         with self.lock:
-            self.pending.append(adms.punch_line(PIN, when, in_out, 15))
+            self.tick += 5
+            self.pending.append(adms.punch_line(PIN, datetime.now().replace(microsecond=0)
+                                                + timedelta(seconds=self.tick), in_out, 15))
         return ""
 
     def _loop(self):
@@ -166,7 +182,7 @@ def quick_visit(console, lab, out):
     terminal by address; it records what it was asked to scan."""
     scans = []
     visited = visit.Visit(console=console, lab=lab, out_dir=out, capture_host="127.0.0.1", capture_port=0,
-                          wait_seconds=10, settle_seconds=0.3, pause_seconds=0.5,
+                          wait_seconds=10, settle_seconds=0.3, pause_seconds=0.5, quiet_seconds=0.4,
                           sleep=lambda seconds: time.sleep(min(seconds, 0.3)),
                           networks=lambda: [("127.0.0.1", "127.0.0.0/30")],
                           scan=lambda cidr, **kwargs: scans.append(cidr) or [])
@@ -213,8 +229,8 @@ class AVisitOfAPushTerminal(unittest.TestCase):
 
         def unplug_punch_twice_replug():
             self.device.connected = False
-            self.device.punch(0, seconds_ago=40)
-            self.device.punch(1, seconds_ago=20)
+            self.device.punch(0)
+            self.device.punch(1)
             self.device.connected = True
             return ""
 
@@ -222,12 +238,12 @@ class AVisitOfAPushTerminal(unittest.TestCase):
             ("أنهي جهاز", "1"),                       # a push terminal the scan did not show
             ("لما تحفظ", configure_the_terminal),
             ("نفس اللي على الستيكر", "1"),
-            ("الجهاز متظبط على إيه", "1"),            # daylight saving on: Africa/Cairo
+            ("الجهاز متظبط على إيه", "2"),            # daylight saving on: Africa/Cairo
             ("بتتظبط لوحدها", "1"),
             ("بصمة عادية", lambda: self.device.punch(0)),
             ("Check-Out", lambda: self.device.punch(1)),
             ("بيدوسوا زرار", "1"),                    # no
-            ("بصمتين ورا بعض", lambda: self.device.punch(0, seconds_ago=3) + self.device.punch(0)),
+            ("بصمتين ورا بعض", lambda: self.device.punch(0) + self.device.punch(0)),
             ("شيل كابل", "1"),
             ("شيل كابل الشبكة من الجهاز", unplug_punch_twice_replug),
             ("وقف الاستقبال", "1"),
@@ -260,7 +276,7 @@ class AVisitOfAPushTerminal(unittest.TestCase):
         self.assertEqual((sheet["HTTPS موجود في المنيو؟"], sheet["Enable Domain Name موجود؟"]), ("لا", "نعم"))
         self.assertTrue(sheet["شلنا الكابل: البصمات وصلت بعد الرجوع؟"].startswith("نعم"))
         self.assertTrue(sheet["وقفنا الـ capture 10 دقايق: الجهاز عاد الإرسال؟"].startswith("نعم"))
-        self.assertEqual(sheet["البصمة دي اتسجلت مرة واحدة؟"], "نعم")
+        self.assertEqual(sheet["البصمة دي اتسجلت مرة واحدة؟"], "الجهاز بعتها مرة واحدة")
         self.assertIn("TimeZone=2", console.text, "the handshake after allocation is read back")
 
         report = report_of(self.out)
@@ -301,8 +317,9 @@ class AVisitOfA4370Terminal(unittest.TestCase):
             ("الستيكر", "1"),
             ("عدد السجلات", "1"),
             ("Cloud Server Setting", "1"),                        # no push screen
-            ("الجهاز متظبط على إيه", "2"),                       # +02:00
+            ("الجهاز متظبط على إيه", "3"),                       # +02:00
             ("بتتظبط لوحدها", "3"),
+            ("بصمة دخول", lambda: self.terminal.add_punch(PIN, in_out=0, verify=15) and ""),
             ("Check-Out", lambda: self.terminal.add_punch(PIN, in_out=1, verify=15) and ""),
             ("ملف USB", lambda: self.usb_export_of_the_terminal() or "2"),
             ("أنهي ملف", "1"),
@@ -318,7 +335,8 @@ class AVisitOfA4370Terminal(unittest.TestCase):
         self.assertEqual(self.lab.allocations, [("ZK-VISIT-1", "zkteco", "+02:00")])
 
         backup = Path(self.out, "ZK-VISIT-1-attlog-backup.tsv").read_text().splitlines()
-        self.assertEqual(len(backup) - 1, len(self.terminal.records) - 1, "the backup is the log before the check-out")
+        self.assertEqual(len(backup) - 1, len(self.terminal.records) - 2,
+                         "the backup is the log as it was before the two test punches")
         sheet = visited.sheet
         self.assertEqual(sheet["الـ in_out_field الصح"], "punch", "the code that read 1 on the check-out punch")
         self.assertEqual((sheet["بيرد على"], sheet["عليه Comm Key؟"], sheet["Push / ADMS موجود؟"]), ("TCP", "لا", "لا"))
@@ -331,11 +349,62 @@ class AVisitOfA4370Terminal(unittest.TestCase):
         self.assertNotIn(PIN, report)
         self.assertIn("in_out_field", report)
 
-    def test_a_check_out_punch_that_reads_1_in_neither_code_is_reported_not_guessed(self):
+    def test_another_employee_punching_at_the_same_moment_is_asked_about_not_assumed(self):
+        def the_agreed_employee_and_a_stranger():
+            self.terminal.add_punch(PIN, in_out=1, verify=15)              # the check-out we asked for
+            self.terminal.add_punch("90999", when=datetime.now() + timedelta(seconds=2), in_out=0, verify=1)
+            return ""
+
         answers = VisitStart() + [
             ("أنهي جهاز", "2"), ("اكتب IP", f"127.0.0.1:{self.emulator.port}"), ("نوع الجهاز", "1"),
             ("الستيكر", "1"), ("عدد السجلات", "1"), ("Cloud Server Setting", "1"),
-            ("الجهاز متظبط على إيه", "3"), ("بتتظبط لوحدها", "1"),
+            ("الجهاز متظبط على إيه", "3"), ("بتتظبط لوحدها", "3"),
+            ("بصمة دخول", lambda: self.terminal.add_punch(PIN, in_out=0, verify=15) and ""),
+            ("Check-Out", the_agreed_employee_and_a_stranger),
+            ("أنهي واحدة بتاعة الموظف", "1"),                                # ours is the earlier one
+            ("ملف USB", "1"), ("برنامج", "1"), ("كابل أو switch", "1"),
+        ]
+        console = ScriptedConsole(answers)
+        visited = quick_visit(console, self.lab, self.out)
+        code = visited.run()
+        self.assertEqual(console.answers, [])
+        self.assertEqual(code, 0, console.text)
+        self.assertEqual(visited.sheet["الـ in_out_field الصح"], "punch",
+                         "read from the agreed employee's punch, not from whoever punched next")
+
+    def test_a_delivery_that_stored_nothing_is_not_reported_as_a_success(self):
+        """A second visit runs with a new spool, so the agent re-sends and the platform dedups.
+        Stored=0 then means "the platform already has it" -- or that nothing arrived at all, which
+        is what the runbook's `down --wipe` note warns about. Either way it is not a plain ✅."""
+        console = ScriptedConsole([])
+        visited = quick_visit(console, self.lab, self.out)
+        visited.out.mkdir(parents=True, exist_ok=True)
+        visited.zk_link = ("127.0.0.1", self.emulator.port, 0, False)
+        config = Path(self.out, "send.toml")
+        first_spool, second_spool = "first.sqlite3", "second.sqlite3"
+        config.write_text(visited._agent_toml(first_spool) + f"""
+[[devices]]
+serial = "ZK-VISIT-1"
+kind = "zk"
+host = "127.0.0.1"
+port = {self.emulator.port}
+""", encoding="utf-8")
+        visited.send_twice(config)
+        self.assertFalse([f for f in visited.findings if f.level != "ok"], "the first delivery is clean")
+
+        config.write_text(config.read_text().replace(first_spool, second_spool), encoding="utf-8")
+        visited.findings.clear()
+        visited.send_twice(config)
+        warned = [f for f in visited.findings if f.level == "warn"]
+        self.assertTrue(warned, [f.text for f in visited.findings])
+        self.assertIn("مفيش ولا سجل جديد اتسجل في السيستم", warned[0].text)
+
+    def test_a_check_out_punch_that_changes_neither_code_to_the_out_value_is_reported_not_guessed(self):
+        answers = VisitStart() + [
+            ("أنهي جهاز", "2"), ("اكتب IP", f"127.0.0.1:{self.emulator.port}"), ("نوع الجهاز", "1"),
+            ("الستيكر", "1"), ("عدد السجلات", "1"), ("Cloud Server Setting", "1"),
+            ("الجهاز متظبط على إيه", "4"), ("بتتظبط لوحدها", "1"),
+            ("بصمة دخول", lambda: self.terminal.add_punch(PIN, in_out=0, verify=15) and ""),
             ("Check-Out", lambda: self.terminal.add_punch(PIN, in_out=4, verify=15) and ""),
             ("ملف USB", "1"), ("برنامج", "1"), ("كابل أو switch", "1"),
         ]
@@ -344,7 +413,7 @@ class AVisitOfA4370Terminal(unittest.TestCase):
         code = visited.run()
         self.assertEqual(code, 1)
         self.assertEqual(visited.sheet["الـ in_out_field الصح"], "مش واضح")
-        self.assertIn("بصمة الخروج مش باينة 1", report_of(self.out))
+        self.assertIn("مش واضح أنهي عمود فيه الدخول والخروج", report_of(self.out))
 
 
 class ATerminalThatSaysSomethingOdd(unittest.TestCase):
@@ -389,7 +458,8 @@ class ATerminalThatSaysSomethingOdd(unittest.TestCase):
         self.lab.allocate = broken
         visited, code, console = self.visit_terminal(terminal, [
             ("الستيكر", "1"), ("عدد السجلات", "1"), ("Cloud Server Setting", "1"),
-            ("الجهاز متظبط على إيه", "1"), ("بتتظبط لوحدها", "1")])
+            ("الجهاز متظبط على إيه", "2"), ("بتتظبط لوحدها", "1"),
+            ("برنامج", "1"), ("كابل أو switch", "1")])
         self.assertEqual(code, 1)
         report = report_of(self.out)
         self.assertIn("allocation exploded", report)
@@ -424,7 +494,7 @@ class AVisitOfAHikvisionTerminal(unittest.TestCase):
             ("أنهي جهاز", "2"), ("اكتب IP", f"127.0.0.1:{self.server.server_address[1]}"), ("نوع الجهاز", "2"),
             ("اسم المستخدم", ""), ("الباسورد", "s3cret-pass"),
             ("يعمل بصمة على الجهاز", self.punch_now),
-            ("الجهاز متظبط على إيه", "3"), ("بتتظبط لوحدها", "1"),
+            ("الجهاز متظبط على إيه", "4"), ("بتتظبط لوحدها", "1"),
             ("برنامج", "1"), ("كابل أو switch", "1"),
         ]
         console = ScriptedConsole(answers)
@@ -460,7 +530,7 @@ class AVisitWithoutNetworkConsent(unittest.TestCase):
                 answers = VisitStart(consent="2") + [
                     ("ملف USB", "2"), ("أنهي ملف", "1"),
                     ("سيريال الجهاز", "HAS SPACES"), ("سيريال الجهاز", "USB-VISIT-1"),
-                    ("الجهاز متظبط على إيه", "1"), ("بتتظبط لوحدها", "2"),
+                    ("الجهاز متظبط على إيه", "2"), ("بتتظبط لوحدها", "2"),
                     ("برنامج", "1"), ("كابل أو switch", "1"),
                 ]
                 console = ScriptedConsole(answers)
@@ -500,6 +570,62 @@ class TheLabNotReady(unittest.TestCase):
             self.assertIn("scripts/devices-lab.sh up", console.text)
 
 
+class TheQuestionsThatMustNotGuess(unittest.TestCase):
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.platform = FakePlatform()
+        self.lab = FakeLab(self.platform, None, self.dir.name)
+        self.out = os.path.join(self.dir.name, "field-report")
+        self.terminal = Terminal(serial="ZK-TZ-1")
+        populate(self.terminal, [PIN], days=1)
+        self.emulator = Emulator(self.terminal, port=0).start()
+
+    def tearDown(self):
+        self.emulator.stop()
+        self.platform.close()
+        self.dir.cleanup()
+
+    def test_pressing_enter_at_the_time_zone_question_allocates_nothing(self):
+        # The platform sends this zone to the terminal on every handshake and some firmware sets
+        # its clock from it, which runbook rule 2 forbids. Enter must not pick one.
+        answers = VisitStart() + [
+            ("أنهي جهاز", "2"), ("اكتب IP", f"127.0.0.1:{self.emulator.port}"), ("نوع الجهاز", "1"),
+            ("الستيكر", "1"), ("عدد السجلات", "1"), ("Cloud Server Setting", "1"),
+            ("الجهاز متظبط على إيه", ""), ("الجهاز متظبط على إيه", ""),
+            ("ملف USB", "1"), ("برنامج", "1"), ("كابل أو switch", "1"),
+        ]
+        console = ScriptedConsole(answers)
+        visited = quick_visit(console, self.lab, self.out)
+        code = visited.run()
+        self.assertEqual(console.answers, [])
+        self.assertEqual(code, 1)
+        self.assertEqual(self.lab.allocations, [], "nothing was allocated on a guess")
+        self.assertIn("الجهاز ماتخصصش لأن الـ time zone بتاعه مش معروف", report_of(self.out))
+        self.assertIn("Date Time", console.text, "it says where to read the answer")
+
+    def test_a_lab_running_from_another_checkout_is_not_reseeded_by_pressing_enter(self):
+        seeded = []
+
+        class TokenlessLab(FakeLab):
+            def check(inner):
+                return "seed"
+
+            def reachable(inner):
+                return True
+
+            def run(inner, command):
+                seeded.append(command)
+                return 0
+
+        console = ScriptedConsole([("اسم الشركة", ""), ("أعمل seed", "")])   # Enter at the seed question
+        code = quick_visit(console, TokenlessLab(self.platform, None, self.dir.name), self.out).run()
+        self.assertEqual(console.answers, [])
+        self.assertEqual(seeded, [], "Enter does not rotate a token another session may be using")
+        self.assertEqual(code, 1)
+        self.assertIn("ممكن يكون شغال من نسخة تانية من الريبو", console.text)
+
+
 class ThePiecesTheWizardDecidesWith(unittest.TestCase):
 
     def exchange(self, body, stamp="9", status=200, content_type="text/plain"):
@@ -526,11 +652,40 @@ class ThePiecesTheWizardDecidesWith(unittest.TestCase):
         self.assertEqual(sorted(f.level for f in findings), ["bad", "bad"])
         self.assertTrue(all(PIN not in f.text for f in findings))
 
-    def test_the_in_out_code_is_the_one_that_reads_the_check_out_value(self):
-        self.assertEqual(visit.in_out_field(punch=1, status=15, out_value=1), "punch")
-        self.assertEqual(visit.in_out_field(punch=15, status=1, out_value=1), "status")
-        self.assertEqual(visit.in_out_field(punch=5, status=4, out_value=4), "status")
-        self.assertIsNone(visit.in_out_field(punch=0, status=15, out_value=1))
+    def test_the_in_out_code_is_the_one_that_changed_between_the_two_punches(self):
+        # (punch, status) of the check-in punch, then of the check-out punch.
+        self.assertEqual(visit.in_out_field((0, 15), (1, 15), out_value=1), "punch")
+        self.assertEqual(visit.in_out_field((15, 0), (15, 1), out_value=1), "status")
+        self.assertEqual(visit.in_out_field((0, 4), (1, 4), out_value=1), "punch")
+        # A terminal whose verify mode is 1 reads 1 in `status` on BOTH punches: reading one
+        # check-out record alone would call that the in/out code.
+        self.assertEqual(visit.in_out_field((0, 1), (1, 1), out_value=1), "punch")
+        # Both codes changed to the check-out value, or neither did: the visit says so.
+        self.assertIsNone(visit.in_out_field((0, 0), (1, 1), out_value=1))
+        self.assertIsNone(visit.in_out_field((0, 15), (4, 15), out_value=1))
+
+    def test_only_a_punch_that_can_be_the_one_just_made_counts(self):
+        def line(pin, when, in_out="0"):
+            return visit.Arrival(1.0, [pin, when, in_out, "1", "0", "0", "0"])
+
+        seen = Counter({(PIN, "2026-09-20 08:00:00"): 1})
+        latest = "2026-09-20 08:00:00"
+        backlog = line(PIN, "2026-09-18 07:15:00", "1")
+        resent = line(PIN, "2026-09-20 08:00:00")
+        live = line(PIN, "2026-09-20 08:04:31")
+        twice = [line(PIN, "2026-09-20 08:04:35"), line(PIN, "2026-09-20 08:04:35")]
+        unreadable = visit.Arrival(1.0, None)
+        self.assertEqual(visit.fresh_punches([backlog, resent], seen, latest), [],
+                         "a two-day-old record and a line already delivered are the backlog")
+        self.assertEqual(visit.fresh_punches([backlog, live], seen, latest), [live])
+        self.assertEqual(visit.fresh_punches(twice, seen, latest), twice,
+                         "two punches in the same second are two punches")
+        self.assertEqual(visit.fresh_punches([unreadable], seen, latest), [unreadable])
+        # Unix-seconds firmware is compared in its own units, never against a wall clock.
+        unix_old, unix_new = line(PIN, "1758000000"), line(PIN, "1758009999")
+        self.assertEqual(visit.fresh_punches([unix_old, unix_new], Counter(), 1758005000), [unix_new])
+        self.assertEqual(visit.fresh_punches([unix_old], Counter(), latest), [unix_old],
+                         "a format the visit cannot compare is never dropped")
 
     def test_scan_results_are_named_by_what_answered(self):
         cases = [
@@ -554,6 +709,51 @@ class ThePiecesTheWizardDecidesWith(unittest.TestCase):
                   "5: br-30fc515e80a8    inet 192.168.48.1/20 scope global br-30fc515e80a8\n")
         self.assertEqual(probe.lan_networks(output),
                          [("192.168.1.57", "192.168.1.0/24"), ("172.20.10.4", "172.20.10.0/28")])
+        # A link-local address means DHCP failed, and a point-to-point /32 is not a LAN: offering
+        # either as the "Server Address" to type into a terminal sends the operator nowhere.
+        self.assertEqual(probe.lan_networks("6: eth2    inet 169.254.9.9/16 scope link eth2\n"
+                                            "7: ppp0    inet 10.9.9.9 peer 10.9.9.1/32 scope global ppp0\n"
+                                            "8: tailscale0    inet 100.90.1.2/32 scope global tailscale0\n"
+                                            "9: eth3    inet 10.3.0.4/24 scope global eth3\n"),
+                         [("10.3.0.4", "10.3.0.0/24")])
+
+    def test_a_lab_script_that_never_answers_is_a_finding_not_a_crash(self):
+        lab = visit.Lab(root=Path("/nonexistent-checkout"))
+        original = visit.subprocess.run
+
+        def never_answers(*args, **kwargs):
+            raise visit.subprocess.TimeoutExpired(cmd="devices-lab.sh", timeout=180)
+
+        visit.subprocess.run = never_answers
+        try:
+            ok, text = lab.allocate("SN-1", "zkteco", "+02:00")
+        finally:
+            visit.subprocess.run = original
+        self.assertFalse(ok)
+        self.assertIn("devices-lab.sh allocate", text, "a wedged docker is a finding, not a traceback")
+        self.assertFalse(lab.allocate("SN-1", "zkteco", "+02:00")[0], "and a missing script is one too")
+
+    def test_a_second_usb_export_of_the_same_name_does_not_overwrite_the_first(self):
+        with tempfile.TemporaryDirectory() as directory:
+            platform = FakePlatform()
+            try:
+                out = Path(directory, "field-report")
+                out.mkdir()
+                (out / "1_attlog.dat").write_text("the first terminal's export\n")
+                stick = Path(directory, "stick")
+                stick.mkdir()
+                (stick / "1_attlog.dat").write_text("\n".join(adms.backlog([PIN], 2)) + "\n")
+                console = ScriptedConsole(VisitStart(consent="2") + [
+                    ("ملف USB", "2"), ("أنهي ملف", "2"), ("مكان الملف", str(stick / "1_attlog.dat")),
+                    ("سيريال الجهاز", "USB-TWO-1"),
+                    ("الجهاز متظبط على إيه", "2"), ("بتتظبط لوحدها", "3"),
+                    ("برنامج", "1"), ("كابل أو switch", "1")])
+                quick_visit(console, FakeLab(platform, None, directory), str(out)).run()
+                self.assertEqual(console.answers, [])
+                self.assertEqual((out / "1_attlog.dat").read_text(), "the first terminal's export\n")
+                self.assertTrue((out / "1_attlog-1.dat").exists(), sorted(p.name for p in out.iterdir()))
+            finally:
+                platform.close()
 
     def test_the_lab_allocation_refuses_what_it_would_put_into_sql(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -581,3 +781,170 @@ class ThePiecesTheWizardDecidesWith(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ABacklogThatIsStillDraining(unittest.TestCase):
+    """Runbook 5.4 asks how long a punch takes to arrive and which code carries in/out. A terminal
+    with months of records is still uploading them while those tests run, and an old record
+    answering a test would put a fabricated latency and a wrong in/out value in the report."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.platform = FakePlatform()
+        self.receiver = FakeReceiver()
+        self.lab = FakeLab(self.platform, self.receiver, self.dir.name)
+        self.out = os.path.join(self.dir.name, "field-report")
+        self.device = None
+
+    def tearDown(self):
+        if self.device:
+            self.device.stop()
+        self.receiver.close()
+        self.platform.close()
+        self.dir.cleanup()
+
+    def test_an_old_record_arriving_during_the_prompt_does_not_answer_the_punch_test(self):
+        console = ScriptedConsole([])
+        visited = quick_visit(console, self.lab, self.out)
+
+        def configure():
+            self.device = PushDevice(f"http://127.0.0.1:{visited.receiver.port}")
+            return ""
+
+        def old_batch_then_a_real_punch():
+            # The batch lands first -- every line of it a check-out (1), like the day's history.
+            self.device.send_old_batch(lines=3, in_out=1)
+            self.device.punch(0)
+            return ""
+
+        console.answers = VisitStart() + [
+            ("أنهي جهاز", "1"), ("لما تحفظ", configure), ("نفس اللي على الستيكر", "1"),
+            ("الجهاز متظبط على إيه", "2"), ("بتتظبط لوحدها", "1"),
+            ("بصمة عادية", old_batch_then_a_real_punch),
+            ("Check-Out", lambda: self.device.punch(1)), ("بيدوسوا زرار", "1"),
+            ("بصمتين ورا بعض", lambda: self.device.punch(0) + self.device.punch(0)),
+            ("شيل كابل", "2"), ("وقف الاستقبال", "2"),
+            ("HTTPS", "1"), ("Enable Domain Name", "1"), ("Attendance Search", "1"),
+            ("ملف USB", "1"), ("Cloud Server Setting", "1"), ("برنامج", "1"), ("كابل أو switch", "1"),
+        ]
+        code = visited.run()
+        self.assertEqual(console.answers, [])
+        self.assertEqual((visited.sheet["الدخول"], visited.sheet["الخروج"]), ("0", "1"),
+                         "the live check-in punch, not the check-out records still draining: " + console.text[-2000:])
+        self.assertIn("الدخول بيوصل 0 والخروج 1", console.text)
+        self.assertEqual(code, 0, console.text)
+
+
+class WhenTheVisitCannotFinish(unittest.TestCase):
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.platform = FakePlatform()
+        self.receiver = FakeReceiver()
+        self.lab = FakeLab(self.platform, self.receiver, self.dir.name)
+        self.out = os.path.join(self.dir.name, "field-report")
+        self.device = None
+
+    def tearDown(self):
+        if self.device:
+            self.device.stop()
+        self.receiver.close()
+        self.platform.close()
+        self.dir.cleanup()
+
+    def test_a_terminal_already_pointed_at_the_laptop_still_gets_the_restore_checklist(self):
+        console = ScriptedConsole([])
+        visited = quick_visit(console, self.lab, self.out)
+
+        def configure():
+            self.device = PushDevice(f"http://127.0.0.1:{visited.receiver.port}")
+            return ""
+
+        def explode(*args):
+            raise RuntimeError("the lab went away")
+
+        self.lab.allocate = explode
+        console.answers = VisitStart() + [
+            ("أنهي جهاز", "1"), ("لما تحفظ", configure), ("نفس اللي على الستيكر", "1"),
+            ("الجهاز متظبط على إيه", "2"), ("بتتظبط لوحدها", "1"),
+            # The visit dies here, with the terminal already sending to this laptop.
+            ("Cloud Server Setting", "2"), ("برنامج", "1"), ("كابل أو switch", "1"),
+        ]
+        code = visited.run()
+        self.assertEqual(console.answers, [], "the checklist was asked even though the visit crashed")
+        self.assertEqual(code, 1)
+        report = report_of(self.out)
+        self.assertIn("إعداد الـ server على الجهاز مارجعش زي الأول", report)
+        self.assertIn("the lab went away", report)
+
+    def test_a_receiver_that_cannot_take_its_port_back_keeps_what_it_recorded(self):
+        console = ScriptedConsole([])
+        visited = quick_visit(console, self.lab, self.out)
+        original = visit.capture.serve
+        calls = []
+
+        def serve_once(*args, **kwargs):
+            calls.append(1)
+            if len(calls) > 1:
+                raise OSError(98, "Address already in use")
+            return original(*args, **kwargs)
+
+        def configure():
+            self.device = PushDevice(f"http://127.0.0.1:{visited.receiver.port}")
+            return ""
+
+        console.answers = VisitStart() + [
+            ("أنهي جهاز", "1"), ("لما تحفظ", configure), ("نفس اللي على الستيكر", "1"),
+            ("الجهاز متظبط على إيه", "2"), ("بتتظبط لوحدها", "1"),
+            ("بصمة عادية", lambda: self.device.punch(0)), ("Check-Out", lambda: self.device.punch(1)),
+            ("بيدوسوا زرار", "1"),
+            ("بصمتين ورا بعض", lambda: self.device.punch(0) + self.device.punch(0)),
+            ("شيل كابل", "2"), ("وقف الاستقبال", "1"), ("وقّفت الاستقبال", lambda: self.device.punch(0)),
+            ("HTTPS", "1"), ("Enable Domain Name", "1"), ("Attendance Search", "1"),
+            ("ملف USB", "1"), ("Cloud Server Setting", "1"), ("برنامج", "1"), ("كابل أو switch", "1"),
+        ]
+        visit.capture.serve = serve_once
+        try:
+            code = visited.run()
+        finally:
+            visit.capture.serve = original
+        self.assertEqual(console.answers, [])
+        self.assertEqual(code, 1, "the port it could not take back is a finding")
+        self.assertIn("مقدرتش أفتح port", console.text)
+        self.assertEqual(visited.sheet["الـ pushver"], "2.4.1",
+                         "what the terminal already sent is still in the report")
+        self.assertIn("الـ Content-Type", report_of(self.out))
+
+    def test_an_upload_the_recorder_cannot_read_is_not_reported_as_a_punch_that_never_came(self):
+        console = ScriptedConsole([])
+        visited = quick_visit(console, self.lab, self.out)
+
+        def configure():
+            self.device = PushDevice(f"http://127.0.0.1:{visited.receiver.port}")
+            return ""
+
+        def punch_in_a_charset_nobody_asked_for():
+            # A line the recorder keeps nothing from: the platform still answered 200.
+            body = f"{PIN}\t2026-09-20 08:00:00\t0\t1\t".encode() + bytes([0xB4, 0xF7, 0xC3, 0xFB])
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{visited.receiver.port}/iclock/cdata?SN=PUSH-VISIT-1&table=ATTLOG&Stamp=9",
+                data=body, method="POST", headers={"Content-Type": "application/x-www-form-urlencoded"})
+            urllib.request.urlopen(request, timeout=5).read()
+            return ""
+
+        console.answers = VisitStart() + [
+            ("أنهي جهاز", "1"), ("لما تحفظ", configure), ("نفس اللي على الستيكر", "1"),
+            ("الجهاز متظبط على إيه", "2"), ("بتتظبط لوحدها", "1"),
+            ("بصمة عادية", lambda: self.device.punch(0)),
+            ("Check-Out", punch_in_a_charset_nobody_asked_for),
+            ("بصمتين ورا بعض", lambda: self.device.punch(0) + self.device.punch(0)),
+            ("شيل كابل", "2"), ("وقف الاستقبال", "2"),
+            ("HTTPS", "1"), ("Enable Domain Name", "1"), ("Attendance Search", "1"),
+            ("ملف USB", "1"), ("Cloud Server Setting", "1"), ("برنامج", "1"), ("كابل أو switch", "1"),
+        ]
+        code = visited.run()
+        self.assertEqual(console.answers, [])
+        self.assertEqual(code, 1)
+        self.assertIn("البصمة وصلت للسيستم، بس الـ capture مافهمش سطور الرفعة", console.text)
+        self.assertNotIn("ماوصلتش", console.text, "the punch did arrive; the line shape is the finding")
+        self.assertIn("البصمتين ورا بعض اتسجلوا الاتنين", console.text, "the visit carried on")

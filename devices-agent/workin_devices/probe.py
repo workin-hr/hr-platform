@@ -105,7 +105,7 @@ def probe_host(ip: str, timeout: float = 0.6, udp_probe: bool = True) -> dict | 
     return found
 
 
-VIRTUAL_INTERFACES = ("lo", "docker", "br-", "veth", "virbr", "tun", "wg")
+VIRTUAL_INTERFACES = ("lo", "docker", "br-", "veth", "virbr", "tun", "wg", "ppp", "tailscale", "zt")
 
 
 def lan_networks(ip_output: str | None = None) -> list[tuple[str, str]]:
@@ -126,6 +126,11 @@ def lan_networks(ip_output: str | None = None) -> list[tuple[str, str]]:
         if len(fields) < 4 or fields[2] != "inet" or fields[1].startswith(VIRTUAL_INTERFACES):
             continue
         interface = ipaddress.ip_interface(fields[3])
+        # A link-local address means DHCP failed: offering it as a scan range, or as the server
+        # address to type into a terminal, sends the operator after a network that is not there.
+        # `inet A peer B/32` is point-to-point, and its /32 is not a LAN either.
+        if interface.ip.is_link_local or (interface.network.prefixlen == 32 and "peer" in fields):
+            continue
         found.append((str(interface.ip), str(interface.network)))
     if found:
         return found

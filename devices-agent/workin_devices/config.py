@@ -40,7 +40,9 @@ class DeviceConfig:
     udp: bool = False
     timeout_seconds: float = 10.0
     username: str | None = None
-    password: str | None = None
+    # Never in a repr: a DeviceConfig reaching a log line or an exception message would put the
+    # terminal's password in it.
+    password: str | None = field(default=None, repr=False)
     window_hours: int = DEFAULT_WINDOW_HOURS
     page_size: int = 30
     attendance_minors: tuple[int, ...] = DEFAULT_HIK_ATTENDANCE_MINORS

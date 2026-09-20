@@ -24,9 +24,11 @@ import os
 import re
 import shutil
 import subprocess
+import socket
 import threading
 import time
 import traceback
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -124,13 +126,26 @@ class Lab:
             return "up"
         return None
 
+    def reachable(self) -> bool:
+        """Is a lab stack listening, whatever token this checkout has? A stack is one per Docker
+        daemon, not one per checkout, so `seed` here rotates the token of whoever is using it."""
+        target = urlparse(self.receiver_url)
+        try:
+            with socket.create_connection((target.hostname, target.port or 80), timeout=2):
+                return True
+        except OSError:
+            return False
+
     def run(self, command: str) -> int:
         """devices-lab.sh up or seed, printing as it goes: they take minutes."""
         return subprocess.run(["bash", str(self.script), command], check=False).returncode
 
     def allocate(self, serial: str, vendor: str, zone: str) -> tuple[bool, str]:
-        done = subprocess.run(["bash", str(self.script), "allocate", serial, vendor, zone],
-                              capture_output=True, text=True, timeout=180, check=False)
+        try:
+            done = subprocess.run(["bash", str(self.script), "allocate", serial, vendor, zone],
+                                  capture_output=True, text=True, timeout=180, check=False)
+        except (subprocess.SubprocessError, OSError) as exc:
+            return False, f"devices-lab.sh allocate: {exc}"
         return done.returncode == 0, (done.stdout + done.stderr).strip()
 
 
@@ -146,6 +161,11 @@ class Exchange:
     content_type: str
     kept: bytes
     response: bytes
+    # What `capture.recordable` did not keep (kinds and sizes, never content), and the body's
+    # size. An upload whose lines the recorder could not parse still arrived: the visit says so
+    # rather than reporting that nothing came.
+    withheld: dict | None = None
+    request_bytes: int = 0
 
     @property
     def query(self) -> dict[str, str]:
@@ -190,7 +210,8 @@ class Receiver:
                 content_type = next((value for name, value in meta["request_headers"].items()
                                      if name.lower() == "content-type"), "")
                 receiver._add(Exchange(receiver.clock(), identity, meta["method"], meta["path"], meta["status"],
-                                       content_type, request_body, response_body))
+                                       content_type, request_body, response_body,
+                                       meta.get("request_body_withheld"), meta.get("request_bytes", 0)))
                 return saved
 
         self.server = capture.serve(self.host, self.port, self.out_dir, self.upstream, self.host_header,
@@ -228,6 +249,17 @@ class Receiver:
 
 
 @dataclass
+class Arrival:
+    """One punch as the platform received it; `fields` is None when the recorder kept no line."""
+    at: float
+    fields: list[str] | None
+
+    @property
+    def in_out(self) -> str | None:
+        return self.fields[2] if self.fields and len(self.fields) > 2 else None
+
+
+@dataclass
 class Finding:
     level: str
     text: str
@@ -247,6 +279,60 @@ def accepted_lines(exchanges: list[Exchange], serial: str) -> list[tuple[float, 
     return [(exchange.at, fields) for exchange in exchanges
             if exchange.serial == serial and exchange.is_attlog() and exchange.status == 200
             for fields in exchange.lines()]
+
+
+def line_time(fields: list[str]):
+    """A punch line's own time, comparable with another line's: the wall clock as the terminal
+    wrote it, or the Unix seconds some firmware sends instead. None when it is neither."""
+    when = fields[1] if len(fields) > 1 else ""
+    if re.fullmatch(r"\d{9,11}", when):
+        return int(when)
+    return when if re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", when) else None
+
+
+def newer_than(fields: list[str], latest) -> bool:
+    """Is this line's own time at least the newest already seen? A terminal's stored records all
+    come from its own clock, so the punch just made cannot be older than one it already holds --
+    and a record still draining out of the backlog cannot be newer."""
+    when = line_time(fields)
+    if when is None or latest is None or type(when) is not type(latest):
+        return True
+    return when >= latest
+
+
+def fresh_punches(found: list[Arrival], seen: Counter, latest) -> list[Arrival]:
+    """Of what arrived after the operator was asked for a punch, the ones that can BE that punch.
+
+    Counted, not a set: two punches in the same second are two identical lines, and both are
+    real. A line the terminal has already delivered as many times as it delivers it is the
+    backlog being re-sent, and a record older than one already delivered cannot be the punch
+    just made. An upload the recorder kept no line from counts: something did arrive."""
+    counts: Counter = Counter()
+    fresh = []
+    for arrival in found:
+        if arrival.fields is None:
+            fresh.append(arrival)
+            continue
+        key = (arrival.fields[0], arrival.fields[1])
+        counts[key] += 1
+        if counts[key] > seen[key] and newer_than(arrival.fields, latest):
+            fresh.append(arrival)
+    return fresh
+
+
+def arrivals(exchanges: list[Exchange], serial: str, since: float = 0.0) -> list[Arrival]:
+    """What reached the platform after `since`: one entry per punch line, and one per accepted
+    upload the recorder could keep no line from -- that punch arrived too, and reporting it as
+    "nothing came" would send the operator back to the terminal for a fault that is not there."""
+    found = []
+    for exchange in exchanges:
+        if exchange.serial != serial or not exchange.is_attlog() or exchange.status != 200 or exchange.at < since:
+            continue
+        lines = exchange.lines()
+        found.extend(Arrival(exchange.at, fields) for fields in lines)
+        if not lines:
+            found.append(Arrival(exchange.at, None))
+    return found
 
 
 def classify(found: dict) -> tuple[str, str]:
@@ -321,13 +407,15 @@ def push_facts(exchanges: list[Exchange], serial: str) -> tuple[dict[str, str], 
     return facts, findings
 
 
-def in_out_field(punch: int, status: int, out_value: int) -> str | None:
-    """Which of a 4370 record's two codes carries in/out: the one that reads the check-out value."""
-    if punch == out_value:
-        return "punch"
-    if status == out_value:
-        return "status"
-    return None
+def in_out_field(check_in: tuple[int, int], check_out: tuple[int, int], out_value: int) -> str | None:
+    """Which of a 4370 record's two codes carries in/out, from a check-in punch and a check-out
+    punch as (punch, status): the code that CHANGED to the check-out value. One record cannot
+    answer this -- a terminal whose verify mode is 1 (fingerprint) reads 1 in `status` on every
+    punch, and reading a single check-out record would call that the in/out code. Ambiguous
+    (both changed, or neither) is None: the visit reports it rather than picking one."""
+    changed = [name for index, name in ((0, "punch"), (1, "status"))
+               if check_out[index] == out_value and check_in[index] != check_out[index]]
+    return changed[0] if len(changed) == 1 else None
 
 
 def usb_files(out_dir: Path, user: str | None = None) -> list[Path]:
@@ -363,7 +451,8 @@ def _ltr(value: str) -> str:
 class Visit:
     def __init__(self, console=None, lab: Lab | None = None, out_dir: str | Path | None = None,
                  capture_host: str = "0.0.0.0", capture_port: int = CAPTURE_PORT, wait_seconds: float = 180,
-                 settle_seconds: float = 15, pause_seconds: float = 600, sleep=time.sleep, clock=time.monotonic,
+                 settle_seconds: float = 15, pause_seconds: float = 600, quiet_seconds: float = 25,
+                 sleep=time.sleep, clock=time.monotonic,
                  now=datetime.now, utc_now=lambda: datetime.now(timezone.utc), networks=probe.lan_networks,
                  scan=probe.scan):
         self.console = console or Console()
@@ -371,6 +460,7 @@ class Visit:
         self.out = Path(out_dir or AGENT_DIR / "field-report")
         self.capture_host, self.capture_port = capture_host, capture_port
         self.wait_seconds, self.settle_seconds, self.pause_seconds = wait_seconds, settle_seconds, pause_seconds
+        self.quiet_seconds = quiet_seconds
         self.sleep, self.clock, self.now, self.utc_now = sleep, clock, now, utc_now
         self.networks, self.scan = networks, scan
         self.sheet = {row: "لم يُختبر" if row in UNTESTED else "" for row in SHEET_ROWS}
@@ -378,12 +468,15 @@ class Visit:
         self.serial: str | None = None
         self.allocated: dict[str, str] = {}
         self.receiver: Receiver | None = None
+        self.push_mark = 0
         self.push: Push | None = None
         self.agent_sent = False
         self.push_configured = False
         self.network_ok = True
         self.secrets: list[Path] = []
         self.zk_link: tuple[str, int, int, bool] | None = None
+        self.device_started = False
+        self.restored = False
         self.started = now()
 
     # -- talking ---------------------------------------------------------------------------
@@ -421,14 +514,12 @@ class Visit:
     # -- the visit -------------------------------------------------------------------------
 
     def run(self) -> int:
-        device_started = False
         try:
             self.welcome()
             if self.preflight() and self.rules():
                 self.photos()
-                device_started = True
+                self.device_started = True
                 self.visit_device()
-                self.restore()
         except (KeyboardInterrupt, EOFError):
             self.say()
             self.note("warn", "الزيارة اتوقفت قبل ما تخلص",
@@ -438,8 +529,11 @@ class Visit:
             self.note("bad", f"الأمر وقف بسبب غلطة فيه: {exc!r}",
                       "كمّل الخطوات اللي فاضلة يدوي من الدليل، ورجّع أي إعداد غيّرته، وابعت الرسالة اللي فوق للفريق")
         finally:
+            # Ctrl-C, a bug, a terminal that never answered: the terminal may already be pointed
+            # at this laptop, so the checklist that points it back is not on the happy path.
+            self.restore()
             self.close()
-        report = self.write_report() if device_started else None
+        report = self.write_report() if self.device_started else None
         self.summary(report)
         return 1 if any(finding.level == "bad" for finding in self.findings) else 0
 
@@ -457,9 +551,13 @@ class Visit:
         if problem == "up" and self.yes("سيستم اللاب مش شغال على اللابتوب. أشغّله دلوقتي؟ (أول مرة بياخد كام دقيقة)"):
             self.lab.run("up")
             problem = self.lab.check()
-        if problem == "seed" and self.yes("اللاب مالوش توكن agent شغال. أعمل seed دلوقتي؟"):
-            self.lab.run("seed")
-            problem = self.lab.check()
+        if problem == "seed":
+            if self.lab.reachable():
+                self.say("⚠️ سيستم اللاب شغال بس مفيش توكن agent في الفولدر ده. ممكن يكون شغال من نسخة تانية من "
+                         "الريبو: لو عملت seed، التوكن القديم هيتلغي والـ agent اللي شغال هناك هيقف.")
+            if self.yes("أعمل seed دلوقتي؟ (بيعمل توكن جديد ويلغي القديم)", default=False):
+                self.lab.run("seed")
+                problem = self.lab.check()
         if problem:
             self.note("bad", "سيستم اللاب مش جاهز",
                       "في terminal في فولدر hr-platform: scripts/devices-lab.sh up وبعدها scripts/devices-lab.sh seed، "
@@ -549,7 +647,9 @@ class Visit:
             return kind, host, port
         found = probe.probe_host(host)
         if not found:
-            self.note("bad", f"مفيش حاجة بترد على {host}", "اتأكد من IP الجهاز (صورة رقم 3) ومن الكابل")
+            self.say(f"   مفيش حاجة بترد على {host}.")
+            self.note("bad", "مفيش حاجة بترد على العنوان اللي اتكتب",
+                      "اتأكد من IP الجهاز (صورة رقم 3) ومن الكابل")
             return "none", None, None
         kind, label = classify(found)
         self.say(f"   {label}")
@@ -662,59 +762,100 @@ class Visit:
         field = self.find_in_out()
         host, port, key, udp = self.zk_link
         path = self.out / f"{serial}-zk.toml"
-        path.write_text(self._agent_toml(f"{serial}-zk.sqlite3", in_out_field=field or "punch") +
+        path.write_text(self._agent_toml(f"{serial}-zk-{self.started:%Y%m%d-%H%M}.sqlite3",
+                                         in_out_field=field or "punch") +
                         f"\n[[devices]]\nserial = {_toml(serial)}\nkind = \"zk\"\nhost = {_toml(host)}\n"
                         f"port = {port}\ncomm_key = {key}\nudp = {'true' if udp else 'false'}\n", encoding="utf-8")
         self.send_twice(path)
 
     def find_in_out(self) -> str | None:
-        """Runbook 6.3: which record code a check-out punch sets, before anything is sent."""
-        try:
-            before = {(record.user_id, record.timestamp) for record in self.zk_records()}
-        except zk.ZkError as exc:
-            self.note("bad", f"مقدرناش نقرأ السجلات: {exc}", "استنى شوية وشغّل الأمر تاني")
+        """Runbook 6.3, before anything is sent: which of the record's two codes carries in/out.
+
+        It takes a check-in punch and a check-out punch from the employee, because one record
+        cannot answer the question -- on a terminal whose verify mode is 1, a single check-out
+        record reads 1 in both codes. The code that CHANGED between the two is the in/out one.
+        """
+        check_in = self.one_new_punch("لما تدوس Enter، خلّي الموظف يعمل بصمة دخول عادية")
+        if check_in is None:
             return None
-        mark = self.receiver.mark() if self.receiver else 0
-        self.enter("لما تدوس Enter، خلّي الموظف يدوس زرار Check-Out (أو F2) ويعمل بصمة")
+        check_out = self.one_new_punch("لما تدوس Enter، خلّي الموظف يدوس زرار Check-Out (أو F2) ويعمل بصمة")
+        if check_out is None:
+            return None
+        out_value, source = 1, "الرقم المعتاد للخروج"
+        pushed = self.pushed_line(check_out)
+        if pushed and pushed.in_out and pushed.in_out.isdigit():
+            out_value, source = int(pushed.in_out), "الرقم اللي الجهاز بعته بالـ Push لنفس البصمة"
+        elif self.push and self.push.out_value and self.push.out_value != self.push.in_value:
+            out_value, source = int(self.push.out_value), "رقم الخروج في تجربة الـ Push"
+        self.say(f"   بصمة الدخول: punch={check_in.punch}، status={check_in.status}")
+        self.say(f"   بصمة الخروج: punch={check_out.punch}، status={check_out.status} ({source}: {out_value})")
+        field = in_out_field((check_in.punch, check_in.status), (check_out.punch, check_out.status), out_value)
+        if field is None:
+            self.sheet["الـ in_out_field الصح"] = "مش واضح"
+            self.note("bad", f"مش واضح أنهي عمود فيه الدخول والخروج: الدخول (punch={check_in.punch}، "
+                             f"status={check_in.status}) والخروج (punch={check_out.punch}، status={check_out.status})",
+                      "اتأكد إن الموظف داس زرار الخروج في البصمة التانية بس، وجرّب تاني؛ "
+                      "لو نفس النتيجة اكتب الأرقام دي في الـ issue")
+            return None
+        self.sheet["الـ in_out_field الصح"] = field
+        index = 0 if field == "punch" else 1
+        self.sheet["الدخول"] = str((check_in.punch, check_in.status)[index])
+        self.sheet["الخروج"] = str((check_out.punch, check_out.status)[index])
+        self.note("ok", f"الدخول والخروج بيتقروا من عمود {field}")
+        return field
+
+    def one_new_punch(self, instruction: str):
+        """The record the agreed employee just made. Another employee can punch in the same
+        seconds, so more than one new record is a question, never a guess."""
+        try:
+            # Counted, not a set: a terminal stores time to the second, so two punches in the
+            # same second are two records that look identical, and a set would hide the second.
+            before = Counter((record.user_id, record.timestamp) for record in self.zk_records())
+        except zk.ZkError as exc:
+            self.note("bad", f"مقدرناش نقرأ سجلات الجهاز: {exc}", "استنى شوية وشغّل الأمر تاني")
+            return None
+        self.mark_push()
+        self.enter(instruction)
         while True:
             self.sleep(self.settle_seconds)
             try:
-                new = [record for record in self.zk_records() if (record.user_id, record.timestamp) not in before]
+                seen, new, error = Counter(), [], None
+                for record in self.zk_records():
+                    key = (record.user_id, record.timestamp)
+                    seen[key] += 1
+                    if seen[key] > before[key]:
+                        new.append(record)
             except zk.ZkError as exc:
                 new, error = [], exc
-            else:
-                error = None
             if new or not self.yes("مالقيتش بصمة جديدة على الجهاز" + (f" ({error})" if error else "") +
                                    ". أستنى وأقرأ تاني؟"):
                 break
         if not new:
-            self.note("bad", "مالقيناش بصمة الخروج على الجهاز", "جرّب تاني وخلي الموظف يستنى لحد ما الجهاز يقبل البصمة")
+            self.note("bad", "مالقيناش البصمة على الجهاز", "جرّب تاني، وخلي الموظف يستنى لحد ما الجهاز يقبل البصمة")
             return None
-        record = new[-1]
-        out_value, source = 1, "الرقم المعتاد للخروج"
-        pushed = None
-        if self.receiver:
-            stamp = f"{record.timestamp:%Y-%m-%d %H:%M:%S}"
-            pushed = self.receiver.wait(
-                lambda exchanges: next((fields for _, fields in accepted_lines(exchanges, self.serial)
-                                        if fields[0] == record.user_id and fields[1] == stamp and len(fields) > 2),
-                                       None), mark, self.wait_seconds / 6)
-        if pushed and pushed[2].isdigit():
-            out_value, source = int(pushed[2]), "رقم الخروج اللي الجهاز بعته بالـ Push لنفس البصمة"
-        elif self.push and self.push.out_value and self.push.out_value != self.push.in_value:
-            out_value, source = int(self.push.out_value), "رقم الخروج في تجربة الـ Push"
-        field = in_out_field(record.punch, record.status, out_value)
-        self.say(f"   بصمة الخروج على الجهاز: punch={record.punch}، status={record.status} ({source}: {out_value})")
-        if field is None:
-            self.sheet["الـ in_out_field الصح"] = "مش واضح"
-            self.note("bad", f"بصمة الخروج مش باينة {out_value} في أي عمود (punch={record.punch}، status={record.status})",
-                      "خلّي الموظف يتأكد إنه داس زرار الخروج، وجرّب تاني؛ لو نفس النتيجة اكتبها في الـ issue")
+        if len(new) == 1:
+            return new[0]
+        if len(new) > 6:
+            self.note("bad", f"لقينا {len(new)} بصمة جديدة في نفس الوقت", "استنى لحد ما الزحمة تخف وشغّل الأمر تاني")
             return None
-        self.sheet["الـ in_out_field الصح"] = field
-        if not self.sheet["الخروج"]:
-            self.sheet["الخروج"] = str(out_value)
-        self.note("ok", f"الدخول والخروج بيتقروا من عمود {field}")
-        return field
+        return self.choose("فيه أكتر من بصمة جديدة. أنهي واحدة بتاعة الموظف اللي معاك؟",
+                           [(record, f"كود {record.user_id} الساعة {record.timestamp:%H:%M:%S}") for record in new])
+
+    def mark_push(self) -> None:
+        self.push_mark = self.receiver.mark() if self.receiver else 0
+
+    def pushed_line(self, record) -> Arrival | None:
+        """The same punch as the terminal pushed it, when it pushes too: the in/out value the
+        platform will store, read from the terminal's own upload rather than assumed."""
+        if not self.receiver or not self.receiver.server:
+            return None
+        serial = self.push.serial if self.push else self.serial
+        stamp = f"{record.timestamp:%Y-%m-%d %H:%M:%S}"
+        return self.receiver.wait(
+            lambda exchanges: next((arrival for arrival in arrivals(exchanges, serial)
+                                    if arrival.fields and arrival.fields[0] == record.user_id
+                                    and arrival.fields[1] == stamp), None),
+            self.push_mark, self.wait_seconds / 6)
 
     def _agent_toml(self, spool: str, in_out_field: str = "punch") -> str:
         return (f"# Written by `workin_devices visit` for the lab (Mode A).\n"
@@ -743,12 +884,22 @@ class Visit:
             return
         self.agent_sent = True
         self.note("ok", f"أول إرسال: اتقرأ {first.read} سجل، واتسجل منهم {first.stored} جديد")
+        if first.read and not first.stored:
+            self.note("warn", "مفيش ولا سجل جديد اتسجل في السيستم",
+                      "يا إما السجلات دي وصلت قبل كده (بالـ Push أو زيارة سابقة) وده عادي، يا إما فيه مشكلة: "
+                      "افتح صفحة الجهاز في الداشبورد واتأكد إن بصماته ظاهرة")
         if self.push and first.read >= 20 and first.stored > first.read // 10:
             self.note("warn", f"الـ agent سجّل {first.stored} بصمة جديدة مع إن الجهاز بعت سجله بالـ Push",
                       "افتح صفحة الجهاز في الداشبورد: لو كل بصمة ظاهرة مرتين، ماتقراش الجهاز ده بالطريقتين "
                       "في البرود، واكتبها في الـ issue")
-        if second.error or second.stored:
-            self.note("bad", f"تاني إرسال سجّل {second.stored} تاني" + (f" ({second.error})" if second.error else ""),
+        if second.error:
+            self.note("bad", f"تاني إرسال فشل: {second.error}", "اكتب الرسالة دي في الـ issue")
+        elif second.stored and second.read > first.read:
+            self.note("warn", f"تاني إرسال سجّل {second.stored}، بس الجهاز كان فيه {second.read - first.read} بصمة "
+                              "جديدة اتعملت في اللحظة دي",
+                      "مش تكرار على الأغلب: أعد الأمر بعيد عن وقت البصمات عشان تتأكد")
+        elif second.stored:
+            self.note("bad", f"تاني إرسال سجّل {second.stored} تاني من نفس السجلات",
                       "ده معناه إن البصمات بتتكرر: ماتبعتش تاني، واكتبها في الـ issue")
         else:
             self.note("ok", "تاني إرسال ماسجّلش حاجة جديدة (صح)")
@@ -763,9 +914,9 @@ class Visit:
         try:
             self.receiver.start()
         except OSError as exc:
+            # The object stays: it holds everything recorded so far, and the caller reads it.
             self.note("bad", f"مقدرتش أفتح port {self.capture_port}: {exc}",
                       "فيه برنامج تاني شغال عليه (capture قديم؟): وقّفه بـ Ctrl+C وشغّل الأمر تاني")
-            self.receiver = None
             return False
         return True
 
@@ -838,6 +989,7 @@ class Visit:
                             ("لو الجهاز مافيهوش سجلات، اختار لأ ونكمل",) + PUSH_HINTS)
         if backlog:
             self.note("ok", "سجلات الجهاز بدأت توصل لسيستم اللاب")
+            self.settle_backlog(serial)
         self.push = Push(serial)
         self.punch_tests(serial)
         facts, findings = push_facts(self.receiver.exchanges, serial)
@@ -854,23 +1006,46 @@ class Visit:
             "فيه اختيار HTTPS في شاشة Cloud Server Setting؟", default=False) else "لا"
         self.sheet["Enable Domain Name موجود؟"] = "نعم" if self.yes(
             "فيه اختيار Enable Domain Name في نفس الشاشة؟", default=False) else "لا"
-        last = accepted_lines(self.receiver.exchanges, serial)[-3:]
+        last = [arrival for arrival in arrivals(self.receiver.exchanges, serial) if arrival.fields][-3:]
         if last:
             self.say("   آخر بصمات وصلت للسيستم:")
-            for _, fields in last:
-                self.say(f"      كود {fields[0]}   {fields[1]}")
+            for arrival in last:
+                self.say(f"      كود {arrival.fields[0]}   {arrival.fields[1]}")
             if not self.yes("نفس الكود ونفس الوقت في شاشة البحث على الجهاز (Menu → Attendance Search)؟"):
                 self.note("bad", "البصمات اللي وصلت مش زي اللي على الجهاز",
                           "صوّر شاشة البحث واكتب الفرق في الـ issue (من غير أكواد الموظفين)")
 
-    def punch_test(self, serial: str, instruction: str, count: int) -> tuple[float, list[list[str]]] | None:
-        mark = self.receiver.mark()
+    def settle_backlog(self, serial: str) -> None:
+        """Wait until the terminal stops uploading. A terminal with months of records sends them in
+        batches over minutes, and a batch landing during a punch test would answer the test: the
+        latency, the two-in-a-row and the in/out values would all be read off old records."""
+        deadline = time.monotonic() + max(self.wait_seconds * 4, self.quiet_seconds)
+        while True:
+            mark = self.receiver.mark()
+            if self.receiver.wait(lambda exchanges: accepted_lines(exchanges, serial), mark, self.quiet_seconds) is None:
+                return
+            self.say("   ⏳ الجهاز لسه بيبعت سجلاته القديمة...")
+            if time.monotonic() > deadline and not self.yes("لسه بيبعت. أستنى تاني؟ (لأ = نكمل التجارب دلوقتي)"):
+                self.note("warn", "بدأنا التجارب والجهاز لسه بيبعت سجلاته القديمة",
+                          "الأرقام اللي تحت ممكن تكون لسجل قديم مش للبصمة اللي اتعملت دلوقتي: اكتب ده في الـ issue")
+                return
+            deadline = max(deadline, time.monotonic() + self.wait_seconds)
+
+    def punch_test(self, serial: str, instruction: str, count: int) -> tuple[float, list[Arrival]] | None:
+        """Times the punch the operator was just asked for, and nothing else: an upload that was
+        already on its way, or a line the terminal has sent before, or a record older than one it
+        has already delivered, is the backlog -- counting it would time a two-day-old punch."""
+        already = [arrival for arrival in arrivals(self.receiver.exchanges, serial) if arrival.fields]
+        seen = Counter((arrival.fields[0], arrival.fields[1]) for arrival in already)
+        latest = max((time for time in (line_time(arrival.fields) for arrival in already) if time is not None),
+                     default=None)
         self.enter(instruction)
         started = self.clock()
+        mark = self.receiver.mark()
 
         def arrived(exchanges):
-            lines = accepted_lines(exchanges, serial)
-            return (lines[count - 1][0], [fields for _, fields in lines]) if len(lines) >= count else None
+            found = fresh_punches(arrivals(exchanges, serial, since=started), seen, latest)
+            return (found[count - 1].at, found[:count]) if len(found) >= count else None
 
         found = self.wait(arrived, mark, "البصمة", PUNCH_HINTS)
         return None if found is None else (max(0.0, found[0] - started), found[1])
@@ -882,14 +1057,15 @@ class Visit:
         if normal is None:
             self.note("bad", "البصمة العادية ماوصلتش", "راجع الإعدادات على الجهاز، وجرّب تاني")
             return
-        seconds, lines = normal
-        self.push.in_value = lines[-1][2] if len(lines[-1]) > 2 else None
+        seconds, arrived = normal
+        self.push.in_value = arrived[-1].in_out
         self.sheet["بصمة وصلت خلال"] = f"{seconds:.0f} ثانية"
         self.note("ok", f"بصمة عادية وصلت للسيستم خلال {seconds:.0f} ثانية")
+        if self.unreadable(arrived):
+            return
         checkout = self.punch_test(serial, "لما تدوس Enter، خلّي الموظف يدوس زرار Check-Out (أو F2) ويعمل بصمة", 1)
-        if checkout is not None:
-            fields = checkout[1][-1]
-            self.push.out_value = fields[2] if len(fields) > 2 else None
+        if checkout is not None and not self.unreadable(checkout[1]):
+            self.push.out_value = checkout[1][-1].in_out
             self.sheet["الدخول"], self.sheet["الخروج"] = self.push.in_value or "", self.push.out_value or ""
             if self.push.in_value == self.push.out_value:
                 self.note("bad", f"بصمة الخروج جت بنفس رقم الدخول ({self.push.in_value})",
@@ -915,6 +1091,16 @@ class Visit:
         if self.yes(f"نعمل تجربة وقف الاستقبال {self.pause_seconds / 60:.0f} دقايق؟ (الجهاز لازم يعيد الإرسال لوحده)"):
             self.pause_test(serial)
 
+    def unreadable(self, arrived: list[Arrival]) -> bool:
+        """The punch reached the platform, but the recorder kept no readable line from the upload:
+        the terminal is working and the line shape is the finding, so the visit says which."""
+        if any(arrival.fields for arrival in arrived):
+            return False
+        self.note("bad", "البصمة وصلت للسيستم، بس الـ capture مافهمش سطور الرفعة",
+                  "دي معلومة مهمة عن الموديل ده: شكل السطر في التقرير وفي field-report/captures، "
+                  "اكتبه في الـ issue. البصمة نفسها وصلت ومش ضايعة")
+        return True
+
     def pause_test(self, serial: str) -> None:
         self.receiver.stop()
         mark = self.receiver.mark()
@@ -929,19 +1115,23 @@ class Visit:
             return
         restarted = self.clock()
         self.say("   رجّعت الاستقبال. مستني الجهاز يعيد الإرسال...")
-        found = self.wait(lambda exchanges: accepted_lines(exchanges, serial), mark, "البصمة", PUNCH_HINTS)
+        found = self.wait(lambda exchanges: arrivals(exchanges, serial), mark, "البصمة", PUNCH_HINTS)
         row = "وقفنا الـ capture 10 دقايق: الجهاز عاد الإرسال؟"
         if not found:
             self.sheet[row] = "لا"
             self.note("bad", "الجهاز ماعادش إرسال البصمة بعد ما الاستقبال رجع",
                       "معلومة مهمة: اكتبها في الـ issue. البصمة لسه على الجهاز")
             return
-        at, fields = found[0]
-        self.sheet[row] = f"نعم، بعد {max(0.0, at - restarted):.0f} ثانية"
+        first = found[0]
+        self.sheet[row] = f"نعم، بعد {max(0.0, first.at - restarted):.0f} ثانية"
         self.sleep(self.settle_seconds)
-        times = sum(1 for _, other in accepted_lines(self.receiver.exchanges[mark:], serial) if other[:2] == fields[:2])
-        self.sheet["البصمة دي اتسجلت مرة واحدة؟"] = "نعم" if times == 1 else f"وصلت {times} مرات، والسيستم بيحتفظ بواحدة"
-        self.note("ok", f"الجهاز عاد إرسال البصمة بعد ما الاستقبال رجع (وصلت {times} مرة)")
+        times = sum(1 for other in arrivals(self.receiver.exchanges[mark:], serial)
+                    if other.fields and first.fields and other.fields[:2] == first.fields[:2])
+        # What the terminal did is what was watched here; whether the platform kept one row is a
+        # question for the device's page in the dashboard, so the sheet does not answer it.
+        self.sheet["البصمة دي اتسجلت مرة واحدة؟"] = ("الجهاز بعتها مرة واحدة" if times <= 1 else
+                                                     f"الجهاز بعتها {times} مرات: شوف صفحة الجهاز في الداشبورد")
+        self.note("ok", f"الجهاز عاد إرسال البصمة بعد ما الاستقبال رجع (بعتها {max(times, 1)} مرة)")
 
     # -- Hikvision (runbook 8) -------------------------------------------------------------
 
@@ -1011,7 +1201,7 @@ class Visit:
         if not self.allocate(serial, "hikvision", offset if offset and re.fullmatch(r"[+-]\d{2}:00", offset) else None):
             return
         path = self.out / f"{serial}-hik.toml"
-        path.write_text(self._agent_toml(f"{serial}-hik.sqlite3") +
+        path.write_text(self._agent_toml(f"{serial}-hik-{self.started:%Y%m%d-%H%M}.sqlite3") +
                         f"\n[[devices]]\nserial = {_toml(serial)}\nkind = \"hikvision\"\nhost = {_toml(host)}\n"
                         f"port = {device.port}\nhttps = {'true' if device.https else 'false'}\n"
                         f"username = {_toml(username)}\npassword_file = \"hik.pw\"\n", encoding="utf-8")
@@ -1031,6 +1221,11 @@ class Visit:
             return
         if path.resolve().parent != self.out.resolve():
             copy = self.out / path.name
+            # Two terminals both export `1_attlog.dat`; the first one's evidence stays.
+            for number in range(1, 100):
+                if not copy.exists():
+                    break
+                copy = self.out / f"{path.stem}-{number}{path.suffix}"
             shutil.copy2(path, copy)
             self.say(f"   نسخت الملف في field-report/{copy.name}، والأصلي على الفلاشة زي ما هو.")
             path = copy
@@ -1070,17 +1265,20 @@ class Visit:
 
     def other_flow(self, host: str) -> None:
         self.title("9. جهاز من نوع تاني")
-        self.serial = self.serial or f"device-{host}"
+        # The report is written to be pasted into an issue: the customer's own addressing stays
+        # on the laptop, in field-report/, not in it.
+        self.serial = self.serial or "device"
         self.sheet["الماركة والموديل"] = self.console.ask("👉 الماركة والموديل (من الستيكر):")
         if self.yes("الجهاز فيه إعداد server أو cloud نقدر نوجّهه للابتوب؟", default=False) and \
                 self.start_receiver(upstream=False):
             self.push_configured = True
             self.say(f"👉 حط في إعداد الـ server على الجهاز: {self.laptop_address(host)} و port {self.receiver.port}")
             self.enter("لما الموظف يعمل بصمة أو اتنين")
-            identities = sorted({exchange.serial for exchange in self.receiver.exchanges})
             self.stop_receiver()
-            self.say(f"   اتسجل {len(self.receiver.exchanges)} طلب من: {', '.join(identities) or 'ولا حاجة'}")
-            self.sheet["مشاكل تانية"] = f"اتسجل {len(self.receiver.exchanges)} طلب في field-report/captures"
+            recorded = list(self.receiver.exchanges)
+            identities = sorted({exchange.serial for exchange in recorded})
+            self.say(f"   اتسجل {len(recorded)} طلب من: {', '.join(identities) or 'ولا حاجة'}")
+            self.sheet["مشاكل تانية"] = f"اتسجل {len(recorded)} طلب في field-report/captures"
         self.note("warn", "النوع ده السيستم مابيدعموش لسه",
                   "افتح issue بالصور ونتيجة الـ scan وفولدر field-report/captures: دي اللي هتخلينا نعمل دعم")
 
@@ -1096,12 +1294,15 @@ class Visit:
         self.say("⚠️ مهم: الـ time zone لازم يكون نفس اللي الجهاز متظبط عليه (صورة رقم 5). السيستم بيبعته للجهاز، "
                  "وفيه أجهزة بتغيّر ساعتها على حسبه.")
         utc = self.utc_now()
-        options = [("Africa/Cairo", "التوقيت الصيفي (Daylight Saving) شغال على الجهاز")]
+        # "مش متأكد" is first, so the Enter default is the answer that guesses nothing: the
+        # platform sends this zone to the terminal on every handshake and some firmware moves
+        # its clock to match, which rule 2 forbids the visit from causing.
+        options = [(None, "مش متأكد (ماتخمّنش)"),
+                   ("Africa/Cairo", "التوقيت الصيفي (Daylight Saving) شغال على الجهاز")]
         for zone, hours in (("+02:00", 2), ("+03:00", 3)):
             options.append((zone, f"التوقيت الصيفي مقفول، والساعة على الجهاز دلوقتي حوالي {utc + timedelta(hours=hours):%H:%M}"))
         if suggested and suggested not in (zone for zone, _ in options):
             options.append((suggested, f"{suggested}: ده اللي ساعة الجهاز بتقوله"))
-        options.append((None, "مش متأكد"))
         zone = self.choose("الجهاز متظبط على إيه؟" + (f" (ساعة الجهاز بتقول {suggested})" if suggested else ""), options)
         if zone is None:
             self.say("   افتح Menu → System → Date Time على الجهاز: شوف Daylight Saving شغال ولا لأ، والساعة كام.")
@@ -1135,6 +1336,9 @@ class Visit:
         return zone
 
     def restore(self) -> None:
+        if self.restored or not self.device_started:
+            return
+        self.restored = True
         self.title("10. قبل ما تمشي: رجّع كل حاجة")
         if self.receiver is not None and self.receiver.server is not None:
             self.stop_receiver()
@@ -1149,9 +1353,14 @@ class Visit:
                        "برنامج العميل مااستلمش البصمة الجديدة",
                        "قارن الإعدادات بالصورة حرف حرف واعمل restart للجهاز؛ الجهاز محتفظ بسجلاته"))
         checks.append(("شلت أي كابل أو switch إنت اللي حطيته؟", "فيه كابل أو switch لسه متركب", "شيله قبل ما تمشي"))
-        for question, problem, fix in checks:
-            if not self.yes(question):
-                self.note("bad", problem, fix)
+        try:
+            for question, problem, fix in checks:
+                if not self.yes(question):
+                    self.note("bad", problem, fix)
+        except (KeyboardInterrupt, EOFError):
+            self.note("bad", "ماكمّلناش خطوات الرجوع",
+                      "رجّع إعداد الـ server على الجهاز زي الصورة، واتأكد إن برنامج العميل بيستلم بصمة جديدة، "
+                      "وشيل أي كابل أو switch حطيته")
         self.say("   لو فتحت port 8081 في الـ firewall، اقفله:  sudo ufw delete allow 8081/tcp")
 
     def close(self) -> None:
