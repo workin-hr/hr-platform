@@ -72,6 +72,9 @@ class AdminTemplateMessageKeyTest {
 	/** Where a controller spells the key into the redirect itself: {@code "?error=no_data"}. */
 	private static final Pattern REDIRECT_KEY = Pattern.compile("[?&]error=([a-z][a-z0-9_.]*)");
 
+	/** Where a controller translates the key itself: {@code AdminFlash.t(model).apply("saved_ok")}. */
+	private static final Pattern APPLIED_KEY = Pattern.compile("\\.apply\\(\"([a-z][a-z0-9_.]*)\"\\)");
+
 	/** The one family built by concatenation, in {@code AdminDevicesController.errorKey}. */
 	private static final String DEVICE_FAMILY = "device_error_";
 
@@ -168,24 +171,18 @@ class AdminTemplateMessageKeyTest {
 	}
 
 	/**
-	 * The keys a controller in this package hands a page as a literal: the arms, returns and
-	 * pass-through {@code case} labels of its {@code messageKey}, {@code errorKey} and
-	 * {@code messageFor} methods, anything it puts straight into the model as {@code errorKey},
-	 * and a key spelled into a redirect as {@code ?error=}. A literal read anywhere else in a
-	 * controller is a view name or a request parameter, which no page translates.
+	 * The keys this scan can see a controller hand a page: the arms, returns and {@code case}
+	 * labels of its {@code messageKey}, {@code errorKey} and {@code messageFor} methods, a key it
+	 * puts into the model as {@code errorKey}, a key it spells into a redirect as {@code ?error=},
+	 * and a key it translates itself with {@code apply("...")}.
 	 *
-	 * <p>Two sources of keys are still outside this scan, and a key added to either is checked by
-	 * nothing. One is a key that is built rather than written: {@code AdminDevicesController}
-	 * makes {@code device_error_<suffix>} out of a {@code devices.<suffix>} code the device agent
-	 * sends, so no literal exists to read, and {@link #everyDeviceErrorKeyExistsInBothCatalogues}
-	 * holds what can be held there while #294 tracks pinning the codes. The other is a key from
-	 * outside this package: a {@code Form} or an {@code AdminService} returns its own, which a
-	 * controller passes on ({@code PlatformAdminCompaniesController:233},
-	 * {@code AdminPhoneCountriesController:101}), and #296 tracks reading those.
-	 *
-	 * <p>Where the scan is imprecise it over-reads rather than under-reads: a label list with no
-	 * arrow, or an unbalanced bracket in a model argument, sweeps in literals that are not keys
-	 * and fails this test by name. That is the safe direction; a key that is missed is not.
+	 * <p>It is a scan of source text, so it is a floor and not a census: it reads the shapes
+	 * listed above and no others, and every round of #293's review found a shape it could not
+	 * read -- a method under another name, a key chosen by a ternary, a key a service returns, a
+	 * key built by concatenation. This comment does not say which shapes remain, because three
+	 * such lists have been written here and each was falsified by the next one found. What it
+	 * catches, it catches; **#296** carries the work of following a key instead of matching its
+	 * shape, and **#294** the built {@code device_error_} family, which no scan can reach.
 	 */
 	private static Map<String, Set<String>> refusalKeysByController() throws IOException {
 		Map<String, Set<String>> found = new LinkedHashMap<>();
@@ -215,6 +212,10 @@ class AdminTemplateMessageKeyTest {
 				Matcher redirected = REDIRECT_KEY.matcher(source);
 				while (redirected.find()) {
 					keys.add(redirected.group(1));
+				}
+				Matcher applied = APPLIED_KEY.matcher(source);
+				while (applied.find()) {
+					keys.add(applied.group(1));
 				}
 				if (!keys.isEmpty()) {
 					found.put(controller.getFileName().toString(), keys);
