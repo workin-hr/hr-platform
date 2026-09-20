@@ -77,7 +77,7 @@ retirement targets and become things this surface implements.
 ### Design comes from the dashboard, not from a redesign
 
 The dashboard's stylesheets and scripts are copied verbatim to
-`backend/src/main/resources/static/admin/assets/`, and the templates
+`backend/src/main/resources/static/admin/_assets/`, and the templates
 reproduce its class names. This is the cheapest possible way to satisfy
 "the same design" and the only one that cannot drift into an
 approximation of it. It also means the markup is constrained: a template
@@ -215,7 +215,7 @@ in front of whoever is deciding when to cut over.
 
 **Copied assets go stale against their source.** `hr-legacy` is frozen at
 `d113204`, so the stylesheets cannot drift today. If it is ever unfrozen,
-the copies in `static/admin/assets/` become a fork nothing reconciles.
+the copies in `static/admin/_assets/` become a fork nothing reconciles.
 The generated message bundle has `scripts/convert_dashboard_lang.py
 --check` for exactly this; the CSS has no equivalent and would need one.
 
