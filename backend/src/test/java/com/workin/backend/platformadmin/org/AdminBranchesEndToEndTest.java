@@ -634,4 +634,32 @@ class AdminBranchesEndToEndTest {
 				.findFirst().orElse(null);
 	}
 
+	/**
+	 * A write for an id that matches no row is refused, and writes no audit row (#286). An
+	 * administrator's row ownership is checked on neither side (R-044), so the update's count is
+	 * the only thing left to catch a stale tab or a crafted id. Legacy flashes
+	 * {@code error_required} there, which says a required field is missing when none is; this
+	 * answers {@code no_data}, which legacy uses for a row that is not there.
+	 */
+	@Test
+	void aSaveOrDeleteForAnIdThatMatchesNoRowIsRefusedAndAuditsNothing() {
+		long missing = 987654L;
+		assertThat(post("/admin/branches", this.cookie,
+				page("/admin/branches?action=edit&id=" + missing, this.cookie).csrf(),
+				"action", "save_edit", "id", String.valueOf(missing),
+				"company_id", String.valueOf(this.companyA), "name", "Ghost",
+				"radius_meters", "300", "is_active", "1")
+				.getHeaders().getLocation()).asString().contains("error=no_data");
+		assertThat(post("/admin/branches", this.cookie, page("/admin/branches", this.cookie).csrf(),
+				"action", "delete", "id", String.valueOf(missing),
+				"company_id", String.valueOf(this.companyA))
+				.getHeaders().getLocation()).asString().contains("error=no_data");
+
+		assertThat(this.jdbc.queryForObject("SELECT COUNT(*) FROM platform_admin_audit_events"
+				+ " WHERE target_type = 'branch'", Integer.class))
+				.as("no audit row for a branch that is not there").isZero();
+		assertThat(this.jdbc.queryForObject("SELECT COUNT(*) FROM branches WHERE name = 'Ghost'",
+				Integer.class)).isZero();
+	}
+
 }

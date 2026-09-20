@@ -49,6 +49,15 @@ public class BranchAdminService {
 		/** {@code error_db}: the row is not this session's to touch. */
 		FOREIGN_ROW,
 
+		/**
+		 * {@code no_data}: the update matched no row -- a stale tab, or a crafted id.
+		 * An administrator's row is not checked first (R-044), so this is the only
+		 * place a missing one is caught, before its audit row is written. The
+		 * connection counts matched rows ({@code LegacyRowCountStartupCheck}), so a
+		 * row that exists reports 1 even when nothing in it changed.
+		 */
+		NO_ROW,
+
 		/** {@code branch_qr_invalid_expiry}: absent, unparseable or already past. */
 		BAD_EXPIRY
 	}
@@ -151,10 +160,12 @@ public class BranchAdminService {
 			String radius, boolean active) {
 		gate();
 		long companyId = assertWritable(session, postedCompanyId, id);
-		this.store.update(
+		if (this.store.update(
 				id, name.trim(), blankToNull(address),
 				Branch.coordinate(latitude), Branch.coordinate(longitude),
-				Branch.radiusMeters(radius), active);
+				Branch.radiusMeters(radius), active) == 0) {
+			throw new RefusedException(Refusal.NO_ROW);
+		}
 		audit(adminId, PlatformAdminAuditEventType.ORG_UPDATED, id,
 				"branch updated in company " + companyId);
 		return companyId;
@@ -166,7 +177,9 @@ public class BranchAdminService {
 			long postedCompanyId) {
 		gate();
 		long companyId = assertWritable(session, postedCompanyId, id);
-		this.store.softDelete(id);
+		if (this.store.softDelete(id) == 0) {
+			throw new RefusedException(Refusal.NO_ROW);
+		}
 		audit(adminId, PlatformAdminAuditEventType.ORG_DELETED, id,
 				"branch deactivated in company " + companyId);
 		return companyId;

@@ -39,6 +39,14 @@ public class JobTitleAdminService {
 
 		/** {@code error_db}: the row is not this session's to touch. */
 		FOREIGN_ROW,
+		/**
+		 * {@code no_data}: the update matched no row -- a stale tab, or a crafted id.
+		 * An administrator's row is not checked first (R-044), so this is the only
+		 * place a missing one is caught, before its audit row is written. The
+		 * connection counts matched rows ({@code LegacyRowCountStartupCheck}), so a
+		 * row that exists reports 1 even when nothing in it changed.
+		 */
+		NO_ROW,
 
 		/** {@code select_company_first_department}: a department from elsewhere. */
 		FOREIGN_DEPARTMENT,
@@ -177,7 +185,9 @@ public class JobTitleAdminService {
 			long postedCompanyId) {
 		gate();
 		long companyId = assertWritable(session, postedCompanyId, id);
-		this.store.softDelete(id);
+		if (this.store.softDelete(id) == 0) {
+			throw new RefusedException(Refusal.NO_ROW);
+		}
 		audit(adminId, PlatformAdminAuditEventType.ORG_DELETED, id,
 				"job title deactivated in company " + companyId);
 		return companyId;

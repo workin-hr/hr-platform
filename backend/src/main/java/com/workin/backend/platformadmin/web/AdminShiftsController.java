@@ -129,6 +129,7 @@ public class AdminShiftsController {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
 			case NO_COMPANY -> "select_company_first";
 			case FOREIGN_ROW -> "error_db";
+			case NO_ROW -> "no_data";
 			case NAME_REQUIRED -> "error_required";
 		};
 	}
