@@ -337,8 +337,9 @@
 
 /* Legacy writes border-radius:12px, and app-ui.css's `.content > div[style*="border-radius:12px"]`
    then gives the card its larger radius and a shadow. That rule keys on the style attribute, so
-   the class carries what it computes to. */
-.emp-detail-card {
+   the class carries what it computes to. companies/detail.php:40 writes the same card. */
+.emp-detail-card,
+.company-detail-card {
 	background: #fff;
 	border: 1px solid #e8e6e0;
 	border-radius: var(--app-radius-lg);
@@ -389,11 +390,13 @@
 	color: #5F5E5A;
 }
 
-.emp-detail-stats {
+.emp-detail-stats,
+.company-detail-stats {
 	margin-bottom: 20px;
 }
 
-.emp-detail-tables {
+.emp-detail-tables,
+.company-detail-tables {
 	display: grid;
 	grid-template-columns: 1fr 1fr;
 	gap: 20px;
@@ -456,11 +459,78 @@
 	text-decoration: none;
 }
 
+/* —— Company detail ——
+   companies/detail.php's style attributes, value for value, as classes. The card,
+   the stats' margin and the two-across tables are the employee detail's above. */
+.company-detail-bar {
+	margin-bottom: 14px;
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.company-detail-logo,
+.company-detail-avatar {
+	width: 72px;
+	height: 72px;
+	border-radius: 10px;
+	border: 1px solid #e8e6e0;
+}
+
+.company-detail-logo {
+	object-fit: cover;
+}
+
+/* The port's own: legacy draws a ui-avatars.com image in the logo's box. The
+   initials take the employee detail's colours instead. */
+.company-detail-avatar {
+	background: #E6F1FB;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 20px;
+	font-weight: 700;
+	color: #185FA5;
+	letter-spacing: 0.05em;
+}
+
+.company-detail-name {
+	font-size: 20px;
+	font-weight: 600;
+	margin-bottom: 6px;
+}
+
+.company-detail-fields {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+	gap: 6px;
+	font-size: 13px;
+	color: #5F5E5A;
+}
+
+.company-detail-reg {
+	margin-top: 10px;
+}
+
+.company-detail-wide {
+	grid-column: 1 / -1;
+}
+
+/* A style attribute beats app-ui.css's `.tbl td`; a bare class does not. */
+.tbl td.company-detail-more {
+	text-align: center;
+	padding: 10px;
+	color: #888;
+}
+
 /* Legacy keeps the four tables two across at every width, which leaves each a
    narrow scrolling strip on a phone; below app-responsive.css's tablet
-   breakpoint they stack. */
+   breakpoint they stack, and so do the company detail's. A bare 1fr
+   column is as wide as its widest table, whose headers do not wrap, so the
+   tables ran off the screen instead of scrolling in their .table-wrap. */
 @media (max-width: 768px) {
-	.emp-detail-tables {
-		grid-template-columns: 1fr;
+	.emp-detail-tables,
+	.company-detail-tables {
+		grid-template-columns: minmax(0, 1fr);
 	}
 }

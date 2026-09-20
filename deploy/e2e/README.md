@@ -24,7 +24,7 @@ runs the suite, and leaves the stack up so you can look at it. Add
 | `client-api` | ✅ | ✅ | — | prod mounts no seed; there is nothing to read |
 | `deployment-shape` | ✅ | ✅ | ✅ | the profile's own promises |
 | `admin-dashboard` | — | ✅ | — | needs TLS in front, which only integration has |
-| `row-dialog`, `setting-templates`, `emp-picker`, `job-title-form`, `department-form`, `workforce-form`, `employee-form`, `employee-form-layout`, `employee-detail`, `nav-drawer`, `org-filter-cascade`, `phone-form` | ✅ | ✅ | — | the dashboard's own scripts on a static page; they need no stack, so `npx playwright test --project=browser` runs them on their own |
+| `row-dialog`, `setting-templates`, `emp-picker`, `job-title-form`, `department-form`, `workforce-form`, `employee-form`, `employee-form-layout`, `employee-detail`, `company-detail`, `nav-drawer`, `org-filter-cascade`, `phone-form` | ✅ | ✅ | — | the dashboard's own scripts on a static page; they need no stack, so `npx playwright test --project=browser` runs them on their own |
 
 The dashboard's session cookie is `secure` unconditionally (ADR-0015
 prerequisite 6). Rather than relax that flag to make a browser test convenient —

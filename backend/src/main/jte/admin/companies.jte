@@ -148,9 +148,10 @@
 										<%-- Legacy falls back to ui-avatars.com here. Drawn locally
 										     instead: an admin panel should not need a third party to
 										     render, and no viewer's IP should reach one to see a
-										     placeholder. --%>
+										     placeholder. A stored value StoredUrl refuses draws it
+										     too, rather than loading another origin. --%>
 										@if(row.hasLogo())
-											<img src="${row.logoUrl()}" alt="" class="tbl-photo company-tbl-logo"
+											<img src="${row.logoSrc()}" alt="" class="tbl-photo company-tbl-logo"
 											     width="40" height="40" loading="lazy"
 											     data-fallback-initials="${EmployeeDisplay.initials(row.avatarName())}">
 										@else
@@ -159,8 +160,8 @@
 									</td>
 									<td>
 										<div class="bold">${row.nameLabel()}</div>
-										@if(row.hasCommercialReg())
-											<a href="${row.commercialRegUrl()}" target="_blank" rel="noopener"
+										@if(row.commercialRegHref() != null)
+											<a href="${row.commercialRegHref()}" target="_blank" rel="noopener"
 											   class="tbl-sub">${t.apply("commercial_reg")}</a>
 										@endif
 									</td>

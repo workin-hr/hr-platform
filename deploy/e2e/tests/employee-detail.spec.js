@@ -148,3 +148,28 @@ test('every emp-detail class in the sheet has a pair', () => {
 	expect([...declared].filter((name) => !drawn.includes(name)), 'every emp-detail class has a pair').toEqual([]);
 	expect(declared.size, 'the sheet declared the classes this compares').toBeGreaterThanOrEqual(17);
 });
+
+test('below 768px the tables stack, and a wide one scrolls in its wrap rather than past the screen', async ({ page }) => {
+	await page.setViewportSize({ width: 390, height: 900 });
+	const table = (count) => `<div class="table-wrap"><table class="tbl"><thead><tr>${Array.from({ length: count }, (_, at) => `<th>column heading ${at + 1}</th>`).join('')}</tr></thead></table></div>`;
+	await page.setContent(`<!doctype html><html lang="ar" dir="rtl"><body class="lang-ar">
+<div class="shell"><main class="main" id="main-content"><div class="content"><div class="emp-detail-tables"><div>${table(8)}</div><div>${table(2)}</div><div>${table(2)}</div><div>${table(2)}</div></div></div></main></div>
+</body></html>`);
+	for (const sheet of SHEETS) {
+		await page.addStyleTag({ content: asset(sheet) });
+	}
+	await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== 'running'));
+	const layout = await page.evaluate(() => {
+		const grid = document.querySelector('.emp-detail-tables').getBoundingClientRect();
+		const items = [...document.querySelectorAll('.emp-detail-tables > div')].map((item) => item.getBoundingClientRect());
+		const wraps = [...document.querySelectorAll('.emp-detail-tables .table-wrap')];
+		return {
+			outside: items.filter((item) => item.left < grid.left - 0.5 || item.right > grid.right + 0.5).length,
+			stacked: items.every((item, at) => at === 0 || item.top >= items[at - 1].bottom),
+			scrolls: wraps.map((wrap) => wrap.scrollWidth > wrap.clientWidth),
+		};
+	});
+	expect(layout.stacked, 'one table under another').toBe(true);
+	expect(layout.outside, 'no table wider than the page').toBe(0);
+	expect(layout.scrolls, 'only the wide table scrolls, inside its own wrap').toEqual([true, false, false, false]);
+});
