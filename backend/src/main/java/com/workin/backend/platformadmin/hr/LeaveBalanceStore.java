@@ -81,21 +81,7 @@ public class LeaveBalanceStore {
 	public DashboardPage<LeaveBalance> paginate(
 			DashboardListFilters filters, int year, boolean showCompany) {
 		List<Object> params = new ArrayList<>();
-		StringBuilder where = new StringBuilder("lb.year = ?");
-		params.add(year);
-		if (filters.companyId() > 0) {
-			where.append(" AND e.company_id = ?");
-			params.add(filters.companyId());
-		}
-		// Employees who have not been accepted onto the roster are not staff
-		// yet and their balances are not shown.
-		where.append(" AND ").append(ROSTER);
-		if (!filters.search().isEmpty()) {
-			where.append(" AND (").append(DISPLAY_NAME).append(" LIKE ? OR ")
-					.append(EMP_CODE).append(" LIKE ?)");
-			params.add("%" + filters.search() + "%");
-			params.add("%" + filters.search() + "%");
-		}
+		String where = where(filters, year, params);
 
 		String join = showCompany ? " JOIN companies c ON c.id = e.company_id" : "";
 		String companyCol = showCompany ? ", c.company_name" : "";
@@ -120,6 +106,75 @@ public class LeaveBalanceStore {
 				mapper(showCompany), pageParams.toArray());
 
 		return DashboardPage.of(rows, total == null ? 0 : total, filters.page(), filters.perPage());
+	}
+
+	/**
+	 * The one {@code WHERE} of this page, appending its bound values to
+	 * {@code params}.
+	 *
+	 * <p>Shared by the list and {@link #exportRows}, because an export that
+	 * narrowed differently from the table above it would hand an operator a
+	 * file that is not what they were looking at -- and, with the company
+	 * clause, one that reaches further than their filter does.
+	 */
+	private static String where(DashboardListFilters filters, int year, List<Object> params) {
+		StringBuilder where = new StringBuilder("lb.year = ?");
+		params.add(year);
+		if (filters.companyId() > 0) {
+			where.append(" AND e.company_id = ?");
+			params.add(filters.companyId());
+		}
+		// Employees who have not been accepted onto the roster are not staff
+		// yet and their balances are not shown.
+		where.append(" AND ").append(ROSTER);
+		if (!filters.search().isEmpty()) {
+			where.append(" AND (").append(DISPLAY_NAME).append(" LIKE ? OR ")
+					.append(EMP_CODE).append(" LIKE ?)");
+			params.add("%" + filters.search() + "%");
+			params.add("%" + filters.search() + "%");
+		}
+		return where.toString();
+	}
+
+	/**
+	 * {@code hr_export_leave_balances_csv()} ({@code hr_list_helper.php:1012-1048}):
+	 * every row the list would show for this year and filter, as six strings a
+	 * spreadsheet cell can hold, unpaginated and in legacy's own export order
+	 * -- {@code dashboard_employee_order_by_sql('e')}, the employee's name,
+	 * rather than the newest-first order the table uses.
+	 *
+	 * <p>One query, no {@code LIMIT}: the row count is one per employee per
+	 * year inside the filter, so the largest export is the platform's employee
+	 * count (2,871 at the migration baseline) rather than anything that grows
+	 * with time.
+	 *
+	 * <p>The values are read as the database renders them, which is what PDO
+	 * hands legacy: {@code decimal(5,1)} as {@code "21.0"}.
+	 */
+	public List<List<String>> exportRows(DashboardListFilters filters, int year) {
+		List<Object> params = new ArrayList<>();
+		String where = where(filters, year, params);
+
+		return this.jdbcTemplate.query(
+				"SELECT " + EMP_CODE + " AS emp_code, " + DISPLAY_NAME + " AS employee_name,"
+						+ " lb.year, lb.total_days, lb.used_days,"
+						+ " (lb.total_days - lb.used_days) AS remaining_days"
+						+ " FROM leave_balance lb JOIN employees e ON e.id = lb.employee_id"
+						+ " WHERE " + where
+						+ " ORDER BY e.first_name, e.last_name",
+				(rs, rowNum) -> List.of(
+						blankIfNull(rs.getString("emp_code")),
+						blankIfNull(rs.getString("employee_name")),
+						// year(4) reaches the driver as a date, not a number.
+						String.valueOf(rs.getInt("year")),
+						blankIfNull(rs.getString("total_days")),
+						blankIfNull(rs.getString("used_days")),
+						blankIfNull(rs.getString("remaining_days"))),
+				params.toArray());
+	}
+
+	private static String blankIfNull(String value) {
+		return value == null ? "" : value;
 	}
 
 	/**
