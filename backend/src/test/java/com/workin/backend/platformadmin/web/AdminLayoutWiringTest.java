@@ -774,7 +774,7 @@ class AdminLayoutWiringTest {
 				if (!path.toString().endsWith(".jte")) {
 					continue;
 				}
-				String source = Files.readString(path, StandardCharsets.UTF_8);
+				String source = TemplateText.withoutComments(Files.readString(path, StandardCharsets.UTF_8));
 				for (int at : serverOpenedWindows(source)) {
 					if (insideAGate(source, at, path)) {
 						continue;
@@ -826,7 +826,7 @@ class AdminLayoutWiringTest {
 				if (!path.toString().endsWith(".jte")) {
 					continue;
 				}
-				String source = Files.readString(path, StandardCharsets.UTF_8);
+				String source = TemplateText.withoutComments(Files.readString(path, StandardCharsets.UTF_8));
 				for (int at : serverOpenedWindows(source)) {
 					String window = source.substring(at, endOfWindow(source, at, path));
 					if (!window.contains("role=\"dialog\"") || !window.contains("aria-modal=\"true\"")
@@ -852,18 +852,33 @@ class AdminLayoutWiringTest {
 	 * literal alone left {@code companies.jte} and {@code banners.jte} out of
 	 * both rules entirely (#305's review round 2).
 	 */
+	/**
+	 * Where each window that can be on screen when the page loads begins.
+	 *
+	 * <p>Its class holds {@code modal-bg} and can render {@code open}: written
+	 * literally, or built ({@code class="modal-bg${formOpen ? " open" : ""}"},
+	 * which {@code companies.jte} and {@code banners.jte} do). The class is read
+	 * by {@link TemplateText#rawClassOf(String)}, so an expression's own quotes do
+	 * not cut the value in half and {@code open} in some other attribute does not
+	 * enrol a window the server never opens -- both of which a fixed prefix and a
+	 * naive attribute pattern got wrong in turn (#305's rounds 2 and 3).
+	 */
 	private static List<Integer> serverOpenedWindows(String source) {
 		List<Integer> starts = new ArrayList<>();
-		for (int at = source.indexOf(WINDOW); at >= 0; at = source.indexOf(WINDOW, at + 1)) {
-			int close = source.indexOf('>', at);
-			if (close > 0 && source.substring(at, close).contains("open")) {
-				starts.add(at);
+		Matcher tag = DIV.matcher(source);
+		while (tag.find()) {
+			// The raw class, expressions included: this asks what the class *could* be,
+			// not what it certainly is, because a window built as
+			// `class="modal-bg${formOpen ? " open" : ""}"` is one of these.
+			String classes = TemplateText.rawClassOf(tag.group());
+			if (classes.contains("modal-bg") && classes.contains("open")) {
+				starts.add(tag.start());
 			}
 		}
 		return starts;
 	}
 
-	private static final String WINDOW = "<div class=\"modal-bg";
+	private static final Pattern DIV = Pattern.compile("(?s)<div\\b[^>]*>");
 
 	/**
 	 * Whether the whole window sits inside a gate that removes it, rather than
@@ -872,14 +887,32 @@ class AdminLayoutWiringTest {
 	 * all, so it cannot strand anyone and neither rule applies to it.
 	 */
 	private static boolean insideAGate(String source, int at, Path path) {
-		for (String gate : List.of(WRITE_GATE, "@if(actionsEnabled)", "@if(canManage && actionsEnabled)")) {
+		for (String gate : List.of(WRITE_GATE, "@if(actionsEnabled)")) {
 			for (int start = source.indexOf(gate); start >= 0; start = source.indexOf(gate, start + 1)) {
-				if (start < at && endOfBlock(source, start, path) > at) {
+				int end = endOfBlock(source, start, path);
+				// Only the gate's own arm. A window in the `@else` renders exactly when the
+				// switch is OFF, which is the case these rules exist for, so skipping it
+				// would be the one direction that hides a defect (#305's review round 3).
+				int otherwise = source.indexOf("@else", start);
+				if (otherwise > 0 && otherwise < end && depthAt(source, start, otherwise) == 1) {
+					end = otherwise;
+				}
+				if (start < at && end > at) {
 					return true;
 				}
 			}
 		}
 		return false;
+	}
+
+	/** The {@code @if} nesting depth at {@code upTo}, counting from {@code start}. */
+	private static int depthAt(String source, int start, int upTo) {
+		int depth = 0;
+		Matcher tag = Pattern.compile("@if\\(|@endif\\b").matcher(source).region(start, upTo);
+		while (tag.find()) {
+			depth += tag.group().equals("@endif") ? -1 : 1;
+		}
+		return depth;
 	}
 
 	private static final String WRITE_GATE = "@if(canWrite)";

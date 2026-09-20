@@ -90,7 +90,7 @@ class AdminRowDialogButtonsTest {
 				while (tag.find()) {
 					String token = tag.group();
 					if (token.startsWith("<div")) {
-						open.push(hasClass(classesOf(token), "form-row"));
+						open.push(TemplateText.hasClass(TemplateText.classesOf(token), "form-row"));
 					}
 					else if (token.equals("</div>")) {
 						assertThat(open).as("%s closes a div it did not open", template.getFileName()).isNotEmpty();
@@ -252,85 +252,6 @@ class AdminRowDialogButtonsTest {
 		assertThat(inputs).isEmpty();
 	}
 
-	/**
-	 * The value of a tag's own {@code class} attribute as the browser will see it -- its literal
-	 * text, with every JTE expression taken out -- or empty when it has none.
-	 *
-	 * <p>Four shapes were being read as a class that is not one, each of which hides an offence
-	 * rather than inventing one. {@code data-dialog-class="x"} ends in {@code class="x"} on a word
-	 * boundary. {@code class="${row.cssClass()}"} is text in the template and can render to nothing.
-	 * An expression carries its own quotes ({@code class="${t.apply("x")}"}), which a
-	 * {@code class="([^"]*)"} pattern cuts in the middle and leaves half an expression reading as a
-	 * class. And a {@code class="..."} sequence inside a different attribute's single-quoted value
-	 * is not this element's class at all. So the tag's attributes are walked in order: a name, then
-	 * a quoted value whose quotes and braces belong to any {@code ${...}} around them, and only the
-	 * one named {@code class} is read.
-	 *
-	 * <p>Two things fail rather than passing as unclassed: an attribute that never closes, which is
-	 * what a {@code >} inside an expression looks like because the caller's tag pattern stops there,
-	 * and -- because the walk only reads quoted values -- an unquoted class, which no template
-	 * writes, simply reads as no class, which is the strict direction.
-	 */
-	private static String classesOf(String tag) {
-		Matcher attribute = ATTRIBUTE.matcher(tag);
-		// ATTRIBUTE itself requires the leading \s, so starting the walk at 0 finds an attribute
-		// separated by a tab or a newline too; seeding it from indexOf(' ') alone read such a tag
-		// as carrying no attributes at all, and so no class (#304).
-		int from = 0;
-		while (from >= 0 && attribute.find(from)) {
-			char quote = tag.charAt(attribute.end());
-			StringBuilder value = new StringBuilder();
-			int depth = 0;
-			int at = attribute.end() + 1;
-			for (; at < tag.length(); at++) {
-				char character = tag.charAt(at);
-				if (character == '$' && at + 1 < tag.length() && tag.charAt(at + 1) == '{') {
-					depth++;
-					at++;
-					// The expression's rendered text is unknown. Dropping it silently let
-					// `form-row${x}` and `${x}form-row` read as the literal class `form-row`,
-					// which may not be the token the render produces (#304); a marker keeps it
-					// from gluing onto the literal text on either side.
-					value.append(EXPRESSION_MARKER);
-				}
-				else if (depth > 0) {
-					depth += character == '{' ? 1 : character == '}' ? -1 : 0;
-				}
-				else if (character == quote) {
-					break;
-				}
-				else {
-					value.append(character);
-				}
-			}
-			if (at >= tag.length()) {
-				throw new AssertionError("an attribute that never closes: " + tag);
-			}
-			if (attribute.group(1).equals("class")) {
-				String classes = value.toString().replaceAll("\\s+", " ").trim();
-				// A value built only of expression markers, with no literal text at all, is the
-				// existing `class="${row.cssClass()}"` shape: it can render to nothing, so it
-				// reads as no class, hiding an offence rather than inventing one.
-				return classes.replace(String.valueOf(EXPRESSION_MARKER), "").isBlank() ? "" : classes;
-			}
-			from = at + 1;
-		}
-		return "";
-	}
-
-	/**
-	 * Stands in for a JTE expression's unknown rendered text inside a {@code class} value.
-	 *
-	 * <p>{@code U+FFFF} is a noncharacter: no template can contain one, so it cannot collide with
-	 * real class text. It is written as an escape rather than as itself, because a literal
-	 * noncharacter in source is invisible and an editor may drop it.
-	 */
-	private static final char EXPRESSION_MARKER = '\uFFFF';
-
-	/** Whether {@code classes}, as {@link #classesOf} read them, hold {@code name} as a whole class. */
-	private static boolean hasClass(String classes, String name) {
-		return (" " + classes + " ").contains(" " + name + " ");
-	}
 
 	/**
 	 * #304, defect 1: deleting {@code ${...}} silently let it read as no boundary at all, so
@@ -340,16 +261,16 @@ class AdminRowDialogButtonsTest {
 	 */
 	@Test
 	void classesOfDoesNotLetAnExpressionGlueOntoALiteralClass() {
-		assertThat(hasClass(classesOf("<div class=\"form-row${x}\">"), "form-row"))
+		assertThat(TemplateText.hasClass(TemplateText.classesOf("<div class=\"form-row${x}\">"), "form-row"))
 				.as("an expression appended to the literal class").isFalse();
-		assertThat(hasClass(classesOf("<div class=\"${x}form-row\">"), "form-row"))
+		assertThat(TemplateText.hasClass(TemplateText.classesOf("<div class=\"${x}form-row\">"), "form-row"))
 				.as("an expression prepended to the literal class").isFalse();
 		// Unchanged: a real space already separates the two, so the literal class still reads.
-		assertThat(hasClass(classesOf("<div class=\"form-row ${x}\">"), "form-row"))
+		assertThat(TemplateText.hasClass(TemplateText.classesOf("<div class=\"form-row ${x}\">"), "form-row"))
 				.as("a literal class the expression only follows, with a real space between").isTrue();
 		// Unchanged: an expression alone, with no literal text at all, still reads as no class --
 		// the shape `class="${row.cssClass()}"` already hides an offence rather than inventing one.
-		assertThat(classesOf("<div class=\"${x}\">")).as("a wholly dynamic value").isEmpty();
+		assertThat(TemplateText.classesOf("<div class=\"${x}\">")).as("a wholly dynamic value").isEmpty();
 	}
 
 	/**
@@ -359,14 +280,12 @@ class AdminRowDialogButtonsTest {
 	 */
 	@Test
 	void classesOfFindsAnAttributeSeparatedByATabOrANewline() {
-		assertThat(hasClass(classesOf("<div\tclass=\"form-row\">"), "form-row"))
+		assertThat(TemplateText.hasClass(TemplateText.classesOf("<div\tclass=\"form-row\">"), "form-row"))
 				.as("a tab before the class attribute").isTrue();
-		assertThat(hasClass(classesOf("<div\nclass=\"form-row\">"), "form-row"))
+		assertThat(TemplateText.hasClass(TemplateText.classesOf("<div\nclass=\"form-row\">"), "form-row"))
 				.as("a newline before the class attribute").isTrue();
 	}
 
-	/** An attribute's name, up to the quote its value opens with; a valueless attribute has none. */
-	private static final Pattern ATTRIBUTE = Pattern.compile("(?s)\\s([\\w:@.-]+)=(?=[\"'])");
 
 	private static void checkFormRows(String where, String fields, List<String> offenders, int[] labels) {
 		Deque<Integer> rows = new ArrayDeque<>();
@@ -386,8 +305,8 @@ class AdminRowDialogButtonsTest {
 				// review round 2 found the first form of this rule made every classed div a cell
 				// anywhere in a window, which let that bucket through. Round 3 found the reading of
 				// the attribute itself too loose, in both directions: see `classesOf`.
-				String classes = classesOf(token);
-				boolean row = hasClass(classes, "form-row");
+				String classes = TemplateText.classesOf(token);
+				boolean row = TemplateText.hasClass(classes, "form-row");
 				boolean cell = !row && formRows.contains(Boolean.TRUE) && !classes.isEmpty();
 				rows.push(row || cell ? tag.start() : -1);
 				formRows.push(row);
