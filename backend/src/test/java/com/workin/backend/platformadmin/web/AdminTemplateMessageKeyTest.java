@@ -57,13 +57,20 @@ class AdminTemplateMessageKeyTest {
 	private static final Pattern REFUSAL_KEY =
 			Pattern.compile("(?:->|return)\\s*\"([a-z][a-z0-9_.]*)\"");
 
-	/** A whole {@code case} label list, which may carry several keys: {@code case "a", "b" ->}. */
-	private static final Pattern CASE_LABELS = Pattern.compile("case\\s+(\"[^\\n]*?)->");
+	/**
+	 * A whole {@code case} label list, which may carry several keys: {@code case "a", "b" ->}. The
+	 * list is read to its arrow across line breaks, because a formatter wraps a long one and
+	 * round 3 read every label of a wrapped list past a gate that stopped at the first newline.
+	 */
+	private static final Pattern CASE_LABELS = Pattern.compile("case\\s+(\"[\\s\\S]*?)->");
 
 	private static final Pattern QUOTED_KEY = Pattern.compile("\"([a-z][a-z0-9_.]*)\"");
 
 	/** Where a controller puts a key straight into the model, bypassing those methods. */
 	private static final String MODEL_KEY = "addAttribute(\"errorKey\",";
+
+	/** Where a controller spells the key into the redirect itself: {@code "?error=no_data"}. */
+	private static final Pattern REDIRECT_KEY = Pattern.compile("[?&]error=([a-z][a-z0-9_.]*)");
 
 	/** The one family built by concatenation, in {@code AdminDevicesController.errorKey}. */
 	private static final String DEVICE_FAMILY = "device_error_";
@@ -161,16 +168,24 @@ class AdminTemplateMessageKeyTest {
 	}
 
 	/**
-	 * Every key a controller hands a page as a literal: the arms, returns and pass-through
-	 * {@code case} labels of its {@code messageKey}/{@code errorKey} method, and anything it puts
-	 * straight into the model as {@code errorKey}. Other literals in a controller are view names,
-	 * redirects and request parameters, which no page translates.
+	 * The keys a controller in this package hands a page as a literal: the arms, returns and
+	 * pass-through {@code case} labels of its {@code messageKey}, {@code errorKey} and
+	 * {@code messageFor} methods, anything it puts straight into the model as {@code errorKey},
+	 * and a key spelled into a redirect as {@code ?error=}. A literal read anywhere else in a
+	 * controller is a view name or a request parameter, which no page translates.
 	 *
-	 * <p>One key is not a literal anywhere: {@code AdminDevicesController.errorKey} builds
-	 * {@code device_error_<suffix>} from a {@code devices.<suffix>} code the device agent sends,
-	 * so the set is open and cannot be read off the source. {@link
-	 * #everyDeviceErrorKeyExistsInBothCatalogues} holds what can be held there -- that the family
-	 * says the same in both languages -- and #294 tracks pinning the codes themselves.
+	 * <p>Two sources of keys are still outside this scan, and a key added to either is checked by
+	 * nothing. One is a key that is built rather than written: {@code AdminDevicesController}
+	 * makes {@code device_error_<suffix>} out of a {@code devices.<suffix>} code the device agent
+	 * sends, so no literal exists to read, and {@link #everyDeviceErrorKeyExistsInBothCatalogues}
+	 * holds what can be held there while #294 tracks pinning the codes. The other is a key from
+	 * outside this package: a {@code Form} or an {@code AdminService} returns its own, which a
+	 * controller passes on ({@code PlatformAdminCompaniesController:233},
+	 * {@code AdminPhoneCountriesController:101}), and #296 tracks reading those.
+	 *
+	 * <p>Where the scan is imprecise it over-reads rather than under-reads: a label list with no
+	 * arrow, or an unbalanced bracket in a model argument, sweeps in literals that are not keys
+	 * and fails this test by name. That is the safe direction; a key that is missed is not.
 	 */
 	private static Map<String, Set<String>> refusalKeysByController() throws IOException {
 		Map<String, Set<String>> found = new LinkedHashMap<>();
@@ -178,7 +193,7 @@ class AdminTemplateMessageKeyTest {
 			for (Path controller : files.filter(path -> path.toString().endsWith(".java")).sorted().toList()) {
 				String source = Files.readString(controller, StandardCharsets.UTF_8);
 				Set<String> keys = new TreeSet<>();
-				for (String body : methodBodies(source, "String messageKey(", "String errorKey(")) {
+				for (String body : methodBodies(source, "String messageKey(", "String errorKey(", "String messageFor(")) {
 					Matcher matcher = REFUSAL_KEY.matcher(body);
 					while (matcher.find()) {
 						keys.add(matcher.group(1));
@@ -196,6 +211,10 @@ class AdminTemplateMessageKeyTest {
 					while (literal.find()) {
 						keys.add(literal.group(1));
 					}
+				}
+				Matcher redirected = REDIRECT_KEY.matcher(source);
+				while (redirected.find()) {
+					keys.add(redirected.group(1));
 				}
 				if (!keys.isEmpty()) {
 					found.put(controller.getFileName().toString(), keys);
