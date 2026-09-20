@@ -409,11 +409,43 @@ class AdminRequestsEndToEndTest {
 		assertThat(comment.group()).as("the reply is optional, as in legacy").doesNotContain("required");
 	}
 
+	/**
+	 * page.php:122 and hr_requests_row_actions() (hr_list_helper.php:524) print the name through
+	 * dashboard_employee_display_name(): a blank one is an em dash in the cell and in the approve
+	 * and reject windows, whose titles the port's subject line stands for. PHP trims what SQL's
+	 * TRIM leaves, and SQL's strips only spaces, so a name that is only a tab is blank too.
+	 */
+	@Test
+	void anEmployeeWithABlankNameReadsAsLegacysDash() {
+		long blank = seedRequest(createEmployee(this.companyA, "A200", "", ""), this.plainTypeA,
+				"2026-03-02", "2026-03-04");
+		long tab = seedRequest(createEmployee(this.companyA, "A300", "\t", ""), this.plainTypeA,
+				"2026-03-02", "2026-03-04");
+		long named = seedRequest(this.employeeA, this.plainTypeA, "2026-03-02", "2026-03-04");
+
+		String html = body("/admin/requests?company_id=" + this.companyA);
+		assertThat(row(html, blank)).containsPattern("<td class=\"text-muted\">A200</td>\\s*<td class=\"bold\">—</td>");
+		assertThat(row(html, tab)).containsPattern("<td class=\"text-muted\">A300</td>\\s*<td class=\"bold\">—</td>");
+		for (long id : new long[] {blank, tab}) {
+			assertThat(java.util.regex.Pattern.compile("data-dialog-subject=\"—\"").matcher(rowMenu(html, id))
+					.results().count()).as("approve and reject name the dash for request %s", id).isEqualTo(2);
+		}
+		assertThat(row(html, named)).containsPattern("<td class=\"text-muted\">A100</td>\\s*<td class=\"bold\">Aya Alpha</td>");
+		assertThat(rowMenu(html, named)).contains("data-dialog-subject=\"Aya Alpha\"");
+	}
+
 	/** One row's action menu. */
 	private static String rowMenu(String html, long rowId) {
 		int start = html.indexOf("id=\"row-actions-menu-" + rowId + "\"");
 		assertThat(start).as("the row menu for request %s", rowId).isPositive();
 		return html.substring(start, html.indexOf("</div>", start));
+	}
+
+	/** One request's row of the list, from its opening tag to its end. */
+	private static String row(String html, long rowId) {
+		int menu = html.indexOf("id=\"row-actions-menu-" + rowId + "\"");
+		assertThat(menu).as("the row for request %s", rowId).isPositive();
+		return html.substring(html.lastIndexOf("<tr", menu), html.indexOf("</tr>", menu));
 	}
 
 	@Test

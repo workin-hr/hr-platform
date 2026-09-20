@@ -1,5 +1,6 @@
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.hr.EmployeeDisplay
 @import com.workin.backend.platformadmin.hr.EmployeeRequest
 @import com.workin.backend.platformadmin.hr.ListDisplay
 @import com.workin.backend.platformadmin.web.DashboardListFilters
@@ -137,10 +138,13 @@
 				<tbody>
 					@for(int index = 0; index < result.data().size(); index++)
 						!{EmployeeRequest row = result.data().get(index);}
+						<%-- dashboard_employee_display_name(): a blank name reads as an em dash, in
+						     the cell and in the row's actions (requests/page.php:122, hr_list_helper.php:524). --%>
+						!{String employeeName = EmployeeDisplay.displayName(row.employeeName(), "—");}
 						<tr>
 							<td>${result.from() + index}</td>
 							<td class="text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
-							<td class="bold">${row.employeeName()}</td>
+							<td class="bold">${employeeName}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
@@ -173,11 +177,11 @@
 													class="row-actions__item row-actions__item--success"
 													data-dialog="request-approve"
 													data-dialog-id="${row.id()}"
-													data-dialog-subject="${row.employeeName()}">${t.apply("approve")}</button>
+													data-dialog-subject="${employeeName}">${t.apply("approve")}</button>
 											<button type="button" role="menuitem" class="row-actions__item row-actions__item--danger"
 													data-dialog="request-reject"
 													data-dialog-id="${row.id()}"
-													data-dialog-subject="${row.employeeName()}">${t.apply("reject")}</button>
+													data-dialog-subject="${employeeName}">${t.apply("reject")}</button>
 										@endif
 										<form method="POST" class="row-actions__form" role="none"
 										      onsubmit="return confirm('${t.apply("confirm_delete")}')">

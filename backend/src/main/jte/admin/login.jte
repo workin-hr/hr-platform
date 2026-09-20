@@ -21,8 +21,8 @@
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>${t.apply("login_title")} — ${t.apply("app_name")}</title>
-	<link rel="icon" type="image/png" href="/admin/_assets/logo.png">
-	<link rel="apple-touch-icon" href="/admin/_assets/logo.png">
+	<link rel="icon" type="image/png" sizes="32x32" href="/admin/_assets/favicon-32.png">
+	<link rel="apple-touch-icon" sizes="180x180" href="/admin/_assets/apple-touch-icon.png">
 	<link rel="stylesheet" href="/admin/_assets/login.css">
 </head>
 <body class="login-body${hasAlert ? " login-has-alert" : ""}${errorKey != null ? " login-shake" : ""}">

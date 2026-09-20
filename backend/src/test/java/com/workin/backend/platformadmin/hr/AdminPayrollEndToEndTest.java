@@ -94,6 +94,22 @@ class AdminPayrollEndToEndTest extends AdminPayrollTestSupport {
 				.contains("<div class=\"data-table-card payroll-detail-card\">");
 	}
 
+	/**
+	 * page.php:281: a payslip's employee cells are hr_render_table_employee_cells(), so a blank
+	 * name is dashboard_employee_display_name()'s em dash.
+	 */
+	@Test
+	void aPayslipForAnEmployeeWithABlankNameReadsAsLegacysDash() {
+		long blank = createEmployee(this.companyA, "A200", "", "");
+		long batchId = batch(this.companyA, 3, 2026, "2026-03-01", "2026-03-31", "draft");
+		payslip(batchId, blank);
+		payslip(batchId, this.employeeA);
+
+		assertThat(body(PATH + "?run_id=" + batchId))
+				.containsPattern("<td class=\"bold\">—\\s*<span class=\"text-muted\">A200</span></td>")
+				.containsPattern("<td class=\"bold\">Aya Alpha\\s*<span class=\"text-muted\">A100</span></td>");
+	}
+
 	@Test
 	void finalizingFlipsTheStatusAndChangesNothingElse() {
 		long batchId = batch(this.companyA, 3, 2026, "2026-03-01", "2026-03-31", "draft");

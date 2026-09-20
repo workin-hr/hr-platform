@@ -220,7 +220,8 @@ public class PlatformAdminWebSecurityConfig {
 	};
 
 	/**
-	 * The stylesheets and scripts the admin pages load, served from
+	 * The stylesheets, scripts and images the admin pages load.
+	 *
 	 * <p>The prefix is {@code /admin/_assets/**}, with the underscore, and that
 	 * is load-bearing. It was {@code /admin/assets/**} until the dashboard's own
 	 * {@code assets} page was ported: Spring's {@code /**} matches zero segments,
@@ -229,13 +230,13 @@ public class PlatformAdminWebSecurityConfig {
 	 * from {@code dashboard/pages/*} -- so this closes the collision for every
 	 * future page rather than for that one.
 	 *
-	 * <p>Served from
-	 * {@code classpath:/static/admin/assets/} and copied from the PHP
+	 * <p>Served by {@link AdminAssetCaching} from
+	 * {@code classpath:/static/admin/_assets/} and copied from the PHP
 	 * dashboard so the two look the same (ADR-0016).
 	 *
 	 * <p>Deliberately <b>not</b> in {@link #PUBLIC_PATHS}: that list is
 	 * handler routes, checked against their own {@code @PublicUseCase}
-	 * declarations in both directions, and a pattern with no handler behind
+	 * declarations in both directions, and a pattern with no controller behind
 	 * it would read there as a stale entry -- the exact signal that list
 	 * exists to raise.
 	 *
@@ -243,10 +244,10 @@ public class PlatformAdminWebSecurityConfig {
 	 * whole point is that nothing here is reachable unauthenticated: a
 	 * stylesheet is not a secret, and the alternative -- the previous
 	 * layout's several hundred lines of inlined CSS -- does not scale to the
-	 * dashboard's copied 2,500. The exposure is bounded by there being no
-	 * handler under the prefix: it resolves against the static resource
-	 * classpath only, and Spring's firewall rejects a traversal attempt
-	 * before matching. {@code PlatformAdminAssetsExposureTest} holds both
+	 * dashboard's copied 2,500. The exposure is bounded by what is behind
+	 * the prefix: no controller, only {@link AdminAssetCaching}'s resource
+	 * handlers, which resolve against that one classpath directory, and
+	 * Spring's firewall rejects a traversal attempt before matching. {@code PlatformAdminAssetsExposureTest} holds both
 	 * halves of that.
 	 */
 	public static final String ASSETS_PATTERN = PATH_PREFIX + "/_assets/**";
