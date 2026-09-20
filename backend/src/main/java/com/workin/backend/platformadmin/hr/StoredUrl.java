@@ -9,8 +9,11 @@ import java.util.Locale;
  * absolute URL, so nothing they wrote names another scheme; this keeps a {@code javascript:} value
  * written some other way from becoming a link an administrator clicks.
  *
- * <p>A value with no scheme is a path on this host, and stays one: {@code //host/path} and
- * {@code \\host\path} name another origin without naming a scheme, so they are refused too.
+ * <p>A value with no scheme is a path on this host, and stays one. Two leading separators name
+ * another origin instead, whichever way they lean -- a browser reads {@code \} as {@code /} here,
+ * so {@code //host}, {@code \\host}, {@code /\host} and {@code \/host} are all refused. A value
+ * carrying a control character is refused outright: browsers drop those before parsing, so the
+ * text checked here would not be the URL the browser follows.
  */
 public final class StoredUrl {
 
@@ -26,8 +29,13 @@ public final class StoredUrl {
 			return null;
 		}
 		String url = stored.strip();
-		// Protocol-relative, and its backslash form, which browsers read the same way.
-		if (url.startsWith("//") || url.startsWith("\\\\")) {
+		for (int at = 0; at < url.length(); at++) {
+			char character = url.charAt(at);
+			if (character < ' ' || character == 0x7F) {
+				return null;
+			}
+		}
+		if (url.length() > 1 && separator(url.charAt(0)) && separator(url.charAt(1))) {
 			return null;
 		}
 		int colon = url.indexOf(':');
@@ -43,6 +51,11 @@ public final class StoredUrl {
 		}
 		String scheme = url.substring(0, colon).toLowerCase(Locale.ROOT);
 		return scheme.equals("http") || scheme.equals("https") ? url : null;
+	}
+
+	/** A browser reads a backslash as a slash in this position, so both open a host. */
+	private static boolean separator(char character) {
+		return character == '/' || character == '\\';
 	}
 
 }

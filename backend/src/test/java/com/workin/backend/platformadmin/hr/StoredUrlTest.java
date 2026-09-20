@@ -31,15 +31,33 @@ class StoredUrlTest {
 	}
 
 	/**
-	 * A protocol-relative value names another origin without naming a scheme, so the
-	 * schemeless branch must not pass it through as a path on this host.
+	 * A value that opens with two separators names another origin without naming a scheme, so
+	 * the schemeless branch must not pass it through as a path on this host. A browser reads a
+	 * backslash as a slash in that position, so all four combinations are the same attack, and
+	 * #292's review round 2 defeated a plain {@code //} prefix test with the other three.
 	 */
 	@Test
-	void aProtocolRelativeUrlIsNotLinkedEitherThoughItNamesNoScheme() {
-		assertThat(StoredUrl.href("//evil.example/reg.pdf")).isNull();
-		assertThat(StoredUrl.href("  //evil.example/reg.pdf")).as("after whitespace").isNull();
-		assertThat(StoredUrl.href("\\\\evil.example\\reg.pdf")).as("the backslash form a browser reads the same way").isNull();
+	void aValueOpeningWithTwoSeparatorsIsNotLinkedThoughItNamesNoScheme() {
+		for (String opening : new String[] {"//", "\\\\", "/\\\\", "\\\\/"}) {
+			assertThat(StoredUrl.href(opening + "evil.example/reg.pdf")).as(opening).isNull();
+			assertThat(StoredUrl.href("  " + opening + "evil.example/reg.pdf")).as("%s after whitespace", opening).isNull();
+		}
 		assertThat(StoredUrl.href("/uploads/a.pdf")).as("one slash is still a path here").isEqualTo("/uploads/a.pdf");
+		assertThat(StoredUrl.href("uploads/docs/a.pdf")).isEqualTo("uploads/docs/a.pdf");
+	}
+
+	/**
+	 * A browser drops a control character before it parses, so the text checked here would not
+	 * be the URL it follows: {@code /\u0009/evil.example} arrives as {@code //evil.example}.
+	 * Round 2 read five such values out of the running page.
+	 */
+	@Test
+	void aValueCarryingAControlCharacterIsNotLinkedAtAll() {
+		assertThat(StoredUrl.href("/\u0009/evil.example/reg.pdf")).as("a tab between the separators").isNull();
+		assertThat(StoredUrl.href("/\n/evil.example/reg.pdf")).as("a newline").isNull();
+		assertThat(StoredUrl.href("/\r/evil.example/reg.pdf")).as("a carriage return").isNull();
+		assertThat(StoredUrl.href("\u0001//evil.example/reg.pdf")).as("a leading control character").isNull();
+		assertThat(StoredUrl.href("https://files.example.com/a\u007fb.pdf")).as("and one inside a web address").isNull();
 	}
 
 }
