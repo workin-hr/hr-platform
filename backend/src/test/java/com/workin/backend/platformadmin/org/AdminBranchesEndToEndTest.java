@@ -426,6 +426,90 @@ class AdminBranchesEndToEndTest {
 				"SELECT qr_code FROM branches WHERE id = " + id, String.class)).isNull();
 	}
 
+	/** {@code org_branch_table_row_actions()} (org_helper.php:834-858): Edit, Delete, QR. */
+	@Test
+	void theRowActionsOfferEditThenDeleteThenQrAsLegacyOrders() {
+		seedBranch(this.companyA, "Ordered");
+		String actions = row(body("/admin/branches"), "Ordered");
+		int edit = actions.indexOf("action=edit");
+		int delete = actions.indexOf("value=\"delete\"");
+		int qr = actions.indexOf("action=qr");
+		assertThat(edit).as("an edit link").isGreaterThanOrEqualTo(0);
+		assertThat(delete).as("delete after edit, as legacy orders them").isGreaterThan(edit);
+		assertThat(qr).as("qr last, after delete").isGreaterThan(delete);
+	}
+
+	/**
+	 * {@code _branch_qr_modal.php}: {@code modal-bg open > modal modal--org-form modal--branch-qr},
+	 * not the data-table-card the port had drawn inline in the page flow.
+	 */
+	@Test
+	void theQrPanelIsLegacysModalNotAnInlineCard() {
+		long id = seedBranch(this.companyA, "Modalled");
+		String html = body("/admin/branches?action=qr&id=" + id);
+		assertThat(html)
+				.contains("<div class=\"modal-bg open\">")
+				.contains("<div class=\"modal modal--org-form modal--branch-qr\">")
+				.contains("<p class=\"branch-qr-branch-name\">Modalled</p>");
+	}
+
+	/**
+	 * The active block's order (`_branch_qr_modal.php:96-105`): status, image, then meta in
+	 * {@code <strong dir="ltr">}. The port had the meta before the image and no {@code dir="ltr"}.
+	 */
+	@Test
+	void theActiveQrBlockOrdersStatusImageThenMetaWithLtrExpiry() {
+		long id = seedBranch(this.companyA, "Coded Order");
+		Page qr = page("/admin/branches?action=qr&id=" + id, this.cookie);
+		post("/admin/branches", this.cookie, qr.csrf(), "action", "generate_qr",
+				"id", String.valueOf(id), "company_id", String.valueOf(this.companyA),
+				"expires_at", LocalDateTime.now().plusDays(1).format(LOCAL));
+
+		String html = body("/admin/branches?action=qr&id=" + id);
+		int status = html.indexOf("branch-qr-status--active");
+		int image = html.indexOf("branch-qr-image");
+		int meta = html.indexOf("branch-qr-meta");
+		int strong = html.indexOf("<strong dir=\"ltr\">");
+		assertThat(status).as("an active status").isGreaterThanOrEqualTo(0);
+		assertThat(image).as("the image after the status").isGreaterThan(status);
+		assertThat(meta).as("the meta after the image").isGreaterThan(image);
+		assertThat(strong).as("the expiry in an ltr strong, inside the meta").isGreaterThan(meta);
+	}
+
+	/**
+	 * {@code org_branch_qr_expires_input_value()} (org_helper.php:782-788): the current expiry
+	 * while a code is active, or today at 23:59 otherwise. The port left the field blank.
+	 */
+	@Test
+	void theQrExpiryFieldIsPrefilledAsLegacyPrefillsIt() {
+		long freshId = seedBranch(this.companyA, "Fresh");
+		String today = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+		assertThat(body("/admin/branches?action=qr&id=" + freshId))
+				.contains("id=\"br_qr_expires\"")
+				.contains("value=\"" + today + "T23:59\"");
+
+		long id = seedBranch(this.companyA, "Coded Prefill");
+		Page qr = page("/admin/branches?action=qr&id=" + id, this.cookie);
+		String expiry = LocalDateTime.now().plusDays(1).format(LOCAL);
+		post("/admin/branches", this.cookie, qr.csrf(), "action", "generate_qr",
+				"id", String.valueOf(id), "company_id", String.valueOf(this.companyA), "expires_at", expiry);
+		assertThat(body("/admin/branches?action=qr&id=" + id)).contains("value=\"" + expiry + "\"");
+	}
+
+	/** {@code _branch_form.php}: legacy's {@code br_*} input ids, and {@code dir="ltr"} on coordinates. */
+	@Test
+	void theFormFieldsCarryLegacysBrIdsAndTheCoordinatesAndRadiusAreLtr() {
+		String html = body("/admin/branches?action=add");
+		assertThat(html)
+				.contains("for=\"br_name\"").contains("id=\"br_name\"")
+				.contains("for=\"br_address\"").contains("id=\"br_address\"")
+				.contains("for=\"br_lat\"").contains("id=\"br_lat\" name=\"lat\" dir=\"ltr\"")
+				.contains("for=\"br_lng\"").contains("id=\"br_lng\" name=\"lng\" dir=\"ltr\"")
+				.contains("for=\"br_radius\"")
+				.contains("id=\"br_radius\" name=\"radius_meters\" min=\"1\" max=\"5000\" step=\"1\"")
+				.contains("dir=\"ltr\" inputmode=\"numeric\"");
+	}
+
 	@Test
 	void theEditFormRefusesARowOutsideTheCurrentFilter() {
 		long id = seedBranch(this.companyB, "Beta Only");

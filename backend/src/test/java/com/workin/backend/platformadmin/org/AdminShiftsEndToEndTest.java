@@ -203,6 +203,49 @@ class AdminShiftsEndToEndTest {
 				"SELECT COUNT(*) FROM shifts WHERE id = " + id, Integer.class)).isEqualTo(1);
 	}
 
+	/**
+	 * {@code shifts/page.php:91-92, 125-126}: the start and end headers carry {@code col-center},
+	 * and their cells are {@code col-center dir="ltr"} plain text -- not the badges the port drew.
+	 */
+	@Test
+	void theStartAndEndColumnsAreColCenterLtrPlainTextNotBadges() {
+		seedShift(this.companyA, "Timed");
+		String html = body("/admin/shifts?lang=en");
+		assertThat(html)
+				.contains("<th class=\"col-center\">Start Time</th>")
+				.contains("<th class=\"col-center\">End Time</th>")
+				.contains("<td class=\"col-center\" dir=\"ltr\">08:00</td>")
+				.contains("<td class=\"col-center\" dir=\"ltr\">16:00</td>")
+				.doesNotContain("badge-gray\">08:00").doesNotContain("badge-gray\">16:00");
+	}
+
+	/** {@code shifts/page.php:79}: {@code $colCount = $showCompanyCol ? 9 : 8}. The port had 8 and 7. */
+	@Test
+	void theEmptyStateSpansLegacysColumnCount() {
+		assertThat(body("/admin/shifts")).contains("colspan=\"9\"");
+		assertThat(body("/admin/shifts?company_id=" + this.companyA)).contains("colspan=\"8\"");
+	}
+
+	/** {@code shifts/page.php:121}: the row number carries no class, unlike the company cell beside it. */
+	@Test
+	void theRowNumberCarriesNoClassAsLegacyDoesNot() {
+		seedShift(this.companyA, "Numbered");
+		assertThat(row(body("/admin/shifts"), "Numbered")).contains("<td>1</td>");
+	}
+
+	private static String row(String html, String name) {
+		return java.util.regex.Pattern.compile("(?s)<tr\\b[^>]*>(.*?)</tr>").matcher(html).results()
+				.map(match -> match.group(1)).filter(cells -> cells.contains(">" + name + "<"))
+				.findFirst().orElseThrow(() -> new AssertionError("no row for " + name));
+	}
+
+	/** {@code _shift_form.php:17}: the name label is {@code shift_name}, not {@code shift}. */
+	@Test
+	void theAddFormLabelsTheNameFieldAsShiftName() {
+		assertThat(body("/admin/shifts?action=add&lang=en"))
+				.contains("<label for=\"name\">Shift Name</label>");
+	}
+
 	@Test
 	void theListFiltersAndTheCompanyFilterOutlivesItsRequest() {
 		seedShift(this.companyA, "Alpha Morning");

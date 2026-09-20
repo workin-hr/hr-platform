@@ -273,7 +273,10 @@ class AdminRowDialogButtonsTest {
 	 */
 	private static String classesOf(String tag) {
 		Matcher attribute = ATTRIBUTE.matcher(tag);
-		int from = tag.indexOf(' ');
+		// ATTRIBUTE itself requires the leading \s, so starting the walk at 0 finds an attribute
+		// separated by a tab or a newline too; seeding it from indexOf(' ') alone read such a tag
+		// as carrying no attributes at all, and so no class (#304).
+		int from = 0;
 		while (from >= 0 && attribute.find(from)) {
 			char quote = tag.charAt(attribute.end());
 			StringBuilder value = new StringBuilder();
@@ -284,6 +287,11 @@ class AdminRowDialogButtonsTest {
 				if (character == '$' && at + 1 < tag.length() && tag.charAt(at + 1) == '{') {
 					depth++;
 					at++;
+					// The expression's rendered text is unknown. Dropping it silently let
+					// `form-row${x}` and `${x}form-row` read as the literal class `form-row`,
+					// which may not be the token the render produces (#304); a marker keeps it
+					// from gluing onto the literal text on either side.
+					value.append(EXPRESSION_MARKER);
 				}
 				else if (depth > 0) {
 					depth += character == '{' ? 1 : character == '}' ? -1 : 0;
@@ -299,16 +307,56 @@ class AdminRowDialogButtonsTest {
 				throw new AssertionError("an attribute that never closes: " + tag);
 			}
 			if (attribute.group(1).equals("class")) {
-				return value.toString().replaceAll("\\s+", " ").trim();
+				String classes = value.toString().replaceAll("\\s+", " ").trim();
+				// A value built only of expression markers, with no literal text at all, is the
+				// existing `class="${row.cssClass()}"` shape: it can render to nothing, so it
+				// reads as no class, hiding an offence rather than inventing one.
+				return classes.replace(String.valueOf(EXPRESSION_MARKER), "").isBlank() ? "" : classes;
 			}
 			from = at + 1;
 		}
 		return "";
 	}
 
+	/** Stands in for a JTE expression's unknown rendered text inside a {@code class} value. */
+	private static final char EXPRESSION_MARKER = '￿';
+
 	/** Whether {@code classes}, as {@link #classesOf} read them, hold {@code name} as a whole class. */
 	private static boolean hasClass(String classes, String name) {
 		return (" " + classes + " ").contains(" " + name + " ");
+	}
+
+	/**
+	 * #304, defect 1: deleting {@code ${...}} silently let it read as no boundary at all, so
+	 * {@code form-row${x}} and {@code ${x}form-row} were read as holding the real class
+	 * {@code form-row} -- permissive, because the expression's rendered text is unknown and may
+	 * not leave {@code form-row} as its own token.
+	 */
+	@Test
+	void classesOfDoesNotLetAnExpressionGlueOntoALiteralClass() {
+		assertThat(hasClass(classesOf("<div class=\"form-row${x}\">"), "form-row"))
+				.as("an expression appended to the literal class").isFalse();
+		assertThat(hasClass(classesOf("<div class=\"${x}form-row\">"), "form-row"))
+				.as("an expression prepended to the literal class").isFalse();
+		// Unchanged: a real space already separates the two, so the literal class still reads.
+		assertThat(hasClass(classesOf("<div class=\"form-row ${x}\">"), "form-row"))
+				.as("a literal class the expression only follows, with a real space between").isTrue();
+		// Unchanged: an expression alone, with no literal text at all, still reads as no class --
+		// the shape `class="${row.cssClass()}"` already hides an offence rather than inventing one.
+		assertThat(classesOf("<div class=\"${x}\">")).as("a wholly dynamic value").isEmpty();
+	}
+
+	/**
+	 * #304, defect 2: the walk was seeded with {@code indexOf(' ')}, a literal space, while
+	 * {@link #ATTRIBUTE} itself accepts any whitespace -- so a tag whose attributes are separated
+	 * by a tab or a newline read as carrying no attributes, and so no class, at all.
+	 */
+	@Test
+	void classesOfFindsAnAttributeSeparatedByATabOrANewline() {
+		assertThat(hasClass(classesOf("<div\tclass=\"form-row\">"), "form-row"))
+				.as("a tab before the class attribute").isTrue();
+		assertThat(hasClass(classesOf("<div\nclass=\"form-row\">"), "form-row"))
+				.as("a newline before the class attribute").isTrue();
 	}
 
 	/** An attribute's name, up to the quote its value opens with; a valueless attribute has none. */
