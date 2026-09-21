@@ -341,6 +341,180 @@ class AdminAdvancesEndToEndTest {
 		assertThat(body("/admin/advances")).contains("111").contains("222");
 	}
 
+	/**
+	 * page.php:198: the export sits beside the add button and carries the filters the list is
+	 * under, so the file is the list on the screen. Legacy offers it to anyone who can open the
+	 * page, managing rights or not.
+	 */
+	@Test
+	void theExportLinkCarriesTheListsOwnFilters() {
+		assertThat(headActions(body("/admin/advances")))
+				.contains("<a href=\"/admin/advances?export=csv&amp;status=all\""
+						+ " class=\"btn btn-green btn-sm\">" + arabic("export_csv") + "</a>");
+
+		assertThat(headActions(body("/admin/advances?company_id=" + this.companyA
+				+ "&search=Aya+A&status=pending&date_from=2026-03-01&date_to=2026-03-31")))
+				.as("every filter the pager carries, and the search encoded as a link encodes it")
+				.contains("<a href=\"/admin/advances?export=csv&amp;search=Aya+A&amp;company_id="
+						+ this.companyA
+						+ "&amp;status=pending&amp;date_from=2026-03-01&amp;date_to=2026-03-31\"");
+	}
+
+	/**
+	 * hr_export_advances_csv() (hr_list_helper.php:1110-1152) with csv_export_send()
+	 * (query.php:375-405): every row the filter admits, not the page on the screen, ordered by
+	 * {@code created_at} as the list above it is (hr_list_helper.php:372 and :1150), and sent as
+	 * the spreadsheet legacy's button has always downloaded -- the helper rewrites its
+	 * own .csv name to .xlsx (hr-legacy#23).
+	 */
+	@Test
+	void theExportSendsEveryFilteredRowAsLegacysSpreadsheet() {
+		seedAdvance(this.employeeA, "1000", "600", "approved");
+		seedAdvance(this.employeeA, "500", "500", "pending");
+		seedAdvance(this.employeeB, "999", "999", "pending");
+
+		ResponseEntity<byte[]> response = getBytes(
+				"/admin/advances?export=csv&company_id=" + this.companyA + "&per_page=1");
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getHeaders().getContentType()).asString()
+				.isEqualTo("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+		assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION))
+				.asString().matches("attachment; filename=\"advances_\\d{4}-\\d{2}-\\d{2}\\.xlsx\"");
+		assertThat(new String(response.getBody(), 0, 2, java.nio.charset.StandardCharsets.US_ASCII))
+				.as("XLSX is a ZIP container").isEqualTo("PK");
+
+		List<List<String>> rows = sheetRows(response.getBody());
+		assertThat(rows.get(0)).as("legacy's eight headers, in the page's language").containsExactly(
+				arabic("emp_code"), arabic("employee_name"), arabic("advance_amount"),
+				arabic("remaining"), arabic("request_date"), arabic("advance_reason"),
+				arabic("rejection_reason"), arabic("status"));
+		assertThat(rows.subList(1, rows.size()))
+				.as("both of Alpha's advances, newest created first, whatever the page size")
+				.containsExactly(
+						List.of("A100", "Aya Alpha", "500.00", "500.00", "2026-03-02", "", "", "pending"),
+						List.of("A100", "Aya Alpha", "1000.00", "600.00", "2026-03-02", "", "", "approved"));
+	}
+
+	/** The filter is the boundary: another company's advances are not in this company's file. */
+	@Test
+	void theExportNeverReachesPastTheFilter() {
+		seedAdvance(this.employeeA, "1000", "1000", "pending");
+		seedAdvance(this.employeeB, "500", "500", "pending");
+
+		List<List<String>> alpha = sheetRows(getBytes(
+				"/admin/advances?export=csv&company_id=" + this.companyA).getBody());
+		assertThat(alpha).as("a header and Alpha's one advance").hasSize(2);
+		assertThat(alpha.get(1)).contains("Aya Alpha").doesNotContain("Basma Beta");
+
+		assertThat(sheetRows(getBytes("/admin/advances?export=csv&company_id=").getBody()))
+				.as("unfiltered, an administrator's file holds both companies")
+				.hasSize(3);
+	}
+
+	/**
+	 * Legacy orders the table and the file the same way and by the same column: the row's
+	 * creation, not the date the advance was requested for -- {@code hr_paginate_advances()}
+	 * at hr_list_helper.php:372 and {@code hr_export_advances_csv()} at :1150, both
+	 * {@code a.created_at DESC, a.id DESC}. The port's list had {@code request_date} since
+	 * 99a630b3 and nothing said so, because every other fixture seeds the two dates in the
+	 * same order, where either column produces the same rows. This seeds them opposed, which
+	 * is the only shape that can tell the two apart, and asserts both the page and the file.
+	 */
+	@Test
+	void theTableAndTheFileBothOrderByCreationAsLegacyOrdersThem() {
+		seedAdvance(this.employeeA, "111", "111", "pending", "2026-03-05", "2026-03-01 09:00:00");
+		seedAdvance(this.employeeA, "222", "222", "pending", "2026-03-01", "2026-03-05 09:00:00");
+
+		assertThat(body("/admin/advances")).as("the table: the later creation first")
+				.containsSubsequence("222.00", "111.00");
+
+		List<List<String>> rows = sheetRows(getBytes("/admin/advances?export=csv").getBody());
+		assertThat(rows.subList(1, rows.size())).as("the file: the same order as the table")
+				.extracting(row -> row.get(2)).containsExactly("222.00", "111.00");
+	}
+
+	/** An empty list exports the headers and nothing else, rather than failing. */
+	@Test
+	void anEmptyListStillExports() {
+		List<List<String>> rows = sheetRows(getBytes("/admin/advances?export=csv").getBody());
+		assertThat(rows).hasSize(1);
+		assertThat(rows.get(0)).first().isEqualTo(arabic("emp_code"));
+	}
+
+	/**
+	 * The task's second failure mode: a read must not disappear behind the write switch that
+	 * gates the row actions. {@link AdminHrExportsWithActionsDisabledEndToEndTest} pins the
+	 * control's presence and the endpoint's answer with the switch at its default (off); this
+	 * pins that the export's own {@code WHERE} still narrows correctly with it on.
+	 */
+	@Test
+	void theExportAppliesTheStatusFilterTheListApplies() {
+		seedAdvance(this.employeeA, "111", "111", "pending");
+		seedAdvance(this.employeeA, "222", "0", "approved");
+
+		List<List<String>> rows = sheetRows(
+				getBytes("/admin/advances?export=csv&status=pending").getBody());
+		assertThat(rows.subList(1, rows.size())).as("only the pending advance")
+				.singleElement().satisfies(row -> assertThat(row).contains("111.00"));
+	}
+
+	/** The actions beside the list's title. */
+	private static String headActions(String html) {
+		Matcher actions = Pattern.compile("(?s)<div class=\"data-table-head__actions\">.*?</div>")
+				.matcher(html);
+		assertThat(actions.find()).as("the list's head actions").isTrue();
+		return actions.group();
+	}
+
+	private ResponseEntity<byte[]> getBytes(String path) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.add(HttpHeaders.COOKIE, "WORKIN_ADMIN_SESSION=" + this.cookie);
+		return this.restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(headers), byte[].class);
+	}
+
+	/** The workbook's one sheet, row by row, each cell's inline string. */
+	private static List<List<String>> sheetRows(byte[] workbook) {
+		String sheet = null;
+		try (java.util.zip.ZipInputStream zip = new java.util.zip.ZipInputStream(
+				new java.io.ByteArrayInputStream(workbook))) {
+			for (java.util.zip.ZipEntry entry = zip.getNextEntry(); entry != null;
+					entry = zip.getNextEntry()) {
+				if ("xl/worksheets/sheet1.xml".equals(entry.getName())) {
+					sheet = new String(zip.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+				}
+			}
+		} catch (java.io.IOException ex) {
+			throw new AssertionError("the response is not a readable ZIP container", ex);
+		}
+		assertThat(sheet).as("the workbook's sheet").isNotNull();
+		List<List<String>> rows = new ArrayList<>();
+		Matcher row = Pattern.compile("(?s)<row\\b.*?</row>").matcher(sheet);
+		while (row.find()) {
+			List<String> cells = new ArrayList<>();
+			Matcher cell = Pattern.compile("(?s)<is><t[^>]*>(.*?)</t></is>").matcher(row.group());
+			while (cell.find()) {
+				cells.add(HtmlUtils.htmlUnescape(cell.group(1)));
+			}
+			rows.add(cells);
+		}
+		return rows;
+	}
+
+	/** One label as the dashboard's default language renders it. */
+	private static String arabic(String key) {
+		java.util.Properties catalogue = new java.util.Properties();
+		try (java.io.InputStream in = AdminAdvancesEndToEndTest.class
+				.getResourceAsStream("/i18n/admin-messages_ar.properties")) {
+			catalogue.load(new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8));
+		} catch (java.io.IOException ex) {
+			throw new java.io.UncheckedIOException(ex);
+		}
+		String value = catalogue.getProperty(key);
+		assertThat(value).as("the catalogue's %s", key).isNotNull();
+		return value;
+	}
+
 	@Test
 	void anUnfilteredAdministratorCannotMoveAnAdvanceBetweenCompanies() {
 		// D-176: an advance has no company_id, so reassigning the employee is
@@ -514,10 +688,16 @@ class AdminAdvancesEndToEndTest {
 	}
 
 	private long seedAdvance(long employeeId, String amount, String remaining, String status) {
+		return seedAdvance(employeeId, amount, remaining, status, "2026-03-02", "2026-03-02 09:00:00");
+	}
+
+	/** The two dates apart, because the table and the export are ordered by different ones. */
+	private long seedAdvance(long employeeId, String amount, String remaining, String status,
+			String requestDate, String createdAt) {
 		this.jdbc.update("INSERT INTO advances (employee_id, amount, remaining, status,"
-				+ " request_date, created_at) VALUES (?, ?, ?, ?, '2026-03-02', NOW())",
+				+ " request_date, created_at) VALUES (?, ?, ?, ?, ?, ?)",
 				employeeId, new java.math.BigDecimal(amount), new java.math.BigDecimal(remaining),
-				status);
+				status, requestDate, createdAt);
 		return this.jdbc.queryForObject(
 				"SELECT MAX(id) FROM advances WHERE employee_id = ?", Long.class, employeeId);
 	}

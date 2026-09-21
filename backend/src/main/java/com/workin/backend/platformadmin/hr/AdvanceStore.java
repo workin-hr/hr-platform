@@ -47,6 +47,51 @@ public class AdvanceStore {
 			DashboardListFilters filters, String status, String dateFrom, String dateTo,
 			boolean showCompany) {
 		List<Object> params = new ArrayList<>();
+		String where = where(filters, status, dateFrom, dateTo, params);
+
+		String join = showCompany ? " JOIN companies c ON c.id = e.company_id" : "";
+		String companyCol = showCompany ? ", c.company_name" : "";
+
+		Integer total = this.jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM advances a JOIN employees e ON e.id = a.employee_id"
+						+ join + " WHERE " + where,
+				Integer.class, params.toArray());
+
+		List<Object> pageParams = new ArrayList<>(params);
+		pageParams.add(filters.perPage());
+		pageParams.add(DashboardPage.offsetFor(filters.page(), filters.perPage()));
+
+		// advances has no company_id of its own: the row belongs to whichever
+		// company its employee is in.
+		List<Advance> rows = this.jdbcTemplate.query(
+				"SELECT a.*, e.company_id" + companyCol + ", "
+						+ DISPLAY_NAME + " AS employee_name, " + EMP_CODE + " AS emp_code"
+						+ " FROM advances a JOIN employees e ON e.id = a.employee_id" + join
+						+ " WHERE " + where
+						// hr_paginate_advances() (hr_list_helper.php:372) orders by the row's
+						// creation, not by the date the advance was requested for, and the export
+						// at :1150 orders the same way. The port had request_date here since
+						// 99a630b3, undocumented, which put the table in a different order from
+						// legacy's whenever the two dates disagree (#311's review round 1).
+						+ " ORDER BY a.created_at DESC, a.id DESC"
+						+ " LIMIT ? OFFSET ?",
+				mapper(showCompany), pageParams.toArray());
+
+		return DashboardPage.of(rows, total == null ? 0 : total, filters.page(), filters.perPage());
+	}
+
+	/**
+	 * The one {@code WHERE} of this page ({@code hr_paginate_advances()} /
+	 * {@code hr_export_advances_csv()}, both {@code hr_list_helper.php:331-374, 1110-1152}),
+	 * appending its bound values to {@code params}.
+	 *
+	 * <p>Shared by {@link #paginate} and {@link #exportRows} so the export
+	 * cannot narrow differently from the table above it (D-269's shape for
+	 * {@code LeaveBalanceStore}).
+	 */
+	private static String where(
+			DashboardListFilters filters, String status, String dateFrom, String dateTo,
+			List<Object> params) {
 		StringBuilder where = new StringBuilder("1=1");
 		if (filters.companyId() > 0) {
 			where.append(" AND e.company_id = ?");
@@ -70,31 +115,44 @@ public class AdvanceStore {
 			params.add("%" + filters.search() + "%");
 			params.add("%" + filters.search() + "%");
 		}
+		return where.toString();
+	}
 
-		String join = showCompany ? " JOIN companies c ON c.id = e.company_id" : "";
-		String companyCol = showCompany ? ", c.company_name" : "";
+	/**
+	 * {@code hr_export_advances_csv()} ({@code hr_list_helper.php:1110-1152}): every row the
+	 * list would show for this filter, as eight strings a spreadsheet cell can hold, unpaginated
+	 * and in legacy's own export order, {@code a.created_at DESC, a.id DESC}, which is also the
+	 * order of the list above it ({@code hr_list_helper.php:372} and {@code :1150} agree).
+	 *
+	 * <p>The values are read as the database renders them, which is what PDO hands legacy:
+	 * {@code decimal(10,2)} as {@code "1000.00"}.
+	 */
+	public List<List<String>> exportRows(
+			DashboardListFilters filters, String status, String dateFrom, String dateTo) {
+		List<Object> params = new ArrayList<>();
+		String where = where(filters, status, dateFrom, dateTo, params);
 
-		Integer total = this.jdbcTemplate.queryForObject(
-				"SELECT COUNT(*) FROM advances a JOIN employees e ON e.id = a.employee_id"
-						+ join + " WHERE " + where,
-				Integer.class, params.toArray());
-
-		List<Object> pageParams = new ArrayList<>(params);
-		pageParams.add(filters.perPage());
-		pageParams.add(DashboardPage.offsetFor(filters.page(), filters.perPage()));
-
-		// advances has no company_id of its own: the row belongs to whichever
-		// company its employee is in.
-		List<Advance> rows = this.jdbcTemplate.query(
-				"SELECT a.*, e.company_id" + companyCol + ", "
-						+ DISPLAY_NAME + " AS employee_name, " + EMP_CODE + " AS emp_code"
-						+ " FROM advances a JOIN employees e ON e.id = a.employee_id" + join
+		return this.jdbcTemplate.query(
+				"SELECT " + EMP_CODE + " AS emp_code, " + DISPLAY_NAME + " AS employee_name,"
+						+ " a.amount, a.remaining, a.request_date, a.reason, a.rejection_reason,"
+						+ " a.status"
+						+ " FROM advances a JOIN employees e ON e.id = a.employee_id"
 						+ " WHERE " + where
-						+ " ORDER BY a.request_date DESC, a.id DESC"
-						+ " LIMIT ? OFFSET ?",
-				mapper(showCompany), pageParams.toArray());
+						+ " ORDER BY a.created_at DESC, a.id DESC",
+				(rs, rowNum) -> List.of(
+						blankIfNull(rs.getString("emp_code")),
+						blankIfNull(rs.getString("employee_name")),
+						blankIfNull(rs.getString("amount")),
+						blankIfNull(rs.getString("remaining")),
+						blankIfNull(rs.getString("request_date")),
+						blankIfNull(rs.getString("reason")),
+						blankIfNull(rs.getString("rejection_reason")),
+						blankIfNull(rs.getString("status"))),
+				params.toArray());
+	}
 
-		return DashboardPage.of(rows, total == null ? 0 : total, filters.page(), filters.perPage());
+	private static String blankIfNull(String value) {
+		return value == null ? "" : value;
 	}
 
 	/** R-046's lookup: the row's company, through its employee. */
