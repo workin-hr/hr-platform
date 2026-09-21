@@ -474,6 +474,35 @@ class AdminBranchesEndToEndTest {
 				.contains("aria-labelledby=\"br-qr-title\"")
 				.contains("<h2 id=\"br-qr-title\">")
 				.contains("<p class=\"branch-qr-branch-name\">Modalled</p>");
+
+		// Bounded to the modal's own form: the page's filter bar carries a btn-blue submit of
+		// its own, so an unbounded contains() passes whatever colour the modal's button is.
+		int form = html.indexOf("branch-qr-form");
+		assertThat(html.substring(form, html.indexOf("</form>", form)))
+				.as("legacy's own submit variant (_branch_qr_modal.php:40), not the port's yellow")
+				.contains("<button type=\"submit\" class=\"btn btn-blue\">");
+	}
+
+	/**
+	 * Legacy's first arm is {@code $qrActive && $qrImage !== ''} (`_branch_qr_modal.php:12`),
+	 * and {@code org_branch_qr_image_url()} returns {@code ''} for a code that trims to
+	 * nothing. {@code qrActive} alone is {@code empty()}-based, so a blank-but-not-empty code
+	 * is active to it -- the port rendered the active block with {@code <img src="">}, which a
+	 * browser resolves to the page itself and re-requests, where legacy renders "expired".
+	 * Only a hand-edited row reaches it, which is the same standard {@code Branch.qrActive}
+	 * holds for a code of {@code "0"}.
+	 */
+	@Test
+	void aBlankCodeIsExpiredAsLegacyRendersIt() {
+		long id = seedBranch(this.companyA, "Blank Code");
+		this.jdbc.update("UPDATE branches SET qr_code = ?, expires_at = ? WHERE id = ?",
+				"   ", legacyNow().plusDays(1).format(LOCAL).replace('T', ' '), id);
+
+		String html = body("/admin/branches?action=qr&id=" + id);
+		assertThat(html).as("legacy's second arm: a code that is there but renders nothing")
+				.contains("branch-qr-status--expired")
+				.doesNotContain("branch-qr-status--active")
+				.doesNotContain("<img src=\"\"");
 	}
 
 	/**

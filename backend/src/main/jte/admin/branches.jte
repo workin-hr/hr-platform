@@ -97,7 +97,11 @@
 					<h2 id="br-qr-title">${t.apply("branch_generate_qr")}</h2>
 					<p class="branch-qr-branch-name">${qrRow.name()}</p>
 
-					@if(qrRow.qrActive(now))
+					<%-- Legacy asks for both an active code and a non-empty image URL
+					     (_branch_qr_modal.php:12). A code that is blank but not empty is
+					     active to empty() and still renders no image, so legacy shows the
+					     expired state for it rather than an image tag with no source. --%>
+					@if(qrRow.qrActive(now) && !Branch.qrImageUrl(qrRow.qrCode()).isEmpty())
 						<div class="branch-qr-preview">
 							<p class="branch-qr-status branch-qr-status--active">${t.apply("branch_qr_active")}</p>
 							<%-- Legacy renders the code through api.qrserver.com. Reproduced,
@@ -135,7 +139,7 @@
 						<div class="form-footer">
 							<a href="/admin/branches" class="btn btn-gray">${t.apply("cancel")}</a>
 							@if(canWrite)
-								<button type="submit" class="btn btn-yellow">${t.apply(qrRow.qrActive(now) ? "branch_qr_regenerate" : "branch_qr_create")}</button>
+								<button type="submit" class="btn btn-blue">${t.apply(qrRow.qrActive(now) ? "branch_qr_regenerate" : "branch_qr_create")}</button>
 							@endif
 						</div>
 					</form>
