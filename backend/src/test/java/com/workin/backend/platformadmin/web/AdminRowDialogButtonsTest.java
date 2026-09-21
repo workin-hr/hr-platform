@@ -34,12 +34,10 @@ class AdminRowDialogButtonsTest {
 
 	private static final Pattern SUBMIT = Pattern.compile("type=\"submit\"");
 
-	private static final Pattern JTE_COMMENT = Pattern.compile("<%--.*?--%>", Pattern.DOTALL);
-
 	@Test
 	void theWindowIsLegacysModalAndSaveIsItsOnlySubmitButton() throws IOException {
 		// The markup only: the template's comments explain the old dialog, by name.
-		String template = JTE_COMMENT.matcher(Files.readString(ROW_DIALOG, StandardCharsets.UTF_8)).replaceAll("");
+		String template = TemplateText.withoutComments(Files.readString(ROW_DIALOG, StandardCharsets.UTF_8));
 
 		assertThat(template)
 				.as("legacy's window, which crud.js and modal-a11y.js open, close and make keyboard-usable")
@@ -90,7 +88,7 @@ class AdminRowDialogButtonsTest {
 				while (tag.find()) {
 					String token = tag.group();
 					if (token.startsWith("<div")) {
-						open.push(hasClass(classesOf(token), "form-row"));
+						open.push(TemplateText.hasClass(TemplateText.classesOf(token), "form-row"));
 					}
 					else if (token.equals("</div>")) {
 						assertThat(open).as("%s closes a div it did not open", template.getFileName()).isNotEmpty();
@@ -142,7 +140,7 @@ class AdminRowDialogButtonsTest {
 		for (Path template : templates()) {
 			Matcher call = CALL.matcher(Files.readString(template, StandardCharsets.UTF_8));
 			while (call.find()) {
-				String fields = JTE_COMMENT.matcher(call.group(2)).replaceAll("");
+				String fields = TemplateText.withoutComments(call.group(2));
 				String where = template.getFileName() + " " + call.group(1).replaceAll("\\s+", " ").trim();
 				checkFormRows(where, fields, offenders, labels);
 			}
@@ -178,7 +176,7 @@ class AdminRowDialogButtonsTest {
 		int[] labels = {0};
 		int written = 0;
 		for (Path template : templates()) {
-			String source = JTE_COMMENT.matcher(Files.readString(template, StandardCharsets.UTF_8)).replaceAll("");
+			String source = TemplateText.withoutComments(Files.readString(template, StandardCharsets.UTF_8));
 			written += (int) Pattern.compile("\\bmodal-bg\\b").matcher(source).results().count();
 			for (int at = source.indexOf(WINDOW); at >= 0; at = source.indexOf(WINDOW, at + 1)) {
 				// A window's opening tag holds JTE expressions but no markup, so it ends before the next '<'.
@@ -252,67 +250,40 @@ class AdminRowDialogButtonsTest {
 		assertThat(inputs).isEmpty();
 	}
 
+
 	/**
-	 * The value of a tag's own {@code class} attribute as the browser will see it -- its literal
-	 * text, with every JTE expression taken out -- or empty when it has none.
-	 *
-	 * <p>Four shapes were being read as a class that is not one, each of which hides an offence
-	 * rather than inventing one. {@code data-dialog-class="x"} ends in {@code class="x"} on a word
-	 * boundary. {@code class="${row.cssClass()}"} is text in the template and can render to nothing.
-	 * An expression carries its own quotes ({@code class="${t.apply("x")}"}), which a
-	 * {@code class="([^"]*)"} pattern cuts in the middle and leaves half an expression reading as a
-	 * class. And a {@code class="..."} sequence inside a different attribute's single-quoted value
-	 * is not this element's class at all. So the tag's attributes are walked in order: a name, then
-	 * a quoted value whose quotes and braces belong to any {@code ${...}} around them, and only the
-	 * one named {@code class} is read.
-	 *
-	 * <p>Two things fail rather than passing as unclassed: an attribute that never closes, which is
-	 * what a {@code >} inside an expression looks like because the caller's tag pattern stops there,
-	 * and -- because the walk only reads quoted values -- an unquoted class, which no template
-	 * writes, simply reads as no class, which is the strict direction.
+	 * #304, defect 1: deleting {@code ${...}} silently let it read as no boundary at all, so
+	 * {@code form-row${x}} and {@code ${x}form-row} were read as holding the real class
+	 * {@code form-row} -- permissive, because the expression's rendered text is unknown and may
+	 * not leave {@code form-row} as its own token.
 	 */
-	private static String classesOf(String tag) {
-		Matcher attribute = ATTRIBUTE.matcher(tag);
-		int from = tag.indexOf(' ');
-		while (from >= 0 && attribute.find(from)) {
-			char quote = tag.charAt(attribute.end());
-			StringBuilder value = new StringBuilder();
-			int depth = 0;
-			int at = attribute.end() + 1;
-			for (; at < tag.length(); at++) {
-				char character = tag.charAt(at);
-				if (character == '$' && at + 1 < tag.length() && tag.charAt(at + 1) == '{') {
-					depth++;
-					at++;
-				}
-				else if (depth > 0) {
-					depth += character == '{' ? 1 : character == '}' ? -1 : 0;
-				}
-				else if (character == quote) {
-					break;
-				}
-				else {
-					value.append(character);
-				}
-			}
-			if (at >= tag.length()) {
-				throw new AssertionError("an attribute that never closes: " + tag);
-			}
-			if (attribute.group(1).equals("class")) {
-				return value.toString().replaceAll("\\s+", " ").trim();
-			}
-			from = at + 1;
-		}
-		return "";
+	@Test
+	void classesOfDoesNotLetAnExpressionGlueOntoALiteralClass() {
+		assertThat(TemplateText.hasClass(TemplateText.classesOf("<div class=\"form-row${x}\">"), "form-row"))
+				.as("an expression appended to the literal class").isFalse();
+		assertThat(TemplateText.hasClass(TemplateText.classesOf("<div class=\"${x}form-row\">"), "form-row"))
+				.as("an expression prepended to the literal class").isFalse();
+		// Unchanged: a real space already separates the two, so the literal class still reads.
+		assertThat(TemplateText.hasClass(TemplateText.classesOf("<div class=\"form-row ${x}\">"), "form-row"))
+				.as("a literal class the expression only follows, with a real space between").isTrue();
+		// Unchanged: an expression alone, with no literal text at all, still reads as no class --
+		// the shape `class="${row.cssClass()}"` already hides an offence rather than inventing one.
+		assertThat(TemplateText.classesOf("<div class=\"${x}\">")).as("a wholly dynamic value").isEmpty();
 	}
 
-	/** Whether {@code classes}, as {@link #classesOf} read them, hold {@code name} as a whole class. */
-	private static boolean hasClass(String classes, String name) {
-		return (" " + classes + " ").contains(" " + name + " ");
+	/**
+	 * #304, defect 2: the walk was seeded with {@code indexOf(' ')}, a literal space, while
+	 * {@link #ATTRIBUTE} itself accepts any whitespace -- so a tag whose attributes are separated
+	 * by a tab or a newline read as carrying no attributes, and so no class, at all.
+	 */
+	@Test
+	void classesOfFindsAnAttributeSeparatedByATabOrANewline() {
+		assertThat(TemplateText.hasClass(TemplateText.classesOf("<div\tclass=\"form-row\">"), "form-row"))
+				.as("a tab before the class attribute").isTrue();
+		assertThat(TemplateText.hasClass(TemplateText.classesOf("<div\nclass=\"form-row\">"), "form-row"))
+				.as("a newline before the class attribute").isTrue();
 	}
 
-	/** An attribute's name, up to the quote its value opens with; a valueless attribute has none. */
-	private static final Pattern ATTRIBUTE = Pattern.compile("(?s)\\s([\\w:@.-]+)=(?=[\"'])");
 
 	private static void checkFormRows(String where, String fields, List<String> offenders, int[] labels) {
 		Deque<Integer> rows = new ArrayDeque<>();
@@ -332,8 +303,8 @@ class AdminRowDialogButtonsTest {
 				// review round 2 found the first form of this rule made every classed div a cell
 				// anywhere in a window, which let that bucket through. Round 3 found the reading of
 				// the attribute itself too loose, in both directions: see `classesOf`.
-				String classes = classesOf(token);
-				boolean row = hasClass(classes, "form-row");
+				String classes = TemplateText.classesOf(token);
+				boolean row = TemplateText.hasClass(classes, "form-row");
 				boolean cell = !row && formRows.contains(Boolean.TRUE) && !classes.isEmpty();
 				rows.push(row || cell ? tag.start() : -1);
 				formRows.push(row);

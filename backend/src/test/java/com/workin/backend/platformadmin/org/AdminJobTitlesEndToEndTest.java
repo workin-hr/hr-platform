@@ -313,6 +313,24 @@ class AdminJobTitlesEndToEndTest {
 				.as("still its own company's department").isEqualTo(this.departmentA);
 	}
 
+	/**
+	 * {@code org_helper.php:485-492} ({@code org_option_label}): unfiltered, an option reads
+	 * {@code department — company}. The port had the order backwards.
+	 */
+	@Test
+	void theFilterDepartmentOptionsAreLegacysDepartmentThenCompanyOrder() {
+		assertThat(body("/admin/job_titles")).contains("Alpha Dept — Alpha Co");
+	}
+
+	/** {@code job_titles/page.php:149}: the department cell carries no class. */
+	@Test
+	void theDepartmentCellCarriesNoClassAsLegacyDoesNot() {
+		post("/admin/job_titles", this.cookie, page("/admin/job_titles?action=add", this.cookie).csrf(),
+				"action", "add", "company_id", String.valueOf(this.companyA), "name", "Muted",
+				"department_id", String.valueOf(this.departmentA), "work_hours", "8");
+		assertThat(body("/admin/job_titles")).contains("<td>Alpha Dept</td>");
+	}
+
 	@Test
 	void theDepartmentFilterNarrows() {
 		post("/admin/job_titles", this.cookie, page("/admin/job_titles?action=add", this.cookie).csrf(),

@@ -24,6 +24,11 @@ import org.junit.jupiter.api.Test;
  * would have found the wrong one. This reads the templates' literal ids; an id built from an
  * expression is left to the page that builds it. A template drawing one id in two exclusive
  * branches should give each branch its own id rather than be excepted here.
+ *
+ * <p>A {@code <%-- --%>} comment is not markup and is stripped first. #305 wrote a comment
+ * naming the id it was adding, two lines above the attribute itself, and this read the pair as a
+ * page writing one id twice -- a page that renders exactly one. {@code AdminRowDialogButtonsTest}
+ * already strips them for the same reason.
  */
 class AdminTemplateIdsTest {
 
@@ -38,7 +43,9 @@ class AdminTemplateIdsTest {
 		try (var files = Files.list(TEMPLATES)) {
 			for (Path template : files.filter(file -> file.toString().endsWith(".jte")).sorted().toList()) {
 				Map<String, Integer> seen = new LinkedHashMap<>();
-				Matcher id = ID.matcher(Files.readString(template, StandardCharsets.UTF_8));
+				String source = TemplateText.withoutComments(
+						Files.readString(template, StandardCharsets.UTF_8));
+				Matcher id = ID.matcher(source);
 				while (id.find()) {
 					ids++;
 					seen.merge(id.group(1), 1, Integer::sum);

@@ -84,44 +84,65 @@
 		@endif
 
 		@if(qrRow != null)
-			<div class="data-table-card">
-				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply("branch_generate_qr")} — ${qrRow.name()}</h2>
-				</div>
-				<%-- _branch_qr_modal.php's vocabulary. org-form.css carries every one
-				     of these rules already and this page names it; the port reached
-				     for account-card instead, which belongs to change_password's
-				     account-pages.css and was never copied. --%>
-				<div class="branch-qr-preview">
-					@if(qrRow.qrActive(now))
-						<p class="branch-qr-status branch-qr-status--active">${t.apply("branch_qr_active")}</p>
-						<p class="branch-qr-meta">${t.apply("branch_qr_expires_at")}: ${qrRow.expiresDisplay()}</p>
-						<%-- Legacy renders the code through api.qrserver.com. Reproduced,
-						     and worth stating: this sends the branch's check-in code to a
-						     third party on every render. --%>
-						<img class="branch-qr-image" src="${Branch.qrImageUrl(qrRow.qrCode())}"
-						     alt="${t.apply("branch_generate_qr")}" width="220" height="220">
+			<%-- _branch_qr_modal.php: a modal-bg of its own, not a data-table-card
+			     in the page flow -- the port had drawn it inline, so it never got
+			     org-form.css's modal chrome, and its status/image/meta ran in the
+			     wrong order with no id="br_qr_expires" for its label. --%>
+			<div class="modal-bg open">
+				<%-- The dialog semantics are the port's, as rowDialog.jte:40 writes them:
+				     legacy's own modal carries none, so a screen reader is handed ordinary
+				     page content under an overlay it cannot see. --%>
+				<div class="modal modal--org-form modal--branch-qr" role="dialog" aria-modal="true"
+				     aria-labelledby="br-qr-title">
+					<h2 id="br-qr-title">${t.apply("branch_generate_qr")}</h2>
+					<p class="branch-qr-branch-name">${qrRow.name()}</p>
+
+					<%-- Legacy asks for both an active code and a non-empty image URL
+					     (_branch_qr_modal.php:12). A code that is blank but not empty is
+					     active to empty() and still renders no image, so legacy shows the
+					     expired state for it rather than an image tag with no source. --%>
+					@if(qrRow.qrActive(now) && !Branch.qrImageUrl(qrRow.qrCode()).isEmpty())
+						<div class="branch-qr-preview">
+							<p class="branch-qr-status branch-qr-status--active">${t.apply("branch_qr_active")}</p>
+							<%-- Legacy renders the code through api.qrserver.com. Reproduced,
+							     and worth stating: this sends the branch's check-in code to a
+							     third party on every render. --%>
+							<img src="${Branch.qrImageUrl(qrRow.qrCode())}" width="220" height="220"
+							     alt="QR" class="branch-qr-image">
+							<p class="branch-qr-meta">
+								<span>${t.apply("branch_qr_expires_at")}:</span>
+								<strong dir="ltr">${qrRow.expiresDisplay()}</strong>
+							</p>
+						</div>
 					@elseif(qrRow.qrCode() != null && !qrRow.qrCode().isEmpty())
 						<p class="branch-qr-status branch-qr-status--expired">${t.apply("branch_qr_expired")}</p>
 					@else
-						<p class="branch-qr-meta">${t.apply("branch_qr_none")}</p>
+						<p class="branch-qr-status">${t.apply("branch_qr_none")}</p>
 					@endif
-					@if(canWrite)
-						<form method="POST" class="branch-qr-form">
-							<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-							<input type="hidden" name="action" value="generate_qr">
-							<input type="hidden" name="id" value="${qrRow.id()}">
-							<input type="hidden" name="company_id" value="${qrRow.companyId()}">
-							<div class="form-row">
-								<label for="expires_at">${t.apply("branch_qr_expires_at")}</label>
-								<input type="datetime-local" id="expires_at" name="expires_at" required>
-							</div>
-							<div class="form-footer">
-								<a href="/admin/branches" class="btn btn-gray">${t.apply("cancel")}</a>
-								<button type="submit" class="btn btn-yellow">${t.apply(qrRow.qrActive(now) ? "branch_qr_regenerate" : "branch_qr_create")}</button>
-							</div>
-						</form>
-					@endif
+
+					<%-- The window is the whole viewport and legacy gives it no close button,
+					     so its Cancel is the only way out that announces itself. It stays
+					     outside the actions gate for that reason, as branch-form.jte:87-92
+					     keeps its own: with the switch off -- which is the shipped default --
+					     gating the footer left a full-screen overlay a reader could dismiss
+					     only by guessing at Escape or the backdrop. --%>
+					<form method="POST" class="branch-qr-form">
+						<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+						<input type="hidden" name="action" value="generate_qr">
+						<input type="hidden" name="id" value="${qrRow.id()}">
+						<input type="hidden" name="company_id" value="${qrRow.companyId()}">
+						<div class="form-row">
+							<label for="br_qr_expires">${t.apply("branch_qr_expires_at")}</label>
+							<input type="datetime-local" id="br_qr_expires" name="expires_at" required
+							       value="${qrRow.qrExpiresInputValue(now)}">
+						</div>
+						<div class="form-footer">
+							<a href="/admin/branches" class="btn btn-gray">${t.apply("cancel")}</a>
+							@if(canWrite)
+								<button type="submit" class="btn btn-blue">${t.apply(qrRow.qrActive(now) ? "branch_qr_regenerate" : "branch_qr_create")}</button>
+							@endif
+						</div>
+					</form>
 				</div>
 			</div>
 		@endif
@@ -180,8 +201,6 @@
 									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
 										<a href="/admin/branches?action=edit&id=${row.id()}"
 										   role="menuitem" class="row-actions__item">${t.apply("edit")}</a>
-										<a href="/admin/branches?action=qr&id=${row.id()}"
-										   role="menuitem" class="row-actions__item">${t.apply("branch_generate_qr")}</a>
 										@if(canWrite)
 											<form method="POST" class="row-actions__form" role="none"
 											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
@@ -192,6 +211,8 @@
 												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
 											</form>
 										@endif
+										<a href="/admin/branches?action=qr&id=${row.id()}"
+										   role="menuitem" class="row-actions__item">${t.apply("branch_generate_qr")}</a>
 									`)
 								@else
 									<span class="text-muted">—</span>
