@@ -131,7 +131,7 @@ class PushDevice:
 
     def __init__(self, url, serial="PUSH-VISIT-1"):
         self.terminal = adms.PushTerminal(url, serial, timeout=2)
-        self.pending = [adms.punch_line(PIN, datetime.now() - timedelta(days=1, hours=hours), hours % 2)
+        self.pending = [self.line(datetime.now() - timedelta(days=1, hours=hours), hours % 2, 1)
                         for hours in range(1, 5)]
         self.lock = threading.Lock()
         self.tick = 0
@@ -140,10 +140,22 @@ class PushDevice:
         self.terminal.handshake()
         threading.Thread(target=self._loop, daemon=True).start()
 
+    def line(self, when, in_out, verify=1):
+        """One ATTLOG line as this firmware writes it."""
+        return adms.punch_line(PIN, when, in_out, verify)
+
+    def drip_old_record(self):
+        """One more record out of the backlog, queued now so the loop uploads it in a moment:
+        the batch that lands while the operator is being asked for a punch. Not a punch -- it
+        is two days old and nobody has touched the terminal."""
+        with self.lock:
+            self.pending.append(self.line(datetime.now() - timedelta(days=2), 1, 15))
+        return ""
+
     def send_old_batch(self, lines=3, in_out=1):
         """A batch of old records, sent now and synchronously: a backlog still draining."""
         old = datetime.now() - timedelta(days=2)
-        return self.terminal.attlog([adms.punch_line(PIN, old + timedelta(minutes=n), in_out, 15)
+        return self.terminal.attlog([self.line(old + timedelta(minutes=n), in_out, 15)
                                      for n in range(lines)])
 
     def send_now(self, in_out=1):
@@ -154,15 +166,15 @@ class PushDevice:
         with self.lock:
             self.tick += 5
             when = datetime.now().replace(microsecond=0) + timedelta(seconds=self.tick)
-        return self.terminal.attlog([adms.punch_line(PIN, when, in_out, 15)])
+        return self.terminal.attlog([self.line(when, in_out, 15)])
 
     def punch(self, in_out=0):
         """One scan. Its clock moves forward between punches, as a terminal's does -- a test where
         every punch shares one second would not tell a live punch from a re-sent one."""
         with self.lock:
             self.tick += 5
-            self.pending.append(adms.punch_line(PIN, datetime.now().replace(microsecond=0)
-                                                + timedelta(seconds=self.tick), in_out, 15))
+            self.pending.append(self.line(datetime.now().replace(microsecond=0)
+                                          + timedelta(seconds=self.tick), in_out, 15))
         return ""
 
     def _loop(self):
@@ -203,6 +215,23 @@ class TricklingPushDevice(PushDevice):
             if self.send_old_batch(lines=10, in_out=1).status == 200:
                 self.sent += 1
             time.sleep(self.interval)
+
+
+class CommaLines:
+    """Firmware that separates its ATTLOG fields with commas where the platform expects tabs --
+    the unknown shape the visit exists to characterise. The platform still answers 200; the
+    recorder keeps no line from the upload, so nothing about it has a code or a time."""
+
+    def line(self, when, in_out, verify=1):
+        return f"{PIN},{when:%Y-%m-%d %H:%M:%S},{in_out},{verify},0,0,0"
+
+
+class UnreadablePushDevice(CommaLines, PushDevice):
+    pass
+
+
+class UnreadableTricklingDevice(CommaLines, TricklingPushDevice):
+    pass
 
 
 def quick_visit(console, lab, out):
@@ -539,7 +568,10 @@ class ATerminalThatSaysSomethingOdd(unittest.TestCase):
         visited = quick_visit(console, self.lab, self.out)
         code = visited.run()
         self.assertEqual(console.answers, [])
-        self.assertEqual(code, 0, console.text)
+        # Not a pass: no terminal was ever examined, only classified as unsupported. The visit
+        # did its job -- the finding is the model -- and the exit code says an issue is owed.
+        self.assertEqual(code, 1, console.text)
+        self.assertIn("الزيارة ماعملتش أي فحص", report_of(self.out))
         self.assertEqual(visited.serial, "device")
         self.assertNotIn(address, report_of(self.out))
         self.assertEqual([path.name for path in Path(self.out).glob(f"*{address}*")], [])
@@ -1149,6 +1181,105 @@ class WhenTheVisitCannotFinish(unittest.TestCase):
         self.assertIn("البصمة وصلت للسيستم، بس الـ capture مافهمش سطور الرفعة", console.text)
         self.assertNotIn("ماوصلتش", console.text, "the punch did arrive; the line shape is the finding")
         self.assertIn("البصمتين ورا بعض اتسجلوا الاتنين", console.text, "the visit carried on")
+
+    def test_a_terminal_whose_lines_cannot_be_read_gets_no_latency_for_a_punch_never_made(self):
+        """The headline number of the whole visit is "بصمة وصلت خلال". On a terminal whose line
+        shape the recorder keeps nothing from, every rule that tells the punch just made from a
+        record still draining out of the backlog is blind: there is no code, no time and nothing
+        to match against what was delivered before. So the visit refuses to time it. Before this,
+        a backlog record landing after the prompt answered the test and the report said a punch
+        arrived in 0 seconds -- for a punch nobody made."""
+        console = ScriptedConsole([])
+        visited = quick_visit(console, self.lab, self.out)
+
+        def configure():
+            self.device = UnreadablePushDevice(f"http://127.0.0.1:{visited.receiver.port}")
+            return ""
+
+        console.answers = VisitStart() + [
+            ("أنهي جهاز", "1"), ("لما تحفظ", configure), ("نفس اللي على الستيكر", "1"),
+            ("الجهاز متظبط على إيه", "2"), ("بتتظبط لوحدها", "1"),
+            # The operator presses Enter and makes no punch at all; the backlog keeps draining.
+            ("بصمة عادية", lambda: self.device.drip_old_record()),
+            ("HTTPS", "1"), ("Enable Domain Name", "1"),
+            ("ملف USB", "1"), ("Cloud Server Setting", "1"), ("برنامج", "1"), ("كابل أو switch", "1"),
+        ]
+        code = visited.run()
+        self.assertEqual(console.answers, [])
+        self.assertEqual(code, 1, console.text)
+        self.assertNotIn("وصلت للسيستم خلال", console.text, "nothing was timed: no punch was made")
+        self.assertIn("مش قادرين نقيس البصمة على الموديل ده", console.text)
+        self.assertIn("| بصمة وصلت خلال | مااتقاسش |", report_of(self.out))
+
+    def test_the_backlog_wait_counts_uploads_whose_lines_cannot_be_read(self):
+        """The wait for a terminal to finish sending its old records asks "has anything arrived
+        in the last few seconds?". Asking it about readable lines only made the answer "no" for
+        exactly the terminals this visit is for, so the punch tests began mid-backlog."""
+        console = ScriptedConsole([])
+        visited = quick_visit(console, self.lab, self.out)
+        still_to_send = []
+
+        def configure():
+            # Six batches a third of a second apart: long enough that the questions between the
+            # allocation and the punch prompt cannot outlast the backlog by themselves, so the
+            # zero below is the wait doing its job and not the test being slow.
+            self.device = UnreadableTricklingDevice(f"http://127.0.0.1:{visited.receiver.port}",
+                                                    batches=6, interval=0.3)
+            return ""
+
+        def the_operator_is_asked_for_a_punch():
+            still_to_send.append(self.device.batches - self.device.sent)
+            return self.device.punch(0)
+
+        console.answers = VisitStart() + [
+            ("أنهي جهاز", "1"), ("لما تحفظ", configure), ("نفس اللي على الستيكر", "1"),
+            ("الجهاز متظبط على إيه", "2"), ("بتتظبط لوحدها", "1"),
+            ("بصمة عادية", the_operator_is_asked_for_a_punch),
+            ("HTTPS", "1"), ("Enable Domain Name", "1"),
+            ("ملف USB", "1"), ("Cloud Server Setting", "1"), ("برنامج", "1"), ("كابل أو switch", "1"),
+        ]
+        code = visited.run()
+        self.assertEqual(console.answers, [])
+        self.assertEqual(still_to_send, [0],
+                         "the terminal had emptied its backlog before the operator was asked: "
+                         + console.text[-2000:])
+        self.assertEqual(code, 1, console.text)
+
+
+class WhenNothingWasExamined(unittest.TestCase):
+    """A report is pasted into a device-compatibility issue, where its first line is read as the
+    answer about the model. A visit that never reached a terminal must not head that report with
+    a tick, and must not tell the caller it passed."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.platform = FakePlatform()
+        self.receiver = FakeReceiver()
+        self.lab = FakeLab(self.platform, self.receiver, self.dir.name)
+        self.out = os.path.join(self.dir.name, "field-report")
+
+    def tearDown(self):
+        self.receiver.close()
+        self.platform.close()
+        self.dir.cleanup()
+
+    def assert_examined_nothing(self, console, code):
+        report = report_of(self.out)
+        self.assertEqual(console.answers, [])
+        self.assertEqual(code, 1, console.text)
+        self.assertIn("❓ الزيارة ماعملتش أي فحص", report)
+        self.assertNotIn("✅ كله تمام", report)
+        self.assertIn("| مشاكل تانية | الزيارة ماعملتش أي فحص", report)
+
+    def test_a_visit_the_customer_declined_and_that_had_no_usb_file_is_not_a_pass(self):
+        console = ScriptedConsole(VisitStart(consent="2") + [
+            ("معاك ملف USB", "1"), ("برنامج", "1"), ("كابل أو switch", "1")])
+        self.assert_examined_nothing(console, quick_visit(console, self.lab, self.out).run())
+
+    def test_a_usb_only_visit_with_no_file_is_not_a_pass(self):
+        console = ScriptedConsole(VisitStart() + [
+            ("أنهي جهاز", "3"), ("معاك ملف USB", "1"), ("برنامج", "1"), ("كابل أو switch", "1")])
+        self.assert_examined_nothing(console, quick_visit(console, self.lab, self.out).run())
 
 
 if __name__ == "__main__":

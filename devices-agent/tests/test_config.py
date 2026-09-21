@@ -61,6 +61,16 @@ class ConfigRefusesWhatWouldBeUnsafe(unittest.TestCase):
                 with self.assertRaises(cfg.ConfigError):
                     cfg.parse(self.raw(devices=[{"serial": bad, "kind": "zk", "host": "10.0.0.1"}]), base_dir=self.dir.name)
 
+    def test_the_serial_rule_ends_at_the_end_of_the_string(self):
+        """`_device` strips what it reads from a file, but `visit.py` matches this same pattern
+        against a serial taken straight out of a push handshake's query string, where nothing
+        strips anything. Python's `$` also matches immediately before a trailing newline, so an
+        `SN=ZK1%0A` handshake used to pass the guard and put a line break into the report's
+        title, its filename and the results table."""
+        self.assertTrue(cfg.SERIAL.match("ZK1"))
+        self.assertIsNone(cfg.SERIAL.match("ZK1\n"))
+        self.assertIsNone(cfg.SERIAL.match("ZK1\nZK2"))
+
     def test_a_replaced_token_file_is_picked_up(self):
         config = cfg.parse(self.raw(), base_dir=self.dir.name)
         self.assertFalse(cfg.reload_token(config))

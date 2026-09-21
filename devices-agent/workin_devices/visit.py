@@ -260,6 +260,15 @@ class Arrival:
 
 
 @dataclass
+class PunchTest:
+    """What one punch test saw: how long it took, what arrived, and whether that can be said to
+    be the punch the operator was just asked for at all."""
+    seconds: float
+    arrived: list[Arrival]
+    blind: bool
+
+
+@dataclass
 class Finding:
     level: str
     text: str
@@ -272,13 +281,6 @@ class Push:
     serial: str
     in_value: str | None = None
     out_value: str | None = None
-
-
-def accepted_lines(exchanges: list[Exchange], serial: str) -> list[tuple[float, list[str]]]:
-    """Punch lines the platform answered 200 to, with when each arrived."""
-    return [(exchange.at, fields) for exchange in exchanges
-            if exchange.serial == serial and exchange.is_attlog() and exchange.status == 200
-            for fields in exchange.lines()]
 
 
 def line_time(fields: list[str]):
@@ -476,6 +478,7 @@ class Visit:
         self.secrets: list[Path] = []
         self.zk_link: tuple[str, int, int, bool] | None = None
         self.device_started = False
+        self.interrupted = False
         self.restored = False
         self.started = now()
 
@@ -522,6 +525,7 @@ class Visit:
                 self.visit_device()
         except (KeyboardInterrupt, EOFError):
             self.say()
+            self.interrupted = True
             self.note("warn", "الزيارة اتوقفت قبل ما تخلص",
                       "رجّع أي إعداد غيّرته على الجهاز زي الصورة، وشغّل الأمر تاني لما تكون جاهز")
         except Exception as exc:  # noqa: BLE001 - a bug in the wizard must not cost the visit its report
@@ -535,7 +539,10 @@ class Visit:
             self.close()
         report = self.write_report() if self.device_started else None
         self.summary(report)
-        return 1 if any(finding.level == "bad" for finding in self.findings) else 0
+        # A visit that examined nothing is not a pass. Zero says "this model behaved", which is
+        # what the caller and the operator both read it as.
+        return 0 if self.examined() and not self.interrupted and not any(
+            finding.level == "bad" for finding in self.findings) else 1
 
     def welcome(self) -> None:
         self.title("زيارة الشركة: خطوة بخطوة")
@@ -1005,7 +1012,7 @@ class Visit:
             return
         allocated = self.receiver.mark()
         self.say("⏳ مستني الجهاز يبعت سجلاته القديمة (ممكن ياخد دقيقة أو اتنين)...")
-        backlog = self.wait(lambda exchanges: accepted_lines(exchanges, serial), allocated, "سجلات الحضور",
+        backlog = self.wait(lambda exchanges: arrivals(exchanges, serial), allocated, "سجلات الحضور",
                             ("لو الجهاز مافيهوش سجلات، اختار لأ ونكمل",) + PUSH_HINTS)
         if backlog:
             self.note("ok", "سجلات الجهاز بدأت توصل لسيستم اللاب")
@@ -1022,6 +1029,11 @@ class Visit:
             line = next(line for line in told.response.decode("ascii", "replace").splitlines()
                         if line.startswith("TimeZone="))
             self.say(f"   بعد التخصيص السيستم بعت للجهاز {line}")
+            # Rule 2's safeguard reads the clock back over 4370, which this terminal does not
+            # answer on. The row says that rather than staying blank: the hazard is real -- some
+            # firmware applies the zone the platform just sent -- and an empty cell in the report
+            # reads as "no difference" rather than "not measured".
+            self.sheet["فرق ساعة الجهاز عن اللابتوب"] = "مااتقاسش: الجهاز مابيردش على 4370، والسيستم بعتله TimeZone"
         self.sheet["HTTPS موجود في المنيو؟"] = "نعم" if self.yes(
             "فيه اختيار HTTPS في شاشة Cloud Server Setting؟", default=False) else "لا"
         self.sheet["Enable Domain Name موجود؟"] = "نعم" if self.yes(
@@ -1038,11 +1050,15 @@ class Visit:
     def settle_backlog(self, serial: str) -> None:
         """Wait until the terminal stops uploading. A terminal with months of records sends them in
         batches over minutes, and a batch landing during a punch test would answer the test: the
-        latency, the two-in-a-row and the in/out values would all be read off old records."""
+        latency, the two-in-a-row and the in/out values would all be read off old records.
+
+        Any accepted upload counts, readable or not: a terminal whose line shape the recorder
+        cannot parse is exactly the one this visit exists to characterise, and calling it quiet
+        because nothing could be read of it would start the punch tests mid-backlog."""
         deadline = time.monotonic() + max(self.wait_seconds * 4, self.quiet_seconds)
         while True:
             mark = self.receiver.mark()
-            if self.receiver.wait(lambda exchanges: accepted_lines(exchanges, serial), mark, self.quiet_seconds) is None:
+            if self.receiver.wait(lambda exchanges: arrivals(exchanges, serial), mark, self.quiet_seconds) is None:
                 return
             self.say("   ⏳ الجهاز لسه بيبعت سجلاته القديمة...")
             if time.monotonic() > deadline and not self.yes("لسه بيبعت. أستنى تاني؟ (لأ = نكمل التجارب دلوقتي)"):
@@ -1051,11 +1067,19 @@ class Visit:
                 return
             deadline = max(deadline, time.monotonic() + self.wait_seconds)
 
-    def punch_test(self, serial: str, instruction: str, count: int) -> tuple[float, list[Arrival]] | None:
+    def punch_test(self, serial: str, instruction: str, count: int) -> PunchTest | None:
         """Times the punch the operator was just asked for, and nothing else: an upload that was
         already on its way, or a line the terminal has sent before, or a record older than one it
-        has already delivered, is the backlog -- counting it would time a two-day-old punch."""
-        already = [arrival for arrival in arrivals(self.receiver.exchanges, serial) if arrival.fields]
+        has already delivered, is the backlog -- counting it would time a two-day-old punch.
+
+        On a terminal whose lines the recorder keeps nothing from, none of those rules can run:
+        an upload has no code, no time and nothing to match against what was delivered before.
+        If such uploads were already arriving before the operator was asked, the next one is as
+        likely to be the backlog as the punch, and the test says so (`blind`) rather than timing
+        it -- the one case where the answer is a number nobody can stand behind."""
+        already = arrivals(self.receiver.exchanges, serial)
+        unreadable_before = any(arrival.fields is None for arrival in already)
+        already = [arrival for arrival in already if arrival.fields]
         seen = Counter((arrival.fields[0], arrival.fields[1]) for arrival in already)
         latest = max((time for time in (line_time(arrival.fields) for arrival in already) if time is not None),
                      default=None)
@@ -1068,7 +1092,10 @@ class Visit:
             return (found[count - 1].at, found[:count]) if len(found) >= count else None
 
         found = self.wait(arrived, mark, "البصمة", PUNCH_HINTS)
-        return None if found is None else (max(0.0, found[0] - started), found[1])
+        if found is None:
+            return None
+        blind = unreadable_before and not any(arrival.fields for arrival in found[1])
+        return PunchTest(max(0.0, found[0] - started), found[1], blind)
 
     def punch_tests(self, serial: str) -> None:
         self.say()
@@ -1077,15 +1104,17 @@ class Visit:
         if normal is None:
             self.note("bad", "البصمة العادية ماوصلتش", "راجع الإعدادات على الجهاز، وجرّب تاني")
             return
-        seconds, arrived = normal
-        self.push.in_value = arrived[-1].in_out
-        self.sheet["بصمة وصلت خلال"] = f"{seconds:.0f} ثانية"
-        self.note("ok", f"بصمة عادية وصلت للسيستم خلال {seconds:.0f} ثانية")
-        if self.unreadable(arrived):
+        if normal.blind:
+            self.unmeasurable()
+            return
+        self.push.in_value = normal.arrived[-1].in_out
+        self.sheet["بصمة وصلت خلال"] = f"{normal.seconds:.0f} ثانية"
+        self.note("ok", f"بصمة عادية وصلت للسيستم خلال {normal.seconds:.0f} ثانية")
+        if self.unreadable(normal.arrived):
             return
         checkout = self.punch_test(serial, "لما تدوس Enter، خلّي الموظف يدوس زرار Check-Out (أو F2) ويعمل بصمة", 1)
-        if checkout is not None and not self.unreadable(checkout[1]):
-            self.push.out_value = checkout[1][-1].in_out
+        if checkout is not None and not self.unreadable(checkout.arrived):
+            self.push.out_value = checkout.arrived[-1].in_out
             self.sheet["الدخول"], self.sheet["الخروج"] = self.push.in_value or "", self.push.out_value or ""
             if self.push.in_value == self.push.out_value:
                 self.note("bad", f"بصمة الخروج جت بنفس رقم الدخول ({self.push.in_value})",
@@ -1106,10 +1135,20 @@ class Visit:
                 self.sheet["شلنا الكابل: البصمات وصلت بعد الرجوع؟"] = "لا"
                 self.note("bad", "البصمات اللي اتعملت والكابل مشيل ماوصلتش", "اكتبها في الـ issue، وخلي العميل يتأكد إنها على الجهاز")
             else:
-                self.sheet["شلنا الكابل: البصمات وصلت بعد الرجوع؟"] = f"نعم، بعد {cable[0]:.0f} ثانية"
-                self.note("ok", f"بعد ما الكابل رجع، البصمات وصلت خلال {cable[0]:.0f} ثانية")
+                self.sheet["شلنا الكابل: البصمات وصلت بعد الرجوع؟"] = f"نعم، بعد {cable.seconds:.0f} ثانية"
+                self.note("ok", f"بعد ما الكابل رجع، البصمات وصلت خلال {cable.seconds:.0f} ثانية")
         if self.yes(f"نعمل تجربة وقف الاستقبال {self.pause_seconds / 60:.0f} دقايق؟ (الجهاز لازم يعيد الإرسال لوحده)"):
             self.pause_test(serial)
+
+    def unmeasurable(self) -> None:
+        """The terminal was already uploading records the recorder keeps no line from, so an
+        upload landing after the prompt is as likely to be one of those as the punch just made.
+        Timing it would put a number nobody can stand behind in the sheet's headline row."""
+        self.sheet["بصمة وصلت خلال"] = "مااتقاسش"
+        self.note("bad", "مش قادرين نقيس البصمة على الموديل ده: الجهاز بيرفع سجلات الـ capture مش فاهم "
+                         "سطورها، فأي رفعة ممكن تكون سجل قديم مش البصمة اللي اتعملت دلوقتي",
+                  "دي أهم معلومة عن الموديل ده: شكل السطر في التقرير وفي field-report/captures، "
+                  "اكتبه في الـ issue عشان نضيف الشكل ده للسيستم. لحد ما ده يحصل، الجهاز ده مايتقاسش من هنا")
 
     def unreadable(self, arrived: list[Arrival]) -> bool:
         """The punch reached the platform, but the recorder kept no readable line from the upload:
@@ -1392,8 +1431,12 @@ class Visit:
 
     def write_report(self) -> Path:
         bad = [finding for finding in self.findings if finding.level != "ok"]
+        # "مفيش" is a claim that the visit looked and found nothing, so it is only written when
+        # the visit did look.
+        nothing = ("الزيارة اتوقفت قبل ما تخلص" if self.interrupted else
+                   "مفيش" if self.examined() else "الزيارة ماعملتش أي فحص: مافيش جهاز كلّم اللابتوب ولا ملف اتقرا")
         self.sheet["مشاكل تانية"] = self.sheet["مشاكل تانية"] or "، ".join(
-            finding.text for finding in bad if finding.level == "bad") or "مفيش"
+            finding.text for finding in bad if finding.level == "bad") or nothing
         verdict = self.verdict()
         lines = [f"# تقرير زيارة: جهاز {_md(self.serial or 'مش معروف')}", "", '<div dir="rtl">', "",
                  f"**النتيجة:** {verdict}", "",
@@ -1415,11 +1458,24 @@ class Visit:
         path.write_text("\n".join(lines), encoding="utf-8")
         return path
 
+    def examined(self) -> bool:
+        """Did anything actually get tested? Every path that reaches a terminal or reads an
+        export records at least one `ok` finding on the way, so nothing having worked means
+        nothing was tried -- the customer said no to the network and there was no USB file."""
+        return any(finding.level == "ok" for finding in self.findings)
+
     def verdict(self) -> str:
+        """What the report is headed with, and the first thing anyone reads. It answers "was
+        anything examined?" before "did it pass?": this report is pasted into a
+        device-compatibility issue, where a ✅ reads as "this model is supported"."""
         bad = sum(1 for finding in self.findings if finding.level == "bad")
         warn = sum(1 for finding in self.findings if finding.level == "warn")
         if bad:
             return f"❌ فيه {bad} مشكلة" + (f" و {warn} تنبيه" if warn else "")
+        if self.interrupted:
+            return "⛔ الزيارة اتوقفت قبل ما تخلص: اللي في التقرير هو اللي اتفحص لحد اللحظة دي بس"
+        if not self.examined():
+            return "❓ الزيارة ماعملتش أي فحص: مافيش جهاز كلّم اللابتوب ولا ملف اتقرا"
         if warn:
             return f"⚠️ اشتغل، بس فيه {warn} تنبيه"
         return "✅ كله تمام"
