@@ -7,11 +7,16 @@ on:
   pull_request:
     paths:
       - "devices-agent/**"
+      # tests/test_visit.py reads both: the results sheet and the lab allocation it drives.
+      - "docs/devices/field-visit-runbook.md"
+      - "scripts/devices-lab.sh"
       - ".github/workflows/devices-agent.yml"
   push:
     branches: [main]
     paths:
       - "devices-agent/**"
+      - "docs/devices/field-visit-runbook.md"
+      - "scripts/devices-lab.sh"
       - ".github/workflows/devices-agent.yml"
   workflow_dispatch:
 

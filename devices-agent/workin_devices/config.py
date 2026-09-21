@@ -22,8 +22,10 @@ DEFAULT_WINDOW_HOURS = 48
 DEFAULT_HIK_ATTENDANCE_MINORS = (1, 38, 75)
 KINDS = ("zk", "hikvision", "file")
 # The platform's rule for a serial (DeviceInput.SERIAL_NUMBER). A serial it would refuse must stop
-# the agent at start-up, not answer 400 on every pass.
-SERIAL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,63}$")
+# the agent at start-up, not answer 400 on every pass. \Z and not $, because Python's $ also
+# matches before a trailing newline: a handshake with SN=ABC%0A would otherwise pass the guard
+# and put a line break into a report's title, filename and table cell.
+SERIAL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,63}\Z")
 
 
 class ConfigError(Exception):
@@ -40,7 +42,9 @@ class DeviceConfig:
     udp: bool = False
     timeout_seconds: float = 10.0
     username: str | None = None
-    password: str | None = None
+    # Never in a repr: a DeviceConfig reaching a log line or an exception message would put the
+    # terminal's password in it.
+    password: str | None = field(default=None, repr=False)
     window_hours: int = DEFAULT_WINDOW_HOURS
     page_size: int = 30
     attendance_minors: tuple[int, ...] = DEFAULT_HIK_ATTENDANCE_MINORS
