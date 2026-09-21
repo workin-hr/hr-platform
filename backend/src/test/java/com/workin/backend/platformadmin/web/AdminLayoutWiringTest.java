@@ -828,7 +828,7 @@ class AdminLayoutWiringTest {
 				for (int at : serverOpenedWindows(source, path)) {
 					String window = source.substring(at, endOfWindow(source, at, path));
 					if (!window.contains("role=\"dialog\"") || !window.contains("aria-modal=\"true\"")
-							|| !window.contains("aria-labelledby=")) {
+							|| !namesItsOwnHeading(window)) {
 						missing.add(fileName(path));
 					}
 				}
@@ -836,6 +836,29 @@ class AdminLayoutWiringTest {
 		}
 		assertThat(missing).as("windows the server opens with no dialog semantics")
 				.containsExactlyInAnyOrderElementsOf(NO_DIALOG_SEMANTICS);
+	}
+
+	/**
+	 * Whether the window's {@code aria-labelledby} names an element the window itself
+	 * writes an {@code id} for.
+	 *
+	 * <p>The attribute's presence was all this asked, which is the shape of the defect
+	 * this rule exists for: an overlay that says it is a dialog and points its name at
+	 * nothing is no more usable than one that says nothing. Codex raised it on the head
+	 * that shipped the rest of these semantics; all three live targets resolve, so this
+	 * pins what is already true rather than fixing a defect (#305's review round 9).
+	 */
+	private static boolean namesItsOwnHeading(String window) {
+		Matcher labelled = Pattern.compile("aria-labelledby=\"([^\"]+)\"").matcher(window);
+		if (!labelled.find()) {
+			return false;
+		}
+		for (String target : labelled.group(1).trim().split("\\s+")) {
+			if (!window.contains("id=\"" + target + "\"")) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	/** Server-opened windows that predate the rule; shrink it, never grow it (#306). */
@@ -940,9 +963,9 @@ class AdminLayoutWiringTest {
 	/** The {@code @if} nesting depth at {@code upTo}, counting from {@code start}. */
 	private static int depthAt(String source, int start, int upTo) {
 		int depth = 0;
-		Matcher tag = Pattern.compile("@if\\(|@endif\\b").matcher(source).region(start, upTo);
+		Matcher tag = BLOCK_TAG.matcher(source).region(start, upTo);
 		while (tag.find()) {
-			depth += tag.group().equals("@endif") ? -1 : 1;
+			depth += CLOSING.matcher(tag.group()).matches() ? -1 : 1;
 		}
 		return depth;
 	}
@@ -1318,11 +1341,11 @@ class AdminLayoutWiringTest {
 			Pattern.compile("\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*'");
 
 	/**
-	 * An {@code @if}'s opening, written exactly as {@link #endOfBlock} and
-	 * {@link #depthAt} count it. No template writes {@code @if (} with a space, and a
-	 * pattern here that accepted one would find a block those two would not count.
+	 * An {@code @if}'s opening, written as {@link #BLOCK_TAG} counts it. jte accepts a
+	 * space before the bracket; no admin template writes one today, and a rule that
+	 * reads only what is written today is how this one was wrong eight times.
 	 */
-	private static final Pattern IF = Pattern.compile("@if\\(");
+	private static final Pattern IF = Pattern.compile("@if\\s*\\(");
 
 	/** The switch, by either name a template gives it. `canWrite` is `canManage && actionsEnabled`. */
 	private static final Pattern SWITCH = Pattern.compile("\\b(canWrite|actionsEnabled)\\b");
@@ -1348,16 +1371,36 @@ class AdminLayoutWiringTest {
 	 * rather than reading as an empty one.
 	 */
 	private static int endOfBlock(String source, int start, Path path) {
-		Matcher tag = Pattern.compile("@if\\(|@endif\\b").matcher(source).region(start, source.length());
+		Matcher tag = BLOCK_TAG.matcher(source).region(start, source.length());
 		int depth = 0;
 		while (tag.find()) {
-			depth += tag.group().equals("@endif") ? -1 : 1;
+			depth += CLOSING.matcher(tag.group()).matches() ? -1 : 1;
 			if (depth == 0) {
 				return tag.end();
 			}
 		}
 		throw new AssertionError(path.getFileName() + ": an @if that never closes at " + start);
 	}
+
+	/**
+	 * Every directive that opens or closes a block, counted together.
+	 *
+	 * <p>{@code @for} is here because jte gives it an {@code @else} of its own, for the
+	 * empty collection. Counting only {@code @if} put that {@code @else} at the enclosing
+	 * block's depth, so a {@code @for(...) ... @else ... @endfor} written above a Cancel
+	 * inside {@code @if(canWrite)} ended the gate's arm early and the Cancel read as
+	 * ungated -- three of the nine windows this rule checks already contain a
+	 * {@code @for} (#305's review round 9).
+	 *
+	 * <p>The whitespace is here because jte accepts {@code @if (cond)} with a space while
+	 * these counted only {@code @if(}: a spaced {@code @if} nested inside a correctly
+	 * written gate left its {@code @endif} unpaired, which truncated the block and made
+	 * the gate skip it. Both directions were proved past the compiled gate, not argued.
+	 */
+	private static final Pattern BLOCK_TAG =
+			Pattern.compile("@if\\s*\\(|@for\\s*\\(|@endif\\b|@endfor\\b");
+
+	private static final Pattern CLOSING = Pattern.compile("@end(if|for)");
 
 	/**
 	 * A page is a template that renders the shell. The rest -- the layout
