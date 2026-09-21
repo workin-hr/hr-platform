@@ -1002,12 +1002,28 @@ class AdminLayoutWiringTest {
 				.as("the banner arm, which renders only when the switch is OFF").isFalse();
 		assertThat(cancelIsBehindTheSwitch("@if(canWrite || row.pinned())" + cancel + "@endif", synthetic))
 				.as("an or: something else can render this arm with the switch off").isFalse();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(qrRow == null)<span>x</span>@elseif(canWrite)" + cancel + "@endif", synthetic))
+				.as("an @elseif arm, which the rule read as part of the arm before it").isTrue();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(canWrite)<span>x</span>@elseif(row.wide())<span>y</span>@else" + cancel + "@endif",
+				synthetic))
+				.as("an @else after an @elseif that may itself render: reachable with the switch off")
+				.isFalse();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(!canWrite)<span>x</span>@elseif(row.wide())" + cancel + "@endif", synthetic))
+				.as("an @elseif behind a condition that certainly holds when the switch is off")
+				.isTrue();
 		assertThatThrownBy(() -> cancelIsBehindTheSwitch(
 				"@if(canWrite == true)" + cancel + "@endif", synthetic))
 				.as("the switch inside a larger operand is not guessed at")
 				.isInstanceOf(AssertionError.class)
 				.hasMessageContaining("synthetic.jte")
 				.hasMessageContaining("canWrite == true");
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(Boolean.TRUE.equals(canWrite))<span>x</span>@endif" + cancel, synthetic))
+				.as("a condition this cannot read, in a block holding no Cancel, is not its business")
+				.isFalse();
 	}
 
 	/**
@@ -1034,26 +1050,78 @@ class AdminLayoutWiringTest {
 	 */
 	private static boolean cancelIsBehindTheSwitch(String window, Path path) {
 		for (Matcher opening = IF.matcher(window); opening.find(); ) {
-			String condition = conditionAt(window, opening.end() - 1, path);
-			if (!SWITCH.matcher(condition).find()) {
-				continue;
-			}
 			int block = opening.start();
 			int end = endOfBlock(window, block, path);
-			int otherwise = armEnd(window, block, end);
-			// Either arm can be the one that needs the switch on, and a condition can make
-			// neither of them so (`@if(canManage && !actionsEnabled)` renders one way or the
-			// other whatever the switch does). Each is asked separately.
-			if (thenArmIsTheGatedOne(condition, path)
-					&& window.substring(block, otherwise).contains(CANCEL)) {
-				return true;
+			// Only a block that holds the control at all is read. Anything else -- a condition
+			// this cannot evaluate, an `@elseif` chain about something unrelated -- is none of
+			// this rule's business, and evaluating it anyway made an unreadable condition
+			// elsewhere in the window fail the whole gate (round 7).
+			if (!window.substring(block, end).contains(CANCEL)) {
+				continue;
 			}
-			if (elseArmIsTheGatedOne(condition, path)
-					&& window.substring(Math.min(otherwise, end), end).contains(CANCEL)) {
-				return true;
+			for (Arm arm : armsOf(window, block, end, path)) {
+				if (!arm.rendersWithTheSwitchOff() && arm.text().contains(CANCEL)) {
+					return true;
+				}
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * One arm of an {@code @if} / {@code @elseif} / {@code @else} chain, and whether the
+	 * reader can reach it with the actions switch off.
+	 */
+	private record Arm(String text, boolean rendersWithTheSwitchOff) {
+	}
+
+	/**
+	 * A block's arms in order, each with its own reachability when the switch is off.
+	 *
+	 * <p>An arm renders when its condition holds and every condition before it failed, so
+	 * with the switch off an arm is out of reach when its own condition cannot hold, and
+	 * also when an earlier one certainly does. The {@code @else} arm is out of reach when
+	 * any earlier condition certainly holds. Round 6 read the first two arms of a block;
+	 * {@code @elseif} is written fourteen times across eleven admin templates and
+	 * {@code @elseif(canWrite)} at {@code settings-templates.jte:113}, so a Cancel in one
+	 * was invisible (round 7).
+	 */
+	private static List<Arm> armsOf(String source, int block, int end, Path path) {
+		List<Arm> arms = new ArrayList<>();
+		List<Integer> starts = new ArrayList<>(List.of(block));
+		List<String> conditions = new ArrayList<>(
+				List.of(conditionAt(source, source.indexOf('(', block), path)));
+		for (int at = block; at >= 0 && at < end; ) {
+			int next = nextArmAtDepthOne(source, at + 1, end, path);
+			if (next < 0) {
+				break;
+			}
+			starts.add(next);
+			conditions.add(source.startsWith("@elseif", next)
+					? conditionAt(source, source.indexOf('(', next), path) : null);
+			at = next;
+		}
+		starts.add(end);
+		boolean earlierCertainlyHolds = false;
+		for (int i = 0; i < conditions.size(); i++) {
+			String condition = conditions.get(i);
+			Boolean held = condition == null ? Boolean.TRUE : withTheSwitchOff(condition, path);
+			boolean reachable = !earlierCertainlyHolds && !Boolean.FALSE.equals(held);
+			arms.add(new Arm(source.substring(starts.get(i), starts.get(i + 1)), reachable));
+			earlierCertainlyHolds |= Boolean.TRUE.equals(held);
+		}
+		return arms;
+	}
+
+	/** The next {@code @elseif} or {@code @else} belonging to this block, or -1. */
+	private static int nextArmAtDepthOne(String source, int from, int end, Path path) {
+		Matcher arm = Pattern.compile("@else(if)?\\b").matcher(source).region(from, end);
+		while (arm.find()) {
+			if (depthAt(source, from - 1, arm.start()) == 1) {
+				return arm.start();
+			}
+		}
+		return -1;
 	}
 
 	/** Where {@code @if}'s own arm ends: its {@code @else} if it has one, else the whole block. */
@@ -1107,26 +1175,14 @@ class AdminLayoutWiringTest {
 	}
 
 	/**
-	 * Whether the {@code @else} arm is the one that needs the switch on, rather than
-	 * the {@code @if} arm.
+	 * Reading a condition rather than pattern-matching it.
 	 *
-	 * <p>The condition is evaluated with the switch <b>off</b>, which is the only state
-	 * this rule is about, and with every other operand unknown. An arm that cannot
-	 * render in that state is the gated one, and a Cancel there is a Cancel the reader
-	 * does not get. Round 5 decided this by asking whether a {@code !} sat immediately
-	 * before the switch's name, which read {@code @if(!(canWrite))} as un-negated and
-	 * was wrong in both directions at once (round 6). Evaluating is barely longer than
-	 * pattern-matching and has no next spelling to miss.
+	 * <p>Round 5 decided which arm a condition gates by asking whether a {@code !} sat
+	 * immediately before the switch's name, which read {@code @if(!(canWrite))} as
+	 * un-negated and was wrong in both directions at once (round 6); round 7 then found
+	 * the reading applied to an {@code @if} and its {@code @else} only, where a chain
+	 * has as many arms as it has conditions. {@link #armsOf} asks this for each arm.
 	 */
-	private static boolean elseArmIsTheGatedOne(String condition, Path path) {
-		return Boolean.TRUE.equals(withTheSwitchOff(condition, path));
-	}
-
-	/** Whether the {@code @if} arm itself is the gated one. */
-	private static boolean thenArmIsTheGatedOne(String condition, Path path) {
-		return Boolean.FALSE.equals(withTheSwitchOff(condition, path));
-	}
-
 	/**
 	 * {@code condition} with the actions switch off: {@code TRUE}, {@code FALSE}, or
 	 * {@code null} when the operands this cannot see decide it.
