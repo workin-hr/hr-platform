@@ -199,3 +199,43 @@ test('Enter in the search box chooses a single match and never submits', async (
 	await expect(page.locator('#advance-edit')).toBeVisible();
 	expect(await page.evaluate(() => window.submits.length), 'nothing was submitted').toBe(0);
 });
+
+test('a choice and a clear each fire exactly one change on the hidden input', async ({ page }) => {
+	// #217 made the picker dispatch a bubbling `change` after it sets the hidden
+	// input, because a programmatic value set fires nothing and attendance's
+	// submit gate has to hear it. Four other pages load this script into forms
+	// that do not listen today; the count is what keeps a later listener on one
+	// of those forms from running twice per selection without anyone noticing.
+	const picker = addPicker(page);
+	await page.evaluate(() => {
+		window.idChanges = [];
+		window.formChanges = [];
+		document.querySelectorAll('[data-emp-id]').forEach((input) => {
+			input.addEventListener('change', () => window.idChanges.push(input.value));
+		});
+		document.getElementById('add').addEventListener('change', (event) => {
+			window.formChanges.push(event.target.hasAttribute('data-emp-id') ? 'id' : 'other');
+		});
+	});
+
+	await page.locator('#employee_id').fill('A100');
+	await picker.getByRole('button', { name: 'Aya Alpha (A100) — Alpha Co' }).click();
+	expect(await page.evaluate(() => window.idChanges), 'one change, carrying the chosen id')
+		.toEqual(['7']);
+	expect(await page.evaluate(() => window.formChanges.filter((from) => from === 'id')),
+		'and it reaches a delegated listener once').toEqual(['id']);
+
+	// Typing again clears the id without going through show(), so it fires no
+	// change of its own -- which is why attendance-form.js listens for 'input'
+	// on the form as well, and why this asserts the count rather than assuming
+	// one event per state transition.
+	await page.locator('#employee_id').fill('Employee 2');
+	await expect(picker.locator('[data-emp-id]'), 'the id is cleared').toHaveValue('');
+	expect(await page.evaluate(() => window.idChanges), 'and no second change was dispatched')
+		.toEqual(['7']);
+
+	await page.evaluate(() => { window.idChanges = []; document.getElementById('add').reset(); });
+	await expect(picker.locator('[data-emp-id]')).toHaveValue('');
+	expect(await page.evaluate(() => window.idChanges),
+		"a reset resyncs through show(), so the gate hears it -- once").toEqual(['']);
+});
