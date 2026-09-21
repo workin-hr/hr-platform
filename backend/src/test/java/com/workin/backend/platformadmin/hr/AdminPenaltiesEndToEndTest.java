@@ -304,6 +304,156 @@ class AdminPenaltiesEndToEndTest {
 		assertThat(body("/admin/penalties")).contains("Unapplied").contains("Applied");
 	}
 
+	/**
+	 * page.php:169: the export sits beside the add button and carries the filters the list is
+	 * under, so the file is the list on the screen. Legacy offers it to anyone who can open the
+	 * page, managing rights or not.
+	 */
+	@Test
+	void theExportLinkCarriesTheListsOwnFilters() {
+		assertThat(headActions(body("/admin/penalties")))
+				.contains("<a href=\"/admin/penalties?export=csv&amp;applied=all\""
+						+ " class=\"btn btn-green btn-sm\">" + arabic("export_csv") + "</a>");
+
+		assertThat(headActions(body("/admin/penalties?company_id=" + this.companyA
+				+ "&search=Aya+A&applied=1&date_from=2026-03-01&date_to=2026-03-31")))
+				.as("every filter the pager carries, and the search encoded as a link encodes it")
+				.contains("<a href=\"/admin/penalties?export=csv&amp;search=Aya+A&amp;company_id="
+						+ this.companyA + "&amp;applied=1&amp;date_from=2026-03-01&amp;date_to=2026-03-31\"");
+	}
+
+	/**
+	 * hr_export_penalties_csv() (hr_list_helper.php:1050-1088) with csv_export_send()
+	 * (query.php:375-405): every row the filter admits, not the page on the screen, in the same
+	 * order the table uses, as the spreadsheet legacy's button has always downloaded -- the
+	 * helper rewrites its own .csv name to .xlsx (hr-legacy#23).
+	 */
+	@Test
+	void theExportSendsEveryFilteredRowAsLegacysSpreadsheet() {
+		seedPenalty(this.employeeA, "Lateness", "0.5", false);
+		seedPenalty(this.employeeA, "Absence", "1", true);
+		seedPenalty(this.employeeB, "Beta only", "2", false);
+
+		ResponseEntity<byte[]> response = getBytes(
+				"/admin/penalties?export=csv&company_id=" + this.companyA + "&per_page=1");
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getHeaders().getContentType()).asString()
+				.isEqualTo("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+		assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION))
+				.isEqualTo("attachment; filename=\"penalties_all_all.xlsx\"");
+		assertThat(new String(response.getBody(), 0, 2, java.nio.charset.StandardCharsets.US_ASCII))
+				.as("XLSX is a ZIP container").isEqualTo("PK");
+
+		List<List<String>> rows = sheetRows(response.getBody());
+		assertThat(rows.get(0)).as("legacy's seven headers, in the page's language").containsExactly(
+				arabic("emp_code"), arabic("employee_name"), arabic("penalty_type"),
+				arabic("penalty_days"), arabic("penalty_reason"), arabic("penalty_date"),
+				arabic("applied_payroll"));
+		assertThat(rows.subList(1, rows.size()))
+				.as("both of Alpha's rows, newest penalty_date first, whatever the page size")
+				.containsExactly(
+						List.of("A100", "Aya Alpha", "Absence", "1.0", "", "2026-03-02", "1"),
+						List.of("A100", "Aya Alpha", "Lateness", "0.5", "", "2026-03-02", "0"));
+	}
+
+	/** The filter is the boundary: another company's penalties are not in this company's file. */
+	@Test
+	void theExportNeverReachesPastTheFilter() {
+		seedPenalty(this.employeeA, "Alpha", "1", false);
+		seedPenalty(this.employeeB, "Beta", "1", false);
+
+		List<List<String>> alpha = sheetRows(getBytes(
+				"/admin/penalties?export=csv&company_id=" + this.companyA).getBody());
+		assertThat(alpha).as("a header and Alpha's one penalty").hasSize(2);
+		assertThat(alpha.get(1)).contains("Aya Alpha").doesNotContain("Basma Beta");
+
+		assertThat(sheetRows(getBytes("/admin/penalties?export=csv&company_id=").getBody()))
+				.as("unfiltered, an administrator's file holds both companies")
+				.hasSize(3);
+	}
+
+	/** An empty list exports the headers and nothing else, rather than failing. */
+	@Test
+	void anEmptyListStillExports() {
+		List<List<String>> rows = sheetRows(getBytes("/admin/penalties?export=csv").getBody());
+		assertThat(rows).hasSize(1);
+		assertThat(rows.get(0)).first().isEqualTo(arabic("emp_code"));
+	}
+
+	/**
+	 * The task's second failure mode: a read must not disappear behind the write switch that
+	 * gates the row actions. {@link AdminHrExportsWithActionsDisabledEndToEndTest} pins the
+	 * control's presence and the endpoint's answer with the switch at its default (off); this
+	 * pins that the export's own {@code WHERE} still narrows correctly with it on.
+	 */
+	@Test
+	void theExportAppliesTheDateRangeTheListApplies() {
+		seedPenaltyOn(this.employeeA, "In range", "1", "2026-03-15");
+		seedPenaltyOn(this.employeeA, "Before range", "1", "2026-02-01");
+
+		List<List<String>> rows = sheetRows(getBytes(
+				"/admin/penalties?export=csv&date_from=2026-03-01&date_to=2026-03-31").getBody());
+		assertThat(rows.subList(1, rows.size())).as("only the row inside the date range")
+				.singleElement().satisfies(row -> assertThat(row).contains("In range"));
+	}
+
+	/** The actions beside the list's title. */
+	private static String headActions(String html) {
+		Matcher actions = Pattern.compile("(?s)<div class=\"data-table-head__actions\">.*?</div>")
+				.matcher(html);
+		assertThat(actions.find()).as("the list's head actions").isTrue();
+		return actions.group();
+	}
+
+	private ResponseEntity<byte[]> getBytes(String path) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.add(HttpHeaders.COOKIE, "WORKIN_ADMIN_SESSION=" + this.cookie);
+		return this.restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(headers), byte[].class);
+	}
+
+	/** The workbook's one sheet, row by row, each cell's inline string. */
+	private static List<List<String>> sheetRows(byte[] workbook) {
+		String sheet = null;
+		try (java.util.zip.ZipInputStream zip = new java.util.zip.ZipInputStream(
+				new java.io.ByteArrayInputStream(workbook))) {
+			for (java.util.zip.ZipEntry entry = zip.getNextEntry(); entry != null;
+					entry = zip.getNextEntry()) {
+				if ("xl/worksheets/sheet1.xml".equals(entry.getName())) {
+					sheet = new String(zip.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+				}
+			}
+		} catch (java.io.IOException ex) {
+			throw new AssertionError("the response is not a readable ZIP container", ex);
+		}
+		assertThat(sheet).as("the workbook's sheet").isNotNull();
+		List<List<String>> rows = new ArrayList<>();
+		Matcher row = Pattern.compile("(?s)<row\\b.*?</row>").matcher(sheet);
+		while (row.find()) {
+			List<String> cells = new ArrayList<>();
+			Matcher cell = Pattern.compile("(?s)<is><t[^>]*>(.*?)</t></is>").matcher(row.group());
+			while (cell.find()) {
+				cells.add(HtmlUtils.htmlUnescape(cell.group(1)));
+			}
+			rows.add(cells);
+		}
+		return rows;
+	}
+
+	/** One label as the dashboard's default language renders it. */
+	private static String arabic(String key) {
+		java.util.Properties catalogue = new java.util.Properties();
+		try (java.io.InputStream in = AdminPenaltiesEndToEndTest.class
+				.getResourceAsStream("/i18n/admin-messages_ar.properties")) {
+			catalogue.load(new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8));
+		} catch (java.io.IOException ex) {
+			throw new java.io.UncheckedIOException(ex);
+		}
+		String value = catalogue.getProperty(key);
+		assertThat(value).as("the catalogue's %s", key).isNotNull();
+		return value;
+	}
+
 	// ------------------------------------------------------------------
 	// R-046
 	// ------------------------------------------------------------------
@@ -503,6 +653,15 @@ class AdminPenaltiesEndToEndTest {
 				+ " penalty_date, applied_to_payroll, created_at)"
 				+ " VALUES (?, ?, ?, '2026-03-02', ?, NOW())",
 				employeeId, type, new java.math.BigDecimal(days), applied ? 1 : 0);
+		return this.jdbc.queryForObject(
+				"SELECT MAX(id) FROM penalties WHERE employee_id = ?", Long.class, employeeId);
+	}
+
+	private long seedPenaltyOn(long employeeId, String type, String days, String penaltyDate) {
+		this.jdbc.update("INSERT INTO penalties (employee_id, penalty_type, penalty_days,"
+				+ " penalty_date, applied_to_payroll, created_at)"
+				+ " VALUES (?, ?, ?, ?, 0, NOW())",
+				employeeId, type, new java.math.BigDecimal(days), penaltyDate);
 		return this.jdbc.queryForObject(
 				"SELECT MAX(id) FROM penalties WHERE employee_id = ?", Long.class, employeeId);
 	}
