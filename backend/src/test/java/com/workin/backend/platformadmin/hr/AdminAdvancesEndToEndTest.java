@@ -412,6 +412,26 @@ class AdminAdvancesEndToEndTest {
 				.hasSize(3);
 	}
 
+	/**
+	 * The divergence itself, which the two orders only differ over when the dates disagree:
+	 * the table is {@code request_date DESC, id DESC} (hr_list_helper.php:1070) and the file is
+	 * {@code created_at DESC, id DESC} (hr_list_helper.php:1150). Every other test here seeds
+	 * both dates in the same order, where either ordering produces the same rows -- so without
+	 * this one, the export could be ordered by the table's own column and nothing would say so.
+	 */
+	@Test
+	void theFileIsOrderedByCreationWhereTheTableIsOrderedByRequest() {
+		seedAdvance(this.employeeA, "111", "111", "pending", "2026-03-05", "2026-03-01 09:00:00");
+		seedAdvance(this.employeeA, "222", "222", "pending", "2026-03-01", "2026-03-05 09:00:00");
+
+		assertThat(body("/admin/advances")).as("the table: the later request first")
+				.containsSubsequence("111.00", "222.00");
+
+		List<List<String>> rows = sheetRows(getBytes("/admin/advances?export=csv").getBody());
+		assertThat(rows.subList(1, rows.size())).as("the file: the later creation first")
+				.extracting(row -> row.get(2)).containsExactly("222.00", "111.00");
+	}
+
 	/** An empty list exports the headers and nothing else, rather than failing. */
 	@Test
 	void anEmptyListStillExports() {
@@ -666,10 +686,16 @@ class AdminAdvancesEndToEndTest {
 	}
 
 	private long seedAdvance(long employeeId, String amount, String remaining, String status) {
+		return seedAdvance(employeeId, amount, remaining, status, "2026-03-02", "2026-03-02 09:00:00");
+	}
+
+	/** The two dates apart, because the table and the export are ordered by different ones. */
+	private long seedAdvance(long employeeId, String amount, String remaining, String status,
+			String requestDate, String createdAt) {
 		this.jdbc.update("INSERT INTO advances (employee_id, amount, remaining, status,"
-				+ " request_date, created_at) VALUES (?, ?, ?, ?, '2026-03-02', NOW())",
+				+ " request_date, created_at) VALUES (?, ?, ?, ?, ?, ?)",
 				employeeId, new java.math.BigDecimal(amount), new java.math.BigDecimal(remaining),
-				status);
+				status, requestDate, createdAt);
 		return this.jdbc.queryForObject(
 				"SELECT MAX(id) FROM advances WHERE employee_id = ?", Long.class, employeeId);
 	}
