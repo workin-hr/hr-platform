@@ -34,6 +34,18 @@ import com.workin.backend.platformadmin.PlatformAdminRepository;
  * <p>Both failures invalidate the session rather than merely clearing the
  * security context. A session that survives its own rejection is a session that
  * gets tried again.
+ *
+ * <p>It does not run for {@code /admin/_assets/**}. The chain's matcher is
+ * {@code /admin/**}, so it used to: every stylesheet, script and image on a
+ * page cost a {@code findById} against the legacy database, and a page pulls
+ * about twenty. Measured against a database 106 ms away, that is over two
+ * seconds of a page's wait, and it bought nothing -- the assets are
+ * {@code permitAll} and hold no session-dependent content, so refusing to
+ * serve one to a deactivated administrator protects nothing the next page
+ * request does not. Skipping is the safe direction only because it is the
+ * *filter* being skipped, not an authorization rule: an asset request cannot
+ * reach a controller, and the first real request after it revalidates as
+ * before.
  */
 class PlatformAdminSessionRevalidationFilter extends OncePerRequestFilter {
 
@@ -44,6 +56,24 @@ class PlatformAdminSessionRevalidationFilter extends OncePerRequestFilter {
 
 	PlatformAdminSessionRevalidationFilter(PlatformAdminRepository platformAdminRepository) {
 		this.platformAdminRepository = platformAdminRepository;
+	}
+
+	/**
+	 * Whether this request is for a static asset, decided on the raw path.
+	 *
+	 * <p>Anything the path could still mean something else -- a traversal
+	 * segment, a double slash, any percent-encoding -- is filtered rather than
+	 * skipped, so the decision does not depend on the firewall in front of it
+	 * having normalised the URI first. Running the filter is always the safe
+	 * answer; skipping it is the one that has to be earned.
+	 */
+	@Override
+	protected boolean shouldNotFilter(HttpServletRequest request) {
+		String path = request.getRequestURI().substring(request.getContextPath().length());
+		return path.startsWith(PlatformAdminWebSecurityConfig.ASSETS_PREFIX)
+				&& path.indexOf('%') < 0
+				&& !path.contains("//")
+				&& !path.contains("..");
 	}
 
 	@Override
