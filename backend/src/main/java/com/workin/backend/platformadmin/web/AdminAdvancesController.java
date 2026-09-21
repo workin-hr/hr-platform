@@ -89,8 +89,8 @@ public class AdminAdvancesController {
 	 * showing, as a spreadsheet, before anything is rendered.
 	 *
 	 * <p>Legacy exports every row the filter admits, not the page on the screen, ordered by
-	 * {@code created_at} rather than the {@code request_date}-first order the table above it
-	 * uses. Both are reproduced. The scoping is not relaxed for it: the same
+	 * {@code created_at DESC, id DESC} -- the order of the list above it, which
+	 * {@code hr_paginate_advances()} uses too. Both are reproduced. The scoping is not relaxed for it: the same
 	 * {@link DashboardListFilters} the page reads, so an administrator filtered to one company
 	 * exports that company, and a session bound to one company can export no other. This is a
 	 * read, so it is not behind the actions switch that gates the row actions -- a working

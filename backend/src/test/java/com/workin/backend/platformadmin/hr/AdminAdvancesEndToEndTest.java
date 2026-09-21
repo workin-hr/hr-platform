@@ -363,8 +363,8 @@ class AdminAdvancesEndToEndTest {
 	/**
 	 * hr_export_advances_csv() (hr_list_helper.php:1110-1152) with csv_export_send()
 	 * (query.php:375-405): every row the filter admits, not the page on the screen, ordered by
-	 * {@code created_at} rather than the {@code request_date}-first order the table above it
-	 * uses, as the spreadsheet legacy's button has always downloaded -- the helper rewrites its
+	 * {@code created_at} as the list above it is (hr_list_helper.php:372 and :1150), and sent as
+	 * the spreadsheet legacy's button has always downloaded -- the helper rewrites its
 	 * own .csv name to .xlsx (hr-legacy#23).
 	 */
 	@Test

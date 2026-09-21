@@ -121,8 +121,8 @@ public class AdvanceStore {
 	/**
 	 * {@code hr_export_advances_csv()} ({@code hr_list_helper.php:1110-1152}): every row the
 	 * list would show for this filter, as eight strings a spreadsheet cell can hold, unpaginated
-	 * and in legacy's own export order -- {@code a.created_at DESC, a.id DESC} -- rather than the
-	 * {@code request_date}-first order the table above it uses.
+	 * and in legacy's own export order, {@code a.created_at DESC, a.id DESC}, which is also the
+	 * order of the list above it ({@code hr_list_helper.php:372} and {@code :1150} agree).
 	 *
 	 * <p>The values are read as the database renders them, which is what PDO hands legacy:
 	 * {@code decimal(10,2)} as {@code "1000.00"}.
