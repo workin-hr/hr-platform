@@ -61,6 +61,16 @@ class ConfigRefusesWhatWouldBeUnsafe(unittest.TestCase):
                 with self.assertRaises(cfg.ConfigError):
                     cfg.parse(self.raw(devices=[{"serial": bad, "kind": "zk", "host": "10.0.0.1"}]), base_dir=self.dir.name)
 
+    def test_the_serial_rule_ends_at_the_end_of_the_string(self):
+        """`_device` strips what it reads from a file, but `visit.py` matches this same pattern
+        against a serial taken straight out of a push handshake's query string, where nothing
+        strips anything. Python's `$` also matches immediately before a trailing newline, so an
+        `SN=ZK1%0A` handshake used to pass the guard and put a line break into the report's
+        title, its filename and the results table."""
+        self.assertTrue(cfg.SERIAL.match("ZK1"))
+        self.assertIsNone(cfg.SERIAL.match("ZK1\n"))
+        self.assertIsNone(cfg.SERIAL.match("ZK1\nZK2"))
+
     def test_a_replaced_token_file_is_picked_up(self):
         config = cfg.parse(self.raw(), base_dir=self.dir.name)
         self.assertFalse(cfg.reload_token(config))
@@ -72,6 +82,16 @@ class ConfigRefusesWhatWouldBeUnsafe(unittest.TestCase):
     def test_a_batch_above_the_servers_cap_is_refused(self):
         with self.assertRaises(cfg.ConfigError):
             cfg.parse(self.raw(batch_size=6000), base_dir=self.dir.name)
+
+    def test_a_terminals_password_is_never_in_a_repr(self):
+        """A `DeviceConfig` reaching an exception message or a log line would put the terminal's
+        password in it, and the site visit writes exception text into a report meant to be pasted
+        into an issue."""
+        device = cfg.DeviceConfig(serial="H1", kind="hikvision", host="10.0.0.9",
+                                  username="admin", password="s3cret-pass")
+        self.assertNotIn("s3cret-pass", repr(device))
+        self.assertNotIn("s3cret-pass", f"{RuntimeError(f'reading {device!r}')!r}")
+        self.assertEqual(device.password, "s3cret-pass", "and the value is still there to be used")
 
     def test_a_hikvision_terminal_needs_its_credentials_in_a_file(self):
         with self.assertRaises(cfg.ConfigError):

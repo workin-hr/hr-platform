@@ -1,7 +1,7 @@
 """workin-devices: the agent, the site-visit kit and the lab simulators, one command each.
 
   agent       run | once | doctor | import-usb
-  site visit  scan | zk-info | hik-info | capture
+  site visit  visit (the whole visit, guided) | scan | zk-info | hik-info | capture
   lab         sim-zk | sim-push | sim-hik | sim-usb
 """
 from __future__ import annotations
@@ -121,13 +121,13 @@ def cmd_hik_info(args):
 
 
 def cmd_capture(args):
-    from . import capture
+    from . import capture, probe
     host, _, port = args.listen.rpartition(":")
     server = capture.serve(host or "0.0.0.0", int(port), args.out, args.upstream, args.host_header)
     print("=" * 72)
     print(f"  recording on {args.listen} -> {os.path.abspath(args.out)}/<serial>/")
     print(f"  {'forwarding to ' + args.upstream + ' as Host ' + str(args.host_header) if args.upstream else 'standalone: answering like an unknown receiver'}")
-    for address in _lan_addresses():
+    for address, _network in probe.lan_networks():
         print(f"  on the terminal: Server Address = {address}   Server Port = {port}")
     print("  Ctrl-C to stop")
     print("=" * 72, flush=True)
@@ -135,6 +135,11 @@ def cmd_capture(args):
         server.serve_forever()
     except KeyboardInterrupt:
         server.shutdown()
+
+
+def cmd_visit(args):
+    from . import visit
+    return visit.Visit(out_dir=args.out).run()
 
 
 def cmd_sim_zk(args):
@@ -200,18 +205,6 @@ def _pins(text: str) -> list[str]:
     return [pin.strip() for pin in text.split(",") if pin.strip()]
 
 
-def _lan_addresses() -> list[str]:
-    import socket
-    addresses = set()
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.connect(("10.255.255.255", 1))
-            addresses.add(sock.getsockname()[0])
-    except OSError:
-        pass
-    return sorted(address for address in addresses if not address.startswith("127."))
-
-
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="workin-devices", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -267,6 +260,10 @@ def main(argv=None):
     sub.add_argument("--host-header", help="the name the platform's device receiver answers on, e.g. devices.localhost")
     sub.add_argument("--out", default="captures")
     sub.set_defaults(handler=cmd_capture)
+
+    sub = commands.add_parser("visit", help="the whole site visit, step by step, ending in a report (Mode A: the lab)")
+    sub.add_argument("--out", help="where the visit's files go (default: devices-agent/field-report)")
+    sub.set_defaults(handler=cmd_visit)
 
     sub = commands.add_parser("sim-zk", help="lab: a pretend ZKTeco terminal on port 4370")
     sub.add_argument("--host", default="127.0.0.1")

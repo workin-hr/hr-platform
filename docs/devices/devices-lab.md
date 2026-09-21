@@ -24,7 +24,11 @@ scripts/devices-lab.sh simulate   # runs every simulator and the agent, then pri
 Then open `https://localhost:18443/admin/devices?live=1` (accept the local
 certificate; password `devpassword`). `scripts/devices-lab.sh status` prints
 the same summary again; `scripts/devices-lab.sh down` stops the lab and
-`down --wipe` deletes its database.
+`down --wipe` deletes its database. `scripts/devices-lab.sh allocate SERIAL
+VENDOR ZONE` allocates a real terminal to the lab branch the way the
+dashboard's *Allocate to a branch* does (the registry row, its first history
+row from now, the waiting-list entry removed, in one transaction); the site
+visit's `visit` command uses it.
 
 The lab is its own compose project (`workin-devices-lab`) on its own ports —
 18443 for the dashboard and API, 18080 for the receiver, 13316 for MariaDB —
@@ -57,6 +61,12 @@ python3 -m workin_devices sim-push --server http://127.0.0.1:8081 --serial SIM-R
 # allocate SIM-REHEARSAL-1 in the dashboard, then:
 python3 -m workin_devices sim-push --server http://127.0.0.1:8081 --serial SIM-REHEARSAL-1 --live 20 --every 3
 ```
+
+Or rehearse the guided visit itself against the 4370 simulator: start
+`python3 -m workin_devices sim-zk --port 14370 --serial SIM-REHEARSAL-2`, run
+`python3 -m workin_devices visit`, choose *type the address* and enter
+`127.0.0.1:14370`. It allocates `SIM-REHEARSAL-2` in the lab and ends with a
+report in `field-report/`.
 
 Watch the punches arrive in the dashboard, and read what the recorder kept
 under `lab/captures/SIM-REHEARSAL-1/`. Stop `capture` mid-way to see the
