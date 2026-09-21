@@ -340,6 +340,15 @@ class AdminDepartmentsEndToEndTest {
 		assertThat(toolbar.group(1)).contains("data-selected-branch=\"" + this.branchA1 + "\"");
 	}
 
+	/**
+	 * {@code org_helper.php:485-492} ({@code org_option_label}): unfiltered, an option reads
+	 * {@code branch — company}. The port had the order backwards.
+	 */
+	@Test
+	void theFilterBranchOptionsAreLegacysBranchThenCompanyOrder() {
+		assertThat(body("/admin/departments")).contains("Alpha North — Alpha Co");
+	}
+
 	@Test
 	void anAddWithNoCompanyChosenAsksForOneAndLeavesTheBranchesToIt() throws java.io.IOException {
 		long suspended = createCompany("Zeta Suspended");

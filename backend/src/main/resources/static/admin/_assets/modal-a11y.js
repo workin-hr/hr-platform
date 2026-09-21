@@ -5,6 +5,10 @@
 // does not take focus, that lets Tab walk out into the page behind it, and that
 // drops focus on the floor when it closes. None of that is worth changing in
 // the copy -- so it is added here instead, over the same markup.
+//
+// Two ways a window opens, and both are handled: `crud.js` adds the class,
+// which the observer sees, and the server renders the class already there,
+// which it cannot.
 (function () {
   const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), '
     + 'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -56,6 +60,17 @@
   }).observe(document.body, {
     subtree: true, attributes: true, attributeFilter: ['class'], attributeOldValue: true,
   });
+
+  // A window the server renders with `open` already on it never mutates, so
+  // the observer above never sees it and `open()` never runs: focus stays
+  // wherever the page left it, outside the overlay, and the Tab trap below
+  // only engages once focus is already on the window's first or last control.
+  // Legacy's own pages render these (`?action=edit`, `?action=qr`), so this is
+  // the normal path for them, not an edge case (#305's review).
+  const alreadyOpen = document.querySelector('.modal-bg.open');
+  if (alreadyOpen) {
+    open(alreadyOpen);
+  }
 
   document.addEventListener('keydown', function (event) {
     const modal = document.querySelector('.modal-bg.open');

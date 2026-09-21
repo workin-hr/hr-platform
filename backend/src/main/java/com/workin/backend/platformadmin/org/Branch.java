@@ -103,6 +103,22 @@ public record Branch(
 			java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
 	/**
+	 * {@code org_branch_qr_expires_input_value()}: the current expiry, while a
+	 * code is still active, or today at 23:59 otherwise -- the same default a
+	 * blank form would compute.
+	 */
+	public String qrExpiresInputValue(java.time.LocalDateTime now) {
+		if (qrActive(now)) {
+			java.time.LocalDateTime expires = parseTimestamp(this.expiresAt);
+			return expires.format(INPUT);
+		}
+		return now.toLocalDate() + "T23:59";
+	}
+
+	private static final java.time.format.DateTimeFormatter INPUT =
+			java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm");
+
+	/**
 	 * {@code org_branch_has_coordinates()}: both set, and not the 0,0 pair.
 	 *
 	 * <p>The zero test is a real rule, not a null check written twice: a form
