@@ -27,11 +27,18 @@
 	!{int start = Math.max(1, Math.min(current - half, pages - windowSize + 1));}
 	!{int end = Math.min(pages, start + windowSize - 1);}
 	<%-- Built once: every link below carries the same filters, and the size
-	     form re-submits them as hidden inputs. One source, two renderings. --%>
+	     form re-submits them as hidden inputs. One source, two renderings.
+
+	     A caller with two pagers on one page (attendance) can carry the
+	     other one's current page in `carry`; skip our own pageParam there,
+	     as query.php's pagerHtml() unsets only its own -- otherwise the
+	     link below would carry it twice. --%>
 	!{StringBuilder tail = new StringBuilder();}
 	@for(Map.Entry<String, String> entry : carry.entrySet())
-		!{tail.append('&').append(entry.getKey()).append('=')
-				.append(java.net.URLEncoder.encode(entry.getValue(), java.nio.charset.StandardCharsets.UTF_8));}
+		@if(!entry.getKey().equals(pageParam))
+			!{tail.append('&').append(entry.getKey()).append('=')
+					.append(java.net.URLEncoder.encode(entry.getValue(), java.nio.charset.StandardCharsets.UTF_8));}
+		@endif
 	@endfor
 	!{if (result.perPage() != DashboardPage.SIZE_DEFAULT) {
 		tail.append("&per_page=").append(result.perPage());
@@ -102,8 +109,12 @@
 			</p>
 		</div>
 		<form method="GET" action="${basePath}" class="pager-size">
+			<%-- Changing the size re-pages from 1, as it always has (no "page" hidden input);
+			     the other pager's own page, if `carry` holds one, still rides along. --%>
 			@for(Map.Entry<String, String> entry : carry.entrySet())
-				<input type="hidden" name="${entry.getKey()}" value="${entry.getValue()}">
+				@if(!entry.getKey().equals(pageParam))
+					<input type="hidden" name="${entry.getKey()}" value="${entry.getValue()}">
+				@endif
 			@endfor
 			<%-- The server accepts any size from 1 to PAGE_SIZE_MAX, so a
 			     bookmarked ?per_page=200 served 200 rows while the box read

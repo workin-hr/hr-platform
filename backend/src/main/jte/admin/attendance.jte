@@ -40,11 +40,17 @@
 !{boolean arabic = "ar".equals(lang);}
 !{boolean canWrite = canManage && actionsEnabled;}
 <%-- The range, as a map: the pager needs it in every page link AND as hidden
-     inputs in the page-size form, and one source keeps those from drifting. --%>
+     inputs in the page-size form, and one source keeps those from drifting.
+     query.php's pagerHtml() carries the *other* page number forward by
+     replaying the whole current $_GET; this carries the two page numbers
+     explicitly instead, so paging one table does not reset the other
+     (pager.jte skips a carried entry that names its own pageParam). --%>
 !{java.util.SequencedMap<String, String> carry =
 		new java.util.LinkedHashMap<>(filters.asQueryParameters());}
 !{carry.put("from", from);}
 !{carry.put("to", to);}
+!{carry.put("page", String.valueOf(result.page()));}
+!{carry.put("agg_page", String.valueOf(aggPage));}
 <%-- dashboard/pages/attendance/page.php.
 
      Two tables over one range. They do not agree on worked time and are not
@@ -68,7 +74,7 @@
 	contentClass = "payroll-page hr-page",
 	pageStyles = java.util.List.of("payroll-pages.css", "hr-pages.css",
 			"leave-balance-form.css"),
-	pageScripts = java.util.List.of("emp-picker.js"),
+	pageScripts = java.util.List.of("emp-picker.js", "attendance-form.js"),
 	body = @`
 		@if(errorKey != null)
 			<div class="flash flash-error">${t.apply(errorKey)}</div>
@@ -97,16 +103,16 @@
 					@template.admin.companyFilterField(companyId = filters.companyId(), companies = companyFilterOptions, t = t)
 				@endif
 				<div class="filter-field">
-					<label class="filter-field__label" for="at_search">${t.apply("search")}</label>
-					<input type="search" id="at_search" name="search" value="${filters.search()}">
-				</div>
-				<div class="filter-field">
 					<label class="filter-field__label" for="at_branch">${t.apply("branch")}</label>
 					<select id="at_branch" name="filter_branch" data-filter-branch>
 						<option value="0">${t.apply("filter_all")}</option>
+						<%-- org_option_label() (org_helper.php:485-492): "name — company" only
+						     when no company is chosen. Department options carry no such suffix;
+						     legacy's own toolbar renders the department list plainly. --%>
 						@for(Employee.Option option : branchOptions)
 							<option value="${option.id()}"
-							        selected="${filters.filterBranch() == option.id()}">${option.name()}</option>
+							        selected="${filters.filterBranch() == option.id()}">${option.companyName() == null
+									? option.name() : option.name() + " — " + option.companyName()}</option>
 						@endfor
 					</select>
 				</div>
@@ -119,6 +125,13 @@
 							        selected="${filters.filterDepartment() == option.id()}">${option.name()}</option>
 						@endfor
 					</select>
+				</div>
+				<%-- payroll_list_helper.php:75-102: legacy labels this field "employee_name" with
+				     att_search_placeholder, and puts it after branch/department, not before. --%>
+				<div class="filter-field">
+					<label class="filter-field__label" for="at_search">${t.apply("employee_name")}</label>
+					<input type="search" id="at_search" name="search" value="${filters.search()}"
+					       placeholder="${t.apply("att_search_placeholder")}...">
 				</div>
 				<div class="filter-field">
 					<label class="filter-field__label" for="at_from">${t.apply("from_date")}</label>
@@ -137,7 +150,8 @@
 		     em dash where it has none, never a zero. --%>
 		<div class="data-table-card">
 			<div class="data-table-head">
-				<h2 class="data-table-title">${t.apply("att_records")}</h2>
+				<%-- page.php:182: the heading reuses the page title's key, with the count. --%>
+				<h2 class="data-table-title">${t.apply("nav_fingerprints")} (${result.total()})</h2>
 				<div class="data-table-head__actions">
 					<%-- D-210: page.php:186 offers this and nothing here posted
 					     delete_range. Shown only with a company chosen, as legacy
@@ -246,7 +260,7 @@
 		     than the engine above, so the two tables can disagree. --%>
 		<div class="data-table-card">
 			<div class="data-table-head">
-				<h2 class="data-table-title">${t.apply("att_aggregate_report")}</h2>
+				<h2 class="data-table-title">${t.apply("att_aggregate_report")} (${aggregateResult.total()})</h2>
 			</div>
 			<div class="table-wrap">
 			<table class="tbl">
@@ -300,20 +314,20 @@
 			</div>
 		@if(canWrite)
 			@template.admin.rowDialog(id = "attendance-edit", action = "edit_attendance",
-					title = t.apply("edit"), csrfParameterName = csrfParameterName,
+					title = t.apply("edit_attendance"), csrfParameterName = csrfParameterName,
 					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
 					fields = @`
 						<div class="form-row">
-							<label for="att_edit_check_in">${t.apply("att_check_in_time")}</label>
+							<label for="att_edit_check_in">${t.apply("check_in")}</label>
 							<input type="datetime-local" id="att_edit_check_in" name="check_in" required data-dialog-field="check_in">
 						</div>
 						<div class="form-row">
-							<label for="att_edit_check_out">${t.apply("att_check_out_time")}</label>
+							<label for="att_edit_check_out">${t.apply("check_out")}</label>
 							<input type="datetime-local" id="att_edit_check_out" name="check_out" data-dialog-field="check_out">
 						</div>
 						<div class="form-row">
 							@if(editChoosesType)
-							<label for="att_edit_exception">${t.apply("exception")}</label>
+							<label for="att_edit_exception">${t.apply("exception")} <span class="text-muted">(${t.apply("optional")})</span></label>
 							<select name="exception_type_id" id="att_edit_exception" data-dialog-field="exception_type_id">
 								<option value="0">—</option>
 								<%-- Active types, plus a retired type a listed row carries, marked. row-dialog.js
@@ -344,7 +358,11 @@
 					<button type="button" class="modal-close"
 							aria-label="${t.apply("cancel")}">&times;</button>
 					<h2 id="attModal-title">${t.apply("add_attendance")}</h2>
-					<form method="POST">
+					<%-- page.php:286-303: novalidate, because attendance-form.js gates the submit
+					     itself -- an employee and a check-in -- as legacy's own form does. Legacy
+					     marks those two labels " *"; D-259 marks no field on the dashboard that
+					     way, so these carry none and `required` states it instead. --%>
+					<form method="POST" novalidate>
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="add_attendance">
 					<div class="form-row">
@@ -353,15 +371,15 @@
 								source = "employee-picker-list", t = t)
 					</div>
 					<div class="form-row">
-						<label for="check_in">${t.apply("att_check_in_time")}</label>
+						<label for="check_in">${t.apply("check_in")}</label>
 						<input type="datetime-local" id="check_in" name="check_in" required>
 					</div>
 					<div class="form-row">
-						<label for="check_out">${t.apply("att_check_out_time")}</label>
+						<label for="check_out">${t.apply("check_out")}</label>
 						<input type="datetime-local" id="check_out" name="check_out">
 					</div>
 					<div class="form-row">
-						<label for="exception_type_id">${t.apply("exception")}</label>
+						<label for="exception_type_id">${t.apply("exception")} <span class="text-muted">(${t.apply("optional")})</span></label>
 						<select id="exception_type_id" name="exception_type_id">
 							<option value="0">—</option>
 							@for(AttendanceRecord.ExceptionTypeOption option : exceptionTypes)
@@ -372,7 +390,7 @@
 					<%-- The save sits in a form-footer, as legacy's does, so it stays put
 					     while the fields scroll: .modal is the scroll container. --%>
 					<div class="form-footer">
-						<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+						<button type="submit" class="btn btn-blue" data-att-submit disabled>${t.apply("save")}</button>
 					</div>
 				</form>
 				</div>
