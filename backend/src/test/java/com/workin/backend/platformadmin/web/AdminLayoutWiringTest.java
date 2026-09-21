@@ -1014,6 +1014,15 @@ class AdminLayoutWiringTest {
 				"@if(!canWrite)<span>x</span>@elseif(row.wide())" + cancel + "@endif", synthetic))
 				.as("an @elseif behind a condition that certainly holds when the switch is off")
 				.isTrue();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(qrRow == null)<span>x</span>@elseif(row.wide())<span>y</span>@elseif(canWrite)"
+						+ cancel + "@endif", synthetic))
+				.as("a THIRD arm: the walk counted depth from the arm before it and stopped at two")
+				.isTrue();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(canWrite)<span>x</span>@elseif(row.wide())<span>y</span>@elseif(row.tall())"
+						+ cancel + "@endif", synthetic))
+				.as("a third arm the reader can reach with the switch off").isFalse();
 		assertThatThrownBy(() -> cancelIsBehindTheSwitch(
 				"@if(canWrite == true)" + cancel + "@endif", synthetic))
 				.as("the switch inside a larger operand is not guessed at")
@@ -1029,20 +1038,23 @@ class AdminLayoutWiringTest {
 	/**
 	 * Whether this window's Cancel renders only when the actions switch is on.
 	 *
-	 * <p>Every {@code @if} in the window is read by its <b>condition</b>, not by
-	 * the text it is written with. Rounds 1 to 5 each found this rule green for a
-	 * Cancel that was gated: the control absent entirely, the window invisible,
-	 * a comment read as markup, {@code @if(actionsEnabled)} unknown to the scan,
-	 * and then {@code @if(canWrite && ...)} -- four spellings of one idea, each
-	 * added to a literal list after a reviewer found it. A condition that names
-	 * the switch is a gate whatever else it says, so a fifth spelling is covered
-	 * without being enumerated.
+	 * <p>Every block that holds the control is read by its <b>conditions</b>, not by
+	 * the text they are written with, and a block that holds no Cancel is not this
+	 * rule's business at all. Rounds 1 to 5 each found this rule green for a Cancel
+	 * that was gated: the control absent entirely, the window invisible, a comment
+	 * read as markup, {@code @if(actionsEnabled)} unknown to the scan, and then
+	 * {@code @if(canWrite && ...)} -- four spellings of one idea, each added to a
+	 * literal list after a reviewer found it. A condition that names the switch is
+	 * a gate whatever else it says, so a sixth spelling is covered without being
+	 * enumerated.
 	 *
-	 * <p>Polarity decides <em>which arm</em> is the gated one, and both directions
-	 * are real: under {@code @if(canWrite)} the then-arm needs the switch on, and
-	 * under {@code @if(!canWrite)} it is the {@code @else} arm that does. A
-	 * condition naming the switch both ways cannot be read here and fails loudly
-	 * rather than being guessed at.
+	 * <p>Which arm is the gated one comes from {@link #armsOf}, which evaluates
+	 * each condition with the switch off: {@code @if(canWrite)} gates its own arm,
+	 * {@code @if(!canWrite)} gates its {@code @else}, and a chain gates whichever
+	 * of its arms the reader cannot reach. A condition naming the switch both ways
+	 * is read rather than refused; the one shape this does not evaluate -- the
+	 * switch inside a larger operand -- fails loudly, and only when it guards the
+	 * control.
 	 *
 	 * <p>Broad is the safe direction here, and it is the opposite of
 	 * {@link #insideAGate}'s, which skips a window entirely and so reads only a
@@ -1092,7 +1104,7 @@ class AdminLayoutWiringTest {
 		List<String> conditions = new ArrayList<>(
 				List.of(conditionAt(source, source.indexOf('(', block), path)));
 		for (int at = block; at >= 0 && at < end; ) {
-			int next = nextArmAtDepthOne(source, at + 1, end, path);
+			int next = nextArmAtDepthOne(source, block, at + 1, end);
 			if (next < 0) {
 				break;
 			}
@@ -1113,11 +1125,20 @@ class AdminLayoutWiringTest {
 		return arms;
 	}
 
-	/** The next {@code @elseif} or {@code @else} belonging to this block, or -1. */
-	private static int nextArmAtDepthOne(String source, int from, int end, Path path) {
+	/**
+	 * The next {@code @elseif} or {@code @else} belonging to {@code block}, after
+	 * {@code from}, or -1.
+	 *
+	 * <p>Depth is counted from the block's own {@code @if} and not from the arm
+	 * before it: counting from the previous arm leaves that {@code @if} outside the
+	 * region, so every third and later arm read as depth 0 and the walk stopped at
+	 * two. The commit that introduced this walk is titled "a chain has as many arms
+	 * as it has conditions" and read two of them (#305's review round 8).
+	 */
+	private static int nextArmAtDepthOne(String source, int block, int from, int end) {
 		Matcher arm = Pattern.compile("@else(if)?\\b").matcher(source).region(from, end);
 		while (arm.find()) {
-			if (depthAt(source, from - 1, arm.start()) == 1) {
+			if (depthAt(source, block, arm.start()) == 1) {
 				return arm.start();
 			}
 		}
@@ -1174,15 +1195,6 @@ class AdminLayoutWiringTest {
 		throw new AssertionError(path.getFileName() + ": a string that never closes at " + quote);
 	}
 
-	/**
-	 * Reading a condition rather than pattern-matching it.
-	 *
-	 * <p>Round 5 decided which arm a condition gates by asking whether a {@code !} sat
-	 * immediately before the switch's name, which read {@code @if(!(canWrite))} as
-	 * un-negated and was wrong in both directions at once (round 6); round 7 then found
-	 * the reading applied to an {@code @if} and its {@code @else} only, where a chain
-	 * has as many arms as it has conditions. {@link #armsOf} asks this for each arm.
-	 */
 	/**
 	 * {@code condition} with the actions switch off: {@code TRUE}, {@code FALSE}, or
 	 * {@code null} when the operands this cannot see decide it.
