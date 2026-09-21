@@ -801,10 +801,6 @@ class ThePiecesTheWizardDecidesWith(unittest.TestCase):
             self.assertNotEqual(done.returncode, 0)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ABacklogThatIsStillDraining(unittest.TestCase):
     """Runbook 5.4 asks how long a punch takes to arrive and which code carries in/out. A terminal
     with months of records is still uploading them while those tests run, and an old record
@@ -970,3 +966,7 @@ class WhenTheVisitCannotFinish(unittest.TestCase):
         self.assertIn("البصمة وصلت للسيستم، بس الـ capture مافهمش سطور الرفعة", console.text)
         self.assertNotIn("ماوصلتش", console.text, "the punch did arrive; the line shape is the finding")
         self.assertIn("البصمتين ورا بعض اتسجلوا الاتنين", console.text, "the visit carried on")
+
+
+if __name__ == "__main__":
+    unittest.main()
