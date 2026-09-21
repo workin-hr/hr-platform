@@ -1029,11 +1029,13 @@ class Visit:
             line = next(line for line in told.response.decode("ascii", "replace").splitlines()
                         if line.startswith("TimeZone="))
             self.say(f"   بعد التخصيص السيستم بعت للجهاز {line}")
-            # Rule 2's safeguard reads the clock back over 4370, which this terminal does not
-            # answer on. The row says that rather than staying blank: the hazard is real -- some
-            # firmware applies the zone the platform just sent -- and an empty cell in the report
-            # reads as "no difference" rather than "not measured".
-            self.sheet["فرق ساعة الجهاز عن اللابتوب"] = "مااتقاسش: الجهاز مابيردش على 4370، والسيستم بعتله TimeZone"
+        # Rule 2's safeguard reads the clock back over 4370, which this terminal does not answer
+        # on. The row says that rather than staying blank: the hazard is real -- some firmware
+        # applies the zone the platform sends -- and an empty cell in the report reads as "no
+        # difference" rather than "not measured". Whether the zone was actually sent is added
+        # when it was seen, because that is the half that makes the hazard live (#313).
+        self.sheet["فرق ساعة الجهاز عن اللابتوب"] = ("مااتقاسش: الجهاز مابيردش على 4370"
+                                                     + ("، والسيستم بعتله TimeZone" if told else ""))
         self.sheet["HTTPS موجود في المنيو؟"] = "نعم" if self.yes(
             "فيه اختيار HTTPS في شاشة Cloud Server Setting؟", default=False) else "لا"
         self.sheet["Enable Domain Name موجود؟"] = "نعم" if self.yes(
@@ -1061,11 +1063,16 @@ class Visit:
             if self.receiver.wait(lambda exchanges: arrivals(exchanges, serial), mark, self.quiet_seconds) is None:
                 return
             self.say("   ⏳ الجهاز لسه بيبعت سجلاته القديمة...")
-            if time.monotonic() > deadline and not self.yes("لسه بيبعت. أستنى تاني؟ (لأ = نكمل التجارب دلوقتي)"):
-                self.note("warn", "بدأنا التجارب والجهاز لسه بيبعت سجلاته القديمة",
-                          "الأرقام اللي تحت ممكن تكون لسجل قديم مش للبصمة اللي اتعملت دلوقتي: اكتب ده في الـ issue")
-                return
-            deadline = max(deadline, time.monotonic() + self.wait_seconds)
+            if time.monotonic() > deadline:
+                if not self.yes("لسه بيبعت. أستنى تاني؟ (لأ = نكمل التجارب دلوقتي)"):
+                    self.note("warn", "بدأنا التجارب والجهاز لسه بيبعت سجلاته القديمة",
+                              "الأرقام اللي تحت ممكن تكون لسجل قديم مش للبصمة اللي اتعملت دلوقتي: اكتب ده في الـ issue")
+                    return
+                # Only an answered "wait again" moves the deadline. Moving it on every pass --
+                # which is what this line used to do, outside the branch -- put it permanently
+                # ahead of the check that reads it, so the question was never asked and a
+                # terminal that never goes quiet left the operator nothing but Ctrl-C.
+                deadline = time.monotonic() + self.wait_seconds
 
     def punch_test(self, serial: str, instruction: str, count: int) -> PunchTest | None:
         """Times the punch the operator was just asked for, and nothing else: an upload that was
@@ -1105,7 +1112,7 @@ class Visit:
             self.note("bad", "البصمة العادية ماوصلتش", "راجع الإعدادات على الجهاز، وجرّب تاني")
             return
         if normal.blind:
-            self.unmeasurable()
+            self.unmeasurable("البصمة", "بصمة وصلت خلال")
             return
         self.push.in_value = normal.arrived[-1].in_out
         self.sheet["بصمة وصلت خلال"] = f"{normal.seconds:.0f} ثانية"
@@ -1126,6 +1133,8 @@ class Visit:
         twice = self.punch_test(serial, "لما تدوس Enter، خلّي الموظف يعمل بصمتين ورا بعض (في أقل من 10 ثواني)", 2)
         if twice is None:
             self.note("bad", "البصمتين ورا بعض ماوصلوش الاتنين", "اكتبها في الـ issue: ممكن الجهاز بيرفض بصمة مكررة بسرعة")
+        elif twice.blind:
+            self.unmeasurable("البصمتين ورا بعض")
         else:
             self.note("ok", "البصمتين ورا بعض اتسجلوا الاتنين")
         if self.yes("نعمل تجربة شيل كابل الشبكة من الجهاز؟ (دقيقتين)"):
@@ -1134,18 +1143,22 @@ class Visit:
             if cable is None:
                 self.sheet["شلنا الكابل: البصمات وصلت بعد الرجوع؟"] = "لا"
                 self.note("bad", "البصمات اللي اتعملت والكابل مشيل ماوصلتش", "اكتبها في الـ issue، وخلي العميل يتأكد إنها على الجهاز")
+            elif cable.blind:
+                self.unmeasurable("رجوع البصمات بعد ما الكابل رجع", "شلنا الكابل: البصمات وصلت بعد الرجوع؟")
             else:
                 self.sheet["شلنا الكابل: البصمات وصلت بعد الرجوع؟"] = f"نعم، بعد {cable.seconds:.0f} ثانية"
                 self.note("ok", f"بعد ما الكابل رجع، البصمات وصلت خلال {cable.seconds:.0f} ثانية")
         if self.yes(f"نعمل تجربة وقف الاستقبال {self.pause_seconds / 60:.0f} دقايق؟ (الجهاز لازم يعيد الإرسال لوحده)"):
             self.pause_test(serial)
 
-    def unmeasurable(self) -> None:
+    def unmeasurable(self, what: str, row: str | None = None) -> None:
         """The terminal was already uploading records the recorder keeps no line from, so an
         upload landing after the prompt is as likely to be one of those as the punch just made.
-        Timing it would put a number nobody can stand behind in the sheet's headline row."""
-        self.sheet["بصمة وصلت خلال"] = "مااتقاسش"
-        self.note("bad", "مش قادرين نقيس البصمة على الموديل ده: الجهاز بيرفع سجلات الـ capture مش فاهم "
+        Timing it would put a number nobody can stand behind in the sheet. Every test that ends
+        in a number or a tick goes through here, not only the headline one."""
+        if row:
+            self.sheet[row] = "مااتقاسش"
+        self.note("bad", f"مش قادرين نقيس {what} على الموديل ده: الجهاز بيرفع سجلات الـ capture مش فاهم "
                          "سطورها، فأي رفعة ممكن تكون سجل قديم مش البصمة اللي اتعملت دلوقتي",
                   "دي أهم معلومة عن الموديل ده: شكل السطر في التقرير وفي field-report/captures، "
                   "اكتبه في الـ issue عشان نضيف الشكل ده للسيستم. لحد ما ده يحصل، الجهاز ده مايتقاسش من هنا")
@@ -1338,6 +1351,8 @@ class Visit:
             identities = sorted({exchange.serial for exchange in recorded})
             self.say(f"   اتسجل {len(recorded)} طلب من: {', '.join(identities) or 'ولا حاجة'}")
             self.sheet["مشاكل تانية"] = f"اتسجل {len(recorded)} طلب في field-report/captures"
+            if recorded:
+                self.note("ok", f"الجهاز كلّم اللابتوب: اتسجل {len(recorded)} طلب في field-report/captures")
         self.note("warn", "النوع ده السيستم مابيدعموش لسه",
                   "افتح issue بالصور ونتيجة الـ scan وفولدر field-report/captures: دي اللي هتخلينا نعمل دعم")
 
@@ -1459,10 +1474,15 @@ class Visit:
         return path
 
     def examined(self) -> bool:
-        """Did anything actually get tested? Every path that reaches a terminal or reads an
-        export records at least one `ok` finding on the way, so nothing having worked means
-        nothing was tried -- the customer said no to the network and there was no USB file."""
-        return any(finding.level == "ok" for finding in self.findings)
+        """Did anything actually get looked at?
+
+        Two ways to have looked. Most paths record an `ok` finding on the way -- the handshake,
+        the 4370 connection, the export read. The other is runbook 9: a terminal found,
+        identified and classified as one the platform does not support yet records a `warn` and
+        a results sheet, and `self.serial` is set the moment it is identified. That visit
+        examined a terminal and its answer is the model; a headline saying nothing was examined
+        would deny its own sheet."""
+        return self.serial is not None or any(finding.level == "ok" for finding in self.findings)
 
     def verdict(self) -> str:
         """What the report is headed with, and the first thing anyone reads. It answers "was

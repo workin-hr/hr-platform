@@ -152,6 +152,18 @@ class PushDevice:
             self.pending.append(self.line(datetime.now() - timedelta(days=2), 1, 15))
         return ""
 
+    def drip_old_records(self, count=2, every=0.25):
+        """The same, `count` times and spaced, from a thread -- so they are uploaded one at a
+        time and after the caller returns, which is what a backlog landing *during* a test
+        looks like. Queued together they would go in one POST and be one arrival."""
+        def drip():
+            for _ in range(count):
+                time.sleep(every)
+                self.drip_old_record()
+
+        threading.Thread(target=drip, daemon=True).start()
+        return ""
+
     def send_old_batch(self, lines=3, in_out=1):
         """A batch of old records, sent now and synchronously: a backlog still draining."""
         old = datetime.now() - timedelta(days=2)
@@ -234,12 +246,30 @@ class UnreadableTricklingDevice(CommaLines, TricklingPushDevice):
     pass
 
 
-def quick_visit(console, lab, out):
+class GarblingPushDevice(PushDevice):
+    """Firmware whose lines parse until they do not -- an optional column that only some
+    employees have, say. The first punch is readable and the later ones are not, which is the
+    state a test that only looks at the first punch cannot see."""
+
+    garbled = False
+
+    def garble(self):
+        self.garbled = True
+        return ""
+
+    def line(self, when, in_out, verify=1):
+        if not self.garbled:
+            return super().line(when, in_out, verify)
+        return f"{PIN},{when:%Y-%m-%d %H:%M:%S},{in_out},{verify},0,0,0"
+
+
+def quick_visit(console, lab, out, wait_seconds=10):
     """A visit with every wait cut to test length. The scan finds nothing, so a test picks its
-    terminal by address; it records what it was asked to scan."""
+    terminal by address; it records what it was asked to scan. `wait_seconds` is a parameter
+    because the backlog wait's deadline is four times it, and one test is about that deadline."""
     scans = []
     visited = visit.Visit(console=console, lab=lab, out_dir=out, capture_host="127.0.0.1", capture_port=0,
-                          wait_seconds=10, settle_seconds=0.3, pause_seconds=0.5, quiet_seconds=0.4,
+                          wait_seconds=wait_seconds, settle_seconds=0.3, pause_seconds=0.5, quiet_seconds=0.4,
                           sleep=lambda seconds: time.sleep(min(seconds, 0.3)),
                           networks=lambda: [("127.0.0.1", "127.0.0.0/30")],
                           scan=lambda cidr, **kwargs: scans.append(cidr) or [])
@@ -568,10 +598,10 @@ class ATerminalThatSaysSomethingOdd(unittest.TestCase):
         visited = quick_visit(console, self.lab, self.out)
         code = visited.run()
         self.assertEqual(console.answers, [])
-        # Not a pass: no terminal was ever examined, only classified as unsupported. The visit
-        # did its job -- the finding is the model -- and the exit code says an issue is owed.
-        self.assertEqual(code, 1, console.text)
-        self.assertIn("الزيارة ماعملتش أي فحص", report_of(self.out))
+        self.assertEqual(code, 0, console.text)
+        # It examined a terminal: found, identified, and answered "not supported yet". The
+        # headline must not say nothing was examined -- the sheet two rows down says otherwise.
+        self.assertNotIn("الزيارة ماعملتش أي فحص", report_of(self.out))
         self.assertEqual(visited.serial, "device")
         self.assertNotIn(address, report_of(self.out))
         self.assertEqual([path.name for path in Path(self.out).glob(f"*{address}*")], [])
@@ -1067,6 +1097,45 @@ class ABacklogThatIsStillDraining(unittest.TestCase):
         self.assertIn("لسه بيبعت سجلاته القديمة", console.text, "and the operator was told why the wait")
         self.assertEqual(code, 0, console.text)
 
+    def test_the_backlog_wait_offers_a_way_out_once_its_deadline_passes(self):
+        """A terminal draining months of records never goes quiet, and the wait is written to
+        offer the operator a way on once it has waited long enough. The deadline used to be
+        pushed forward on every pass -- including the passes that were only checking it -- so
+        it was never reached, the question was never asked, and the only way on was Ctrl-C."""
+        console = ScriptedConsole([])
+        # wait_seconds=2, so the wait's own deadline is eight seconds; the terminal keeps
+        # uploading for nine, which is the shape the question exists for.
+        visited = quick_visit(console, self.lab, self.out, wait_seconds=2)
+
+        def configure():
+            self.device = TricklingPushDevice(f"http://127.0.0.1:{visited.receiver.port}",
+                                              batches=60, interval=0.15)
+            return ""
+
+        console.answers = VisitStart() + [
+            ("أنهي جهاز", "1"), ("لما تحفظ", configure), ("نفس اللي على الستيكر", "1"),
+            ("الجهاز متظبط على إيه", "2"), ("بتتظبط لوحدها", "1"),
+            ("أستنى تاني", "2"),
+            ("بصمة عادية", lambda: self.device.punch(0)),
+            ("Check-Out", lambda: self.device.punch(1)), ("بيدوسوا زرار", "1"),
+            ("بصمتين ورا بعض", lambda: self.device.punch(0) + self.device.punch(0)),
+            ("شيل كابل", "2"), ("وقف الاستقبال", "2"),
+            ("HTTPS", "1"), ("Enable Domain Name", "1"), ("Attendance Search", "1"),
+            ("ملف USB", "1"), ("Cloud Server Setting", "1"), ("برنامج", "1"), ("كابل أو switch", "1"),
+        ]
+        visited.run()
+
+        self.assertEqual(console.answers, [])
+        self.assertEqual(console.text.count("أستنى تاني"), 1, "asked once, after the deadline")
+        self.assertIn("بدأنا التجارب والجهاز لسه بيبعت سجلاته القديمة", console.text,
+                      "and the report says the numbers below it may be a stale record")
+        # The same visit's clock row: this path cannot read the terminal's clock back over 4370,
+        # and the platform has just sent it a time zone, so the cell says so rather than nothing.
+        self.assertIn("| فرق ساعة الجهاز عن اللابتوب | مااتقاسش: الجهاز مابيردش على 4370",
+                      report_of(self.out))
+
+
+
 
 class WhenTheVisitCannotFinish(unittest.TestCase):
 
@@ -1245,6 +1314,45 @@ class WhenTheVisitCannotFinish(unittest.TestCase):
                          + console.text[-2000:])
         self.assertEqual(code, 1, console.text)
 
+    def test_a_later_punch_test_the_capture_cannot_read_is_not_ticked_either(self):
+        """The headline row is not the only one that ends in a number or a tick. Firmware whose
+        lines parse for some punches and not others gets past the first test, and the ones after
+        it were ticked unconditionally."""
+        console = ScriptedConsole([])
+        visited = quick_visit(console, self.lab, self.out)
+
+        def configure():
+            self.device = GarblingPushDevice(f"http://127.0.0.1:{visited.receiver.port}")
+            return ""
+
+        def garble_then_punch():
+            self.device.garble()
+            return self.device.punch(1)
+
+        def the_backlog_answers_instead():
+            # No punch: two old records, uploaded one at a time after the prompt returns.
+            return self.device.drip_old_records(2)
+
+        console.answers = VisitStart() + [
+            ("أنهي جهاز", "1"), ("لما تحفظ", configure), ("نفس اللي على الستيكر", "1"),
+            ("الجهاز متظبط على إيه", "2"), ("بتتظبط لوحدها", "1"),
+            ("بصمة عادية", lambda: self.device.punch(0)),
+            ("Check-Out", garble_then_punch),
+            ("بصمتين ورا بعض", the_backlog_answers_instead),
+            ("شيل كابل", "2"), ("وقف الاستقبال", "2"),
+            ("HTTPS", "1"), ("Enable Domain Name", "1"), ("Attendance Search", "1"),
+            ("ملف USB", "1"), ("Cloud Server Setting", "1"), ("برنامج", "1"), ("كابل أو switch", "1"),
+        ]
+        visited.run()
+
+        self.assertEqual(console.answers, [])
+        self.assertIn("بصمة عادية وصلت للسيستم خلال", console.text, "the first punch was readable")
+        self.assertIn("مش قادرين نقيس البصمتين ورا بعض", console.text)
+        self.assertNotIn("البصمتين ورا بعض اتسجلوا الاتنين", console.text,
+                         "nothing readable answered that test: " + console.text[-1200:])
+
+
+
 
 class WhenNothingWasExamined(unittest.TestCase):
     """A report is pasted into a device-compatibility issue, where its first line is read as the
@@ -1280,6 +1388,71 @@ class WhenNothingWasExamined(unittest.TestCase):
         console = ScriptedConsole(VisitStart() + [
             ("أنهي جهاز", "3"), ("معاك ملف USB", "1"), ("برنامج", "1"), ("كابل أو switch", "1")])
         self.assert_examined_nothing(console, quick_visit(console, self.lab, self.out).run())
+
+
+class WhatTheHeadlineMustNotDeny(unittest.TestCase):
+    """The report's first line is read as the answer about the model. It has to agree with the
+    rest of the report, including a results sheet that says a terminal was heard from."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.platform = FakePlatform()
+        self.receiver = FakeReceiver()
+        self.lab = FakeLab(self.platform, self.receiver, self.dir.name)
+        self.out = os.path.join(self.dir.name, "field-report")
+        self.device = None
+
+    def tearDown(self):
+        if self.device:
+            self.device.stop()
+        self.receiver.close()
+        self.platform.close()
+        self.dir.cleanup()
+
+    def test_an_unsupported_brand_that_reached_the_recorder_is_not_reported_as_nothing_examined(self):
+        console = ScriptedConsole([])
+        visited = quick_visit(console, self.lab, self.out)
+
+        def point_it_at_the_laptop():
+            self.device = UnreadablePushDevice(f"http://127.0.0.1:{visited.receiver.port}", serial="ANVIZ-1")
+            time.sleep(0.5)
+            return ""
+
+        console.answers = VisitStart() + [
+            ("أنهي جهاز", "2"), ("اكتب IP", "192.168.44.79:8080"), ("نوع الجهاز", "3"),
+            ("الماركة والموديل", "Anviz W1"), ("إعداد server", "2"),
+            ("لما الموظف يعمل بصمة", point_it_at_the_laptop),
+            ("Cloud Server Setting", "1"), ("برنامج", "1"), ("كابل أو switch", "1")]
+        code = visited.run()
+
+        report = report_of(self.out)
+        self.assertEqual(console.answers, [])
+        self.assertIn("طلب في field-report/captures", report, "the sheet says the terminal was heard from")
+        self.assertIn("✅ الجهاز كلّم اللابتوب: اتسجل", report, "and the report counts that as something that worked")
+        self.assertNotIn("الزيارة ماعملتش أي فحص", report, "so the headline cannot say it was not: " + report[:400])
+        self.assertEqual(code, 0, console.text)
+
+    def test_a_visit_stopped_with_control_c_says_so_rather_than_that_it_worked(self):
+        # Ctrl-C at the device question: inside the visit, before the restore checklist, which
+        # has its own handler and its own (bad) finding.
+        interrupt = ScriptedConsole(VisitStart() + [("برنامج", "1"), ("كابل أو switch", "1")])
+        original = interrupt.ask
+
+        def stop_at_the_device_question(prompt):
+            # The prompt for a numbered choice is "اكتب الرقم"; the question itself is the last
+            # line the console was told to print, which is where the scripted console looks too.
+            if "أنهي جهاز" in (interrupt.question or ""):
+                raise KeyboardInterrupt
+            return original(prompt)
+
+        interrupt.ask = stop_at_the_device_question
+        code = quick_visit(interrupt, self.lab, self.out).run()
+
+        report = report_of(self.out)
+        self.assertEqual(code, 1, interrupt.text)
+        self.assertIn("⛔ الزيارة اتوقفت قبل ما تخلص", report)
+        self.assertNotIn("⚠️ اشتغل", report, "an aborted visit did not work; it stopped")
+        self.assertIn("| مشاكل تانية | الزيارة اتوقفت قبل ما تخلص |", report)
 
 
 if __name__ == "__main__":
