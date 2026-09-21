@@ -49,4 +49,17 @@ public record Shift(
 		return time != null && time.length() >= 5 ? time.substring(0, 5) : (time == null ? "" : time);
 	}
 
+	/** {@code org_shift_time_display()}: the row's own start time, or an em dash for null or empty. */
+	public String startTimeDisplay() {
+		return timeDisplay(this.startTime);
+	}
+
+	public String endTimeDisplay() {
+		return timeDisplay(this.endTime);
+	}
+
+	private static String timeDisplay(String time) {
+		return time == null || time.isEmpty() ? "—" : trimSeconds(time);
+	}
+
 }

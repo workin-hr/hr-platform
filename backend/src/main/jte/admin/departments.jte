@@ -89,7 +89,7 @@
 						@for(Department.BranchOption option : branchOptions)
 							<option value="${option.id()}" selected="${filters.filterBranch() == option.id()}">
 								${option.companyName() == null ? option.name()
-									: option.companyName() + " — " + option.name()}</option>
+									: option.name() + " — " + option.companyName()}</option>
 						@endfor
 					</select>
 				</div>

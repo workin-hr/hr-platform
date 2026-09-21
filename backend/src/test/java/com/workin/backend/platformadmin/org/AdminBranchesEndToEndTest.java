@@ -80,6 +80,27 @@ class AdminBranchesEndToEndTest {
 	@Autowired
 	private javax.sql.DataSource legacyDataSource;
 
+	/**
+	 * The clock the page dates from, which is the database's offset and not the
+	 * JVM's. It is request-scoped, so a test reaching it has to stand a request
+	 * up around the call; {@link #legacyNow()} does.
+	 */
+	@Autowired
+	private com.workin.legacy.LegacyClock clock;
+
+	/** {@code LegacyClock.now()} from outside a request, which is where tests are. */
+	private java.time.LocalDateTime legacyNow() {
+		org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+				new org.springframework.web.context.request.ServletRequestAttributes(
+						new org.springframework.mock.web.MockHttpServletRequest()));
+		try {
+			return this.clock.now();
+		}
+		finally {
+			org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+		}
+	}
+
 	private JdbcTemplate jdbc;
 
 	private String cookie;
@@ -424,6 +445,124 @@ class AdminBranchesEndToEndTest {
 				.getHeaders().getLocation()).asString().contains("error=error_db");
 		assertThat(this.jdbc.queryForObject(
 				"SELECT qr_code FROM branches WHERE id = " + id, String.class)).isNull();
+	}
+
+	/** {@code org_branch_table_row_actions()} (org_helper.php:834-858): Edit, Delete, QR. */
+	@Test
+	void theRowActionsOfferEditThenDeleteThenQrAsLegacyOrders() {
+		seedBranch(this.companyA, "Ordered");
+		String actions = row(body("/admin/branches"), "Ordered");
+		int edit = actions.indexOf("action=edit");
+		int delete = actions.indexOf("value=\"delete\"");
+		int qr = actions.indexOf("action=qr");
+		assertThat(edit).as("an edit link").isGreaterThanOrEqualTo(0);
+		assertThat(delete).as("delete after edit, as legacy orders them").isGreaterThan(edit);
+		assertThat(qr).as("qr last, after delete").isGreaterThan(delete);
+	}
+
+	/**
+	 * {@code _branch_qr_modal.php}: {@code modal-bg open > modal modal--org-form modal--branch-qr},
+	 * not the data-table-card the port had drawn inline in the page flow.
+	 */
+	@Test
+	void theQrPanelIsLegacysModalNotAnInlineCard() {
+		long id = seedBranch(this.companyA, "Modalled");
+		String html = body("/admin/branches?action=qr&id=" + id);
+		assertThat(html)
+				.contains("<div class=\"modal-bg open\">")
+				.contains("<div class=\"modal modal--org-form modal--branch-qr\" role=\"dialog\" aria-modal=\"true\"")
+				.contains("aria-labelledby=\"br-qr-title\"")
+				.contains("<h2 id=\"br-qr-title\">")
+				.contains("<p class=\"branch-qr-branch-name\">Modalled</p>");
+
+		// Bounded to the modal's own form: the page's filter bar carries a btn-blue submit of
+		// its own, so an unbounded contains() passes whatever colour the modal's button is.
+		int form = html.indexOf("branch-qr-form");
+		assertThat(html.substring(form, html.indexOf("</form>", form)))
+				.as("legacy's own submit variant (_branch_qr_modal.php:40), not the port's yellow")
+				.contains("<button type=\"submit\" class=\"btn btn-blue\">");
+	}
+
+	/**
+	 * Legacy's first arm is {@code $qrActive && $qrImage !== ''} (`_branch_qr_modal.php:12`),
+	 * and {@code org_branch_qr_image_url()} returns {@code ''} for a code that trims to
+	 * nothing. {@code qrActive} alone is {@code empty()}-based, so a blank-but-not-empty code
+	 * is active to it -- the port rendered the active block with {@code <img src="">}, which a
+	 * browser resolves to the page itself and re-requests, where legacy renders "expired".
+	 * Only a hand-edited row reaches it, which is the same standard {@code Branch.qrActive}
+	 * holds for a code of {@code "0"}.
+	 */
+	@Test
+	void aBlankCodeIsExpiredAsLegacyRendersIt() {
+		long id = seedBranch(this.companyA, "Blank Code");
+		this.jdbc.update("UPDATE branches SET qr_code = ?, expires_at = ? WHERE id = ?",
+				"   ", legacyNow().plusDays(1).format(LOCAL).replace('T', ' '), id);
+
+		String html = body("/admin/branches?action=qr&id=" + id);
+		assertThat(html).as("legacy's second arm: a code that is there but renders nothing")
+				.contains("branch-qr-status--expired")
+				.doesNotContain("branch-qr-status--active")
+				.doesNotContain("<img src=\"\"");
+	}
+
+	/**
+	 * The active block's order (`_branch_qr_modal.php:96-105`): status, image, then meta in
+	 * {@code <strong dir="ltr">}. The port had the meta before the image and no {@code dir="ltr"}.
+	 */
+	@Test
+	void theActiveQrBlockOrdersStatusImageThenMetaWithLtrExpiry() {
+		long id = seedBranch(this.companyA, "Coded Order");
+		Page qr = page("/admin/branches?action=qr&id=" + id, this.cookie);
+		post("/admin/branches", this.cookie, qr.csrf(), "action", "generate_qr",
+				"id", String.valueOf(id), "company_id", String.valueOf(this.companyA),
+				"expires_at", LocalDateTime.now().plusDays(1).format(LOCAL));
+
+		String html = body("/admin/branches?action=qr&id=" + id);
+		int status = html.indexOf("branch-qr-status--active");
+		int image = html.indexOf("branch-qr-image");
+		int meta = html.indexOf("branch-qr-meta");
+		int strong = html.indexOf("<strong dir=\"ltr\">");
+		assertThat(status).as("an active status").isGreaterThanOrEqualTo(0);
+		assertThat(image).as("the image after the status").isGreaterThan(status);
+		assertThat(meta).as("the meta after the image").isGreaterThan(image);
+		assertThat(strong).as("the expiry in an ltr strong, inside the meta").isGreaterThan(meta);
+	}
+
+	/**
+	 * {@code org_branch_qr_expires_input_value()} (org_helper.php:782-788): the current expiry
+	 * while a code is active, or today at 23:59 otherwise. The port left the field blank.
+	 */
+	@Test
+	void theQrExpiryFieldIsPrefilledAsLegacyPrefillsIt() {
+		long freshId = seedBranch(this.companyA, "Fresh");
+		// The page dates this from LegacyClock, which is the database's offset, not the
+		// JVM's: with the JVM in UTC and legacy at UTC+2 these disagree from 22:00 UTC,
+		// and the test would fail for two hours a day (#305's review round 1, Codex).
+		String today = legacyNow().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+		assertThat(body("/admin/branches?action=qr&id=" + freshId))
+				.contains("id=\"br_qr_expires\"")
+				.contains("value=\"" + today + "T23:59\"");
+
+		long id = seedBranch(this.companyA, "Coded Prefill");
+		Page qr = page("/admin/branches?action=qr&id=" + id, this.cookie);
+		String expiry = legacyNow().plusDays(1).format(LOCAL);
+		post("/admin/branches", this.cookie, qr.csrf(), "action", "generate_qr",
+				"id", String.valueOf(id), "company_id", String.valueOf(this.companyA), "expires_at", expiry);
+		assertThat(body("/admin/branches?action=qr&id=" + id)).contains("value=\"" + expiry + "\"");
+	}
+
+	/** {@code _branch_form.php}: legacy's {@code br_*} input ids, and {@code dir="ltr"} on coordinates. */
+	@Test
+	void theFormFieldsCarryLegacysBrIdsAndTheCoordinatesAndRadiusAreLtr() {
+		String html = body("/admin/branches?action=add");
+		assertThat(html)
+				.contains("for=\"br_name\"").contains("id=\"br_name\"")
+				.contains("for=\"br_address\"").contains("id=\"br_address\"")
+				.contains("for=\"br_lat\"").contains("id=\"br_lat\" name=\"lat\" dir=\"ltr\"")
+				.contains("for=\"br_lng\"").contains("id=\"br_lng\" name=\"lng\" dir=\"ltr\"")
+				.contains("for=\"br_radius\"")
+				.contains("id=\"br_radius\" name=\"radius_meters\" min=\"1\" max=\"5000\" step=\"1\"")
+				.contains("dir=\"ltr\" inputmode=\"numeric\"");
 	}
 
 	@Test

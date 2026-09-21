@@ -26,7 +26,7 @@
 @param String flashType = "success"
 @param Function<String, Boolean> available
 !{boolean canWrite = canManage && actionsEnabled;}
-!{int colCount = showCompanyColumn ? 8 : 7;}
+!{int colCount = showCompanyColumn ? 9 : 8;}
 <%-- dashboard/pages/shifts/page.php. --%>
 @template.admin.layout(
 	title = t.apply("shifts"),
@@ -99,7 +99,7 @@
 								companies = companyOptions, inputId = "sh_add_company", t = t)
 					@endif
 					<div class="form-row org-form-span-2">
-						<label for="name">${t.apply("shift")}</label>
+						<label for="name">${t.apply("shift_name")}</label>
 						<input type="text" id="name" name="name" required maxlength="255"
 						       value="${editRow == null ? "" : editRow.name()}">
 					</div>
@@ -152,8 +152,8 @@
 						<th>#</th>
 						<th>${t.apply("shift_name")}</th>
 						@if(showCompanyColumn)<th>${t.apply("company")}</th>@endif
-						<th>${t.apply("start_time")}</th>
-						<th>${t.apply("end_time")}</th>
+						<th class="col-center">${t.apply("start_time")}</th>
+						<th class="col-center">${t.apply("end_time")}</th>
 						<th>${t.apply("employees")}</th>
 						<th>${t.apply("status")}</th>
 						<th>${t.apply("reg_date")}</th>
@@ -164,13 +164,13 @@
 					@for(int index = 0; index < result.data().size(); index++)
 						!{Shift row = result.data().get(index);}
 						<tr>
-							<td class="text-muted">${result.from() + index}</td>
+							<td>${result.from() + index}</td>
 							<td class="bold">${row.name()}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
-							<td><span class="badge badge-gray">${row.startForInput()}</span></td>
-							<td><span class="badge badge-gray">${row.endForInput()}</span></td>
+							<td class="col-center" dir="ltr">${row.startTimeDisplay()}</td>
+							<td class="col-center" dir="ltr">${row.endTimeDisplay()}</td>
 							<td><span class="badge badge-blue">${row.employeeCount()}</span></td>
 							<td>
 								@template.admin.statusBadge(status = row.active() ? "active" : "suspended", t = t)
