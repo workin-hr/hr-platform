@@ -108,6 +108,12 @@ public class OrgCascadeStore {
 	 * part used: the rows arrive grouped by part, in each part's own order, and
 	 * {@link LinkedHashMap} keeps the groups in the order they first appear, as
 	 * five separate queries did.
+	 *
+	 * <p>{@code id} breaks the tie that {@code name} alone leaves. The collation
+	 * is {@code utf8mb4_unicode_ci}, so {@code Tie} and {@code tie} sort equal
+	 * and the order between them was whatever each plan happened to produce --
+	 * one plan per query before, one for the union now, and they do not agree.
+	 * The rows are the same either way; this makes the order the same too.
 	 */
 	private List<Map<Long, List<OrgCascade.Option>>> groupedInOneTrip(List<Part> parts) {
 		StringBuilder sql = new StringBuilder();
@@ -118,7 +124,7 @@ public class OrgCascadeStore {
 					.append(parts.get(part).sql()).append(") AS part").append(part);
 			args.addAll(Arrays.asList(parts.get(part).args()));
 		}
-		sql.append(" ORDER BY part, grp, name");
+		sql.append(" ORDER BY part, grp, name, id");
 
 		List<Map<Long, List<OrgCascade.Option>>> maps = new ArrayList<>();
 		for (int part = 0; part < parts.size(); part++) {
