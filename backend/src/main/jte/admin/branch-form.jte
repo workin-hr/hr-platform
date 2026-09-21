@@ -45,28 +45,29 @@
 					companies = companyOptions, inputId = "br_add_company", t = t)
 		@endif
 		<div class="form-row org-form-span-2">
-			<label for="name">${t.apply("branch")}</label>
-			<input type="text" id="name" name="name" required maxlength="255"
+			<label for="br_name">${t.apply("branch")}</label>
+			<input type="text" id="br_name" name="name" required maxlength="255"
 			       value="${branch == null ? "" : branch.name()}">
 		</div>
 		<div class="form-row org-form-span-2">
-			<label for="address">${t.apply("address")}</label>
-			<input type="text" id="address" name="address" maxlength="500"
+			<label for="br_address">${t.apply("address")}</label>
+			<input type="text" id="br_address" name="address" maxlength="500"
 			       value="${branch == null || branch.address() == null ? "" : branch.address()}">
 		</div>
 		<div class="form-row">
-			<label for="lat">${t.apply("latitude")}</label>
-			<input type="text" id="lat" name="lat" inputmode="decimal"
+			<label for="br_lat">${t.apply("latitude")}</label>
+			<input type="text" id="br_lat" name="lat" dir="ltr" inputmode="decimal"
 			       value="${branch == null || branch.latitude() == null ? "" : branch.latitude().toPlainString()}">
 		</div>
 		<div class="form-row">
-			<label for="lng">${t.apply("longitude")}</label>
-			<input type="text" id="lng" name="lng" inputmode="decimal"
+			<label for="br_lng">${t.apply("longitude")}</label>
+			<input type="text" id="br_lng" name="lng" dir="ltr" inputmode="decimal"
 			       value="${branch == null || branch.longitude() == null ? "" : branch.longitude().toPlainString()}">
 		</div>
 		<div class="form-row org-form-span-2">
-			<label for="radius_meters">${t.apply("branch_attendance_radius")}</label>
-			<input type="number" id="radius_meters" name="radius_meters" min="1" max="5000"
+			<label for="br_radius">${t.apply("branch_attendance_radius")}</label>
+			<input type="number" id="br_radius" name="radius_meters" min="1" max="5000" step="1"
+			       dir="ltr" inputmode="numeric"
 			       value="${branch == null ? 200 : branch.radiusMeters()}">
 		</div>
 		@if(branch != null)
@@ -74,8 +75,8 @@
 			     reads an absent field as active, so an unchecked box that simply
 			     vanished would silently reactivate a deactivated branch. --%>
 			<div class="form-row org-form-span-2">
-				<label for="is_active">${t.apply("status")}</label>
-				<select id="is_active" name="is_active">
+				<label for="br_active">${t.apply("status")}</label>
+				<select id="br_active" name="is_active">
 					<option value="1" selected="${branch.active()}">${t.apply("status_active")}</option>
 					<option value="0" selected="${!branch.active()}">${t.apply("status_inactive")}</option>
 				</select>

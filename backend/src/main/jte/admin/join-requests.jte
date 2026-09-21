@@ -1,5 +1,6 @@
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.home.HomeDisplay
 @import com.workin.backend.platformadmin.hr.JoinRequest
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -40,6 +41,12 @@
 	body = @`
 	@if(errorKey != null)
 		<div class="flash flash-error">${t.apply(errorKey)}</div>
+	@endif
+	<%-- The employees page's own banner (D-161): with the actions switch off
+	     the decisions are not offered, and the page says why rather than
+	     leaving an empty menu. --%>
+	@if(canManage && !actionsEnabled)
+		<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>
 	@endif
 
 	<div class="page-toolbar page-toolbar-filters">
@@ -92,7 +99,11 @@
 						@template.admin.statusBadge(status = "approved".equals(row.badge()) ? "approved"
 				: "rejected".equals(row.badge()) ? "rejected" : "pending", t = t)
 					</td>
-					<td>${row.createdAt() == null ? "—" : row.createdAt().toString().replace("T", " ")}</td>
+					<%-- page.php:57: home_format_datetime(), the same cell the home
+					     page's panels print. --%>
+					<td>${HomeDisplay.dateTime(
+						row.createdAt() == null ? null : row.createdAt().toString(),
+						"ar".equals(lang))}</td>
 					<td class="col-actions">
 						<%-- The dash belongs beside the row, not inside a popover the
 						     reader has to open to be told there is nothing in it. --%>

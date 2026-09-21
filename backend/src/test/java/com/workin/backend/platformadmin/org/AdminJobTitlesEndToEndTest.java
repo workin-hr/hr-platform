@@ -313,6 +313,24 @@ class AdminJobTitlesEndToEndTest {
 				.as("still its own company's department").isEqualTo(this.departmentA);
 	}
 
+	/**
+	 * {@code org_helper.php:485-492} ({@code org_option_label}): unfiltered, an option reads
+	 * {@code department — company}. The port had the order backwards.
+	 */
+	@Test
+	void theFilterDepartmentOptionsAreLegacysDepartmentThenCompanyOrder() {
+		assertThat(body("/admin/job_titles")).contains("Alpha Dept — Alpha Co");
+	}
+
+	/** {@code job_titles/page.php:149}: the department cell carries no class. */
+	@Test
+	void theDepartmentCellCarriesNoClassAsLegacyDoesNot() {
+		post("/admin/job_titles", this.cookie, page("/admin/job_titles?action=add", this.cookie).csrf(),
+				"action", "add", "company_id", String.valueOf(this.companyA), "name", "Muted",
+				"department_id", String.valueOf(this.departmentA), "work_hours", "8");
+		assertThat(body("/admin/job_titles")).contains("<td>Alpha Dept</td>");
+	}
+
 	@Test
 	void theDepartmentFilterNarrows() {
 		post("/admin/job_titles", this.cookie, page("/admin/job_titles?action=add", this.cookie).csrf(),
@@ -534,6 +552,33 @@ class AdminJobTitlesEndToEndTest {
 					return end < 0 ? header.substring(start) : header.substring(start, end);
 				})
 				.findFirst().orElse(null);
+	}
+
+	/**
+	 * A write for an id that matches no row is refused, and writes no audit row (#286). An
+	 * administrator's row ownership is checked on neither side (R-044), so the update's count is
+	 * the only thing left to catch a stale tab or a crafted id. Legacy flashes
+	 * {@code error_required} there, which says a required field is missing when none is; this
+	 * answers {@code no_data}, which legacy uses for a row that is not there.
+	 */
+	@Test
+	void aDeleteForAnIdThatMatchesNoRowIsRefusedAndAuditsNothing() {
+		long missing = 987654L;
+		assertThat(post("/admin/job_titles", this.cookie, page("/admin/job_titles", this.cookie).csrf(),
+				"action", "delete", "id", String.valueOf(missing),
+				"company_id", String.valueOf(this.companyA))
+				.getHeaders().getLocation()).asString().contains("error=no_data");
+		// The save was already refused before this change, as departments' is (D-253's #256 row).
+		assertThat(post("/admin/job_titles", this.cookie,
+				page("/admin/job_titles?action=edit&id=" + missing, this.cookie).csrf(),
+				"action", "save_edit", "id", String.valueOf(missing),
+				"company_id", String.valueOf(this.companyA), "name", "Ghost",
+				"work_hours", "8", "is_active", "1")
+				.getHeaders().getLocation()).asString().contains("error=error_db");
+
+		assertThat(this.jdbc.queryForObject("SELECT COUNT(*) FROM platform_admin_audit_events"
+				+ " WHERE target_type = 'job_title'", Integer.class))
+				.as("no audit row for a job title that is not there").isZero();
 	}
 
 }

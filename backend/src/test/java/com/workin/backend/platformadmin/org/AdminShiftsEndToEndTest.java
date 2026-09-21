@@ -203,6 +203,49 @@ class AdminShiftsEndToEndTest {
 				"SELECT COUNT(*) FROM shifts WHERE id = " + id, Integer.class)).isEqualTo(1);
 	}
 
+	/**
+	 * {@code shifts/page.php:91-92, 125-126}: the start and end headers carry {@code col-center},
+	 * and their cells are {@code col-center dir="ltr"} plain text -- not the badges the port drew.
+	 */
+	@Test
+	void theStartAndEndColumnsAreColCenterLtrPlainTextNotBadges() {
+		seedShift(this.companyA, "Timed");
+		String html = body("/admin/shifts?lang=en");
+		assertThat(html)
+				.contains("<th class=\"col-center\">Start Time</th>")
+				.contains("<th class=\"col-center\">End Time</th>")
+				.contains("<td class=\"col-center\" dir=\"ltr\">08:00</td>")
+				.contains("<td class=\"col-center\" dir=\"ltr\">16:00</td>")
+				.doesNotContain("badge-gray\">08:00").doesNotContain("badge-gray\">16:00");
+	}
+
+	/** {@code shifts/page.php:79}: {@code $colCount = $showCompanyCol ? 9 : 8}. The port had 8 and 7. */
+	@Test
+	void theEmptyStateSpansLegacysColumnCount() {
+		assertThat(body("/admin/shifts")).contains("colspan=\"9\"");
+		assertThat(body("/admin/shifts?company_id=" + this.companyA)).contains("colspan=\"8\"");
+	}
+
+	/** {@code shifts/page.php:121}: the row number carries no class, unlike the company cell beside it. */
+	@Test
+	void theRowNumberCarriesNoClassAsLegacyDoesNot() {
+		seedShift(this.companyA, "Numbered");
+		assertThat(row(body("/admin/shifts"), "Numbered")).contains("<td>1</td>");
+	}
+
+	private static String row(String html, String name) {
+		return java.util.regex.Pattern.compile("(?s)<tr\\b[^>]*>(.*?)</tr>").matcher(html).results()
+				.map(match -> match.group(1)).filter(cells -> cells.contains(">" + name + "<"))
+				.findFirst().orElseThrow(() -> new AssertionError("no row for " + name));
+	}
+
+	/** {@code _shift_form.php:17}: the name label is {@code shift_name}, not {@code shift}. */
+	@Test
+	void theAddFormLabelsTheNameFieldAsShiftName() {
+		assertThat(body("/admin/shifts?action=add&lang=en"))
+				.contains("<label for=\"name\">Shift Name</label>");
+	}
+
 	@Test
 	void theListFiltersAndTheCompanyFilterOutlivesItsRequest() {
 		seedShift(this.companyA, "Alpha Morning");
@@ -364,6 +407,34 @@ class AdminShiftsEndToEndTest {
 					return end < 0 ? header.substring(start) : header.substring(start, end);
 				})
 				.findFirst().orElse(null);
+	}
+
+	/**
+	 * A write for an id that matches no row is refused, and writes no audit row (#286). An
+	 * administrator's row ownership is checked on neither side (R-044), so the update's count is
+	 * the only thing left to catch a stale tab or a crafted id. Legacy flashes
+	 * {@code error_required} there, which says a required field is missing when none is; this
+	 * answers {@code no_data}, which legacy uses for a row that is not there.
+	 */
+	@Test
+	void aSaveOrDeleteForAnIdThatMatchesNoRowIsRefusedAndAuditsNothing() {
+		long missing = 987654L;
+		assertThat(post("/admin/shifts", this.cookie,
+				page("/admin/shifts?action=edit&id=" + missing, this.cookie).csrf(),
+				"action", "save_edit", "id", String.valueOf(missing),
+				"company_id", String.valueOf(this.companyA), "name", "Ghost",
+				"start_time", "08:00", "end_time", "16:00", "is_active", "1")
+				.getHeaders().getLocation()).asString().contains("error=no_data");
+		assertThat(post("/admin/shifts", this.cookie, page("/admin/shifts", this.cookie).csrf(),
+				"action", "delete", "id", String.valueOf(missing),
+				"company_id", String.valueOf(this.companyA))
+				.getHeaders().getLocation()).asString().contains("error=no_data");
+
+		assertThat(this.jdbc.queryForObject("SELECT COUNT(*) FROM platform_admin_audit_events"
+				+ " WHERE target_type = 'shift'", Integer.class))
+				.as("no audit row for a shift that is not there").isZero();
+		assertThat(this.jdbc.queryForObject("SELECT COUNT(*) FROM shifts WHERE name = 'Ghost'",
+				Integer.class)).isZero();
 	}
 
 }

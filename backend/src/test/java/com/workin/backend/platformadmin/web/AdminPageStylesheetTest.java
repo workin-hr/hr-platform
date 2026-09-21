@@ -65,7 +65,14 @@ class AdminPageStylesheetTest {
 			// _department_form.php renders both. Legacy's org-form.css styles only
 			// .dept-branches-field__label-row, and .form-hint is styled only under
 			// banner, company-add and employee-form scopes the departments page never loads.
-			"dept-branches-field", "form-hint");
+			"dept-branches-field", "form-hint",
+			// _employee_form.php:90-124 renders the login block's wrapper and the
+			// country and phone cells. Legacy's employee-form.css styles only
+			// .emp-login-credentials__hint, __grid (and its labels and controls) and
+			// __password .form-hint; the grid places the three cells, so the cells
+			// themselves need no rule and have none.
+			"emp-login-credentials", "emp-login-credentials__country",
+			"emp-login-credentials__phone");
 
 	private static final Pattern CLASS_ATTRIBUTE = Pattern.compile("class=\"([^\"]*)\"");
 

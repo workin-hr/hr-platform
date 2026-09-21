@@ -89,6 +89,16 @@ public record Employee(
 			Long contractDurationMonths, boolean mobileAttendance, long shiftId,
 			String shiftEffectiveFrom) {
 
+		/**
+		 * {@code dashboard_employee_display_name($editEmp)} for the edit window's title
+		 * ({@code employees/page.php:399}): the row carries the two stored names, not the
+		 * list's joined one, so each is trimmed and the pair joined and trimmed, and a blank
+		 * pair is an em dash.
+		 */
+		public String displayName() {
+			return EmployeeDisplay.displayName((this.firstName.trim() + " " + this.lastName.trim()).trim(), "—");
+		}
+
 		/** {@code employee_contract_form_values()}: whole years are shown as years. */
 		public String contractValue() {
 			long months = contractMonths();

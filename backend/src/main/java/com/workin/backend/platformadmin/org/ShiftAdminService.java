@@ -31,6 +31,14 @@ public class ShiftAdminService {
 
 		/** {@code error_db}: the row is not this session's to touch. */
 		FOREIGN_ROW,
+		/**
+		 * {@code no_data}: the update matched no row -- a stale tab, or a crafted id.
+		 * An administrator's row is not checked first (R-044), so this is the only
+		 * place a missing one is caught, before its audit row is written. The
+		 * connection counts matched rows ({@code LegacyRowCountStartupCheck}), so a
+		 * row that exists reports 1 even when nothing in it changed.
+		 */
+		NO_ROW,
 
 		/** {@code error_required}: an empty name. */
 		NAME_REQUIRED
@@ -117,8 +125,10 @@ public class ShiftAdminService {
 		long companyId = assertWritable(session, postedCompanyId, id);
 		String name = requireName(rawName);
 
-		this.store.update(id, name,
-				Shift.timeOr(startTime, "08:00"), Shift.timeOr(endTime, "16:00"), active);
+		if (this.store.update(id, name,
+				Shift.timeOr(startTime, "08:00"), Shift.timeOr(endTime, "16:00"), active) == 0) {
+			throw new RefusedException(Refusal.NO_ROW);
+		}
 		audit(adminId, PlatformAdminAuditEventType.ORG_UPDATED, id,
 				"shift updated in company " + companyId);
 		return companyId;
@@ -132,7 +142,9 @@ public class ShiftAdminService {
 		long companyId = assertWritable(session, postedCompanyId, id);
 		// Employee assignments point at the shift and are left alone, the same
 		// as everywhere else on these pages: deactivating is not unassigning.
-		this.store.softDelete(id);
+		if (this.store.softDelete(id) == 0) {
+			throw new RefusedException(Refusal.NO_ROW);
+		}
 		audit(adminId, PlatformAdminAuditEventType.ORG_DELETED, id,
 				"shift deactivated in company " + companyId);
 		return companyId;

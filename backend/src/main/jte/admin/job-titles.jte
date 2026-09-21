@@ -86,7 +86,7 @@
 						@for(JobTitle.DepartmentOption option : departmentOptions)
 							<option value="${option.id()}" selected="${filters.filterDepartment() == option.id()}">
 								${option.companyName() == null ? option.name()
-									: option.companyName() + " — " + option.name()}</option>
+									: option.name() + " — " + option.companyName()}</option>
 						@endfor
 					</select>
 				</div>
@@ -158,7 +158,7 @@
 								        selected="${editRow != null && editRow.departmentId() != null
 									        && editRow.departmentId() == option.id()}">
 									${option.companyName() == null ? option.name()
-										: option.companyName() + " — " + option.name()}</option>
+										: option.name() + " — " + option.companyName()}</option>
 							@endfor
 						</select>
 					</div>
@@ -224,7 +224,7 @@
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
 							<td class="bold">${row.name()}</td>
-							<td class="text-muted">${row.departmentDisplay()}</td>
+							<td>${row.departmentDisplay()}</td>
 							<td><span class="badge badge-gray">${row.workHoursDisplay()}</span></td>
 							<td><span class="badge badge-blue">${row.employeeCount()}</span></td>
 							<td>

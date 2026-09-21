@@ -34,12 +34,10 @@ class AdminRowDialogButtonsTest {
 
 	private static final Pattern SUBMIT = Pattern.compile("type=\"submit\"");
 
-	private static final Pattern JTE_COMMENT = Pattern.compile("<%--.*?--%>", Pattern.DOTALL);
-
 	@Test
 	void theWindowIsLegacysModalAndSaveIsItsOnlySubmitButton() throws IOException {
 		// The markup only: the template's comments explain the old dialog, by name.
-		String template = JTE_COMMENT.matcher(Files.readString(ROW_DIALOG, StandardCharsets.UTF_8)).replaceAll("");
+		String template = TemplateText.withoutComments(Files.readString(ROW_DIALOG, StandardCharsets.UTF_8));
 
 		assertThat(template)
 				.as("legacy's window, which crud.js and modal-a11y.js open, close and make keyboard-usable")
@@ -90,7 +88,7 @@ class AdminRowDialogButtonsTest {
 				while (tag.find()) {
 					String token = tag.group();
 					if (token.startsWith("<div")) {
-						open.push(token.matches("(?s).*class=\"([^\"]*\\s)?form-row(\\s[^\"]*)?\".*"));
+						open.push(TemplateText.hasClass(TemplateText.classesOf(token), "form-row"));
 					}
 					else if (token.equals("</div>")) {
 						assertThat(open).as("%s closes a div it did not open", template.getFileName()).isNotEmpty();
@@ -142,7 +140,7 @@ class AdminRowDialogButtonsTest {
 		for (Path template : templates()) {
 			Matcher call = CALL.matcher(Files.readString(template, StandardCharsets.UTF_8));
 			while (call.find()) {
-				String fields = JTE_COMMENT.matcher(call.group(2)).replaceAll("");
+				String fields = TemplateText.withoutComments(call.group(2));
 				String where = template.getFileName() + " " + call.group(1).replaceAll("\\s+", " ").trim();
 				checkFormRows(where, fields, offenders, labels);
 			}
@@ -152,7 +150,17 @@ class AdminRowDialogButtonsTest {
 	}
 
 	/**
-	 * The same rule for every window a page writes itself, its add modals included: legacy's add
+	 * Each control is its own labelled cell. A label belongs to the innermost element that is a
+	 * cell around it, and two labels in one of those is the offence: two directly in a
+	 * {@code .form-row}, two in one classed element inside a {@code .form-row}, or two loose in a
+	 * window with no {@code .form-row} around them at all. Legacy does lay several controls across
+	 * one row -- the employees window's country, phone and password sit in one {@code .form-row} as
+	 * a nested grid ({@code _employee_form.php:90-114}) -- and each of those still has its own
+	 * labelled cell, which is what this reads. A classed element counts as a cell only inside a
+	 * {@code .form-row}: #297's review found the first form of this rule made every classed element
+	 * a cell anywhere in a window, which let two loose labels through.
+	 *
+	 * <p>The same rule for every window a page writes itself, its add modals included: legacy's add
 	 * windows write one field to a row too ({@code faqs/page.php:153-217},
 	 * {@code phone_countries/page.php:95-138}, {@code guide_videos/page.php:91-123},
 	 * {@code banners/page.php:111-232}, {@code notifications/page.php:233-296}), and a page's add
@@ -168,7 +176,7 @@ class AdminRowDialogButtonsTest {
 		int[] labels = {0};
 		int written = 0;
 		for (Path template : templates()) {
-			String source = JTE_COMMENT.matcher(Files.readString(template, StandardCharsets.UTF_8)).replaceAll("");
+			String source = TemplateText.withoutComments(Files.readString(template, StandardCharsets.UTF_8));
 			written += (int) Pattern.compile("\\bmodal-bg\\b").matcher(source).results().count();
 			for (int at = source.indexOf(WINDOW); at >= 0; at = source.indexOf(WINDOW, at + 1)) {
 				// A window's opening tag holds JTE expressions but no markup, so it ends before the next '<'.
@@ -242,17 +250,68 @@ class AdminRowDialogButtonsTest {
 		assertThat(inputs).isEmpty();
 	}
 
+
+	/**
+	 * #304, defect 1: deleting {@code ${...}} silently let it read as no boundary at all, so
+	 * {@code form-row${x}} and {@code ${x}form-row} were read as holding the real class
+	 * {@code form-row} -- permissive, because the expression's rendered text is unknown and may
+	 * not leave {@code form-row} as its own token.
+	 */
+	@Test
+	void classesOfDoesNotLetAnExpressionGlueOntoALiteralClass() {
+		assertThat(TemplateText.hasClass(TemplateText.classesOf("<div class=\"form-row${x}\">"), "form-row"))
+				.as("an expression appended to the literal class").isFalse();
+		assertThat(TemplateText.hasClass(TemplateText.classesOf("<div class=\"${x}form-row\">"), "form-row"))
+				.as("an expression prepended to the literal class").isFalse();
+		// Unchanged: a real space already separates the two, so the literal class still reads.
+		assertThat(TemplateText.hasClass(TemplateText.classesOf("<div class=\"form-row ${x}\">"), "form-row"))
+				.as("a literal class the expression only follows, with a real space between").isTrue();
+		// Unchanged: an expression alone, with no literal text at all, still reads as no class --
+		// the shape `class="${row.cssClass()}"` already hides an offence rather than inventing one.
+		assertThat(TemplateText.classesOf("<div class=\"${x}\">")).as("a wholly dynamic value").isEmpty();
+	}
+
+	/**
+	 * #304, defect 2: the walk was seeded with {@code indexOf(' ')}, a literal space, while
+	 * {@link #ATTRIBUTE} itself accepts any whitespace -- so a tag whose attributes are separated
+	 * by a tab or a newline read as carrying no attributes, and so no class, at all.
+	 */
+	@Test
+	void classesOfFindsAnAttributeSeparatedByATabOrANewline() {
+		assertThat(TemplateText.hasClass(TemplateText.classesOf("<div\tclass=\"form-row\">"), "form-row"))
+				.as("a tab before the class attribute").isTrue();
+		assertThat(TemplateText.hasClass(TemplateText.classesOf("<div\nclass=\"form-row\">"), "form-row"))
+				.as("a newline before the class attribute").isTrue();
+	}
+
+
 	private static void checkFormRows(String where, String fields, List<String> offenders, int[] labels) {
 		Deque<Integer> rows = new ArrayDeque<>();
+		Deque<Boolean> formRows = new ArrayDeque<>();
 		Map<Integer, Integer> labelsPerRow = new HashMap<>();
 		Matcher tag = Pattern.compile("<div\\b[^>]*>|</div>|<label\\b").matcher(fields);
 		while (tag.find()) {
 			String token = tag.group();
 			if (token.startsWith("<div")) {
-				rows.push(token.matches("(?s).*class=\"([^\"]*\\s)?form-row(\\s[^\"]*)?\".*") ? tag.start() : -1);
+				// A label belongs to the innermost classed element around it -- its cell -- and to the
+				// row only when it has no cell of its own. Legacy lays three controls across one row
+				// in `_employee_form.php:90-114`, each in its own cell of a nested grid, so counting
+				// per row alone would read that as three fields sharing a row.
+				//
+				// A classed div is a cell only INSIDE a `.form-row`. Outside one, labels still fall
+				// together into the "no row" bucket and two of them are still an offence: #297's
+				// review round 2 found the first form of this rule made every classed div a cell
+				// anywhere in a window, which let that bucket through. Round 3 found the reading of
+				// the attribute itself too loose, in both directions: see `classesOf`.
+				String classes = TemplateText.classesOf(token);
+				boolean row = TemplateText.hasClass(classes, "form-row");
+				boolean cell = !row && formRows.contains(Boolean.TRUE) && !classes.isEmpty();
+				rows.push(row || cell ? tag.start() : -1);
+				formRows.push(row);
 			}
 			else if (token.equals("</div>")) {
 				rows.pop();
+				formRows.pop();
 			}
 			else {
 				int row = rows.stream().filter(start -> start >= 0).findFirst().orElse(-1);
@@ -261,7 +320,7 @@ class AdminRowDialogButtonsTest {
 		}
 		labelsPerRow.forEach((row, count) -> {
 			if (count > 1) {
-				offenders.add(where + ": " + count + " labels in one .form-row");
+				offenders.add(where + ": " + count + " labels in one row or cell");
 			}
 		});
 		Matcher label = LABEL.matcher(fields);

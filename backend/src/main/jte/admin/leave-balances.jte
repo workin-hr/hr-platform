@@ -1,5 +1,6 @@
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.hr.EmployeeDisplay
 @import com.workin.backend.platformadmin.hr.LeaveBalance
 @import com.workin.backend.platformadmin.hr.EmployeePicker
 @import com.workin.backend.platformadmin.web.DashboardListFilters
@@ -76,10 +77,26 @@
 		</div>
 
 
+		<%-- The filters the page's own links carry: the pager appends them, the
+		     size form re-submits them, and the export takes the same set so the
+		     file holds exactly the list on the screen. --%>
+		!{java.util.SequencedMap<String, String> carry =
+				new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+		!{carry.put("year", String.valueOf(year));}
+		!{StringBuilder exportHref = new StringBuilder("/admin/leave_balances?export=csv");}
+		@for(java.util.Map.Entry<String, String> entry : carry.entrySet())
+			!{exportHref.append('&').append(entry.getKey()).append('=')
+					.append(java.net.URLEncoder.encode(entry.getValue(), java.nio.charset.StandardCharsets.UTF_8));}
+		@endfor
+
 		<div class="data-table-card">
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("nav_leave_balances")} (${result.total()})</h2>
 				<div class="data-table-head__actions">
+					<%-- page.php:104. Legacy offers the export to anyone who can open the
+					     page, managing rights or not: it hands back what is already on
+					     the screen, in a spreadsheet. --%>
+					<a href="${exportHref.toString()}" class="btn btn-green btn-sm">${t.apply("export_csv")}</a>
 					@if(canWrite)
 						<button type="button" class="btn btn-blue btn-sm"
 								onclick="crudOpenAdd('leaveModal')">+ ${t.apply("add_leave_balance")}</button>
@@ -104,10 +121,13 @@
 				<tbody>
 					@for(int index = 0; index < result.data().size(); index++)
 						!{LeaveBalance row = result.data().get(index);}
+						<%-- dashboard_employee_display_name(): a blank name reads as an em dash, in
+						     the cell and in the row's actions (hr_list_helper.php:69, 614). --%>
+						!{String employeeName = EmployeeDisplay.displayName(row.employeeName(), "—");}
 						<tr>
 							<td>${result.from() + index}</td>
 							<td class="text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
-							<td class="bold">${row.employeeName()}</td>
+							<td class="bold">${employeeName}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
@@ -124,7 +144,7 @@
 										<button type="button" role="menuitem" class="row-actions__item"
 												data-dialog="leave-edit"
 												data-dialog-id="${row.id()}"
-												data-dialog-subject="${row.employeeName()}"
+												data-dialog-subject="${employeeName}"
 												data-dialog-total="${row.totalDisplay()}"
 												data-dialog-used="${row.usedDisplay()}">${t.apply("edit")}</button>
 										<form method="POST" class="row-actions__form" role="none"
@@ -148,9 +168,6 @@
 				</tbody>
 			</table>
 			</div>
-			!{java.util.SequencedMap<String, String> carry =
-					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
-			!{carry.put("year", String.valueOf(year));}
 		@if(canWrite)
 			<%-- Two number boxes per row is what kept this page's actions out of
 			     the menu. Same two fields, same action, one dialog. --%>

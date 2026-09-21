@@ -340,6 +340,15 @@ class AdminDepartmentsEndToEndTest {
 		assertThat(toolbar.group(1)).contains("data-selected-branch=\"" + this.branchA1 + "\"");
 	}
 
+	/**
+	 * {@code org_helper.php:485-492} ({@code org_option_label}): unfiltered, an option reads
+	 * {@code branch — company}. The port had the order backwards.
+	 */
+	@Test
+	void theFilterBranchOptionsAreLegacysBranchThenCompanyOrder() {
+		assertThat(body("/admin/departments")).contains("Alpha North — Alpha Co");
+	}
+
 	@Test
 	void anAddWithNoCompanyChosenAsksForOneAndLeavesTheBranchesToIt() throws java.io.IOException {
 		long suspended = createCompany("Zeta Suspended");
@@ -598,6 +607,34 @@ class AdminDepartmentsEndToEndTest {
 					return end < 0 ? header.substring(start) : header.substring(start, end);
 				})
 				.findFirst().orElse(null);
+	}
+
+	/**
+	 * A write for an id that matches no row is refused, and writes no audit row (#286). An
+	 * administrator's row ownership is checked on neither side (R-044), so the update's count is
+	 * the only thing left to catch a stale tab or a crafted id. Legacy flashes
+	 * {@code error_required} there, which says a required field is missing when none is; this
+	 * answers {@code no_data}, which legacy uses for a row that is not there.
+	 */
+	@Test
+	void aDeleteForAnIdThatMatchesNoRowIsRefusedAndAuditsNothing() {
+		long missing = 987654L;
+		assertThat(post("/admin/departments", this.cookie, page("/admin/departments", this.cookie).csrf(),
+				"action", "delete", "id", String.valueOf(missing),
+				"company_id", String.valueOf(this.companyA))
+				.getHeaders().getLocation()).asString().contains("error=no_data");
+		// The save was already refused before this change: it reads the row's own company
+		// first, and a missing row has none (D-253's #256 row).
+		assertThat(post("/admin/departments", this.cookie,
+				page("/admin/departments?action=edit&id=" + missing, this.cookie).csrf(),
+				"action", "save_edit", "id", String.valueOf(missing),
+				"company_id", String.valueOf(this.companyA), "name", "Ghost",
+				"branch_ids", String.valueOf(this.branchA1), "is_active", "1")
+				.getHeaders().getLocation()).asString().contains("error=error_db");
+
+		assertThat(this.jdbc.queryForObject("SELECT COUNT(*) FROM platform_admin_audit_events"
+				+ " WHERE target_type = 'department'", Integer.class))
+				.as("no audit row for a department that is not there").isZero();
 	}
 
 }

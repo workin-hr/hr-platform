@@ -1,6 +1,7 @@
 package com.workin.backend.platformadmin.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -228,15 +229,17 @@ class AdminLayoutWiringTest {
 
 	/**
 	 * Legacy's layout and sign-in page name its logo as their favicon and touch icon, and the
-	 * sign-in page shows it twice (D-254). The file is legacy's own {@code logo.png}.
+	 * sign-in page shows it twice (D-254). The file is legacy's own {@code logo.png}. The icons are
+	 * 32 and 180 pixel copies of it, because the 1024 pixel file is 1.3 MB on every page (D-266).
 	 */
 	@Test
 	void theLayoutAndTheSignInPageCarryLegacysLogo() throws Exception {
 		for (String page : List.of("layout", "login")) {
 			assertThat(Files.readString(TEMPLATES.resolve(page + ".jte"), StandardCharsets.UTF_8))
-					.as("%s names the logo as its icons", page)
-					.contains("<link rel=\"icon\" type=\"image/png\" href=\"/admin/_assets/logo.png\">")
-					.contains("<link rel=\"apple-touch-icon\" href=\"/admin/_assets/logo.png\">");
+					.as("%s names the logo's small copies as its icons", page)
+					.contains("<link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"/admin/_assets/favicon-32.png\">")
+					.contains("<link rel=\"apple-touch-icon\" sizes=\"180x180\" href=\"/admin/_assets/apple-touch-icon.png\">")
+					.doesNotContain("rel=\"icon\" type=\"image/png\" href=\"/admin/_assets/logo.png\"");
 		}
 		assertThat(Files.readString(TEMPLATES.resolve("login.jte"), StandardCharsets.UTF_8))
 				.contains("<img src=\"/admin/_assets/logo.png\" alt=\"\" class=\"login-hero-logo\" width=\"40\" height=\"40\">")
@@ -343,6 +346,46 @@ class AdminLayoutWiringTest {
 			}
 		}
 		assertThat(silent).as("a write legacy confirms with a flash, confirmed with nothing").isEmpty();
+	}
+
+	/**
+	 * The join requests page hides both of its decisions behind the actions
+	 * switch (D-161) and said nothing when it was off, so the row menu was
+	 * simply empty. It now carries the employees page's own banner, word for
+	 * word: {@code canManage && !actionsEnabled}, the condition the sixteen
+	 * pages that also gate on a section permission use. The seven pages an
+	 * administrator alone reaches test {@code !actionsEnabled} on its own, so
+	 * this compares the two pages the change is about rather than all of them.
+	 *
+	 * <p>Two pages still take the switch, gate a control on it and show no
+	 * banner: {@code company-detail.jte} and {@code settings.jte}. They are
+	 * named here so the omission is recorded rather than assumed, and are not
+	 * this change's pages.
+	 */
+	@Test
+	void theJoinRequestsPageSaysWhyItsDecisionsAreMissing() throws IOException {
+		String banner = collapse("@if(canManage && !actionsEnabled)"
+				+ "<div class=\"flash flash-warning\">${t.apply(\"admin_actions_disabled\")}</div>"
+				+ "@endif");
+		assertThat(collapsed(TEMPLATES.resolve("join-requests.jte")))
+				.as("the banner the employees page shows, word for word")
+				.contains(banner);
+		assertThat(collapsed(TEMPLATES.resolve("employees.jte"))).contains(banner);
+
+		for (String page : List.of("company-detail.jte", "settings.jte")) {
+			assertThat(collapsed(TEMPLATES.resolve(page)))
+					.as("%s still has no banner; when it gains one, take it off this list", page)
+					.doesNotContain("admin_actions_disabled");
+		}
+	}
+
+	/** A template with every run of whitespace removed, so indentation is not the assertion. */
+	private static String collapsed(Path template) throws IOException {
+		return collapse(Files.readString(template, StandardCharsets.UTF_8));
+	}
+
+	private static String collapse(String markup) {
+		return markup.replaceAll("\\s+", "");
 	}
 
 	@Test
@@ -692,6 +735,715 @@ class AdminLayoutWiringTest {
 				.isEmpty();
 		assertThat(wrong).as("pages whose .content classes differ from legacy's").isEmpty();
 	}
+
+	/**
+	 * A window the server renders already open never hides its Cancel behind
+	 * the actions switch.
+	 *
+	 * <p>{@code app.platform-admin.actions.enabled} ships <b>false</b>, so the
+	 * gated path is the normal one, not an edge case. It matters only for the
+	 * windows written {@code modal-bg open}: those are on screen because the
+	 * URL put them there ({@code ?action=edit}, {@code ?action=qr}), and the
+	 * link that puts them there is not itself gated, so a reader reaches them
+	 * with the switch off. They are full-viewport overlays that legacy gives no
+	 * close button, which leaves Cancel as the only way out that announces
+	 * itself -- {@code crud.js} closes on the backdrop and {@code modal-a11y.js}
+	 * on Escape, but nothing on screen says so.
+	 *
+	 * <p>The row dialogs and add modals are deliberately not covered: they are
+	 * written {@code modal-bg} with no {@code open}, and the control that opens
+	 * them is itself behind the same gate, so with the switch off they never
+	 * appear at all and a gated Cancel inside them cannot strand anyone.
+	 *
+	 * <p>#305's review round 1 found the branch QR window gating its footer
+	 * where {@code branch-form.jte} beside it had always kept Cancel outside
+	 * the gate. The rule is written here rather than on that one window so the
+	 * next one cannot repeat it.
+	 *
+	 * <p>It asserts two things, because the second without the first is
+	 * vacuous: every one of these windows <b>has</b> a Cancel, and none of them
+	 * puts it behind the gate. Checking only the second would let the control
+	 * be deleted outright, which is the same defect by a shorter route.
+	 */
+	@Test
+	void aServerOpenedWindowsCancelIsNeverGatedByTheActionsSwitch() throws IOException {
+		List<String> gated = new ArrayList<>();
+		List<String> without = new ArrayList<>();
+		int windows = 0;
+		try (var paths = Files.list(TEMPLATES)) {
+			for (Path path : paths.sorted().toList()) {
+				if (!path.toString().endsWith(".jte")) {
+					continue;
+				}
+				String source = TemplateText.withoutComments(Files.readString(path, StandardCharsets.UTF_8));
+				for (int at : serverOpenedWindows(source, path)) {
+					if (insideAGate(source, at, path)) {
+						continue;
+					}
+					windows++;
+					String window = source.substring(at, endOfWindow(source, at, path));
+					// A window with no Cancel at all would satisfy the loop below vacuously,
+					// so deleting one would pass the gate that exists to keep it (Codex, on
+					// this pull request). Both halves are asserted.
+					if (!window.contains(CANCEL)) {
+						without.add(fileName(path));
+					}
+					if (cancelIsBehindTheSwitch(window, path)) {
+						gated.add(fileName(path));
+					}
+				}
+			}
+		}
+		assertThat(windows).as("the windows the server renders already open").isGreaterThanOrEqualTo(9);
+		assertThat(without).as("windows on screen with no Cancel at all").isEmpty();
+		assertThat(gated).as("windows on screen with the switch off whose Cancel is not")
+				.isEmpty();
+	}
+
+	/**
+	 * A window the server renders already open says it is a dialog, or is named
+	 * here as one that does not yet.
+	 *
+	 * <p>{@code rowDialog.jte:40} is the port's shape -- {@code role="dialog"},
+	 * {@code aria-modal="true"} and an {@code aria-labelledby} pointing at the
+	 * window's own heading. Legacy carries none of it, so this is the port's
+	 * addition rather than a parity item, and without it a screen reader is
+	 * handed ordinary page content underneath an overlay it cannot see.
+	 *
+	 * <p>{@link #NO_DIALOG_SEMANTICS} is a list rather than a count, so that
+	 * fixing one is a visible deletion from this file and a new window cannot
+	 * quietly join them. Every entry predates #305, which added the semantics to
+	 * the window it converted and left the rest to their own pages' changes
+	 * (#306).
+	 */
+	/**
+	 * The shapes {@link #namesItsOwnHeading} must answer, which the templates cannot
+	 * ask it: all three live targets resolve, so the rule reading the attribute's
+	 * presence alone was green against the whole tree while a name pointing at
+	 * nothing would have been (#305's review round 9).
+	 */
+	@Test
+	void aDialogsNameResolvesInsideItsOwnWindow() {
+		assertThat(namesItsOwnHeading("<div aria-labelledby=\"qr_h\"><h2 id=\"qr_h\">QR</h2></div>"))
+				.as("the shape all three live windows write").isTrue();
+		assertThat(namesItsOwnHeading("<div aria-labelledby=\"qr_h\"><h2>QR</h2></div>"))
+				.as("a dialog whose name points at nothing").isFalse();
+		assertThat(namesItsOwnHeading(
+				"<div aria-labelledby=\"qr_h qr_sub\"><h2 id=\"qr_h\">QR</h2></div>"))
+				.as("two targets, one of them written nowhere").isFalse();
+		assertThat(namesItsOwnHeading(
+				"<div aria-labelledby=\"qr_h qr_sub\"><h2 id=\"qr_h\">QR</h2><p id=\"qr_sub\">x</p></div>"))
+				.as("two targets, both written").isTrue();
+		assertThat(namesItsOwnHeading("<div aria-labelledby=\"qr\"><h2 data-dialog-id=\"qr\">QR</h2></div>"))
+				.as("an attribute whose name merely ends in id resolves nothing").isFalse();
+		assertThat(namesItsOwnHeading("<div role=\"dialog\"><h2 id=\"qr_h\">QR</h2></div>"))
+				.as("no name at all").isFalse();
+	}
+
+	@Test
+	void aServerOpenedWindowSaysItIsADialog() throws IOException {
+		List<String> missing = new ArrayList<>();
+		try (var paths = Files.list(TEMPLATES)) {
+			for (Path path : paths.sorted().toList()) {
+				if (!path.toString().endsWith(".jte")) {
+					continue;
+				}
+				String source = TemplateText.withoutComments(Files.readString(path, StandardCharsets.UTF_8));
+				for (int at : serverOpenedWindows(source, path)) {
+					String window = source.substring(at, endOfWindow(source, at, path));
+					if (!window.contains("role=\"dialog\"") || !window.contains("aria-modal=\"true\"")
+							|| !namesItsOwnHeading(window)) {
+						missing.add(fileName(path));
+					}
+				}
+			}
+		}
+		assertThat(missing).as("windows the server opens with no dialog semantics")
+				.containsExactlyInAnyOrderElementsOf(NO_DIALOG_SEMANTICS);
+	}
+
+	/**
+	 * Whether the window's {@code aria-labelledby} names an element the window itself
+	 * writes an {@code id} for.
+	 *
+	 * <p>The attribute's presence was all this asked, which is the shape of the defect
+	 * this rule exists for: an overlay that says it is a dialog and points its name at
+	 * nothing is no more usable than one that says nothing. Codex raised it on the head
+	 * that shipped the rest of these semantics; all three live targets resolve, so this
+	 * pins what is already true rather than fixing a defect (#305's review round 9).
+	 *
+	 * <p>The id is matched as an attribute rather than as text, because any attribute
+	 * whose name merely ends in {@code id} -- {@code data-dialog-id} is written twelve
+	 * times across these templates -- would otherwise resolve a name pointing at nothing.
+	 */
+	private static boolean namesItsOwnHeading(String window) {
+		Matcher labelled = Pattern.compile("aria-labelledby=\"([^\"]+)\"").matcher(window);
+		if (!labelled.find()) {
+			return false;
+		}
+		for (String target : labelled.group(1).trim().split("\\s+")) {
+			if (!Pattern.compile("(?<![-\\w])id=\"" + Pattern.quote(target) + "\"").matcher(window).find()) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/** Server-opened windows that predate the rule; shrink it, never grow it (#306). */
+	private static final List<String> NO_DIALOG_SEMANTICS = List.of(
+			"administrative-decisions", "branch-form", "departments", "employees",
+			"job-titles", "payroll", "shifts", "workforce-planning");
+
+	/**
+	 * The shapes the scan must and must not enrol, which the templates cannot ask
+	 * it: every window written today is a plain {@code modal-bg open} or the built
+	 * form, so a scan that went back to matching substrings would stay green while
+	 * enrolling a dropdown that happens to be open (#305's review round 4).
+	 */
+	@Test
+	void theWindowScanReadsWholeClassTokens() {
+		Path synthetic = Path.of("synthetic.jte");
+		assertThat(serverOpenedWindows("<div class=\"modal-bg open\">", synthetic))
+				.as("written open").hasSize(1);
+		assertThat(serverOpenedWindows("<div class=\"modal-bg${formOpen ? \" open\" : \"\"}\">", synthetic))
+				.as("built open, which companies.jte and banners.jte write").hasSize(1);
+		assertThat(serverOpenedWindows("<div class=\"modal-bg-open\">", synthetic))
+				.as("one hyphenated class, not two").isEmpty();
+		assertThat(serverOpenedWindows("<div class=\"modal-bg dropdown-open\">", synthetic))
+				.as("a dropdown that is open, inside a window that is not").isEmpty();
+		assertThat(serverOpenedWindows("<div data-open-label=\"x\" class=\"modal-bg\">", synthetic))
+				.as("open in another attribute entirely").isEmpty();
+		assertThat(serverOpenedWindows("<div class=\"modal-bg${row.open() ? 'a' : 'b'}\">", synthetic))
+				.as("`open` as a method name in the expression, which renders neither a nor b as it")
+				.isEmpty();
+		assertThat(serverOpenedWindows("<div class=\"modal-bg${row.wide() ? \" open\" : \"\"}\">", synthetic))
+				.as("the same shape where the expression's own string does render it").hasSize(1);
+		// The silent direction, kept deliberately and stated so it is not mistaken for an
+		// oversight: what `${state}` renders is unknown, so a window built that way is not
+		// enrolled. No template writes one; the alternative is enrolling every dynamic class.
+		assertThat(serverOpenedWindows("<div class=\"modal-bg ${state}\">", synthetic))
+				.as("a class whose second token is wholly unknown").isEmpty();
+	}
+
+	/**
+	 * Where each window that can be on screen when the page loads begins.
+	 *
+	 * <p>Its class holds {@code modal-bg} and can render {@code open}: written
+	 * literally, or built ({@code class="modal-bg${formOpen ? " open" : ""}"},
+	 * which {@code companies.jte} and {@code banners.jte} do). The class is read
+	 * by {@link TemplateText#rawClassOf(String, Object)}, so an expression's own quotes do
+	 * not cut the value in half and {@code open} in some other attribute does not
+	 * enrol a window the server never opens -- both of which a fixed prefix and a
+	 * naive attribute pattern got wrong in turn (#305's rounds 2 and 3).
+	 */
+	private static List<Integer> serverOpenedWindows(String source, Path path) {
+		List<Integer> starts = new ArrayList<>();
+		Matcher tag = DIV.matcher(source);
+		while (tag.find()) {
+			// The raw class, expressions included: this asks what the class *could* be,
+			// not what it certainly is, because a window built as
+			// `class="modal-bg${formOpen ? " open" : ""}"` is one of these.
+			// The class as text that can reach the browser: an expression's string literals,
+			// not its code, so a method named `open()` in it does not enrol a window (round 5).
+			String classes = TemplateText.possibleClassText(TemplateText.rawClassOf(tag.group(), path));
+			// Whole class tokens: `modal-bg-open` and `dropdown-open` are not this window.
+			if (CLASS_MODAL_BG.matcher(classes).find() && CLASS_OPEN.matcher(classes).find()) {
+				starts.add(tag.start());
+			}
+		}
+		return starts;
+	}
+
+	private static final Pattern DIV = Pattern.compile("(?s)<div\\b[^>]*>");
+
+	private static final Pattern CLASS_MODAL_BG = Pattern.compile("(?<![\\w-])modal-bg(?![\\w-])");
+
+	private static final Pattern CLASS_OPEN = Pattern.compile("(?<![\\w-])open(?![\\w-])");
+
+	/**
+	 * Whether the whole window sits inside a gate that removes it, rather than
+	 * rendering with the switch off. {@code banners.jte} writes its window
+	 * inside {@code @if(canWrite)}: with the switch off there is no window at
+	 * all, so it cannot strand anyone and neither rule applies to it.
+	 *
+	 * <p>Narrow is the safe direction here, which is why this reads only a
+	 * condition that <b>is</b> the switch, where
+	 * {@link #cancelIsBehindTheSwitch} reads any condition that names it.
+	 * Skipping is the permissive direction -- a window skipped is a window no
+	 * rule looks at -- so a condition like {@code @if(canWrite && somethingElse)}
+	 * does not skip it: with the switch off that window may still render.
+	 */
+	private static boolean insideAGate(String source, int at, Path path) {
+		for (String gate : List.of("@if(canWrite)", "@if(actionsEnabled)")) {
+			for (int start = source.indexOf(gate); start >= 0; start = source.indexOf(gate, start + 1)) {
+				int end = endOfBlock(source, start, path);
+				// Only the gate's own arm. A window in the `@else` renders exactly when the
+				// switch is OFF, which is the case these rules exist for, so skipping it
+				// would be the one direction that hides a defect (#305's review round 3).
+				if (start < at && armEnd(source, start, end) > at) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/** The {@code @if} nesting depth at {@code upTo}, counting from {@code start}. */
+	private static int depthAt(String source, int start, int upTo) {
+		int depth = 0;
+		Matcher tag = BLOCK_TAG.matcher(source).region(start, upTo);
+		while (tag.find()) {
+			depth += CLOSING.matcher(tag.group()).matches() ? -1 : 1;
+		}
+		return depth;
+	}
+
+	/**
+	 * The conditions this rule must read as a gate and the ones it must not,
+	 * which the templates cannot ask it: every window written today gates with a
+	 * bare {@code @if(canWrite)} or nothing at all, so each of the four earlier
+	 * forms of this rule was green against the whole tree while blind to a
+	 * spelling a reviewer then wrote by hand (#305's rounds 1 to 5).
+	 *
+	 * <p>The two false directions are both here: a Cancel written in the gate's
+	 * {@code @else} arm renders exactly when the switch is off and must not be
+	 * reported, and a Cancel in the arm of a negated condition renders only when
+	 * it is on and must be.
+	 */
+	@Test
+	void aCancelBehindTheSwitchIsFoundHoweverTheConditionIsWritten() {
+		Path synthetic = Path.of("synthetic.jte");
+		String cancel = "<a class=\"btn\">${" + CANCEL + "}</a>";
+		assertThat(cancelIsBehindTheSwitch("@if(canWrite)" + cancel + "@endif", synthetic))
+				.as("the plain write gate").isTrue();
+		assertThat(cancelIsBehindTheSwitch("@if(actionsEnabled)" + cancel + "@endif", synthetic))
+				.as("the switch by its other name").isTrue();
+		assertThat(cancelIsBehindTheSwitch("@if(canWrite && qrRow != null)" + cancel + "@endif", synthetic))
+				.as("the switch and something else, which four templates write").isTrue();
+		assertThat(cancelIsBehindTheSwitch("@if(row.ready() && actionsEnabled)" + cancel + "@endif", synthetic))
+				.as("the switch written second").isTrue();
+		assertThat(cancelIsBehindTheSwitch("@if(!canWrite)<span>x</span>@else" + cancel + "@endif", synthetic))
+				.as("negated, so the else arm is the one that needs the switch on").isTrue();
+		assertThat(cancelIsBehindTheSwitch("@if(canWrite)<span>x</span>@else" + cancel + "@endif", synthetic))
+				.as("the correct shape: Cancel exactly when the switch is off").isFalse();
+		assertThat(cancelIsBehindTheSwitch("@if(!canWrite)" + cancel + "@endif", synthetic))
+				.as("negated, Cancel in the arm that renders with the switch off").isFalse();
+		assertThat(cancelIsBehindTheSwitch("@if(row.editable())" + cancel + "@endif", synthetic))
+				.as("a condition that is not about the switch at all").isFalse();
+		assertThat(cancelIsBehindTheSwitch("@if(canWrite)<span>x</span>@endif" + cancel, synthetic))
+				.as("outside the gate, where every window keeps it").isFalse();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(canWrite)@if(row.wide())<span>a</span>@else<span>b</span>@endif@endif" + cancel, synthetic))
+				.as("a nested @else inside the gate does not end its arm early").isFalse();
+		assertThat(cancelIsBehindTheSwitch("@if(!(canWrite))<span>x</span>@else" + cancel + "@endif", synthetic))
+				.as("one pair of parentheses, which round 5 read as no negation at all").isTrue();
+		assertThat(cancelIsBehindTheSwitch("@if(!(canWrite))" + cancel + "@endif", synthetic))
+				.as("the same condition's other arm, which renders with the switch off").isFalse();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(qrRow.name().equals(\") && canWrite\"))" + cancel + "@endif", synthetic))
+				.as("a string holding what looks like structure decides nothing").isFalse();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(qrRow.name().equals(\")\") && canWrite)" + cancel + "@endif", synthetic))
+				.as("a string holding a bracket does not hide the switch beside it").isTrue();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(canWrite && !actionsEnabled)" + cancel + "@endif", synthetic))
+				.as("both names at once, one negated: the arm still needs the switch on").isTrue();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(canManage && !actionsEnabled)" + cancel + "@endif", synthetic))
+				.as("the banner arm, which renders only when the switch is OFF").isFalse();
+		assertThat(cancelIsBehindTheSwitch("@if(canWrite || row.pinned())" + cancel + "@endif", synthetic))
+				.as("an or: something else can render this arm with the switch off").isFalse();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(qrRow == null)<span>x</span>@elseif(canWrite)" + cancel + "@endif", synthetic))
+				.as("an @elseif arm, which the rule read as part of the arm before it").isTrue();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(canWrite)<span>x</span>@elseif(row.wide())<span>y</span>@else" + cancel + "@endif",
+				synthetic))
+				.as("an @else after an @elseif that may itself render: reachable with the switch off")
+				.isFalse();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(!canWrite)<span>x</span>@elseif(row.wide())" + cancel + "@endif", synthetic))
+				.as("an @elseif behind a condition that certainly holds when the switch is off")
+				.isTrue();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(qrRow == null)<span>x</span>@elseif(row.wide())<span>y</span>@elseif(canWrite)"
+						+ cancel + "@endif", synthetic))
+				.as("a THIRD arm: the walk counted depth from the arm before it and stopped at two")
+				.isTrue();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(canWrite)<span>x</span>@elseif(row.wide())<span>y</span>@elseif(row.tall())"
+						+ cancel + "@endif", synthetic))
+				.as("a third arm the reader can reach with the switch off").isFalse();
+		assertThatThrownBy(() -> cancelIsBehindTheSwitch(
+				"@if(canWrite == true)" + cancel + "@endif", synthetic))
+				.as("the switch inside a larger operand is not guessed at")
+				.isInstanceOf(AssertionError.class)
+				.hasMessageContaining("synthetic.jte")
+				.hasMessageContaining("canWrite == true");
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(Boolean.TRUE.equals(canWrite))<span>x</span>@endif" + cancel, synthetic))
+				.as("a condition this cannot read, in a block holding no Cancel, is not its business")
+				.isFalse();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(canWrite)@for(var r : rows)<span>${r}</span>@else<span>none</span>@endfor"
+						+ cancel + "@endif", synthetic))
+				.as("a @for has an @else of its own, which does not end the gate's arm").isTrue();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(canWrite)<span>x</span>@else@for(var r : rows)<span>${r}</span>@else"
+						+ "<span>none</span>@endfor" + cancel + "@endif", synthetic))
+				.as("the same loop above a Cancel in the gate's real @else arm, which renders")
+				.isFalse();
+		assertThat(cancelIsBehindTheSwitch("@if (canWrite)" + cancel + "@endif", synthetic))
+				.as("jte accepts a space after @if, and the block counting did not").isTrue();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(canWrite)@if (row.wide())<span>a</span>@endif" + cancel + "@endif", synthetic))
+				.as("a spaced @if nested in the gate: its @endif must not close the gate early")
+				.isTrue();
+	}
+
+	/**
+	 * Whether this window's Cancel renders only when the actions switch is on.
+	 *
+	 * <p>Every block that holds the control is read by its <b>conditions</b>, not by
+	 * the text they are written with, and a block that holds no Cancel is not this
+	 * rule's business at all. Rounds 1 to 5 each found this rule green for a Cancel
+	 * that was gated: the control absent entirely, the window invisible, a comment
+	 * read as markup, {@code @if(actionsEnabled)} unknown to the scan, and then
+	 * {@code @if(canWrite && ...)} -- four spellings of one idea, each added to a
+	 * literal list after a reviewer found it. A condition that names the switch is
+	 * a gate whatever else it says, so a sixth spelling is covered without being
+	 * enumerated.
+	 *
+	 * <p>Which arm is the gated one comes from {@link #armsOf}, which evaluates
+	 * each condition with the switch off: {@code @if(canWrite)} gates its own arm,
+	 * {@code @if(!canWrite)} gates its {@code @else}, and a chain gates whichever
+	 * of its arms the reader cannot reach. A condition naming the switch both ways
+	 * is read rather than refused; the one shape this does not evaluate -- the
+	 * switch inside a larger operand -- fails loudly, and only when it guards the
+	 * control.
+	 *
+	 * <p>Broad is the safe direction here, and it is the opposite of
+	 * {@link #insideAGate}'s, which skips a window entirely and so reads only a
+	 * condition that <em>is</em> the switch. They no longer share a list.
+	 */
+	private static boolean cancelIsBehindTheSwitch(String window, Path path) {
+		for (Matcher opening = IF.matcher(window); opening.find(); ) {
+			int block = opening.start();
+			int end = endOfBlock(window, block, path);
+			// Only a block that holds the control at all is read. Anything else -- a condition
+			// this cannot evaluate, an `@elseif` chain about something unrelated -- is none of
+			// this rule's business, and evaluating it anyway made an unreadable condition
+			// elsewhere in the window fail the whole gate (round 7).
+			if (!window.substring(block, end).contains(CANCEL)) {
+				continue;
+			}
+			for (Arm arm : armsOf(window, block, end, path)) {
+				if (!arm.rendersWithTheSwitchOff() && arm.text().contains(CANCEL)) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * One arm of an {@code @if} / {@code @elseif} / {@code @else} chain, and whether the
+	 * reader can reach it with the actions switch off.
+	 */
+	private record Arm(String text, boolean rendersWithTheSwitchOff) {
+	}
+
+	/**
+	 * A block's arms in order, each with its own reachability when the switch is off.
+	 *
+	 * <p>An arm renders when its condition holds and every condition before it failed, so
+	 * with the switch off an arm is out of reach when its own condition cannot hold, and
+	 * also when an earlier one certainly does. The {@code @else} arm is out of reach when
+	 * any earlier condition certainly holds. Round 6 read the first two arms of a block;
+	 * {@code @elseif} is written fourteen times across eleven admin templates and
+	 * {@code @elseif(canWrite)} at {@code settings-templates.jte:113}, so a Cancel in one
+	 * was invisible (round 7).
+	 */
+	private static List<Arm> armsOf(String source, int block, int end, Path path) {
+		List<Arm> arms = new ArrayList<>();
+		List<Integer> starts = new ArrayList<>(List.of(block));
+		List<String> conditions = new ArrayList<>(
+				List.of(conditionAt(source, source.indexOf('(', block), path)));
+		for (int at = block; at >= 0 && at < end; ) {
+			int next = nextArmAtDepthOne(source, block, at + 1, end);
+			if (next < 0) {
+				break;
+			}
+			starts.add(next);
+			conditions.add(source.startsWith("@elseif", next)
+					? conditionAt(source, source.indexOf('(', next), path) : null);
+			at = next;
+		}
+		starts.add(end);
+		boolean earlierCertainlyHolds = false;
+		for (int i = 0; i < conditions.size(); i++) {
+			String condition = conditions.get(i);
+			Boolean held = condition == null ? Boolean.TRUE : withTheSwitchOff(condition, path);
+			boolean reachable = !earlierCertainlyHolds && !Boolean.FALSE.equals(held);
+			arms.add(new Arm(source.substring(starts.get(i), starts.get(i + 1)), reachable));
+			earlierCertainlyHolds |= Boolean.TRUE.equals(held);
+		}
+		return arms;
+	}
+
+	/**
+	 * The next {@code @elseif} or {@code @else} belonging to {@code block}, after
+	 * {@code from}, or -1.
+	 *
+	 * <p>Depth is counted from the block's own {@code @if} and not from the arm
+	 * before it: counting from the previous arm leaves that {@code @if} outside the
+	 * region, so every third and later arm read as depth 0 and the walk stopped at
+	 * two. The commit that introduced this walk is titled "a chain has as many arms
+	 * as it has conditions" and read two of them (#305's review round 8).
+	 */
+	private static int nextArmAtDepthOne(String source, int block, int from, int end) {
+		Matcher arm = Pattern.compile("@else(if)?\\b").matcher(source).region(from, end);
+		while (arm.find()) {
+			if (depthAt(source, block, arm.start()) == 1) {
+				return arm.start();
+			}
+		}
+		return -1;
+	}
+
+	/** Where {@code @if}'s own arm ends: its {@code @else} if it has one, else the whole block. */
+	private static int armEnd(String source, int block, int end) {
+		for (int otherwise = source.indexOf("@else", block); otherwise > 0 && otherwise < end;
+				otherwise = source.indexOf("@else", otherwise + 1)) {
+			// The block's OWN else, which is the first at depth 1: an `@else` belonging to an
+			// `@if` nested inside it sits deeper, and taking that one ends the arm early.
+			if (depthAt(source, block, otherwise) == 1) {
+				return otherwise;
+			}
+		}
+		return end;
+	}
+
+	/**
+	 * The condition of the {@code @if} whose opening parenthesis is at {@code open},
+	 * with its own parentheses balanced.
+	 */
+	private static String conditionAt(String source, int open, Path path) {
+		int depth = 0;
+		for (int at = open; at < source.length(); at++) {
+			char character = source.charAt(at);
+			if (character == '"' || character == '\'') {
+				// A bracket inside a string is text: `@if(name.equals(")") && canWrite)` ends
+				// where the condition ends, not where its first quoted `)` sits (round 6).
+				at = endOfStringLiteral(source, at, path);
+				continue;
+			}
+			depth += character == '(' ? 1 : character == ')' ? -1 : 0;
+			if (depth == 0) {
+				return source.substring(open + 1, at);
+			}
+		}
+		throw new AssertionError(path.getFileName() + ": an @if condition that never closes at " + open);
+	}
+
+	/** Where the literal opening at {@code quote} ends, escapes skipped. */
+	private static int endOfStringLiteral(String source, int quote, Path path) {
+		char delimiter = source.charAt(quote);
+		for (int at = quote + 1; at < source.length(); at++) {
+			char character = source.charAt(at);
+			if (character == '\\') {
+				at++;
+			}
+			else if (character == delimiter) {
+				return at;
+			}
+		}
+		throw new AssertionError(path.getFileName() + ": a string that never closes at " + quote);
+	}
+
+	/**
+	 * {@code condition} with the actions switch off: {@code TRUE}, {@code FALSE}, or
+	 * {@code null} when the operands this cannot see decide it.
+	 *
+	 * <p>{@code canWrite} and {@code actionsEnabled} are false and everything else is
+	 * unknown, so three answers are possible and each means something this rule needs:
+	 * {@code FALSE} says the {@code @if} arm cannot render with the switch off,
+	 * {@code TRUE} says the {@code @else} arm cannot, and {@code null} -- which
+	 * {@code @if(canManage && !actionsEnabled)} gives -- says neither arm is the
+	 * switch's to hide.
+	 *
+	 * <p>It is a boolean expression and nothing more: {@code &&}, {@code ||}, {@code !}
+	 * and parentheses over opaque operands. String literals are blanked first, so a
+	 * bracket or a quote inside one cannot move the parsing (round 6). An operand that
+	 * holds the switch's name inside something larger, such as {@code canWrite == true},
+	 * is not read: it fails naming the file, the condition and what to do, because
+	 * guessing is how this rule was wrong five times.
+	 */
+	private static Boolean withTheSwitchOff(String condition, Path path) {
+		String source = BLANKABLE_STRING.matcher(condition).replaceAll("\"\"");
+		int[] at = {0};
+		Boolean value = orExpression(source, at, path);
+		skipSpace(source, at);
+		if (at[0] < source.length()) {
+			throw unreadable(condition, path, "it does not parse as a boolean expression");
+		}
+		return value;
+	}
+
+	private static Boolean orExpression(String source, int[] at, Path path) {
+		Boolean value = andExpression(source, at, path);
+		while (peek(source, at, "||")) {
+			Boolean right = andExpression(source, at, path);
+			value = Boolean.TRUE.equals(value) || Boolean.TRUE.equals(right) ? Boolean.TRUE
+					: value == null || right == null ? null : Boolean.FALSE;
+		}
+		return value;
+	}
+
+	private static Boolean andExpression(String source, int[] at, Path path) {
+		Boolean value = unary(source, at, path);
+		while (peek(source, at, "&&")) {
+			Boolean right = unary(source, at, path);
+			value = Boolean.FALSE.equals(value) || Boolean.FALSE.equals(right) ? Boolean.FALSE
+					: value == null || right == null ? null : Boolean.TRUE;
+		}
+		return value;
+	}
+
+	private static Boolean unary(String source, int[] at, Path path) {
+		skipSpace(source, at);
+		if (peek(source, at, "!")) {
+			Boolean value = unary(source, at, path);
+			return value == null ? null : !value;
+		}
+		if (peek(source, at, "(")) {
+			Boolean value = orExpression(source, at, path);
+			if (!peek(source, at, ")")) {
+				throw unreadable(source, path, "a parenthesis never closes");
+			}
+			return value;
+		}
+		int start = at[0];
+		// An operand runs to the next thing that is structure: `&&`, `||`, a `!` that is not
+		// the `!=` of a comparison, or a bracket that is not its own. `canWrite && qrRow !=
+		// null` is two operands, and `row.ready() && actionsEnabled` is two as well -- a call's
+		// brackets belong to the operand, a grouping's do not (round 6's own probe shapes).
+		int calls = 0;
+		while (at[0] < source.length()) {
+			char here = source.charAt(at[0]);
+			if (here == '(' && at[0] > start) {
+				calls++;
+			}
+			else if (here == ')' && calls > 0) {
+				calls--;
+			}
+			else if (calls == 0 && (here == '(' || here == ')'
+					|| source.startsWith("&&", at[0]) || source.startsWith("||", at[0])
+					|| (here == '!' && !source.startsWith("!=", at[0])))) {
+				break;
+			}
+			at[0]++;
+		}
+		String operand = source.substring(start, at[0]).trim();
+		if (operand.isEmpty()) {
+			throw unreadable(source, path, "an operand is missing");
+		}
+		if (operand.equals("canWrite") || operand.equals("actionsEnabled")) {
+			return Boolean.FALSE;
+		}
+		if (SWITCH.matcher(operand).find()) {
+			throw unreadable(source, path, "the operand `" + operand + "` holds the actions switch "
+					+ "inside a larger expression, which this rule does not evaluate. Write the "
+					+ "switch as its own operand, or extend this test to read the shape");
+		}
+		return null;
+	}
+
+	private static boolean peek(String source, int[] at, String token) {
+		skipSpace(source, at);
+		if (source.startsWith(token, at[0])) {
+			at[0] += token.length();
+			return true;
+		}
+		return false;
+	}
+
+	private static void skipSpace(String source, int[] at) {
+		while (at[0] < source.length() && Character.isWhitespace(source.charAt(at[0]))) {
+			at[0]++;
+		}
+	}
+
+	private static AssertionError unreadable(String condition, Path path, String why) {
+		return new AssertionError(path.getFileName() + ": a condition this rule cannot read -- "
+				+ why + ": " + condition);
+	}
+
+	/** A string literal's contents, escapes included, which are text and never structure. */
+	private static final Pattern BLANKABLE_STRING =
+			Pattern.compile("\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*'");
+
+	/**
+	 * An {@code @if}'s opening, written as {@link #BLOCK_TAG} counts it. jte accepts a
+	 * space before the bracket; no admin template writes one today, and a rule that
+	 * reads only what is written today is how this one was wrong eight times.
+	 */
+	private static final Pattern IF = Pattern.compile("@if\\s*\\(");
+
+	/** The switch, by either name a template gives it. `canWrite` is `canManage && actionsEnabled`. */
+	private static final Pattern SWITCH = Pattern.compile("\\b(canWrite|actionsEnabled)\\b");
+
+	private static final String CANCEL = "t.apply(\"cancel\")";
+
+	/** Where the window opening at {@code start} closes, by {@code <div>} depth. */
+	private static int endOfWindow(String source, int start, Path path) {
+		Matcher tag = Pattern.compile("<div\\b|</div>").matcher(source).region(start, source.length());
+		int depth = 0;
+		while (tag.find()) {
+			depth += tag.group().equals("</div>") ? -1 : 1;
+			if (depth == 0) {
+				return tag.end();
+			}
+		}
+		throw new AssertionError(path.getFileName() + ": a modal-bg that never closes at " + start);
+	}
+
+	/**
+	 * Where the {@code @if} opening at {@code start} closes, counting the
+	 * {@code @if}s nested inside it. A block that never closes fails here
+	 * rather than reading as an empty one.
+	 */
+	private static int endOfBlock(String source, int start, Path path) {
+		Matcher tag = BLOCK_TAG.matcher(source).region(start, source.length());
+		int depth = 0;
+		while (tag.find()) {
+			depth += CLOSING.matcher(tag.group()).matches() ? -1 : 1;
+			if (depth == 0) {
+				return tag.end();
+			}
+		}
+		throw new AssertionError(path.getFileName() + ": an @if that never closes at " + start);
+	}
+
+	/**
+	 * Every directive that opens or closes a block, counted together.
+	 *
+	 * <p>{@code @for} is here because jte gives it an {@code @else} of its own, for the
+	 * empty collection. Counting only {@code @if} put that {@code @else} at the enclosing
+	 * block's depth, so a {@code @for(...) ... @else ... @endfor} written above a Cancel
+	 * inside {@code @if(canWrite)} ended the gate's arm early and the Cancel read as
+	 * ungated -- three of the nine windows this rule checks already contain a
+	 * {@code @for} (#305's review round 9).
+	 *
+	 * <p>The whitespace is here because jte accepts {@code @if (cond)} with a space while
+	 * these counted only {@code @if(}: a spaced {@code @if} nested inside a correctly
+	 * written gate left its {@code @endif} unpaired, which truncated the block and made
+	 * the gate skip it. Both directions were proved past the compiled gate, not argued.
+	 */
+	private static final Pattern BLOCK_TAG =
+			Pattern.compile("@if\\s*\\(|@for\\s*\\(|@endif\\b|@endfor\\b");
+
+	private static final Pattern CLOSING = Pattern.compile("@end(if|for)");
 
 	/**
 	 * A page is a template that renders the shell. The rest -- the layout

@@ -258,6 +258,34 @@ class AdminEmployeesEndToEndTest {
 	}
 
 	@Test
+	void anEmployeeWithABlankNameReadsAsLegacysDashInItsNameCell() {
+		// page.php:343: the name through dashboard_employee_display_name(), whose own fallback
+		// is an em dash; only the avatar beside it passes 'E'.
+		long blank = seedEmployee(this.companyA, "1002", "", "");
+		long named = seedEmployee(this.companyA, "1003", "Aya", "Alpha");
+
+		String html = body("/admin/employees?company_id=" + this.companyA);
+		assertThat(row(html, blank)).contains("<div class=\"bold\">—</div>");
+		assertThat(row(html, named)).contains("<div class=\"bold\">Aya Alpha</div>");
+	}
+
+	@Test
+	void theEditWindowIsTitledEditEmployeeAndTheName() {
+		// page.php:399: __('edit_employee') . ': ' . dashboard_employee_display_name($editEmp).
+		// The row is SELECT e.*, so the helper trims each stored name, joins and trims the
+		// pair, and gives an em dash when both are blank.
+		long blank = seedEmployee(this.companyA, "1002", "", "");
+		long firstOnly = seedEmployee(this.companyA, "1003", "Aya", "");
+		long padded = seedEmployee(this.companyA, "1004", " Aya ", "Alpha");
+
+		assertThat(body("/admin/employees?action=edit&id=" + blank)).contains("<h2>تعديل موظف: —</h2>");
+		assertThat(body("/admin/employees?action=edit&id=" + firstOnly)).contains("<h2>تعديل موظف: Aya</h2>");
+		assertThat(body("/admin/employees?action=edit&id=" + padded)).contains("<h2>تعديل موظف: Aya Alpha</h2>");
+		assertThat(body("/admin/employees?action=add")).as("the add window keeps its own title")
+				.contains("<h2>إضافة موظف</h2>");
+	}
+
+	@Test
 	void theListRendersAnEmployeeWhoHasAContractDuration() {
 		// Every other fixture here leaves contract_duration_months NULL, and
 		// that is why the whole page answered 500 against real data without
@@ -1255,6 +1283,188 @@ class AdminEmployeesEndToEndTest {
 	}
 
 	/**
+	 * {@code _employee_form.php:54-287}: four titled sections, each a grid of
+	 * rows, in legacy's own classes. {@code employee-form.css} and
+	 * {@code org-form.css} are legacy's byte for byte and were styling nothing
+	 * here, because the port rendered one flat column of {@code form-row}s with
+	 * no sections, no titles and no grid.
+	 */
+	@Test
+	void theWindowDrawsLegacysTitledSectionsAndItsCloseControl() {
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		String add = body("/admin/employees?company_id=" + this.companyA + "&action=add");
+		String edit = body("/admin/employees?action=edit&id=" + id);
+
+		for (String html : List.of(add, edit)) {
+			assertThat(html).as("page.php:383,398: the window's own close")
+					.contains("class=\"modal-close\"", "aria-label=\"إغلاق\"", "&#215;");
+		}
+		assertThat(sectionTitles(add)).containsExactly(
+				"البيانات الشخصية", "بيانات الوظيفة", "حضور وانصراف الموبايل", "بيانات المرتب");
+		assertThat(sectionTitles(edit)).as("legacy's edit never shows the salary section")
+				.containsExactly("البيانات الشخصية", "بيانات الوظيفة", "حضور وانصراف الموبايل");
+
+		String form = formOf(add, "add_employee");
+		assertThat(form).contains("<form method=\"POST\" class=\"org-form-grid-wrap\"")
+				.contains("<section class=\"emp-form-section org-form-span-2\">")
+				.contains("<div class=\"org-form-grid\">")
+				.as("the login block legacy groups the phone, country and password into")
+				.contains("<div class=\"form-row org-form-span-2 emp-login-credentials\">",
+						"<p class=\"form-hint emp-login-credentials__hint\">",
+						"<div class=\"emp-login-credentials__grid\">",
+						"<div class=\"emp-login-credentials__country\">",
+						"<div class=\"emp-login-credentials__phone\">",
+						"<div class=\"emp-login-credentials__password\">");
+		assertThat(form).as("and legacy's span-2 rows, which the grid runs full width")
+				.contains("<div class=\"form-row org-form-span-2\">")
+				.contains("<div class=\"form-footer org-form-span-2\">");
+		assertThat(formOf(edit, "save_edit"))
+				.as("password_optional, which legacy adds on the edit path only")
+				.contains("كلمة المرور (اتركها فارغة لعدم التغيير)");
+		assertThat(form).doesNotContain("كلمة المرور (اتركها فارغة لعدم التغيير)");
+	}
+
+	/** Each {@code emp-form-section__title} on the page, in the order it renders. */
+	private static List<String> sectionTitles(String html) {
+		return Pattern.compile("<h3 class=\"emp-form-section__title\">([^<]*)</h3>")
+				.matcher(html).results().map(match -> match.group(1)).toList();
+	}
+
+	/**
+	 * {@code _employee_form.php:231-283}: five entitlements and five deductions,
+	 * each labelled through {@code employee_field_requirement_label()} -- the
+	 * basic salary mandatory and {@code required}, the nine others optional --
+	 * and every one a number input stepping by a piastre from zero, opening at
+	 * zero. The port rendered the basic salary alone, optional and empty, while
+	 * its controller and store already read and wrote all ten.
+	 */
+	@Test
+	void theAddWindowsSalarySectionIsLegacysTenComponents() {
+		String add = body("/admin/employees?company_id=" + this.companyA + "&action=add");
+		String form = formOf(add, "add_employee");
+
+		assertThat(form).contains("<div class=\"org-form-grid emp-salary-grid\">",
+				"<h4 class=\"emp-form-subtitle\">الاستحقاقات</h4>",
+				"<h4 class=\"emp-form-subtitle\">الخصومات</h4>");
+		assertThat(form).contains("<label for=\"basic_salary\">الراتب الأساسي (إجباري)</label>")
+				.contains("<input type=\"number\" id=\"basic_salary\" name=\"basic_salary\""
+						+ " step=\"0.01\" min=\"0\" value=\"0\" required>");
+
+		Map<String, String> labels = new LinkedHashMap<>();
+		labels.put("transport", "بدل انتقال");
+		labels.put("food", "بدل طعام");
+		labels.put("risk", "بدل مخاطر");
+		labels.put("incentives", "حوافز");
+		labels.put("insurance", "التأمينات");
+		labels.put("tax", "الضرائب");
+		labels.put("advances", "تأمين طبي");
+		labels.put("fund", "الصناديق");
+		labels.put("penalty", "خصومات ثابتة أخرى");
+		labels.forEach((name, label) -> assertThat(form).as(name)
+				.contains("<label for=\"" + name + "\">" + label + " (اختياري)</label>")
+				.contains("<input type=\"number\" id=\"" + name + "\" name=\"" + name
+						+ "\" step=\"0.01\" min=\"0\" value=\"0\">"));
+
+		BrowserForm browser = formFields(add, "add_employee");
+		assertThat(browser.required()).as("legacy's basic salary is required").contains("basic_salary");
+		assertThat(browser.fields()).containsEntry("basic_salary", "0")
+				.containsEntry("transport", "0").containsEntry("penalty", "0");
+
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		assertThat(formOf(body("/admin/employees?action=edit&id=" + id), "save_edit"))
+				.as("legacy's edit never touches the salary contract")
+				.doesNotContain("name=\"basic_salary\"", "name=\"transport\"", "name=\"penalty\"");
+	}
+
+	@Test
+	void aCreatedEmployeesSalaryRowCarriesEveryComponentAsPosted() {
+		// page.php:93-106 writes all ten from the post. The controller and the
+		// store already read and wrote all ten; the window offered a field for
+		// one, so nine of them could only ever be stored as zero. Filled and
+		// submitted as a browser would, not posted past the form.
+		Map<String, String> typed = new LinkedHashMap<>();
+		typed.put("basic_salary", "7500.50");
+		typed.put("transport", "300.25");
+		typed.put("food", "150.10");
+		typed.put("risk", "75.05");
+		typed.put("incentives", "220.40");
+		typed.put("insurance", "60.15");
+		typed.put("tax", "310.20");
+		typed.put("advances", "45.35");
+		typed.put("fund", "90.45");
+		typed.put("penalty", "25.55");
+
+		BrowserForm form = formFields(
+				body("/admin/employees?company_id=" + this.companyA + "&action=add"), "add_employee");
+		assertThat(form.fields().keySet()).as("the window offers all ten").containsAll(typed.keySet());
+		form.fields().putAll(typed);
+		form.fields().put("first_name", "Nadia");
+		form.fields().put("employee_code", "2001");
+		form.fields().put("branch_id", String.valueOf(this.branchA));
+		form.fields().put("shift_id", String.valueOf(this.shiftA));
+		form.fields().put("hire_date", "2026-02-01");
+		assertSaved(postFields(form));
+
+		Map<String, Object> contract = this.jdbc.queryForMap(
+				"SELECT sc.* FROM salary_contracts sc JOIN employees e ON e.id = sc.employee_id"
+						+ " WHERE e.employee_code = '2001'");
+		Map<String, String> stored = new LinkedHashMap<>();
+		stored.put("basic_salary", "7500.50");
+		stored.put("transport_allowance", "300.25");
+		stored.put("food_allowance", "150.10");
+		stored.put("risk_allowance", "75.05");
+		stored.put("incentives", "220.40");
+		stored.put("insurance_deduction", "60.15");
+		stored.put("tax_deduction", "310.20");
+		stored.put("advances_deduction", "45.35");
+		stored.put("fund_deduction", "90.45");
+		stored.put("penalty_deduction", "25.55");
+		stored.forEach((column, amount) -> assertThat((java.math.BigDecimal) contract.get(column))
+				.as(column).isEqualByComparingTo(amount));
+		assertThat((java.math.BigDecimal) contract.get("housing_allowance"))
+				.as("legacy writes a zero housing allowance; neither form has a field for it")
+				.isEqualByComparingTo("0");
+		assertThat(contract.get("effective_from")).asString().startsWith("2026-02-01");
+	}
+
+	@Test
+	void theWindowsButtonSaysAddOnAnAddAndSaveOnAnEdit() {
+		// _employee_form.php:286: the add window's button names what it adds.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+
+		assertThat(formOf(body("/admin/employees?company_id=" + this.companyA + "&action=add"),
+				"add_employee"))
+				.contains("<button type=\"submit\" class=\"btn btn-blue\">إضافة موظف</button>");
+		assertThat(formOf(body("/admin/employees?action=edit&id=" + id), "save_edit"))
+				.contains("<button type=\"submit\" class=\"btn btn-blue\">حفظ</button>");
+	}
+
+	@Test
+	void deactivatingAsksLegacysConfirmationInRedAndReactivatingDoesNot() {
+		// employee_helper.php:671-686: deactivate is a danger item behind
+		// confirm_delete, legacy's own prompt for it, and reactivate a success
+		// item that asks nothing. The port offered both as a plain item, and
+		// deactivating an employee took one click with no prompt at all.
+		long active = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		long suspended = seedEmployee(this.companyA, "1002", "Bassem", "Beta");
+		this.jdbc.update("UPDATE employees SET is_active = 0 WHERE id = ?", suspended);
+
+		String html = body("/admin/employees?company_id=" + this.companyA);
+
+		String deactivate = formOf(row(html, active), "deactivate");
+		assertThat(deactivate).contains("onsubmit=\"return confirm('هل تريد الحذف؟ لا يمكن التراجع!')\"")
+				.contains("class=\"row-actions__item row-actions__item--danger\">إيقاف</button>");
+		String reactivate = formOf(row(html, suspended), "reactivate");
+		assertThat(reactivate).as("legacy asks nothing to switch an employee back on")
+				.doesNotContain("onsubmit");
+		assertThat(reactivate)
+				.contains("class=\"row-actions__item row-actions__item--success\">تفعيل</button>");
+		assertThat(formOf(row(html, active), "delete")).as("the delete item keeps its own prompt")
+				.contains("onsubmit=\"return confirm('هل تريد الحذف؟ لا يمكن التراجع!')\"")
+				.contains("class=\"row-actions__item row-actions__item--danger\">حذف</button>");
+	}
+
+	/**
 	 * A refused post also redirects, and leaves every column as it was, so an
 	 * unchanged-row assertion alone would pass on a save that never ran.
 	 */
@@ -1492,6 +1702,13 @@ class AdminEmployeesEndToEndTest {
 		int start = html.indexOf("<select id=\"country_code\"");
 		assertThat(start).as("the country select renders").isPositive();
 		return html.substring(start, html.indexOf("</select>", start));
+	}
+
+	/** One employee's row of the list, from its opening tag to its end. */
+	private static String row(String html, long employeeId) {
+		int menu = html.indexOf("id=\"row-actions-menu-" + employeeId + "\"");
+		assertThat(menu).as("the row for employee %s", employeeId).isPositive();
+		return html.substring(html.lastIndexOf("<tr", menu), html.indexOf("</tr>", menu));
 	}
 
 	private long seedEmployee(long companyId, String code, String first, String last) {

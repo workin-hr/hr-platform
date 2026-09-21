@@ -1,5 +1,6 @@
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.hr.EmployeeDisplay
 @import com.workin.backend.platformadmin.hr.ListDisplay
 @import com.workin.backend.platformadmin.hr.Penalty
 @import com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption
@@ -61,7 +62,7 @@
 				<div class="filter-field">
 					<label class="filter-field__label" for="pn_search">${t.apply("search")}</label>
 					<input type="search" id="pn_search" name="search"
-					       placeholder="${t.apply("leave_balances_search_placeholder")}"
+					       placeholder="${t.apply("penalties_search_placeholder")}"
 					       value="${filters.search()}">
 				</div>
 				<div class="filter-field">
@@ -85,10 +86,29 @@
 		</div>
 
 
+		<%-- The filters the page's own links carry: the pager appends them, the
+		     size form re-submits them, and the export takes the same set so the
+		     file holds exactly the list on the screen. Built before the card
+		     because the export link needs it too (D-269's shape). --%>
+		!{java.util.SequencedMap<String, String> carry =
+				new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+		!{carry.put("applied", applied);}
+		!{if (dateFrom != null && !dateFrom.isBlank()) { carry.put("date_from", dateFrom); }}
+		!{if (dateTo != null && !dateTo.isBlank()) { carry.put("date_to", dateTo); }}
+		!{StringBuilder exportHref = new StringBuilder("/admin/penalties?export=csv");}
+		@for(java.util.Map.Entry<String, String> entry : carry.entrySet())
+			!{exportHref.append('&').append(entry.getKey()).append('=')
+					.append(java.net.URLEncoder.encode(entry.getValue(), java.nio.charset.StandardCharsets.UTF_8));}
+		@endfor
+
 		<div class="data-table-card">
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("nav_penalties")} (${result.total()})</h2>
 				<div class="data-table-head__actions">
+					<%-- page.php:169. Legacy offers the export to anyone who can open the
+					     page, managing rights or not: it hands back what is already on
+					     the screen, in a spreadsheet. --%>
+					<a href="${exportHref.toString()}" class="btn btn-green btn-sm">${t.apply("export_csv")}</a>
 					@if(canWrite)
 						<button type="button" class="btn btn-blue btn-sm"
 								onclick="crudOpenAdd('penModal')">+ ${t.apply("add_penalty")}</button>
@@ -114,10 +134,13 @@
 				<tbody>
 					@for(int index = 0; index < result.data().size(); index++)
 						!{Penalty row = result.data().get(index);}
+						<%-- dashboard_employee_display_name(): a blank name reads as an em dash, in
+						     the cell and in the row's actions (hr_list_helper.php:69, 660). --%>
+						!{String employeeName = EmployeeDisplay.displayName(row.employeeName(), "—");}
 						<tr>
 							<td>${result.from() + index}</td>
 							<td class="text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
-							<td class="bold">${row.employeeName()}</td>
+							<td class="bold">${employeeName}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
@@ -146,9 +169,9 @@
 											<button type="button" role="menuitem" class="row-actions__item"
 													data-dialog="penalty-edit"
 													data-dialog-id="${row.id()}"
-													data-dialog-subject="${row.employeeName()}"
+													data-dialog-subject="${employeeName}"
 													data-dialog-employee_id="${row.employeeId()}"
-													data-dialog-employee_label="${EmployeePicker.label(row.employeeName(), row.employeeCode(), null)}"
+													data-dialog-employee_label="${EmployeePicker.label(employeeName, row.employeeCode(), null)}"
 													data-dialog-penalty_type="${row.penaltyType()}"
 													data-dialog-penalty_days="${row.daysDisplay()}"
 													data-dialog-penalty_date="${row.penaltyDate() == null ? "" : row.penaltyDate()}"
@@ -180,9 +203,6 @@
 				</tbody>
 			</table>
 			</div>
-			!{java.util.SequencedMap<String, String> carry =
-					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
-			!{carry.put("applied", applied);}
 		@if(canWrite)
 			<%-- The page's one copy of the list both employee pickers search. --%>
 			<div hidden id="employee-picker-list" data-employees="${EmployeePicker.json(employeeOptions)}"></div>

@@ -1,5 +1,6 @@
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.hr.EmployeeDisplay
 @import com.workin.backend.platformadmin.hr.EmployeeRequest
 @import com.workin.backend.platformadmin.hr.ListDisplay
 @import com.workin.backend.platformadmin.web.DashboardListFilters
@@ -29,7 +30,7 @@
 @param String flashType = "success"
 @param Function<String, Boolean> available
 !{boolean canWrite = canManage && actionsEnabled;}
-!{int colCount = showCompanyColumn ? 14 : 13;}
+!{int colCount = showCompanyColumn ? 13 : 12;}
 <%-- dashboard/pages/requests/page.php. --%>
 @template.admin.layout(
 	title = t.apply("nav_employee_requests"),
@@ -68,16 +69,17 @@
 				<div class="filter-field">
 					<label class="filter-field__label" for="rq_search">${t.apply("search")}</label>
 					<input type="search" id="rq_search" name="search"
-					       placeholder="${t.apply("search")}..." value="${filters.search()}">
+					       placeholder="${t.apply("requests_search_placeholder")}" value="${filters.search()}">
 				</div>
-				<%-- Defaults to pending: the page is a queue to work through. --%>
+				<%-- The default is pending -- the page is a queue to work through -- but
+				     "all" leads the options, as legacy's select does (page.php:101-107). --%>
 				<div class="filter-field">
 					<label class="filter-field__label" for="rq_status">${t.apply("status")}</label>
 					<select id="rq_status" name="status">
+						<option value="all" selected="${"all".equals(status)}">${t.apply("filter_all")}</option>
 						<option value="pending" selected="${"pending".equals(status)}">${t.apply("status_pending")}</option>
 						<option value="approved" selected="${"approved".equals(status)}">${t.apply("status_approved")}</option>
 						<option value="rejected" selected="${"rejected".equals(status)}">${t.apply("status_rejected")}</option>
-						<option value="all" selected="${"all".equals(status)}">${t.apply("filter_all")}</option>
 					</select>
 				</div>
 				<div class="filter-field">
@@ -128,19 +130,21 @@
 						<th>${t.apply("from_time")}</th>
 						<th>${t.apply("to_time")}</th>
 						<th>${t.apply("request_notes")}</th>
-						<th>${t.apply("admin_reply")}</th>
+						<th>${t.apply("decision_reply")}</th>
 						<th>${t.apply("status")}</th>
-						<th>${t.apply("reg_date")}</th>
 						@template.admin.actionsHeader(t = t)
 					</tr>
 				</thead>
 				<tbody>
 					@for(int index = 0; index < result.data().size(); index++)
 						!{EmployeeRequest row = result.data().get(index);}
+						<%-- dashboard_employee_display_name(): a blank name reads as an em dash, in
+						     the cell and in the row's actions (requests/page.php:122, hr_list_helper.php:524). --%>
+						!{String employeeName = EmployeeDisplay.displayName(row.employeeName(), "—");}
 						<tr>
 							<td>${result.from() + index}</td>
 							<td class="text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
-							<td class="bold">${row.employeeName()}</td>
+							<td class="bold">${employeeName}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
@@ -161,7 +165,6 @@
 							<td>
 								@template.admin.statusBadge(status = row.status(), t = t)
 							</td>
-							<td>${row.createdDate()}</td>
 							<%-- Approving is not a status change alone: it deducts leave
 							     and can write one attendance row per day of the span, which
 							     is why it asks before it runs. --%>
@@ -173,11 +176,11 @@
 													class="row-actions__item row-actions__item--success"
 													data-dialog="request-approve"
 													data-dialog-id="${row.id()}"
-													data-dialog-subject="${row.employeeName()}">${t.apply("approve")}</button>
+													data-dialog-subject="${employeeName}">${t.apply("approve")}</button>
 											<button type="button" role="menuitem" class="row-actions__item row-actions__item--danger"
 													data-dialog="request-reject"
 													data-dialog-id="${row.id()}"
-													data-dialog-subject="${row.employeeName()}">${t.apply("reject")}</button>
+													data-dialog-subject="${employeeName}">${t.apply("reject")}</button>
 										@endif
 										<form method="POST" class="row-actions__form" role="none"
 										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
@@ -206,15 +209,17 @@
 		@if(canWrite)
 			<%-- The comment box used to sit in every row. It is optional -- legacy
 			     accepts an empty one -- so the dialog exists to say what approving
-			     does, not to demand text. --%>
+			     does, not to demand text, and its label says so as legacy's does
+			     (page.php:152-156). --%>
 			@template.admin.rowDialog(id = "request-approve", action = "approve",
 					title = t.apply("approve"), csrfParameterName = csrfParameterName,
 					csrfToken = csrfToken, t = t, submitLabel = t.apply("approve"),
 					submitVariant = "green",
 					fields = @`
 						<div class="form-row">
-							<label for="req_approve_comment">${t.apply("reply")}</label>
-							<textarea id="req_approve_comment" name="comment" rows="4"></textarea>
+							<label for="req_approve_comment">${t.apply("decision_reply")} (${t.apply("optional")})</label>
+							<textarea id="req_approve_comment" name="comment" rows="4"
+							          placeholder="${t.apply("decision_reply")}..."></textarea>
 						</div>
 					`)
 			<%-- Legacy's reject opens the same decision modal, with an optional
@@ -225,8 +230,9 @@
 					submitVariant = "red",
 					fields = @`
 						<div class="form-row">
-							<label for="req_reject_comment">${t.apply("reply")}</label>
-							<textarea id="req_reject_comment" name="comment" rows="4"></textarea>
+							<label for="req_reject_comment">${t.apply("decision_reply")} (${t.apply("optional")})</label>
+							<textarea id="req_reject_comment" name="comment" rows="4"
+							          placeholder="${t.apply("decision_reply")}..."></textarea>
 						</div>
 					`)
 		@endif

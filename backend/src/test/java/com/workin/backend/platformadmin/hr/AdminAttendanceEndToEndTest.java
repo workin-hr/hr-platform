@@ -218,6 +218,42 @@ class AdminAttendanceEndToEndTest {
 	}
 
 	/**
+	 * The punch table prints the name through hr_render_table_employee_cells() and its edit
+	 * through payroll_attendance_row_actions() (hr_list_helper.php:69, payroll_list_helper.php:494),
+	 * so a blank one is dashboard_employee_display_name()'s em dash there. The aggregate report
+	 * prints the name its SQL returns (page.php:242), so there it stays blank.
+	 */
+	@Test
+	void aBlankNameIsLegacysDashInThePunchTableAndStaysBlankInTheReport() {
+		long blank = createEmployee(this.companyA, "A200", "", "");
+		long punch = attendance(blank, "2026-03-02 09:00:00", "2026-03-02 17:00:00", null);
+		long named = attendance(this.employeeA, "2026-03-03 09:00:00", "2026-03-03 17:00:00", null);
+
+		String html = body(PATH + range() + "&company_id=" + this.companyA);
+		int report = html.indexOf("<h2 class=\"data-table-title\">"
+				+ "\u0627\u0644\u062a\u0642\u0631\u064a\u0631 \u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a</h2>");
+		assertThat(report).as("the aggregate report's heading").isPositive();
+		String punches = html.substring(0, report);
+		String aggregate = html.substring(report);
+
+		assertThat(punches)
+				.containsPattern("<td class=\"text-muted\">A200</td>\\s*<td class=\"bold\">\u2014</td>")
+				.containsPattern("<td class=\"text-muted\">A100</td>\\s*<td class=\"bold\">Aya Alpha</td>");
+		assertThat(menuOf(punches, punch)).contains("data-dialog-subject=\"\u2014\"");
+		assertThat(menuOf(punches, named)).contains("data-dialog-subject=\"Aya Alpha\"");
+		assertThat(aggregate)
+				.containsPattern("<td class=\"text-muted\">A200</td>\\s*<td class=\"bold\"></td>")
+				.containsPattern("<td class=\"text-muted\">A100</td>\\s*<td class=\"bold\">Aya Alpha</td>");
+	}
+
+	/** One punch's row menu. */
+	private static String menuOf(String html, long attendanceId) {
+		int start = html.indexOf("id=\"row-actions-menu-" + attendanceId + "\"");
+		assertThat(start).as("the row menu for punch %s", attendanceId).isPositive();
+		return html.substring(start, html.indexOf("</div>", start));
+	}
+
+	/**
 	 * Legacy's cell formats (page.php:202-206, 248-250) and its payroll-page wrapper, which
 	 * payroll-pages.css scopes the overtime badge to. With no shift, an employee is expected to
 	 * work eight hours, so each employee here lands on one side of that: over, under, exactly.

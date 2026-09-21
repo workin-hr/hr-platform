@@ -125,6 +125,131 @@ class AdminRequestsEndToEndTest {
 	}
 
 	/**
+	 * page.php:65-78: twelve columns, in this order, and no more. The port carried a thirteenth,
+	 * the request's registration date, which legacy builds no header and prints no cell for
+	 * (:119-132) -- so the table read one column wider than the dashboard it replaces, and the
+	 * empty row spanned one column too many.
+	 *
+	 * <p>The company column is the port's own, for the administrator's unfiltered view. It is a
+	 * thirteenth column, but not the last one: it renders fourth, straight after the employee's
+	 * name (`requests.jte:124`), and only when no company is chosen.
+	 */
+	@Test
+	void theTableCarriesLegacysTwelveColumnsAndNotTheRegistrationDate() {
+		long id = seedRequest(this.employeeA, this.plainTypeA, "2026-03-02", "2026-03-04");
+
+		String filtered = body("/admin/requests?company_id=" + this.companyA);
+		assertThat(headers(filtered)).containsExactly(
+				"#", arabic("emp_code"), arabic("employee_name"), arabic("request_type"),
+				arabic("from_date"), arabic("to_date"), arabic("from_time"), arabic("to_time"),
+				arabic("request_notes"), arabic("decision_reply"), arabic("status"),
+				arabic("actions"));
+		assertThat(filtered).as("legacy never displays a request's registration date here")
+				.doesNotContain(arabic("reg_date"));
+		assertThat(cellCount(row(filtered, id))).as("one cell per header").isEqualTo(12);
+
+		// The empty row spans the table, so it counts the same columns.
+		assertThat(body("/admin/requests?company_id=" + this.companyA + "&search=nobody"))
+				.contains("<td colspan=\"12\" class=\"data-table-empty\">");
+		assertThat(headers(body("/admin/requests?company_id=")))
+				.as("unfiltered, the port's own company column joins them fourth")
+				.containsExactly(
+						"#", arabic("emp_code"), arabic("employee_name"), arabic("company"),
+						arabic("request_type"), arabic("from_date"), arabic("to_date"),
+						arabic("from_time"), arabic("to_time"), arabic("request_notes"),
+						arabic("decision_reply"), arabic("status"), arabic("actions"));
+	}
+
+	/**
+	 * page.php:101-107: "all" leads the status options, before the three states. The port put it
+	 * last, so the one option that widens the queue was the one below the fold of a short select.
+	 * The default stays pending either way.
+	 */
+	@Test
+	void theStatusFilterOffersAllFirstAndStillDefaultsToPending() {
+		assertThat(statusOptions(body("/admin/requests"))).containsExactly(
+				"all", "pending selected", "approved", "rejected");
+		assertThat(statusOptions(body("/admin/requests?status=all"))).containsExactly(
+				"all selected", "pending", "approved", "rejected");
+		assertThat(statusOptions(body("/admin/requests?status=rejected"))).containsExactly(
+				"all", "pending", "approved", "rejected selected");
+	}
+
+	/** page.php:89: the box says what it searches, as every other HR list's does. */
+	@Test
+	void theSearchBoxCarriesLegacysPlaceholder() {
+		assertThat(body("/admin/requests"))
+				.contains("<input type=\"search\" id=\"rq_search\" name=\"search\"")
+				.contains("placeholder=\"" + arabic("requests_search_placeholder") + "\"");
+	}
+
+	/**
+	 * page.php:152-156: the decision window's box is labelled with the reply's own key and marked
+	 * optional, and it carries legacy's placeholder. The port labelled it {@code reply} -- a
+	 * different entry, which reads "رد" rather than "الرد" -- and left the box unmarked, so
+	 * nothing on either window said an empty reply was accepted.
+	 */
+	@Test
+	void bothDecisionWindowsLabelTheirReplyAsLegacyDoes() {
+		String html = body("/admin/requests");
+		String label = arabic("decision_reply") + " (" + arabic("optional") + ")";
+		for (String field : List.of("req_approve_comment", "req_reject_comment")) {
+			assertThat(html).contains("<label for=\"" + field + "\">" + label + "</label>");
+			assertThat(dialogTextarea(html, field))
+					.contains("placeholder=\"" + arabic("decision_reply") + "...\"")
+					.doesNotContain("required");
+		}
+	}
+
+	/** The header cells of the list, in order, with the actions column's own label. */
+	private static List<String> headers(String html) {
+		Matcher head = Pattern.compile("(?s)<thead>.*?</thead>").matcher(html);
+		assertThat(head.find()).as("the list's header row").isTrue();
+		Matcher cells = Pattern.compile("(?s)<th\\b[^>]*>(.*?)</th>").matcher(head.group());
+		List<String> labels = new java.util.ArrayList<>();
+		while (cells.find()) {
+			labels.add(cells.group(1).replaceAll("<[^>]*>", "").trim());
+		}
+		return labels;
+	}
+
+	private static int cellCount(String rowHtml) {
+		return (int) Pattern.compile("<td\\b").matcher(rowHtml).results().count();
+	}
+
+	/** Each status option's value, in order, with " selected" on the chosen one. */
+	private static List<String> statusOptions(String html) {
+		Matcher select = Pattern.compile("(?s)<select id=\"rq_status\".*?</select>").matcher(html);
+		assertThat(select.find()).as("the status filter").isTrue();
+		Matcher options = Pattern.compile("<option value=\"([a-z]+)\"( selected)?>").matcher(select.group());
+		List<String> values = new java.util.ArrayList<>();
+		while (options.find()) {
+			values.add(options.group(1) + (options.group(2) == null ? "" : " selected"));
+		}
+		return values;
+	}
+
+	private static String dialogTextarea(String html, String fieldId) {
+		Matcher textarea = Pattern.compile("<textarea[^>]*id=\"" + fieldId + "\"[^>]*>").matcher(html);
+		assertThat(textarea.find()).as("the %s box", fieldId).isTrue();
+		return textarea.group();
+	}
+
+	/** One label as the dashboard's default language renders it. */
+	private static String arabic(String key) {
+		java.util.Properties catalogue = new java.util.Properties();
+		try (java.io.InputStream in = AdminRequestsEndToEndTest.class
+				.getResourceAsStream("/i18n/admin-messages_ar.properties")) {
+			catalogue.load(new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8));
+		} catch (java.io.IOException ex) {
+			throw new java.io.UncheckedIOException(ex);
+		}
+		String value = catalogue.getProperty(key);
+		assertThat(value).as("the catalogue's %s", key).isNotNull();
+		return value;
+	}
+
+	/**
 	 * hr_request_filter_form_attrs() and hr_render_request_type_filter_field()
 	 * (hr_list_helper.php:970-999): the toolbar carries every company's active request types for
 	 * request-filter-cascade.js, and the type select lists one company's types. With no company
@@ -409,11 +534,43 @@ class AdminRequestsEndToEndTest {
 		assertThat(comment.group()).as("the reply is optional, as in legacy").doesNotContain("required");
 	}
 
+	/**
+	 * page.php:122 and hr_requests_row_actions() (hr_list_helper.php:524) print the name through
+	 * dashboard_employee_display_name(): a blank one is an em dash in the cell and in the approve
+	 * and reject windows, whose titles the port's subject line stands for. PHP trims what SQL's
+	 * TRIM leaves, and SQL's strips only spaces, so a name that is only a tab is blank too.
+	 */
+	@Test
+	void anEmployeeWithABlankNameReadsAsLegacysDash() {
+		long blank = seedRequest(createEmployee(this.companyA, "A200", "", ""), this.plainTypeA,
+				"2026-03-02", "2026-03-04");
+		long tab = seedRequest(createEmployee(this.companyA, "A300", "\t", ""), this.plainTypeA,
+				"2026-03-02", "2026-03-04");
+		long named = seedRequest(this.employeeA, this.plainTypeA, "2026-03-02", "2026-03-04");
+
+		String html = body("/admin/requests?company_id=" + this.companyA);
+		assertThat(row(html, blank)).containsPattern("<td class=\"text-muted\">A200</td>\\s*<td class=\"bold\">—</td>");
+		assertThat(row(html, tab)).containsPattern("<td class=\"text-muted\">A300</td>\\s*<td class=\"bold\">—</td>");
+		for (long id : new long[] {blank, tab}) {
+			assertThat(java.util.regex.Pattern.compile("data-dialog-subject=\"—\"").matcher(rowMenu(html, id))
+					.results().count()).as("approve and reject name the dash for request %s", id).isEqualTo(2);
+		}
+		assertThat(row(html, named)).containsPattern("<td class=\"text-muted\">A100</td>\\s*<td class=\"bold\">Aya Alpha</td>");
+		assertThat(rowMenu(html, named)).contains("data-dialog-subject=\"Aya Alpha\"");
+	}
+
 	/** One row's action menu. */
 	private static String rowMenu(String html, long rowId) {
 		int start = html.indexOf("id=\"row-actions-menu-" + rowId + "\"");
 		assertThat(start).as("the row menu for request %s", rowId).isPositive();
 		return html.substring(start, html.indexOf("</div>", start));
+	}
+
+	/** One request's row of the list, from its opening tag to its end. */
+	private static String row(String html, long rowId) {
+		int menu = html.indexOf("id=\"row-actions-menu-" + rowId + "\"");
+		assertThat(menu).as("the row for request %s", rowId).isPositive();
+		return html.substring(html.lastIndexOf("<tr", menu), html.indexOf("</tr>", menu));
 	}
 
 	@Test

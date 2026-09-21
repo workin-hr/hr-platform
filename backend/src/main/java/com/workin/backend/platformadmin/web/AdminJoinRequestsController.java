@@ -109,6 +109,14 @@ public class AdminJoinRequestsController {
 			default -> {
 			}
 		}
+		// home_service.php:669-673: an approval hands the operator straight to the
+		// new employee's form, because a join request carries a name, a phone and
+		// nothing else -- no code, branch, shift or salary. A refusal still returns
+		// to the list it was made from, as page.php:8-10 sends it.
+		if ("accept_join".equals(action)) {
+			return "redirect:" + PlatformAdminWebSecurityConfig.EMPLOYEES_PATH
+					+ "?action=edit&id=" + id;
+		}
 		return "redirect:" + PATH + "?status=" + back;
 	}
 
