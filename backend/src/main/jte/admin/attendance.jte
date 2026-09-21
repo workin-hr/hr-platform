@@ -361,7 +361,7 @@
 					<%-- page.php:286-303: novalidate, because attendance-form.js gates the submit
 					     itself -- an employee and a check-in -- as legacy's own form does. Legacy
 					     marks those two labels " *"; D-259 marks no field on the dashboard that
-					     way, so these carry none and `required` states it instead. --%>
+					     way, so these carry none and the required attribute states it instead. --%>
 					<form method="POST" novalidate>
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="add_attendance">
