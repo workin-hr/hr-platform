@@ -301,6 +301,14 @@ dependent on access-token expiry, refresh, logout, or re-login.
 > token expiry. It did not, until R-026 was closed — a deactivated admin kept
 > access for up to 900s.
 >
+> **"Next request" means the next request that can reach a controller (D-273,
+> 2026-09-21).** The cookie chain's revalidation filter does not run for
+> `/admin/_assets/**`: those paths are `permitAll`, are served with no session
+> at all, and have no controller behind them, so a deactivated administrator's
+> browser may still be served a stylesheet it could have fetched logged out.
+> Nothing else changes — the next page, form post or export is refused as
+> before, and the deactivation tests assert exactly that.
+>
 > This once had an exception, shared with the tenant path rather than special to
 > platform admin: **logout** revoked only the refresh family, and the access
 > token's `sid` claim was issued and never read on either surface, so a

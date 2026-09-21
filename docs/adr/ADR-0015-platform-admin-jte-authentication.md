@@ -360,6 +360,16 @@ are both answered and implemented:
    equivalent, proven by a test that deactivates an administrator mid-session
    and asserts the next page request is refused rather than served until
    expiry (**D-145**).
+   **One exception, added by D-273**: requests under the public asset prefix
+   `/admin/_assets/**` are not revalidated. They are `permitAll` and are served
+   with no session at all, so a request for one carries no decision that
+   revalidation could withdraw; the prefix has no controller behind it, only
+   `AdminAssetCaching`'s resource handlers over one classpath directory. Every
+   request that can reach a controller is still revalidated, which is what
+   "next request" means here and what the deactivation tests assert. The
+   exception is refused for any path under the prefix that contains a
+   percent-encoding, a double slash or a traversal segment, so it cannot
+   depend on the firewall in front of it having normalised the URI.
 10. **Audit coverage for administrative actions, then retention.**
     `PlatformAdminAuditEventType` today holds only `LOGIN`, `LOGIN_FAILED`,
     `LOGOUT`, `SESSION_REUSE_REVOKED`, and the row carries only actor, type, a
