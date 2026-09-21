@@ -146,6 +146,16 @@ class PushDevice:
         return self.terminal.attlog([adms.punch_line(PIN, old + timedelta(minutes=n), in_out, 15)
                                      for n in range(lines)])
 
+    def send_now(self, in_out=1):
+        """One brand-new record, uploaded synchronously: an upload already on its way when the
+        operator was asked. Nothing in the line marks it as backlog -- it has never been sent
+        before and it is newer than everything delivered -- so only the moment it was recorded
+        tells it from the punch about to be made."""
+        with self.lock:
+            self.tick += 5
+            when = datetime.now().replace(microsecond=0) + timedelta(seconds=self.tick)
+        return self.terminal.attlog([adms.punch_line(PIN, when, in_out, 15)])
+
     def punch(self, in_out=0):
         """One scan. Its clock moves forward between punches, as a terminal's does -- a test where
         every punch shares one second would not tell a live punch from a re-sent one."""
@@ -175,6 +185,24 @@ class PushDevice:
 
     def stop(self):
         self.stopped.set()
+
+
+class TricklingPushDevice(PushDevice):
+    """Firmware with months of records: it uploads them a batch at a time over minutes rather
+    than all in one POST. The backlog wait ends on the first accepted line, so this is the state
+    the punch tests would start in."""
+
+    def __init__(self, url, batches=4, interval=0.1):
+        self.batches, self.interval, self.sent = batches, interval, 0
+        super().__init__(url)
+        threading.Thread(target=self._trickle, daemon=True).start()
+
+    def _trickle(self):
+        # Retried until accepted: the receiver refuses every upload until the serial is allocated.
+        while self.sent < self.batches and not self.stopped.is_set():
+            if self.send_old_batch(lines=10, in_out=1).status == 200:
+                self.sent += 1
+            time.sleep(self.interval)
 
 
 def quick_visit(console, lab, out):
@@ -399,6 +427,35 @@ port = {self.emulator.port}
         self.assertTrue(warned, [f.text for f in visited.findings])
         self.assertIn("مفيش ولا سجل جديد اتسجل في السيستم", warned[0].text)
 
+    def test_a_punch_made_between_the_two_sends_is_not_reported_as_a_duplicate(self):
+        """Runbook 6.4's second pass must store nothing -- unless the employee punched again while
+        it ran, which is a new record and not the platform storing the same one twice. Reporting
+        that as ❌ "البصمات بتتكرر" would stop a delivery that is working."""
+        console = ScriptedConsole([])
+        visited = quick_visit(console, self.lab, self.out)
+        visited.out.mkdir(parents=True, exist_ok=True)
+        visited.zk_link = ("127.0.0.1", self.emulator.port, 0, False)
+
+        def a_punch_while_the_second_pass_runs(seconds):
+            self.terminal.add_punch(PIN, in_out=0, verify=15)
+
+        # The wait between the two passes is exactly when a terminal at a live site takes one.
+        visited.sleep = a_punch_while_the_second_pass_runs
+        config = Path(self.out, "send.toml")
+        config.write_text(visited._agent_toml("between.sqlite3") + f"""
+[[devices]]
+serial = "ZK-VISIT-1"
+kind = "zk"
+host = "127.0.0.1"
+port = {self.emulator.port}
+""", encoding="utf-8")
+        visited.send_twice(config)
+        warned = [f for f in visited.findings if f.level == "warn"]
+        self.assertTrue(warned, [f.text for f in visited.findings])
+        self.assertIn("بصمة جديدة اتعملت في اللحظة دي", warned[0].text)
+        self.assertEqual([f.text for f in visited.findings if f.level == "bad"], [],
+                         "a punch made in the meantime is not the platform storing a record twice")
+
     def test_a_terminal_clock_that_moves_during_the_visit_is_a_finding(self):
         def check_out_and_the_clock_jumps():
             self.terminal.add_punch(PIN, in_out=1, verify=15)
@@ -469,6 +526,41 @@ class ATerminalThatSaysSomethingOdd(unittest.TestCase):
         self.assertIn("مش هيقبله", report_of(self.out))
         self.assertEqual(self.lab.allocations, [])
         self.assertEqual([path.name for path in Path(self.dir.name).rglob("*evil*")], [])
+
+    def test_an_unknown_device_names_no_address_in_the_report(self):
+        """The report is written to be pasted into a GitHub issue. A device the visit could not
+        identify is `device`, not `device-<ip>`, and the customer's internal addressing stays in
+        field-report/ on the laptop."""
+        address = "192.168.44.77"
+        console = ScriptedConsole(VisitStart() + [
+            ("أنهي جهاز", "2"), ("اكتب IP", f"{address}:8080"), ("نوع الجهاز", "3"),
+            ("الماركة والموديل", "Anviz W1"), ("إعداد server", "1"),
+            ("برنامج", "1"), ("كابل أو switch", "1")])
+        visited = quick_visit(console, self.lab, self.out)
+        code = visited.run()
+        self.assertEqual(console.answers, [])
+        self.assertEqual(code, 0, console.text)
+        self.assertEqual(visited.serial, "device")
+        self.assertNotIn(address, report_of(self.out))
+        self.assertEqual([path.name for path in Path(self.out).glob(f"*{address}*")], [])
+
+    def test_an_address_nothing_answers_is_a_finding_that_does_not_name_it(self):
+        address = "192.168.44.78"
+        original = visit.probe.probe_host
+        visit.probe.probe_host = lambda *args, **kwargs: {}
+        try:
+            console = ScriptedConsole(VisitStart() + [
+                ("أنهي جهاز", "2"), ("اكتب IP", address),
+                ("ملف USB", "1"), ("برنامج", "1"), ("كابل أو switch", "1")])
+            code = quick_visit(console, self.lab, self.out).run()
+        finally:
+            visit.probe.probe_host = original
+        self.assertEqual(console.answers, [])
+        self.assertEqual(code, 1)
+        report = report_of(self.out)
+        self.assertIn("مفيش حاجة بترد على العنوان اللي اتكتب", report)
+        self.assertNotIn(address, report)
+        self.assertIn(address, console.text, "the operator still sees which address it was")
 
     def test_a_bug_in_the_wizard_still_leaves_a_report_saying_so(self):
         terminal = Terminal(serial="ZK-ODD-1", device_name="K40 <b>|x</b>")
@@ -739,6 +831,25 @@ class ThePiecesTheWizardDecidesWith(unittest.TestCase):
                                             "9: eth3    inet 10.3.0.4/24 scope global eth3\n"),
                          [("10.3.0.4", "10.3.0.0/24")])
 
+    def test_the_push_cross_check_reads_the_serial_the_terminal_pushes_under(self):
+        """A terminal that reports one serial on 4370 and pushes under another is a finding of its
+        own, and the visit carries on. The in/out cross-check has to follow it to the serial the
+        upload actually carried, or it quietly falls back to assuming 1 is the check-out value."""
+        punch = visit.zk.RawAttendance(user_id=PIN, timestamp=datetime(2026, 9, 20, 8, 4, 31),
+                                       status=15, punch=1, record_size=40)
+        with tempfile.TemporaryDirectory() as directory:
+            visited = visit.Visit(console=ScriptedConsole([]), out_dir=directory, wait_seconds=1)
+            visited.serial = "ZK-4370-1"
+            visited.push = visit.Push("PUSH-OTHER-1")
+            visited.receiver = visit.Receiver(directory, None, None)
+            visited.receiver.server = object()          # nothing is served: wait() only reads the list
+            visited.receiver.exchanges = [visit.Exchange(
+                0.0, "PUSH-OTHER-1", "POST", "/iclock/cdata?SN=PUSH-OTHER-1&table=ATTLOG&Stamp=9", 200,
+                "text/plain", f"{PIN}\t2026-09-20 08:04:31\t1\t15\t0\t0\n".encode(), b"OK: 1")]
+            found = visited.pushed_line(punch)
+        self.assertIsNotNone(found, "the punch as the terminal pushed it, under its push serial")
+        self.assertEqual(found.in_out, "1")
+
     def test_a_lab_script_that_never_answers_is_a_finding_not_a_crash(self):
         lab = visit.Lab(root=Path("/nonexistent-checkout"))
         original = visit.subprocess.run
@@ -850,6 +961,78 @@ class ABacklogThatIsStillDraining(unittest.TestCase):
         self.assertEqual((visited.sheet["الدخول"], visited.sheet["الخروج"]), ("0", "1"),
                          "the live check-in punch, not the check-out records still draining: " + console.text[-2000:])
         self.assertIn("الدخول بيوصل 0 والخروج 1", console.text)
+        self.assertEqual(code, 0, console.text)
+
+    def test_an_upload_already_on_its_way_does_not_answer_the_punch_test(self):
+        """The freshness rule reads the line itself: one the terminal has sent before, or one
+        older than a record it has already delivered. An upload already in flight when the
+        operator is asked carries neither mark, so only the moment it was recorded tells it from
+        the punch -- which is why the stopwatch starts after `enter()` returns, not before."""
+        console = ScriptedConsole([])
+        visited = quick_visit(console, self.lab, self.out)
+
+        def configure():
+            self.device = PushDevice(f"http://127.0.0.1:{visited.receiver.port}")
+            return ""
+
+        def an_upload_in_flight_then_the_real_punch():
+            recorded = visited.receiver.mark()
+            self.device.send_now(in_out=1)
+            while visited.receiver.mark() == recorded:      # it is in the recording before Enter
+                time.sleep(0.01)
+            self.device.punch(0)
+            return ""
+
+        console.answers = VisitStart() + [
+            ("أنهي جهاز", "1"), ("لما تحفظ", configure), ("نفس اللي على الستيكر", "1"),
+            ("الجهاز متظبط على إيه", "2"), ("بتتظبط لوحدها", "1"),
+            ("بصمة عادية", an_upload_in_flight_then_the_real_punch),
+            ("Check-Out", lambda: self.device.punch(1)), ("بيدوسوا زرار", "1"),
+            ("بصمتين ورا بعض", lambda: self.device.punch(0) + self.device.punch(0)),
+            ("شيل كابل", "2"), ("وقف الاستقبال", "2"),
+            ("HTTPS", "1"), ("Enable Domain Name", "1"), ("Attendance Search", "1"),
+            ("ملف USB", "1"), ("Cloud Server Setting", "1"), ("برنامج", "1"), ("كابل أو switch", "1"),
+        ]
+        code = visited.run()
+        self.assertEqual(console.answers, [])
+        self.assertEqual((visited.sheet["الدخول"], visited.sheet["الخروج"]), ("0", "1"),
+                         "the punch the operator was asked for, not the upload already in flight: "
+                         + console.text[-2000:])
+        self.assertEqual(code, 0, console.text)
+
+    def test_the_punch_tests_wait_for_the_terminal_to_stop_uploading(self):
+        """The backlog wait ends as soon as one line is accepted, but a terminal with months of
+        records is still sending. Timing a punch while batches are landing measures whichever
+        record arrives next, so the visit waits for the terminal to go quiet first."""
+        console = ScriptedConsole([])
+        visited = quick_visit(console, self.lab, self.out)
+        still_to_send = []
+
+        def configure():
+            self.device = TricklingPushDevice(f"http://127.0.0.1:{visited.receiver.port}")
+            return ""
+
+        def the_operator_is_asked_for_a_punch():
+            still_to_send.append(self.device.batches - self.device.sent)
+            self.device.punch(0)
+            return ""
+
+        console.answers = VisitStart() + [
+            ("أنهي جهاز", "1"), ("لما تحفظ", configure), ("نفس اللي على الستيكر", "1"),
+            ("الجهاز متظبط على إيه", "2"), ("بتتظبط لوحدها", "1"),
+            ("بصمة عادية", the_operator_is_asked_for_a_punch),
+            ("Check-Out", lambda: self.device.punch(1)), ("بيدوسوا زرار", "1"),
+            ("بصمتين ورا بعض", lambda: self.device.punch(0) + self.device.punch(0)),
+            ("شيل كابل", "2"), ("وقف الاستقبال", "2"),
+            ("HTTPS", "1"), ("Enable Domain Name", "1"), ("Attendance Search", "1"),
+            ("ملف USB", "1"), ("Cloud Server Setting", "1"), ("برنامج", "1"), ("كابل أو switch", "1"),
+        ]
+        code = visited.run()
+        self.assertEqual(console.answers, [])
+        self.assertEqual(still_to_send, [0],
+                         "the terminal had emptied its backlog before the operator was asked: "
+                         + console.text[-2000:])
+        self.assertIn("لسه بيبعت سجلاته القديمة", console.text, "and the operator was told why the wait")
         self.assertEqual(code, 0, console.text)
 
 
