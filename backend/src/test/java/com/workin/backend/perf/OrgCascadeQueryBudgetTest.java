@@ -43,6 +43,16 @@ class OrgCascadeQueryBudgetTest extends AbstractLegacyMySqlTest {
 	private static final long YARD = 997001;
 	private static final long BARN = 997002;
 	private static final long OTHER_BRANCH = 997010;
+	private static final long OTHER_OPS = 997111;
+	private static final long OTHER_FITTER = 997211;
+	/** The first of the identically-named branches; there are {@link #TIES} of them. */
+	private static final long TIE = 997300;
+	/**
+	 * Enough rows that the sort cannot come out in id order by accident. Two did: the union's
+	 * own order for a two-row tie was ascending id whether or not the query asked for it, so the
+	 * assertion that was meant to pin the tiebreak passed with the tiebreak removed.
+	 */
+	private static final int TIES = 64;
 	private static final long OPS = 997101;
 	private static final long RETIRED = 997102;
 	private static final long WELDER = 997201;
@@ -69,7 +79,11 @@ class OrgCascadeQueryBudgetTest extends AbstractLegacyMySqlTest {
 				company(OTHER_COMPANY, "Other Co", "+201100249971"),
 				// Seeded out of name order: each list's order is the query's, not the id's.
 				branch(YARD, COMPANY, "Cascade Yard"),
-				branch(OTHER_BRANCH, OTHER_COMPANY, "Other Yard"),
+				// Sorts before every "Cascade ..." name, so the groups' own order cannot be read
+				// off the names: only the discriminator and the group id put this company second.
+				branch(OTHER_BRANCH, OTHER_COMPANY, "Alpha Yard"),
+				department(OTHER_OPS, OTHER_COMPANY, "Alpha Ops", true),
+				jobTitle(OTHER_FITTER, OTHER_COMPANY, OTHER_OPS, "Alpha Fitter"),
 				branch(BARN, COMPANY, "Cascade Barn"),
 				// Same name to the collation, different row: only the id can order these two.
 				branch(BARN + 1, COMPANY, "cascade barn"),
@@ -78,6 +92,9 @@ class OrgCascadeQueryBudgetTest extends AbstractLegacyMySqlTest {
 				"INSERT INTO department_branches (department_id, branch_id) VALUES (" + OPS + ", " + YARD + ")",
 				jobTitle(WELDER, COMPANY, OPS, "Cascade Welder"),
 				jobTitle(FITTER, COMPANY, OPS, "Cascade Fitter"));
+		seedAsLegacyWould(java.util.stream.IntStream.range(0, TIES)
+				.mapToObj(n -> branch(TIE + n, COMPANY, "Cascade Tie"))
+				.toArray(String[]::new));
 
 		this.counter = new QueryCounter();
 		DataSource counted = this.counter.wrap(new DriverManagerDataSource(
@@ -91,10 +108,14 @@ class OrgCascadeQueryBudgetTest extends AbstractLegacyMySqlTest {
 		List<String> issued = this.counter.measure(() -> cascade[0] = this.store.cascade(COMPANY));
 
 		assertThat(issued).as("statements issued for the whole payload").hasSize(1);
-		// "Cascade Barn" and "cascade barn" sort equal in utf8mb4_unicode_ci; the id decides,
-		// and that is the only thing that decides -- one plan's order is not the other's.
-		assertThat(names(cascade[0].branchesByCompany(), COMPANY))
-				.containsExactly("Cascade Barn", "cascade barn", "Cascade Yard");
+		// Sixty-four branches share one name, which the collation cannot tell apart: the id is
+		// the only thing that orders them, and without it in the ORDER BY the sort does not
+		// return them in id order.
+		assertThat(idsOf(cascade[0].branchesByCompany(), COMPANY).stream().filter(id -> id >= TIE).toList())
+				.as("identically named rows come back in id order")
+				.isEqualTo(java.util.stream.LongStream.range(TIE, TIE + TIES).boxed().toList());
+		assertThat(names(cascade[0].branchesByCompany(), COMPANY).stream().distinct().toList())
+				.containsExactly("Cascade Barn", "cascade barn", "Cascade Tie", "Cascade Yard");
 		assertThat(names(cascade[0].departmentsByCompany(), COMPANY)).containsExactly("Cascade Ops");
 		assertThat(names(cascade[0].departmentsByBranch(), YARD)).containsExactly("Cascade Ops");
 		assertThat(cascade[0].departmentsByBranch()).as("a branch with no department has no group")
@@ -136,19 +157,25 @@ class OrgCascadeQueryBudgetTest extends AbstractLegacyMySqlTest {
 		List<String> issued = this.counter.measure(() -> cascade[0] = this.store.cascade(0));
 
 		assertThat(issued).as("statements issued with no company filter").hasSize(1);
-		assertThat(names(cascade[0].branchesByCompany(), COMPANY))
-				.containsExactly("Cascade Barn", "cascade barn", "Cascade Yard");
 		assertThat(cascade[0].departmentsByCompany()).containsKey(COMPANY);
-		// The groups' own order is what the templates render, and it is the half of the
-		// argument that rests on LinkedHashMap rather than on the query.
+		// The groups' own order is what the templates render, and it is the half of the argument
+		// that rests on LinkedHashMap rather than on the query. The other company's rows are
+		// named so that they sort FIRST by name and SECOND by group, so an ORDER BY that sorts
+		// by name before the group returns them the other way round and these fail.
 		assertThat(groupsOf(cascade[0].branchesByCompany())).as("groups in the order the rows arrived")
 				.containsSubsequence(COMPANY, OTHER_COMPANY);
-		assertThat(groupsOf(cascade[0].jobTitlesByDepartment())).containsSubsequence(OPS);
+		assertThat(groupsOf(cascade[0].departmentsByCompany())).containsSubsequence(COMPANY, OTHER_COMPANY);
+		assertThat(groupsOf(cascade[0].jobTitlesByCompany())).containsSubsequence(COMPANY, OTHER_COMPANY);
+		assertThat(groupsOf(cascade[0].jobTitlesByDepartment())).containsSubsequence(OPS, OTHER_OPS);
 	}
 
 	/** The group keys in the order the map hands them back, which is the order they arrived. */
 	private static List<Long> groupsOf(Map<Long, List<OrgCascade.Option>> grouped) {
 		return List.copyOf(grouped.keySet());
+	}
+
+	private static List<Long> idsOf(Map<Long, List<OrgCascade.Option>> grouped, long group) {
+		return grouped.getOrDefault(group, List.of()).stream().map(OrgCascade.Option::id).toList();
 	}
 
 	private static List<String> names(Map<Long, List<OrgCascade.Option>> grouped, long group) {
