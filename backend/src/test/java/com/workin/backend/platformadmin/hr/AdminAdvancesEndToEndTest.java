@@ -413,22 +413,24 @@ class AdminAdvancesEndToEndTest {
 	}
 
 	/**
-	 * The divergence itself, which the two orders only differ over when the dates disagree:
-	 * the table is {@code request_date DESC, id DESC} (hr_list_helper.php:1070) and the file is
-	 * {@code created_at DESC, id DESC} (hr_list_helper.php:1150). Every other test here seeds
-	 * both dates in the same order, where either ordering produces the same rows -- so without
-	 * this one, the export could be ordered by the table's own column and nothing would say so.
+	 * Legacy orders the table and the file the same way and by the same column: the row's
+	 * creation, not the date the advance was requested for -- {@code hr_paginate_advances()}
+	 * at hr_list_helper.php:372 and {@code hr_export_advances_csv()} at :1150, both
+	 * {@code a.created_at DESC, a.id DESC}. The port's list had {@code request_date} since
+	 * 99a630b3 and nothing said so, because every other fixture seeds the two dates in the
+	 * same order, where either column produces the same rows. This seeds them opposed, which
+	 * is the only shape that can tell the two apart, and asserts both the page and the file.
 	 */
 	@Test
-	void theFileIsOrderedByCreationWhereTheTableIsOrderedByRequest() {
+	void theTableAndTheFileBothOrderByCreationAsLegacyOrdersThem() {
 		seedAdvance(this.employeeA, "111", "111", "pending", "2026-03-05", "2026-03-01 09:00:00");
 		seedAdvance(this.employeeA, "222", "222", "pending", "2026-03-01", "2026-03-05 09:00:00");
 
-		assertThat(body("/admin/advances")).as("the table: the later request first")
-				.containsSubsequence("111.00", "222.00");
+		assertThat(body("/admin/advances")).as("the table: the later creation first")
+				.containsSubsequence("222.00", "111.00");
 
 		List<List<String>> rows = sheetRows(getBytes("/admin/advances?export=csv").getBody());
-		assertThat(rows.subList(1, rows.size())).as("the file: the later creation first")
+		assertThat(rows.subList(1, rows.size())).as("the file: the same order as the table")
 				.extracting(row -> row.get(2)).containsExactly("222.00", "111.00");
 	}
 

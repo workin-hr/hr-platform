@@ -68,7 +68,12 @@ public class AdvanceStore {
 						+ DISPLAY_NAME + " AS employee_name, " + EMP_CODE + " AS emp_code"
 						+ " FROM advances a JOIN employees e ON e.id = a.employee_id" + join
 						+ " WHERE " + where
-						+ " ORDER BY a.request_date DESC, a.id DESC"
+						// hr_paginate_advances() (hr_list_helper.php:372) orders by the row's
+						// creation, not by the date the advance was requested for, and the export
+						// at :1150 orders the same way. The port had request_date here since
+						// 99a630b3, undocumented, which put the table in a different order from
+						// legacy's whenever the two dates disagree (#311's review round 1).
+						+ " ORDER BY a.created_at DESC, a.id DESC"
 						+ " LIMIT ? OFFSET ?",
 				mapper(showCompany), pageParams.toArray());
 
