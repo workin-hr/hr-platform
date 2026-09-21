@@ -816,6 +816,30 @@ class AdminLayoutWiringTest {
 	 * the window it converted and left the rest to their own pages' changes
 	 * (#306).
 	 */
+	/**
+	 * The shapes {@link #namesItsOwnHeading} must answer, which the templates cannot
+	 * ask it: all three live targets resolve, so the rule reading the attribute's
+	 * presence alone was green against the whole tree while a name pointing at
+	 * nothing would have been (#305's review round 9).
+	 */
+	@Test
+	void aDialogsNameResolvesInsideItsOwnWindow() {
+		assertThat(namesItsOwnHeading("<div aria-labelledby=\"qr_h\"><h2 id=\"qr_h\">QR</h2></div>"))
+				.as("the shape all three live windows write").isTrue();
+		assertThat(namesItsOwnHeading("<div aria-labelledby=\"qr_h\"><h2>QR</h2></div>"))
+				.as("a dialog whose name points at nothing").isFalse();
+		assertThat(namesItsOwnHeading(
+				"<div aria-labelledby=\"qr_h qr_sub\"><h2 id=\"qr_h\">QR</h2></div>"))
+				.as("two targets, one of them written nowhere").isFalse();
+		assertThat(namesItsOwnHeading(
+				"<div aria-labelledby=\"qr_h qr_sub\"><h2 id=\"qr_h\">QR</h2><p id=\"qr_sub\">x</p></div>"))
+				.as("two targets, both written").isTrue();
+		assertThat(namesItsOwnHeading("<div aria-labelledby=\"qr\"><h2 data-dialog-id=\"qr\">QR</h2></div>"))
+				.as("an attribute whose name merely ends in id resolves nothing").isFalse();
+		assertThat(namesItsOwnHeading("<div role=\"dialog\"><h2 id=\"qr_h\">QR</h2></div>"))
+				.as("no name at all").isFalse();
+	}
+
 	@Test
 	void aServerOpenedWindowSaysItIsADialog() throws IOException {
 		List<String> missing = new ArrayList<>();
@@ -847,6 +871,10 @@ class AdminLayoutWiringTest {
 	 * nothing is no more usable than one that says nothing. Codex raised it on the head
 	 * that shipped the rest of these semantics; all three live targets resolve, so this
 	 * pins what is already true rather than fixing a defect (#305's review round 9).
+	 *
+	 * <p>The id is matched as an attribute rather than as text, because any attribute
+	 * whose name merely ends in {@code id} -- {@code data-dialog-id} is written twelve
+	 * times across these templates -- would otherwise resolve a name pointing at nothing.
 	 */
 	private static boolean namesItsOwnHeading(String window) {
 		Matcher labelled = Pattern.compile("aria-labelledby=\"([^\"]+)\"").matcher(window);
@@ -854,7 +882,7 @@ class AdminLayoutWiringTest {
 			return false;
 		}
 		for (String target : labelled.group(1).trim().split("\\s+")) {
-			if (!window.contains("id=\"" + target + "\"")) {
+			if (!Pattern.compile("(?<![-\\w])id=\"" + Pattern.quote(target) + "\"").matcher(window).find()) {
 				return false;
 			}
 		}
@@ -1056,6 +1084,21 @@ class AdminLayoutWiringTest {
 				"@if(Boolean.TRUE.equals(canWrite))<span>x</span>@endif" + cancel, synthetic))
 				.as("a condition this cannot read, in a block holding no Cancel, is not its business")
 				.isFalse();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(canWrite)@for(var r : rows)<span>${r}</span>@else<span>none</span>@endfor"
+						+ cancel + "@endif", synthetic))
+				.as("a @for has an @else of its own, which does not end the gate's arm").isTrue();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(canWrite)<span>x</span>@else@for(var r : rows)<span>${r}</span>@else"
+						+ "<span>none</span>@endfor" + cancel + "@endif", synthetic))
+				.as("the same loop above a Cancel in the gate's real @else arm, which renders")
+				.isFalse();
+		assertThat(cancelIsBehindTheSwitch("@if (canWrite)" + cancel + "@endif", synthetic))
+				.as("jte accepts a space after @if, and the block counting did not").isTrue();
+		assertThat(cancelIsBehindTheSwitch(
+				"@if(canWrite)@if (row.wide())<span>a</span>@endif" + cancel + "@endif", synthetic))
+				.as("a spaced @if nested in the gate: its @endif must not close the gate early")
+				.isTrue();
 	}
 
 	/**
