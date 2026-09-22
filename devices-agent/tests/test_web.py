@@ -165,6 +165,31 @@ class APageRunningAVisit(unittest.TestCase):
         self.assertIn("ZK-WEB-1-attlog-backup.tsv", state["backups"])
         self.assertEqual(self.session.scans, ["127.0.0.0/30"], "consent was given, so the LAN was scanned")
 
+    def test_an_answer_the_operator_pasted_with_whitespace_reaches_the_wizard_trimmed(self):
+        """`Console.ask` is `input(...).strip()` and the wizard is written against that contract:
+        three of its prompts parse the answer strictly -- the numbered menu, the typed address's
+        port, and the Comm Key. `WebConsole.ask` returned `self.answer` untouched and the page sends
+        a text answer untrimmed, so a **page** visit and a **terminal** visit disagreed about the
+        same keystrokes. Pasting an address from a note or a chat message carries a trailing space,
+        which is what paste produces: the port guard added for the wizard then refused `4370 `,
+        where a terminal visit accepted it. The whole visit runs here, so a strip that broke any
+        other prompt would fail this too."""
+        self.assertTrue(self.page.post("start")["started"])
+        script = self.script()
+        padded = [(("اكتب IP", f"  127.0.0.1:{self.emulator.port} ") if fragment == "اكتب IP"
+                   else ("اسم الشركة", "  شركة تجربة / فرع الاختبار  ") if fragment == "اسم الشركة"
+                   else (fragment, answer))
+                  for fragment, answer in script]
+        state = self.page.drive(padded)
+        self.assertFalse(state["running"])
+        # It reached the terminal on the port that was typed, not on a default it fell back to.
+        self.assertEqual(self.lab.allocations, [("ZK-WEB-1", "zkteco", "+02:00")])
+        self.assertEqual(self.session.visit.sheet["السيريال"], "ZK-WEB-1")
+        # And the padded company name is stored without its padding, so the report's own heading
+        # does not carry the operator's stray spaces either.
+        self.assertEqual(self.session.visit.sheet["الشركة / الفرع"],
+                         "شركة تجربة / فرع الاختبار")
+
     def test_a_choice_reaches_the_wizard_as_the_value_behind_the_button(self):
         """The page sends the index of the button pressed. Were the wizard to receive that index in
         place of the option behind it, every yes/no in the visit would be answered by position and

@@ -144,7 +144,13 @@ class WebConsole(visit.Console):
 
     def ask(self, prompt: str) -> str:
         self._pose("text", prompt)
-        return self.answer
+        # Stripped, because `Console.ask` is `input(...).strip()` and the wizard is written against
+        # that contract: three of its prompts parse the answer strictly (the numbered menu, the
+        # typed address's port, the Comm Key), and the page sends a text answer untrimmed. Pasting
+        # `192.168.1.201:4370 ` from a note -- trailing whitespace is what paste produces -- was
+        # refused here and accepted in a terminal visit. `secret` does not strip: a password may
+        # legitimately end in a space, and nothing parses it.
+        return self.answer.strip()
 
     def secret(self, prompt: str) -> str:
         self._pose("secret", prompt)
