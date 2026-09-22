@@ -428,6 +428,25 @@ class AVisitOfA4370Terminal(unittest.TestCase):
             for record in self.terminal.records:
                 handle.write(f"{record.user_id:>9}\t{record.when:%Y-%m-%d %H:%M:%S}\t{record.in_out}\t{record.verify}\t0\t0\n")
 
+    def test_a_comm_key_that_is_not_a_plain_number_is_refused_and_the_prompt_comes_back(self):
+        """The prompt already refuses a key that is not a number and asks again. `str.isdigit()`
+        let `²` past that refusal and into `int()`, which refuses it -- so the one answer the
+        check exists to catch ended the visit with a traceback instead of asking again."""
+        keyed = Terminal(serial="ZK-VISIT-KEY", comm_key=13579)
+        populate(keyed, [PIN], days=1)
+        emulator = Emulator(keyed, port=0).start()
+        try:
+            console = ScriptedConsole([("Comm Key", "²"), ("Comm Key", "13579")])
+            visited = quick_visit(console, self.lab, self.out)
+            summary = visited.zk_connect("127.0.0.1", emulator.port)
+        finally:
+            emulator.stop()
+        self.assertEqual(console.answers, [], console.text)
+        self.assertIsNotNone(summary, console.text)
+        self.assertIn("الـ Comm Key أرقام بس", console.text)
+        self.assertEqual(visited.sheet["عليه Comm Key؟"], "نعم",
+                         "the key the operator typed second is the one that connected")
+
     def test_backup_in_out_from_a_check_out_punch_two_sends_and_a_usb_export_with_the_same_columns(self):
         answers = VisitStart() + [
             ("أنهي جهاز", "2"),                                  # type the address
@@ -598,6 +617,36 @@ class ATerminalThatSaysSomethingOdd(unittest.TestCase):
         self.platform.close()
         self.dir.cleanup()
 
+    def test_an_in_out_value_the_terminal_sent_that_is_not_a_plain_number_is_ignored_not_raised_on(self):
+        """`pushed.in_out` is the third field of a line the terminal uploaded, so the terminal
+        chooses it. `str.isdigit()` is true for `²` and `int()` refuses it, so the guard passed
+        and the visit ended on a traceback at the step that decides the in/out column -- the
+        headline answer of the whole visit, on input no operator touches.
+
+        The collaborators are replaced because neither is what is under test: what is under test
+        is what `find_in_out` does with a value `int()` cannot read."""
+        console = ScriptedConsole([])
+        visited = quick_visit(console, self.lab, self.out)
+        punches = [types.SimpleNamespace(punch=0, status=15, user_id=PIN, timestamp=datetime.now()),
+                   types.SimpleNamespace(punch=1, status=15, user_id=PIN, timestamp=datetime.now())]
+        visited.one_new_punch = lambda instruction: punches.pop(0)
+        visited.pushed_line = lambda record: visit.Arrival(
+            0.0, [PIN, "2026-09-20 08:00:00", "²", "15", "0", "0", "0"])
+        self.assertEqual(visited.find_in_out(), "punch")
+        # Ignored, and the visit says which number it used instead -- not the terminal's.
+        self.assertIn("الرقم المعتاد للخروج", console.text)
+        self.assertEqual(visited.sheet["الخروج"], "1")
+        # And a plain number the terminal sends is still read from the terminal.
+        console = ScriptedConsole([])
+        visited = quick_visit(console, self.lab, self.out)
+        punches = [types.SimpleNamespace(punch=0, status=15, user_id=PIN, timestamp=datetime.now()),
+                   types.SimpleNamespace(punch=4, status=15, user_id=PIN, timestamp=datetime.now())]
+        visited.one_new_punch = lambda instruction: punches.pop(0)
+        visited.pushed_line = lambda record: visit.Arrival(
+            0.0, [PIN, "2026-09-20 08:00:00", "4", "15", "0", "0", "0"])
+        self.assertEqual(visited.find_in_out(), "punch")
+        self.assertIn("الرقم اللي الجهاز بعته", console.text)
+
     def visit_terminal(self, terminal, answers):
         emulator = Emulator(terminal, port=0).start()
         try:
@@ -723,6 +772,23 @@ class AVisitOfAHikvisionTerminal(unittest.TestCase):
         self.assertIn("device-serial", text)
         self.assertIn(rejected, console.text, "the operator still sees it on screen")
         self.assertEqual(self.lab.allocations, [], "nothing is claimed under a refused serial")
+
+    def test_a_minor_code_that_is_not_a_plain_number_is_listed_not_raised_on(self):
+        """These codes are keys out of the terminal's own event log, so the terminal chooses them
+        and no operator can influence them. `str.isdigit()` is true for Numeric_Type=Digit
+        characters that `int()` refuses -- `²` is one -- so the guard passed, `int()` raised
+        inside the comprehension, and the visit ended on an English traceback."""
+        self.terminal.add_event(PIN, datetime.now(self.terminal.zone).replace(tzinfo=None), "²", "checkIn")
+        console = ScriptedConsole([("اسم المستخدم", ""), ("الباسورد", "s3cret-pass"),
+                                   ("يعمل بصمة على الجهاز", self.punch_now),
+                                   ("الجهاز متظبط على إيه", "4"), ("بتتظبط لوحدها", "1")])
+        visited = quick_visit(console, self.lab, self.out)
+        Path(self.out).mkdir(parents=True, exist_ok=True)
+        visited.hik_flow("127.0.0.1", self.server.server_address[1])
+        self.assertEqual(console.answers, [], console.text)
+        self.assertIn("²", visited.sheet["Hikvision: أكواد الحضور اللي ظهرت"])
+        self.assertTrue(any(f.level == "warn" and "²" in f.text for f in visited.findings),
+                        "a code that is not attendance is reported, whatever shape it is")
 
     def test_codes_a_live_punch_and_two_sends_and_the_password_does_not_outlive_the_visit(self):
         answers = VisitStart() + [
@@ -866,6 +932,21 @@ class ThePiecesTheWizardDecidesWith(unittest.TestCase):
     def exchange(self, body, stamp="9", status=200, content_type="text/plain"):
         return visit.Exchange(0.0, "SN1", "POST", f"/iclock/cdata?SN=SN1&table=ATTLOG&Stamp={stamp}", status,
                               content_type, body.encode(), b"OK")
+
+    def test_a_menu_answer_that_is_not_a_plain_number_is_refused_and_the_menu_comes_back(self):
+        """Every question the wizard asks funnels through here, including the consent one. The
+        guard already means to refuse anything that is not a number in range and ask again, but
+        `str.isdigit()` is true for `²` and `1²` while `int()` refuses them, so those two
+        answers passed the guard and raised -- ending the whole visit on a typo at a menu."""
+        console = ScriptedConsole([("سؤال", "²"), ("سؤال", "1²"),
+                                   ("سؤال", "9"), ("سؤال", "2")])
+        self.assertEqual(console.choose("سؤال؟", ["أول", "تاني"]), 1)
+        self.assertEqual(console.answers, [])
+        self.assertEqual(console.text.count("الرقم ده مش في القايمة"), 3,
+                         "two unreadable answers and one out of range, each refused")
+        # Arabic-Indic digits are ordinary numbers and must still choose.
+        console = ScriptedConsole([("سؤال", "٢")])
+        self.assertEqual(console.choose("سؤال؟", ["أول", "تاني"]), 1)
 
     def test_the_results_sheet_is_the_runbooks_appendix_row_for_row(self):
         text = (ROOT / "docs" / "devices" / "field-visit-runbook.md").read_text(encoding="utf-8")
