@@ -191,6 +191,17 @@ class WebConsole(visit.Console):
         self.stopping.set()
         self.answered.set()
 
+    def rearm(self) -> None:
+        """Forget any interrupt nothing consumed, before a new run starts.
+
+        An interrupt is for the run it was pressed during. Nothing consumes one unless a question is
+        posed, so a Stop pressed while a tool was running -- or while nothing was -- used to sit
+        waiting and kill the *next* visit at its first question, before it asked anything."""
+        with self.turn:
+            self.pending_stop = False
+            self.abandoned = False
+        self.stopping.clear()
+
     def abandon(self) -> None:
         """Give up on the visit: every question from here on raises.
 
@@ -240,7 +251,13 @@ class Session:
                 # What the wizard discovered, so the buttons that repeat a step alone repeat it
                 # against the same terminal on the same terms instead of the defaults.
                 "host": link[0], "port": link[1], "comm_key": link[2], "udp": bool(link[3]),
-                "in_out": self.proved_in_out(link[0]),
+                # Paired with `host` above, which is the address it was proved on -- the page
+                # compares the two and stops offering it once the operator types another address.
+                # The server-side guard is `proved_in_out` in `_tool_once`, for a request that
+                # names no column at all; it cannot see what the operator typed.
+                # Not published without an address to pair it with: a column on its own is
+                # something the page cannot judge the relevance of.
+                "in_out": ((visited.in_out if visited else None) or "") if link[0] else "",
                 "networks": [network for _, network in self.networks()],
                 "reports": sorted(path.name for path in self.out.glob("*.md")),
                 "backups": sorted(path.name for path in self.out.glob("*.tsv")),
@@ -262,7 +279,7 @@ class Session:
         try:
             if self.thread and self.thread.is_alive():
                 return False
-            self.console.stopping.clear()
+            self.console.rearm()
             self.out.mkdir(parents=True, exist_ok=True)
             self.visit = self.new_visit()
             self.thread = threading.Thread(target=self._run, args=(self.visit,), daemon=True)
@@ -288,8 +305,12 @@ class Session:
         minutes of the capture-paused step before the visit hears it."""
         self.console.stopping.wait(seconds)
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
+        """False when there is no run to stop, so the page says that rather than nothing."""
+        if not (self.thread and self.thread.is_alive()):
+            return False
         self.console.stop()
+        return True
 
     def abandon(self) -> None:
         self.console.abandon()
@@ -535,8 +556,7 @@ def make_handler(session: Session, token: str, out: Path):
             if route.path == "/start":
                 return self._json({"started": session.start()})
             if route.path == "/stop":
-                session.stop()
-                return self._json({"stopping": True})
+                return self._json({"stopping": session.stop()})
             if route.path == "/answer":
                 taken = session.console.reply(str(form.get("value") or ""), int(form.get("choice") or 0),
                                               int(form.get("id") or 0))
@@ -696,6 +716,7 @@ PAGE = """<!DOCTYPE html>
           <select id="field"><option value="">—</option><option value="punch">punch</option>
           <option value="status">status</option></select></label>
         <label>الشبكة <select id="cidr"><option value="">—</option></select></label>
+        <span id="known" class="dim"></span>
         <label title="البحث في شبكة العميل لازم يكون بعد إذنه"><input id="consent" type="checkbox"> العميل وافق على البحث</label>
         <button data-tool="zk-info">اقرأ الجهاز</button>
         <button data-tool="backup">نسخة احتياطية</button>
@@ -809,11 +830,24 @@ function paint(state) {
   $("start").disabled = state.running;
   if (!state.running) close();
   if (state.host && !$("host").value) $("host").value = state.host;
-  if (state.comm_key && !$("key").value) $("key").value = String(state.comm_key);
-  // Only until the operator says otherwise: re-checking it on every poll would undo a deliberate
-  // uncheck within one long-poll, and `link()` lets the page's value win.
-  if (state.udp && !$("udp").dataset.touched) $("udp").checked = true;
-  if (state.in_out && !$("field").value) $("field").value = state.in_out;
+  // Everything below describes the terminal the visit ran against. The moment the operator types a
+  // different address none of it applies, and sending `once` with the previous terminal's in/out
+  // column would invert this terminal's whole log -- the server guard cannot see the address box,
+  // so the page must stop offering what the guard would refuse.
+  const elsewhere = $("host").value && state.host && $("host").value !== state.host;
+  if (elsewhere) {
+    if ($("key").value === String(state.comm_key)) $("key").value = "";
+    if (!$("udp").dataset.touched) $("udp").checked = false;
+    if ($("field").value === state.in_out) $("field").value = "";
+    $("known").textContent = "";
+  } else {
+    if (state.comm_key && !$("key").value) $("key").value = String(state.comm_key);
+    // Only until the operator says otherwise: re-checking it on every poll would undo a deliberate
+    // uncheck within one long-poll, and `link()` lets the page's value win.
+    if (state.udp && !$("udp").dataset.touched) $("udp").checked = true;
+    if (state.in_out && !$("field").value) $("field").value = state.in_out;
+    $("known").textContent = state.in_out ? "\u0645\u0646 \u0632\u064a\u0627\u0631\u0629 " + (state.serial || state.host) : "";
+  }
   fillNetworks(state.networks || []);
   const sheet = $("sheet");
   sheet.textContent = "";

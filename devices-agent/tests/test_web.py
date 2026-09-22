@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
-from workin_devices import visit, web
+from workin_devices import probe, visit, web
 from workin_devices.sim.zk4370 import Emulator, Terminal, populate
 from tests.support import FakePlatform
 from tests.test_visit import FakeLab, PIN
@@ -481,9 +481,11 @@ class WhatTheToolsMustNotAssume(unittest.TestCase):
         answer = self.session.tool("once", {"host": "10.0.0.9"})
         self.assertIn("punch ولا status", answer.get("error", ""),
                       "another terminal's in/out column was reused without being asked")
-        # And the page is offered it only for the address the visit actually ran against, so the
-        # selector cannot pre-fill the wrong column for a terminal typed into the tools row.
-        self.assertEqual(self.session.state()["in_out"], "status")
+        # `state()` reports the column *and* the address it was proved on, so a client can tell
+        # whose it is. It is the page that must stop offering it once another address is typed --
+        # the server cannot see the address box, and a column the request names explicitly wins.
+        shown = self.session.state()
+        self.assertEqual((shown["host"], shown["in_out"]), ("192.168.1.201", "status"))
         self.session.visit = self.stub(zk_link=None, in_out="status")
         self.assertEqual(self.session.state()["in_out"], "")
 
@@ -510,14 +512,17 @@ class WhatTheToolsMustNotAssume(unittest.TestCase):
             answer = self.session.tool("scan", {})
         self.assertIn("إذنه", answer["error"])
 
-    def test_the_narrowing_threshold_is_the_scanners_own(self):
-        """A literal here would let the two drift, and `narrow` would hand `probe.scan` a network it
-        then refuses with an English exception the page would show to an Arabic operator."""
+    def test_the_narrowing_threshold_follows_the_scanners_own(self):
+        """It has to *follow* the constant, not merely agree with today's value -- a literal `1024`
+        passes any assertion that only checks the boundary at 1024."""
+        with mock.patch.object(web.probe, "SCAN_LIMIT", 256):
+            self.assertEqual(web.narrow("10.0.0.0/23", [("10.0.1.7", "10.0.0.0/23")]), "10.0.1.0/24",
+                             "narrow ignored the scanner's limit and used a literal")
+            self.assertEqual(web.narrow("10.0.0.0/24", [("10.0.0.5", "10.0.0.0/24")]), "10.0.0.0/24")
         edge = ipaddress.ip_network("10.0.0.0/22")
         self.assertEqual(edge.num_addresses, web.probe.SCAN_LIMIT)
         self.assertEqual(web.narrow(str(edge), [("10.0.3.7", str(edge))]), str(edge))
-        bigger = "10.0.0.0/21"
-        self.assertEqual(web.narrow(bigger, [("10.0.3.7", bigger)]), "10.0.3.0/24")
+        self.assertEqual(web.narrow("10.0.0.0/21", [("10.0.3.7", "10.0.0.0/21")]), "10.0.3.0/24")
 
     def test_a_large_network_is_narrowed_the_way_the_wizard_narrows_it(self):
         self.assertEqual(web.narrow("10.0.0.0/16", [("10.0.3.7", "10.0.0.0/16")]), "10.0.3.0/24")
@@ -558,6 +563,61 @@ class WhatTheToolsMustNotAssume(unittest.TestCase):
         runner.join(5)
 
 
+class WhatABackupMustNotLeaveBehind(unittest.TestCase):
+    """A backup is the safety net taken before anything on a terminal is touched. Half of one that
+    looks complete is worse than none, and the page's files panel lists it."""
+
+    def test_a_read_that_fails_midway_leaves_the_previous_backup_untouched(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "ZK-1-attlog-backup.tsv"
+            path.write_text("# the complete backup from the visit before\n", encoding="utf-8")
+            kept = path.read_bytes()
+
+            class Breaks:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_):
+                    return False
+
+                def attendance(self):
+                    # Fails partway through the write, which is the only case a temporary file and a
+                    # rename protect against: raising before it leaves the target untouched anyway.
+                    def rows():
+                        yield types.SimpleNamespace(user_id="1001", timestamp=datetime(2026, 9, 21, 8, 0),
+                                                    status=1, punch=0, record_size=40)
+                        raise probe.zk.ZkError("the link went away halfway through")
+                    return rows()
+
+            with mock.patch.object(probe.zk, "ZkClient", lambda *a, **k: Breaks()):
+                with self.assertRaises(probe.zk.ZkError):
+                    probe.backup_attendance("127.0.0.1", str(path))
+            self.assertTrue(path.exists(), "the previous backup was deleted outright")
+            self.assertEqual(path.read_bytes(), kept, "the previous backup was overwritten")
+            self.assertEqual(sorted(p.name for p in Path(folder).iterdir()), [path.name],
+                             "a .part file was left in field-report/")
+
+    def test_a_backup_that_succeeds_is_moved_into_place_whole(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "ZK-1-attlog-backup.tsv"
+
+            class Reads:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_):
+                    return False
+
+                def attendance(self):
+                    return [types.SimpleNamespace(user_id="1001", timestamp=datetime(2026, 9, 21, 8, 0),
+                                                  status=1, punch=0, record_size=40)]
+
+            with mock.patch.object(probe.zk, "ZkClient", lambda *a, **k: Reads()):
+                self.assertEqual(probe.backup_attendance("127.0.0.1", str(path)), 1)
+            self.assertEqual(sorted(p.name for p in Path(folder).iterdir()), [path.name])
+            self.assertIn("1001\t2026-09-21 08:00:00", path.read_text(encoding="utf-8"))
+
+
 class WhatTheWizardWaitsFor(unittest.TestCase):
     """Stopping is not the same as abandoning: everything that puts a terminal and this laptop back
     runs after the interrupt reaches the wizard."""
@@ -591,6 +651,45 @@ class WhatTheWizardWaitsFor(unittest.TestCase):
             self.assertTrue(made.close(timeout=10), "the process would have exited mid-report")
             self.assertEqual((out / "report.md").read_text(encoding="utf-8"), "التقرير")
             self.assertFalse(made.thread.is_alive())
+
+    def test_a_stop_nothing_consumed_does_not_kill_the_next_visit(self):
+        """An interrupt is for the run it was pressed during. Nothing consumes one unless a question
+        is posed, so a Stop pressed while a tool ran -- or while nothing ran -- used to sit waiting
+        and interrupt the *next* visit at its first question, before it had asked anything."""
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            made = self.session(out, delay=0.1)
+            self.assertFalse(made.stop(), "a stop was accepted with no run to stop")
+            self.assertFalse(made.console.pending_stop, "the refused stop was armed anyway")
+            self.assertTrue(made.start())
+            asked = []
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline and not asked:
+                asked = [item for item in made.events.items if item["kind"] == "question"]
+                time.sleep(0.05)
+            self.assertTrue(asked, "the new visit was interrupted before it asked anything")
+            self.assertTrue(made.console.reply(answer="", qid=asked[-1]["id"]),
+                            "the new visit's first question could not be answered")
+            made.close(timeout=10)
+
+    def test_a_stop_armed_by_a_run_that_ended_does_not_reach_the_next_one(self):
+        """The state a stop pressed during a run leaves behind when the run ends before any question
+        consumes it. `start()` has to forget it, which is what `stopping.clear()` alone did not."""
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            made = self.session(out, delay=0.1)
+            made.console.stop()                      # armed, as a real run's Stop arms it
+            self.assertTrue(made.console.pending_stop)
+            self.assertTrue(made.start())
+            asked = []
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline and not asked:
+                asked = [item for item in made.events.items if item["kind"] == "question"]
+                time.sleep(0.05)
+            self.assertTrue(asked, "the armed stop was delivered to the next visit")
+            self.assertFalse(made.console.pending_stop)
+            self.assertFalse(made.console.abandoned)
+            made.close(timeout=10)
 
     def test_closing_waits_for_a_tool_that_is_still_writing(self):
         """A tool does not run on the visit thread -- it runs inline on an HTTP request handler,

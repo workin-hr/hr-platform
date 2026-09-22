@@ -321,13 +321,22 @@ def backup_attendance(ip: str, path: str, port: int = 4370, comm_key: int = 0, u
     # Written beside the target and moved into place, so an interrupted write leaves no file rather
     # than a truncated one with a valid-looking header. `os.replace` is atomic within a filesystem.
     partial = f"{path}.part"
-    with open(partial, "w", encoding="utf-8") as handle:
-        handle.write("# user_id\ttimestamp\tstatus(pyzk)\tpunch(pyzk)\trecord_size\n")
-        for record in records:
-            handle.write(f"{record.user_id}\t{record.timestamp:%Y-%m-%d %H:%M:%S}\t{record.status}\t{record.punch}\t{record.record_size}\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(partial, path)
+    try:
+        with open(partial, "w", encoding="utf-8") as handle:
+            handle.write("# user_id\ttimestamp\tstatus(pyzk)\tpunch(pyzk)\trecord_size\n")
+            for record in records:
+                handle.write(f"{record.user_id}\t{record.timestamp:%Y-%m-%d %H:%M:%S}\t{record.status}\t{record.punch}\t{record.record_size}\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(partial, path)
+    except BaseException:
+        # Including KeyboardInterrupt: the half-written file is not evidence of anything and would
+        # sit in field-report/ for good.
+        try:
+            os.unlink(partial)
+        except OSError:
+            pass
+        raise
     return len(records)
 
 
