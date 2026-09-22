@@ -114,6 +114,7 @@ class ReadOnlyClientAgainstTheEmulator(unittest.TestCase):
         connect on a visit that reads several terminals."""
         self.assertEqual(zk.CONNECT_ATTEMPTS, 3)
         self.assertEqual(zk.CONNECT_RETRY_SECONDS, 2.0)
+        CONNECT_RETRY_SECONDS = zk.CONNECT_RETRY_SECONDS
         waited = []
         unreachable = mock.Mock(side_effect=OSError(errno.EHOSTUNREACH, "No route to host"))
         with mock.patch.object(zk.time, "sleep", waited.append), \
@@ -121,9 +122,13 @@ class ReadOnlyClientAgainstTheEmulator(unittest.TestCase):
             with self.assertRaises(zk.ZkError):
                 zk.ZkClient("192.0.2.1", 4370, timeout=1).connect()
         self.assertEqual(unreachable.call_count, 3)
-        # The waits only; the connects themselves fail instantly on these errnos.
+        # The waits only; the connects themselves fail instantly on these errnos. `zk.time` is the
+        # `time` module, so this mock is process-wide for the duration of the test -- another
+        # thread's `time.sleep` would land in the same list. Asserted as "the two retry waits are
+        # there and the total is within budget" rather than as list equality, so a stray entry
+        # cannot make this flake.
+        self.assertEqual(waited.count(CONNECT_RETRY_SECONDS), 2, waited)
         self.assertLessEqual(sum(waited), 4.0, f"an absent terminal waits {sum(waited)}s")
-        self.assertEqual(waited, [2.0, 2.0])
 
     def test_a_refused_connection_is_answered_not_retried(self):
         """Only a lost ARP exchange is worth a second attempt; a refusal is the terminal's answer."""

@@ -490,7 +490,7 @@ class Session:
         visited.serial, visited.zk_link = serial, (host, port, key, udp)
         self.out.mkdir(parents=True, exist_ok=True)
         visited.send_twice(visited.write_zk_agent_config(
-            serial, f"{serial}-zk-tool.sqlite3", field, name=f"{serial}-zk-tool.toml"))
+            serial, f"{serial}-zk-tool.sqlite3", field, name=f"{serial}-zk-tool.toml"), host)
         # The findings are not returned: `send_twice` wrote them through the shared console, so they
         # are already in the transcript. Returned as well, the page would draw each one twice and
         # every warning would read as two.
