@@ -705,6 +705,37 @@ class WhatThePageRefuses(unittest.TestCase):
                 self.assertNotIn("error", self.session.tool("zk-info", {"host": "192.0.2.9", "port": sent}))
         self.assertEqual(asked, [14370, 14370, 14370])
 
+    def test_a_number_that_is_infinite_is_a_refusal_and_not_a_crash_on_every_numeric_route(self):
+        """`ArithmeticError` was audited for `tool`, found unreachable there, and removed. The
+        sibling tuple on `/answer` 300 lines down was never looked at: a JSON `1e400` is an ordinary
+        number literal, so `parse_constant` never sees it, and `int(float("inf"))` raises
+        `OverflowError` -- neither a `TypeError` nor a `ValueError`, so it answered a 500 and a
+        stack where that very line promises a 400. Fixing the instance and not the class."""
+        for sent in ('{"id":1,"choice":1e400}', '{"id":1e400,"choice":1}', '{"id":-1e400,"choice":1}'):
+            status, body = call(f"{self.base}/answer?t={self.token}", raw=sent.encode())
+            self.assertEqual(status, 400, f"{sent} -> {status}: {body[:120]!r}")
+            self.assertIn("must be numbers", json.loads(body)["error"], sent)
+        self.assertEqual(call(f"{self.base}/events?since=0&t={self.token}")[0], 200,
+                         "the listener did not survive")
+
+    def test_a_field_that_is_a_number_rather_than_text_is_answered_not_a_stack(self):
+        """`_form` maps a non-scalar to `None` but leaves a scalar alone **on purpose**, because
+        `udp` and `consent` need the real boolean. Two fields then called `.strip()` on what they
+        were handed, so a JSON number or boolean answered `AttributeError` with a stack -- and the
+        gate is released by the `finally`, so the symptom was a 500 rather than a hang."""
+        for form in ({"host": "127.0.0.1", "consent": True, "cidr": 5},
+                     {"host": "127.0.0.1", "consent": True, "cidr": True}):
+            answered = self.session.tool("scan", form)
+            self.assertNotIn("AttributeError", str(answered), form)
+            # And the refusal is Arabic: `ip_network`'s own sentence is English and names Python's
+            # types, which is the defect the Comm Key box had, one box over.
+            self.assertIn("الشبكة", answered.get("error", ""), form)
+            self.assertNotIn("does not appear", answered.get("error", ""), form)
+        for value in (5, True, 4.5):
+            answered = self.session.tool("once", {"host": "127.0.0.1", "in_out_field": value})
+            self.assertNotIn("AttributeError", str(answered), value)
+        self.assertFalse(self.session.gate.locked(), "the gate was not released")
+
     def test_a_download_cannot_leave_the_report_directory(self):
         # A unique name, not a fixed one beside the temporary directory: two suite runs sharing a
         # TMPDIR both wrote `outside.md` there and each deleted the other's in teardown.

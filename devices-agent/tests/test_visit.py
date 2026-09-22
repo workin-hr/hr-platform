@@ -428,6 +428,39 @@ class AVisitOfA4370Terminal(unittest.TestCase):
             for record in self.terminal.records:
                 handle.write(f"{record.user_id:>9}\t{record.when:%Y-%m-%d %H:%M:%S}\t{record.in_out}\t{record.verify}\t0\t0\n")
 
+    def test_a_port_typed_into_the_wizard_is_checked_before_it_reaches_connect(self):
+        """The page's address box was range-checked a round ago; the wizard's own prompt -- the
+        manual path the runbook sends the operator down when the scan finds nothing -- was not.
+        `connect()` raises `OverflowError` outside 0-65535, which is not a `ZkError`, so
+        `probe.zk_summary` did not catch it: one extra digit ended the whole visit with no read, no
+        backup and no allocation, and put an English traceback in the report step 11 tells the
+        operator to paste into a public issue. A port that is not a number at all was worse -- the
+        `except ValueError` blamed the IP, so they retyped an address that was never wrong."""
+        answers = VisitStart() + [
+            ("أنهي جهاز", "2"), ("اكتب IP", "192.0.2.9:437000"),
+            ("اكتب IP", "192.0.2.9:²"), ("اكتب IP", "192.0.2.9:0"),
+            ("اكتب IP", f"127.0.0.1:{self.emulator.port}"), ("نوع الجهاز", "1"),
+            ("الستيكر", "1"), ("عدد السجلات", "1"), ("Cloud Server Setting", "1"),
+            ("الجهاز متظبط على إيه", "4"), ("بتتظبط لوحدها", "1"),
+            ("بصمة دخول", lambda: self.terminal.add_punch(PIN, in_out=0, verify=15) and ""),
+            ("Check-Out", lambda: self.terminal.add_punch(PIN, in_out=1, verify=15) and ""),
+            ("ملف USB", "1"), ("برنامج", "1"), ("كابل أو switch", "1"),
+        ]
+        console = ScriptedConsole(answers)
+        visited = quick_visit(console, self.lab, self.out)
+        code = visited.run()
+        self.assertEqual(console.answers, [], console.text[-500:])
+        # Three bad ports were each refused and re-asked, and the fourth reached the terminal.
+        self.assertEqual(console.text.count("البورت لازم يكون"), 3, console.text)
+        self.assertNotIn("ده مش IP", console.text, "a bad port must not be blamed on the IP")
+        self.assertNotIn("OverflowError", console.text)
+        report = report_of(self.out)
+        self.assertNotIn("OverflowError", report, "the report is pasted into a public issue")
+        self.assertNotIn("port must be 0-65535", report)
+        # And the visit actually ran, rather than dying at the address prompt.
+        self.assertEqual(visited.sheet["عليه Comm Key؟"], "لا", console.text[-400:])
+        self.assertIn(code, (0, 1), console.text[-300:])
+
     def test_a_comm_key_that_is_not_a_plain_number_is_refused_and_the_prompt_comes_back(self):
         """The prompt already refuses a key that is not a number and asks again. `str.isdigit()`
         let `²` past that refusal and into `int()`, which refuses it -- so the one answer the
@@ -811,7 +844,7 @@ class AVisitOfAHikvisionTerminal(unittest.TestCase):
         `int()`. A terminal sending anything but a plain number there ended the visit on an
         English traceback -- after the read, before the allocation, so the operator was left with
         nothing and had to start over in front of the customer."""
-        for minor in ("²", "checkIn", None, "-3"):
+        for minor in ("²", "checkIn", None, "-3", "9" * 5000):
             def punch(code=minor):
                 now = datetime.now(self.terminal.zone).replace(tzinfo=None)
                 self.terminal.add_event(PIN, now, code, "checkIn")
@@ -825,8 +858,15 @@ class AVisitOfAHikvisionTerminal(unittest.TestCase):
             visited.hik_flow("127.0.0.1", self.server.server_address[1])
             self.assertEqual(console.answers, [], f"minor={minor!r}: {console.text[-400:]}")
             # Not attendance, whatever shape it is -- and the code is quoted so the issue can name it.
-            self.assertTrue(any(f.level == "bad" and "مش بيتحسب حضور" in f.text for f in visited.findings),
-                            f"minor={minor!r} was not reported: {[f.text for f in visited.findings]}")
+            reported = [f for f in visited.findings if f.level == "bad" and "مش بيتحسب حضور" in f.text]
+            self.assertTrue(reported, f"minor={minor!r} was not reported: {[f.text for f in visited.findings]}")
+            # Bounded: the finding is drawn in the transcript **and** written into the report the
+            # runbook tells the operator to paste into a public issue, so a terminal that sends five
+            # thousand characters must not decide how long either of those is. Before this the value
+            # crashed the visit; fixing that without a bound traded a crash for an unbounded echo.
+            for finding in reported:
+                self.assertLess(len(finding.text), 200, f"minor={str(minor)[:12]!r}: {len(finding.text)}")
+                self.assertLess(len(finding.fix or ""), 200, f"minor={str(minor)[:12]!r}")
         # A plain code still reads as attendance, so the guard did not swallow the ordinary path.
         console = ScriptedConsole([("اسم المستخدم", ""), ("الباسورد", "s3cret-pass"),
                                    ("يعمل بصمة على الجهاز", self.punch_now),

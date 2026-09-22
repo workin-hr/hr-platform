@@ -93,6 +93,17 @@ AGENT_FIXES = (
 INT_DIGITS = 10
 
 
+def shown(value: str, most: int = 24) -> str:
+    """A value from outside quoted back into something a person reads.
+
+    The page draws refusals and a text box holds far more than fits; a finding is drawn in the
+    transcript **and** written into the report the runbook tells the operator to paste into a
+    public issue. A terminal that sends a five-thousand-character code should not decide how long
+    either of those is.
+    """
+    return value if len(value) <= most else value[:most] + "\u2026"
+
+
 def reads_as_int(value: str, digits: int = INT_DIGITS) -> bool:
     """Can `int(value)` be called on this without raising?
 
@@ -879,10 +890,23 @@ class Visit:
             host, _, port_text = text.partition(":")
             try:
                 ipaddress.ip_address(host)
-                port = int(port_text) if port_text else None
-                break
             except ValueError:
                 self.say("   ده مش IP.")
+                continue
+            # Checked here, not at `connect()`, which raises `OverflowError` for anything outside
+            # 0-65535 -- not a `ZkError`, so `probe.zk_summary` does not catch it and one extra
+            # digit ended the whole visit: no read, no backup, no allocation, and an English
+            # traceback in the report the runbook tells the operator to paste into a public issue.
+            # And the old `except ValueError` blamed the *IP* for a bad port, which sent them round
+            # a loop retyping an address that was never wrong.
+            if port_text and not reads_as_int(port_text):
+                self.say("   البورت لازم يكون رقم بين 1 و 65535.")
+                continue
+            port = int(port_text) if port_text else None
+            if port is not None and not 1 <= port <= 65535:
+                self.say(f"   البورت لازم يكون بين 1 و 65535، مش {port}.")
+                continue
+            break
         if port is not None:
             kind = self.choose("نوع الجهاز؟", [("zk", "ZKTeco (4370)"), ("hik", "Hikvision"), ("other", "حاجة تانية")])
             return kind, host, port
@@ -1590,7 +1614,7 @@ class Visit:
         unexpected = sorted(code for code in minors
                             if not reads_as_int(code) or int(code) not in HIK_ATTENDANCE)
         if unexpected:
-            self.note("warn", f"فيه أحداث فيها موظف بأكواد {', '.join(unexpected)} مش بتتحسب حضور",
+            self.note("warn", f"فيه أحداث فيها موظف بأكواد {', '.join(shown(code) for code in unexpected)} مش بتتحسب حضور",
                       "لو دي بصمات حضور فعلاً، اكتب الأكواد في الـ issue (هنضيفها في attendance_minors)")
         source = HikvisionSource(device)
         started = self.now()
@@ -1614,8 +1638,9 @@ class Visit:
             if minor in HIK_ATTENDANCE:
                 self.note("ok", f"البصمة وصلت بكود {minor}" + (f" و {status}" if status else "") + "، وده بيتحسب حضور")
             else:
-                self.note("bad", f"البصمة جت بكود {minor}، والكود ده مش بيتحسب حضور",
-                          f"اكتب الكود {minor} في الـ issue (هنضيفه في attendance_minors)")
+                code = shown(str(minor))
+                self.note("bad", f"البصمة جت بكود {code}، والكود ده مش بيتحسب حضور",
+                          f"اكتب الكود {code} في الـ issue (هنضيفه في attendance_minors)")
         else:
             self.note("bad", "مالقيتش البصمة في سجل أحداث الجهاز" + (f" ({error})" if error else ""),
                       "جرّب تاني، وبص على صفحة الأحداث في الجهاز")

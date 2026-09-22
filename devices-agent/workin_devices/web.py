@@ -36,6 +36,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import config as cfg, gateway as gw, probe, visit
+from .visit import shown
 from . import zk4370 as zk
 
 DEFAULT_PORT = 18100
@@ -59,7 +60,14 @@ CLOSE_GRACE_SECONDS = 20.0
 def narrow(cidr: str, addresses: list[tuple[str, str]]) -> str:
     """The wizard's own rule, so a page scan reaches the same network a terminal scan reaches:
     anything larger than the scanner walks becomes the /24 around this laptop's address on it."""
-    if ipaddress.ip_network(cidr).num_addresses <= probe.SCAN_LIMIT:
+    try:
+        network = ipaddress.ip_network(cidr)
+    except ValueError:
+        # `ip_network`'s own refusal is English and names Python's types -- the same defect the Comm
+        # Key box had, surviving here because this box is a populated `<select>` and so is not
+        # reachable from the shipped page. The refusal one line below is already in Arabic.
+        raise ValueError(f"الشبكة لازم تكون زي 192.168.1.0/24، مش {shown(cidr)!r}") from None
+    if network.num_addresses <= probe.SCAN_LIMIT:
         return cidr
     here = next((address for address, network in addresses if network == cidr), None)
     if here is None:
@@ -215,11 +223,6 @@ class WebConsole(visit.Console):
         wizard's own "not completed" finding."""
         self.abandoned = True
         self.stop()
-
-
-def shown(value: str, most: int = 24) -> str:
-    """A value quoted back into a refusal the page draws. A text box holds far more than fits."""
-    return value if len(value) <= most else value[:most] + "…"
 
 
 class Session:
@@ -503,7 +506,9 @@ class Session:
         if form.get("consent") is not True:
             return {"error": "البحث في شبكة العميل لازم يكون بعد إذنه: علّم على \"العميل وافق\" الأول"}
         addresses = self.networks()
-        cidr = (form.get("cidr") or "").strip()
+        # `str()` first: `_form` maps a non-scalar to `None` but leaves a scalar alone on purpose,
+        # so a JSON number here reached `.strip()` and answered an `AttributeError` 500.
+        cidr = str(form.get("cidr") or "").strip()
         if not cidr:
             if not addresses:
                 return {"error": "اللابتوب مش على شبكة"}
@@ -555,7 +560,7 @@ class Session:
         # Never a default. On a terminal whose in/out lives in `status`, a pass written for `punch`
         # sends every arrival with the direction and verification taken from the wrong column, and
         # correcting the mapping afterwards makes the whole log look new and send again.
-        field = (form.get("in_out_field") or "").strip() or self.proved_in_out(host)
+        field = str(form.get("in_out_field") or "").strip() or self.proved_in_out(host)
         if field not in ("punch", "status"):
             return {"error": "اختار العمود اللي فيه الدخول والخروج (punch ولا status) قبل الإرسال: "
                              "لو اتبعت غلط، الدخول هيتسجل خروج"}
@@ -751,7 +756,11 @@ def make_handler(session: Session, token: str, out: Path, bound: str = "127.0.0.
                 # below would answer 500 and call the operator's browser a crash.
                 try:
                     choice, asked = int(form.get("choice") or 0), int(form.get("id") or 0)
-                except (TypeError, ValueError):
+                # `ArithmeticError` for the same shape `tool` was audited for and did not need:
+                # a JSON `1e400` is an ordinary number literal, so `parse_constant` never sees it,
+                # and `int(float("inf"))` raises `OverflowError` -- which is neither of the other
+                # two, so it answered a 500 and a stack where this line promises a 400.
+                except (TypeError, ValueError, ArithmeticError):
                     return self._json({"taken": False, "error": "choice and id must be numbers"}, 400)
                 taken = session.console.reply(str(form.get("value") or ""), choice, asked)
                 return self._json({"taken": taken, "asked": session.console.asked},
