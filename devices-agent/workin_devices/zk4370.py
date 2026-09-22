@@ -61,6 +61,11 @@ UDP_CHUNK = 16 * 1024
 # a site visit that could have continued, so these errors alone are retried; every other
 # one, a refusal or a timeout included, is the answer.
 TRANSIENT_CONNECT_ERRNOS = frozenset({errno.EHOSTUNREACH, errno.ENETUNREACH, errno.EHOSTDOWN})
+# The same three conditions as Windows spells them. Python sets `errno` to the POSIX equivalent and
+# renders the message as `[WinError 10065]`, so an exception is classified correctly on either
+# platform -- but text that has already been flattened into a string carries only this number, and
+# this package ships as a Windows executable.
+WINDOWS_TRANSIENT_CODES = {10065: errno.EHOSTUNREACH, 10051: errno.ENETUNREACH, 10064: errno.EHOSTDOWN}
 CONNECT_ATTEMPTS = 3
 CONNECT_RETRY_SECONDS = 2.0
 

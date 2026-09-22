@@ -149,7 +149,7 @@ go before the command.
 |---|---|
 | `run --config agent.toml` | the agent: poll, deliver, heartbeat, forever |
 | `once --config agent.toml` | one pass, prints per-terminal counts, exits non-zero if any terminal failed |
-| `doctor --config agent.toml` | reads every terminal and prints what it is and its last records; sends nothing |
+| `doctor --config agent.toml` | reads every terminal and prints what it is and its last records; sends nothing. On a log of at least 200 records it also prints the `in_out_field=` verdict from the whole log's code distribution -- the same rule `visit` uses, which only ever *rules a column out* and says `مش واضح` rather than guessing. The manual Mode B procedure decides `in_out_field` from that line, never from whether the last punch reads `1` |
 | `import-usb --config agent.toml --serial SN --file attlog.dat` | imports a USB export for an allocated terminal, marked as a file |
 | `scan --cidr 192.168.1.0/24` | finds terminals on a LAN (ask first) |
 | `zk-info --host IP [--comm-key N] [--udp] [--backup FILE]` | a ZKTeco terminal's identity, counts and clock; optionally its whole log to a local file |

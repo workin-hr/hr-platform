@@ -226,7 +226,11 @@ material and independent implementations; `vendor-capability-matrix.md` and
 evidence levels marked; ADR-0006 Part B is resolved (D-164, accepted
 2026-09-02) with an explicit hardware checklist as a recorded condition
 (`docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`
-§4.3). What remains is that checklist on a real terminal. The bullets below describe the state before this update.
+§4.3). **Update 2026-09-21:** that checklist has now been executed on a real
+terminal -- one ZKTeco MB20/ID on `Ver 6.60 Oct 12 2021`, recorded as the second
+entry of `docs/devices/attendance-device-model-and-firmware-inventory.md` (D-274).
+What remains is the same checklist on the other models the fleet holds. The
+bullets below describe the state before these updates.
 
 - **Description**: `docs/devices/attendance-device-model-and-firmware-inventory.md`
   and `docs/devices/vendor-capability-matrix.md` remain empty templates
@@ -248,7 +252,8 @@ evidence levels marked; ADR-0006 Part B is resolved (D-164, accepted
   documentation, firmware version inventory, and confirmed integration
   pattern per vendor, per the existing empty templates' own field
   structure, plus execution of the test-scenario checklist in
-  `device-integration-architecture.md`.
+  `device-integration-architecture.md`. **Partly satisfied as of 2026-09-21**
+  for one model, per the Status note above.
 - **Owner**: TBD — requires human assignment, likely with physical
   device or vendor-contact access.
 - **Dependencies**: Access to device vendor documentation, physical

@@ -500,7 +500,7 @@ def separates(counts: dict[int, int]) -> bool:
 def cannot_separate(counts: dict[int, int]) -> bool:
     """Is this column so one-sided that it cannot be carrying in/out at all?
 
-    Not "does it ever change": ADZV224371697's `status` reads 1 in 11 424 of its 11 426 records and
+    Not "does it ever change": TERMINAL-A's `status` reads 1 in 11 424 of its 11 426 records and
     15 in the other two. Two records out of eleven thousand are somebody identifying themselves
     differently, not the branch going home."""
     counted = sorted(counts.values(), reverse=True)
@@ -512,22 +512,38 @@ def unreachable_errno(error) -> int | None:
     """The errno of a connect that never reached the terminal, read out of whatever the visit holds
     -- the exception, or the text an agent pass has already flattened it into.
 
-    `[Errno 113]` is written by Python and is not translated; the strerror beside it is, so the
-    number is what this reads. Only the errnos that mean the packet never left count: they are the
-    ones that say nothing at all about the terminal."""
-    match = re.search(r"\[Errno (\d+)\]", str(error))
-    found = int(match.group(1)) if match else None
+    The number is taken from the exception wherever one survives -- `ZkError` chains the `OSError`
+    it was raised from -- because that holds on every platform. Only the flattened text needs
+    parsing, and then both spellings count: Python writes `[Errno 113]` on Linux and
+    `[WinError 10065]` on Windows for the same condition, and this ships as a Windows executable.
+    Only the errnos that mean the packet never left qualify: they are the ones that say nothing at
+    all about the terminal."""
+    found = getattr(error, "errno", None)
+    if found is None:
+        found = getattr(getattr(error, "__cause__", None), "errno", None)
+    if found is None:
+        posix = re.search(r"\[Errno (\d+)\]", str(error))
+        windows = re.search(r"\[WinError (\d+)\]", str(error))
+        if posix:
+            found = int(posix.group(1))
+        elif windows:
+            found = zk.WINDOWS_TRANSIENT_CODES.get(int(windows.group(1)))
     return found if found in zk.TRANSIENT_CONNECT_ERRNOS else None
 
 
 def describe_network(facts: dict) -> str:
     """This laptop's own link, in one line an operator can read out and paste into an issue."""
     parts = []
-    wifi = facts.get("wifi")
-    if wifi:
-        parts.append(f"الواي فاي {wifi['level']} dBm (link {wifi['link']}، discarded misc {wifi['misc']})")
+    wifi = facts.get("wifi") or {}
+    if wifi.get("level") is not None:
+        parts.append(f"الواي فاي {wifi['interface']} {wifi['level']} dBm "
+                     f"(link {wifi['link']}، discarded misc {wifi['misc']})")
+    elif wifi.get("unavailable"):
+        parts.append(f"الواي فاي: {wifi['unavailable']}")
     if facts.get("arp"):
-        parts.append(f"ARP {facts['target']}: {facts['arp']}")
+        # The state, never the address: this line is written to be pasted into a public issue, and
+        # the customer's internal addressing stays in field-report/ on the laptop.
+        parts.append(f"ARP الجهاز: {facts['arp']}")
     ping = facts.get("ping") or {}
     if "loss_percent" in ping:
         spread = ping.get("rtt_ms") or {}
@@ -560,6 +576,33 @@ def _toml(value: str) -> str:
 def _md(value: str) -> str:
     """Text for the report: a terminal's own strings reach it, so nothing in them is markup."""
     return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("|", "\\|")
+
+
+DOTTED = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
+# Not covered by `is_private` on every Python this ships on, and a branch can sit behind it.
+CARRIER_NAT = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _no_address(value: str) -> str:
+    """One seam for the whole report: no line of it names an address on the customer's network.
+
+    The report exists to be pasted into a public issue, and a terminal's own error text names the
+    address it could not reach -- so redacting at each call site would hold only until the next
+    finding was written. The console still shows the operator which address it was, and the address
+    stays in field-report/ on the laptop.
+
+    Only addresses that are private, loopback, link-local or carrier-NAT: those are what a branch
+    LAN is made of, and the exemption is what keeps a four-part firmware version -- which is also a
+    valid dotted quad -- readable in the report it is evidence in."""
+    def one(match):
+        try:
+            found = ipaddress.IPv4Address(match.group(0))
+        except ValueError:
+            return match.group(0)
+        internal = (found.is_private or found.is_loopback or found.is_link_local
+                    or found in CARRIER_NAT)
+        return "<device-ip>" if internal else match.group(0)
+    return DOTTED.sub(one, value)
 
 
 def _ltr(value: str) -> str:
@@ -901,13 +944,17 @@ class Visit:
         if unreachable_errno(error) is None:
             return None
         target = host or (self.zk_link[0] if self.zk_link else None)
-        measured = describe_network(self.laptop_network(target, ping_count=5))
+        facts = self.laptop_network(target, ping_count=5)
+        measured = describe_network(facts)
         self.sheet["حالة الشبكة وقت المشكلة"] = measured
+        wireless = (facts.get("wifi") or {}).get("level") is not None
         return ("مفيش ولا حزمة وصلت للجهاز أصلاً (الـ ARP فشل)، فالجهاز ماردّش عشان ماتسألش. "
                 + measured
                 + ". اتأكد الأول إن الـ IP ده بتاع الجهاز فعلاً (صورة رقم 3) وإن الجهاز شغال؛ "
-                "لو الاتنين تمام، فالمشكلة في الشبكة: قرّب اللابتوب من الراوتر أو اتوصّل بكابل، "
-                "وبعدين جرّب الخطوة دي تاني")
+                "لو الاتنين تمام، فالمشكلة في الشبكة: "
+                + ("قرّب اللابتوب من الراوتر أو اتوصّل بكابل"
+                   if wireless else "اتأكد من الكابل والـ switch وإن الجهاز على نفس الشبكة")
+                + "، وبعدين جرّب الخطوة دي تاني")
 
     def zk_records(self) -> list[zk.RawAttendance]:
         host, port, key, udp = self.zk_link
@@ -1006,7 +1053,12 @@ class Visit:
                                    ". أستنى وأقرأ تاني؟"):
                 break
         if not new:
-            self.note("bad", "مالقيناش البصمة على الجهاز", "جرّب تاني، وخلي الموظف يستنى لحد ما الجهاز يقبل البصمة")
+            # The last read's error, not just the retry prompt's: an unreachable terminal after the
+            # punch is a network finding with the ARP and ping numbers behind it, and reporting it as
+            # "the punch was not found" would say the terminal rejected a punch it never saw.
+            self.note("bad", "مالقيناش البصمة على الجهاز" + (f": {error}" if error else ""),
+                      (self.unreachable_path_fix(error) if error else None)
+                      or "جرّب تاني، وخلي الموظف يستنى لحد ما الجهاز يقبل البصمة")
             return None
         if len(new) == 1:
             return new[0]
@@ -1065,7 +1117,10 @@ class Visit:
             self.note("bad", "سيستم اللاب رفض التوكن", "scripts/devices-lab.sh seed وبعدين شغّل الأمر تاني")
             return
         if first.error:
-            fix = (self.unreachable_path_fix(first.error)
+            # Only when the terminal itself was not reached. `reachable` is set after it answered, so
+            # the same errno arriving with it set came from the delivery to the lab server, and
+            # telling the operator to check the terminal's network path would be false.
+            fix = ((self.unreachable_path_fix(first.error) if not first.reachable else None)
                    or next((text for needle, text in AGENT_FIXES if needle in first.error),
                            "اكتب الرسالة دي في الـ issue"))
             self.note("bad", f"الإرسال فشل: {first.error}", fix)
@@ -1620,13 +1675,13 @@ class Visit:
                  "في وضع A (سيستم اللاب على اللابتوب). مفيش فيه أكواد موظفين ولا أسامي ولا أرقام كروت.", ""]
         if bad:
             lines += ["## المشاكل والحل", ""]
-            lines += [f"- {MARK[finding.level]} {_md(finding.text)}" +
-                      (f" ← **الحل:** {_md(finding.fix)}" if finding.fix else "") for finding in bad] + [""]
+            lines += [f"- {MARK[finding.level]} {_md(_no_address(finding.text))}" +
+                      (f" ← **الحل:** {_md(_no_address(finding.fix))}" if finding.fix else "") for finding in bad] + [""]
         done = [finding for finding in self.findings if finding.level == "ok"]
         if done:
-            lines += ["## اللي اشتغل", ""] + [f"- {MARK['ok']} {_md(finding.text)}" for finding in done] + [""]
+            lines += ["## اللي اشتغل", ""] + [f"- {MARK['ok']} {_md(_no_address(finding.text))}" for finding in done] + [""]
         lines += ["## ورقة النتائج", "", "| البند | النتيجة |", "|---|---|"]
-        lines += [f"| {row} | {_ltr(self.sheet[row]) or '—'} |" for row in SHEET_ROWS]
+        lines += [f"| {row} | {_ltr(_no_address(self.sheet[row])) or '—'} |" for row in SHEET_ROWS]
         lines += ["", "</div>", ""]
         name = self.serial if self.serial and cfg.SERIAL.match(self.serial) else "device"
         path = self.out / f"visit-{name}-{self.started:%Y%m%d-%H%M}.md"
