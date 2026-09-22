@@ -26,7 +26,7 @@ class Unscripted(BaseException):
     """Not an Exception: the visit catches those, and a test's complaint must reach the test."""
 
 
-class ScriptedConsole:
+class ScriptedConsole(visit.Console):
     """The operator: each answer names a fragment of the question it answers, so a test fails on
     the question the wizard asked rather than on whatever answer happened to come next. An answer
     may be a callable, run when the question is reached -- the terminal doing what the operator

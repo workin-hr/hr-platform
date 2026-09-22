@@ -88,7 +88,12 @@ AGENT_FIXES = (
 
 
 class Console:
-    """The terminal. A test replaces it with a scripted one."""
+    """The terminal. A test replaces it with a scripted one, and `web.WebConsole` with a page.
+
+    Everything the visit shows and everything it asks goes through here, presentation included, so
+    that nothing in the wizard below knows which of the three it is talking to. A front end that
+    can draw a real button overrides `choose` and gets the index back; one that cannot inherits the
+    numbered list."""
 
     def say(self, text: str = "") -> None:
         print(text, flush=True)
@@ -98,6 +103,29 @@ class Console:
 
     def secret(self, prompt: str) -> str:
         return getpass.getpass(prompt + " ")
+
+    def title(self, text: str) -> None:
+        self.say()
+        self.say(f"━━━━━━━━  {text}  ━━━━━━━━")
+
+    def note(self, level: str, text: str, fix: str = "") -> None:
+        self.say(f"{MARK[level]} {text}" + (f"\n   ← الحل: {fix}" if fix else ""))
+
+    def enter(self, text: str) -> None:
+        self.ask(f"👉 {text}" if "Enter" in text else f"👉 {text}، ودوس Enter")
+
+    def choose(self, question: str, labels: list[str]) -> int:
+        """Which label the operator picked, by index. Enter takes the first."""
+        self.say(f"👉 {question}")
+        for number, label in enumerate(labels, 1):
+            self.say(f"   {number}) {label}")
+        while True:
+            answer = self.ask("   اكتب الرقم (Enter = 1):")
+            if not answer:
+                return 0
+            if answer.isdigit() and 1 <= int(answer) <= len(labels):
+                return int(answer) - 1
+            self.say("   الرقم ده مش في القايمة.")
 
 
 class Lab:
@@ -560,31 +588,21 @@ class Visit:
         self.console.say(text)
 
     def title(self, text: str) -> None:
-        self.say()
-        self.say(f"━━━━━━━━  {text}  ━━━━━━━━")
+        self.console.title(text)
 
     def note(self, level: str, text: str, fix: str = "") -> None:
         self.findings.append(Finding(level, text, fix))
-        self.say(f"{MARK[level]} {text}" + (f"\n   ← الحل: {fix}" if fix else ""))
+        self.console.note(level, text, fix)
 
     def choose(self, question: str, options: list[tuple[object, str]]):
-        self.say(f"👉 {question}")
-        for number, (_, label) in enumerate(options, 1):
-            self.say(f"   {number}) {label}")
-        while True:
-            answer = self.console.ask("   اكتب الرقم (Enter = 1):")
-            if not answer:
-                return options[0][0]
-            if answer.isdigit() and 1 <= int(answer) <= len(options):
-                return options[int(answer) - 1][0]
-            self.say("   الرقم ده مش في القايمة.")
+        return options[self.console.choose(question, [label for _, label in options])][0]
 
     def yes(self, question: str, default: bool = True) -> bool:
         options = [(True, "أيوه"), (False, "لأ")]
         return self.choose(question, options if default else options[::-1])
 
     def enter(self, text: str) -> None:
-        self.console.ask(f"👉 {text}" if "Enter" in text else f"👉 {text}، ودوس Enter")
+        self.console.enter(text)
 
     # -- the visit -------------------------------------------------------------------------
 
@@ -879,11 +897,8 @@ class Visit:
             return
         field = self.find_in_out()
         host, port, key, udp = self.zk_link
-        path = self.out / f"{serial}-zk.toml"
-        path.write_text(self._agent_toml(f"{serial}-zk-{self.started:%Y%m%d-%H%M}.sqlite3",
-                                         in_out_field=field or "punch") +
-                        f"\n[[devices]]\nserial = {_toml(serial)}\nkind = \"zk\"\nhost = {_toml(host)}\n"
-                        f"port = {port}\ncomm_key = {key}\nudp = {'true' if udp else 'false'}\n", encoding="utf-8")
+        path = self.write_zk_agent_config(serial, f"{serial}-zk-{self.started:%Y%m%d-%H%M}.sqlite3",
+                                          field or "punch")
         self.send_twice(path)
         self.check_the_clock_did_not_move(self.clock_skew(summary))
 
@@ -988,6 +1003,17 @@ class Visit:
                                     if arrival.fields and arrival.fields[0] == record.user_id
                                     and arrival.fields[1] == stamp), None),
             self.push_mark, self.wait_seconds / 6)
+
+    def write_zk_agent_config(self, serial: str, spool: str, in_out_field: str = "punch") -> Path:
+        """The config the agent reads for one ZKTeco terminal, and the one place it is written: the
+        page's own `once` button writes it through here too, so a file a single step sends cannot
+        drift from the file the whole wizard sends."""
+        host, port, key, udp = self.zk_link
+        path = self.out / f"{serial}-zk.toml"
+        path.write_text(self._agent_toml(spool, in_out_field=in_out_field) +
+                        f"\n[[devices]]\nserial = {_toml(serial)}\nkind = \"zk\"\nhost = {_toml(host)}\n"
+                        f"port = {port}\ncomm_key = {key}\nudp = {'true' if udp else 'false'}\n", encoding="utf-8")
+        return path
 
     def _agent_toml(self, spool: str, in_out_field: str = "punch") -> str:
         return (f"# Written by `workin_devices visit` for the lab (Mode A).\n"
