@@ -8,6 +8,12 @@ terminal cannot: the transcript, the findings, the results sheet and the report 
 once, and each step a page button can drive is also runnable on its own, against one address, while
 the wizard is not running.
 
+Stopping. The page's Stop ends a run the way a single Ctrl-C ends one in a terminal: the report is
+written, the "stopped early" finding is filed, and the checklist that puts the terminal's settings
+back is asked *on the page*, because those questions come through this same console after the
+interrupt. Ctrl-C in the command serving the page is the other case -- nobody is left to answer --
+so it abandons the run and waits for the report and for any single step still writing a file.
+
 Where it listens, and why that matters. 127.0.0.1 only, and every request carries a token this
 process invents at startup and puts in the URL it opens. This process reads terminals on a
 customer's LAN and holds the lab's agent token; nothing on that LAN, and no other page the operator
@@ -39,8 +45,8 @@ POLL_SECONDS = 20.0
 # `/events` answers the moment a transcript line lands, and reading the laptop's addresses forks
 # `ip`. Cached for this long so a talkative step does not fork once per line.
 NETWORK_SECONDS = 30.0
-# What `probe.scan` refuses to walk, and so the size above which the wizard narrows to a /24.
-SCAN_LIMIT = 1024
+# `probe.SCAN_LIMIT` is the authority: this narrows to fit what the scanner will walk, so a literal
+# here would let the two drift and hand `probe.scan` a network it then refuses.
 # On top of `wait_seconds`, which is the longest a stopped visit can stay parked in `Visit.wait`
 # before it asks the console a question and hears the stop.
 CLOSE_GRACE_SECONDS = 20.0
@@ -49,7 +55,7 @@ CLOSE_GRACE_SECONDS = 20.0
 def narrow(cidr: str, addresses: list[tuple[str, str]]) -> str:
     """The wizard's own rule, so a page scan reaches the same network a terminal scan reaches:
     anything larger than the scanner walks becomes the /24 around this laptop's address on it."""
-    if ipaddress.ip_network(cidr).num_addresses <= SCAN_LIMIT:
+    if ipaddress.ip_network(cidr).num_addresses <= probe.SCAN_LIMIT:
         return cidr
     here = next((address for address, network in addresses if network == cidr), None)
     if here is None:
@@ -85,16 +91,29 @@ class WebConsole(visit.Console):
 
     A `Stop` from the page becomes `KeyboardInterrupt` inside whichever question is waiting, which
     is the only way to reach the wizard's own interrupted path: `KeyboardInterrupt` is delivered to
-    the main thread and the run is not on it. That path writes the report, prints the checklist that
-    puts a terminal's settings back, and files the "stopped early" finding -- so stopping from the
-    page ends a visit exactly as Ctrl-C ends one in a terminal."""
+    the main thread and the run is not on it. That path writes the report, files the "stopped early"
+    finding, and asks the checklist that puts a terminal's settings back -- so stopping from the page
+    ends a visit as a *single* Ctrl-C ends one in a terminal.
+
+    **Which is why the interrupt is one-shot.** Those checklist questions come through this same
+    console after the interrupt has been caught. A flag that stayed set would raise on every one of
+    them, `Visit.restore` would catch that and file "the restore steps were not completed" -- the
+    step that confirms the customer's terminal was pointed back at their own software -- and it
+    would file it even when the operator had done all of it. `abandon()` is the other case: the
+    process is going away and there is nobody left at the page to answer, so then every question
+    does raise."""
 
     def __init__(self, events: Events):
         self.events = events
         self.asked = 0
         self.turn = threading.Lock()
         self.answered = threading.Event()
+        # `stopping` stays set once stopped, because `Session._sleep` waits on it: a stopped visit
+        # must not sit out a ten-minute pause. The interrupt itself is `pending_stop`, and one Stop
+        # delivers exactly one.
         self.stopping = threading.Event()
+        self.pending_stop = False
+        self.abandoned = False
         self.answer: str = ""
         self.choice: int = 0
 
@@ -127,17 +146,29 @@ class WebConsole(visit.Console):
         return self.choice if 0 <= self.choice < len(labels) else 0
 
     def _pose(self, kind: str, prompt: str, labels: list[str] | None = None) -> None:
+        if self._take_stop():
+            raise KeyboardInterrupt
         with self.turn:
             self.asked += 1
             self.answered.clear()
             asked = self.asked
         self.events.add("question", id=asked, mode=kind, prompt=prompt, labels=labels or [])
         while not self.answered.wait(0.2):
-            if self.stopping.is_set():
+            if self._take_stop():
                 raise KeyboardInterrupt
-        if self.stopping.is_set():
+        if self._take_stop():
             raise KeyboardInterrupt
         self.events.add("answered", id=asked)
+
+    def _take_stop(self) -> bool:
+        """True once per Stop -- or every time, once the run has been abandoned."""
+        with self.turn:
+            if self.abandoned:
+                return True
+            if not self.pending_stop:
+                return False
+            self.pending_stop = False
+            return True
 
     def reply(self, answer: str = "", choice: int = 0, qid: int = 0) -> bool:
         """An answer belongs to the question it was rendered for, and says so.
@@ -154,8 +185,21 @@ class WebConsole(visit.Console):
             return True
 
     def stop(self) -> None:
+        """End the visit: one interrupt, delivered to whichever question is waiting."""
+        with self.turn:
+            self.pending_stop = True
         self.stopping.set()
         self.answered.set()
+
+    def abandon(self) -> None:
+        """Give up on the visit: every question from here on raises.
+
+        Ctrl-C in the terminal that started the page is not the page's Stop. There is nobody left at
+        the page to answer the restore checklist, so the ending path must not wait for an answer
+        that cannot come; the report is still written and the checklist still reaches it as the
+        wizard's own "not completed" finding."""
+        self.abandoned = True
+        self.stop()
 
 
 class Session:
@@ -196,7 +240,7 @@ class Session:
                 # What the wizard discovered, so the buttons that repeat a step alone repeat it
                 # against the same terminal on the same terms instead of the defaults.
                 "host": link[0], "port": link[1], "comm_key": link[2], "udp": bool(link[3]),
-                "in_out": (visited.in_out if visited else None) or "",
+                "in_out": self.proved_in_out(link[0]),
                 "networks": [network for _, network in self.networks()],
                 "reports": sorted(path.name for path in self.out.glob("*.md")),
                 "backups": sorted(path.name for path in self.out.glob("*.tsv")),
@@ -247,20 +291,32 @@ class Session:
     def stop(self) -> None:
         self.console.stop()
 
-    def close(self, timeout: float | None = None) -> bool:
-        """Stop, and wait for the visit to finish ending itself. False when it did not.
+    def abandon(self) -> None:
+        self.console.abandon()
 
-        Everything that puts a terminal and this laptop back -- the restore checklist, the report,
-        the receiver, the temporary password -- runs *after* the interrupt reaches the wizard, and
-        the visit runs on a daemon thread, which the interpreter kills where it stands at exit. A
-        visit parked in `Visit.wait` hears the stop only when that wait times out and it asks the
-        console whether to keep waiting, so the wait here covers one `wait_seconds`."""
-        self.stop()
+    def close(self, timeout: float | None = None) -> bool:
+        """Abandon the run, and wait for whatever is in flight to finish. False when it did not.
+
+        Two doors. The visit writes its report, files its findings and shuts down its receiver
+        *after* the interrupt reaches it, on a daemon thread the interpreter kills where it stands at
+        exit; a visit parked in `Visit.wait` hears the interrupt only when that wait times out, so
+        the wait here covers one `wait_seconds`. And a tool does not run on that thread at all -- it
+        runs inline on an HTTP request handler, also a daemon, and `probe.backup_attendance` writes
+        its file row by row, so exiting mid-tool leaves a truncated backup that looks complete.
+
+        This abandons rather than stops: there is nobody left at the page to answer the checklist."""
+        self.abandon()
+        limit = self.wait_seconds + CLOSE_GRACE_SECONDS if timeout is None else timeout
+        deadline = self.clock() + limit
         thread = self.thread
-        if thread is None or not thread.is_alive():
-            return True
-        thread.join(self.wait_seconds + CLOSE_GRACE_SECONDS if timeout is None else timeout)
-        return not thread.is_alive()
+        if thread is not None and thread.is_alive():
+            thread.join(limit)
+            if thread.is_alive():
+                return False
+        if not self.gate.acquire(timeout=max(0.0, deadline - self.clock())):
+            return False
+        self.gate.release()
+        return True
 
     # -- one step at a time, when no wizard is running --------------------------------------
 
@@ -304,6 +360,17 @@ class Session:
         key = int(said("comm_key")) if said("comm_key") else (known[2] if known else 0)
         udp = bool(form["udp"]) if "udp" in form else bool(known[3]) if known else False
         return port, key, udp
+
+    def proved_in_out(self, host: str) -> str:
+        """The in/out column this visit proved **for this address**, or nothing.
+
+        Scoped the way `link` scopes the connection settings, and for the same reason with a worse
+        outcome: a column carried from the terminal a visit ran against to a different terminal in
+        the tools row sends that terminal's whole log with every direction inverted."""
+        found = (self.visit.zk_link if self.visit else None) or ()
+        if not found or found[0] != host:
+            return ""
+        return (self.visit.in_out if self.visit else "") or ""
 
     def _tool_netcheck(self, host: str, form: dict) -> dict:
         return {"network": probe.laptop_network(host, ping_count=int(form.get("count") or 10))}
@@ -358,7 +425,7 @@ class Session:
         # Never a default. On a terminal whose in/out lives in `status`, a pass written for `punch`
         # sends every arrival with the direction and verification taken from the wrong column, and
         # correcting the mapping afterwards makes the whole log look new and send again.
-        field = (form.get("in_out_field") or "").strip() or (self.visit.in_out if self.visit else "")
+        field = (form.get("in_out_field") or "").strip() or self.proved_in_out(host)
         if field not in ("punch", "status"):
             return {"error": "اختار العمود اللي فيه الدخول والخروج (punch ولا status) قبل الإرسال: "
                              "لو اتبعت غلط، الدخول هيتسجل خروج"}
@@ -529,6 +596,7 @@ def run(host: str = "127.0.0.1", port: int = DEFAULT_PORT, out_dir: str | None =
     out("سيبها مفتوحة. لما تخلص، اقفل الأمر ده بـ Ctrl-C.")
     if open_browser:
         threading.Thread(target=webbrowser.open, args=(address,), daemon=True).start()
+    finished = True
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -536,11 +604,17 @@ def run(host: str = "127.0.0.1", port: int = DEFAULT_PORT, out_dir: str | None =
     finally:
         if session.thread and session.thread.is_alive():
             out("بوقّف الزيارة وبستنى تخلّص آخر خطوة (التقرير ورجوع إعدادات الجهاز). Ctrl-C تاني يقفل فورًا.")
-        if not session.close():
+        try:
+            finished = session.close()
+        except KeyboardInterrupt:
+            # The second Ctrl-C the line above offers. It must still close the listener rather than
+            # escape `main` as a traceback, which is not what `visit` does.
+            finished = False
+        if not finished:
             out("⚠️ الزيارة ماخلصتش لوحدها: التقرير ممكن يكون ناقص، وإعدادات الجهاز محتاجة مراجعة يدوي.")
         server.shutdown()
         server.server_close()
-    return 0
+    return 0 if finished else 1
 
 
 PAGE = """<!DOCTYPE html>
@@ -701,9 +775,16 @@ function ask(event) {
 }
 
 const close = () => { $("q").className = "idle"; $("qbody").textContent = ""; $("qwarn").textContent = ""; };
-const post = (path, body) => fetch(path + "?t=" + encodeURIComponent(TOKEN),
-  { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) })
-  .then((answer) => answer.json());
+async function post(path, body) {
+  try {
+    const answer = await fetch(path + "?t=" + encodeURIComponent(TOKEN),
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+    return await answer.json();
+  } catch (problem) {
+    // A dropped connection must not leave a button disabled with nothing said.
+    return { failed: String(problem) };
+  }
+}
 
 // The box closes when the wizard says it took the answer, not when the button was pressed: the
 // same token can be open in another tab, and an answer to a question that has already moved on
@@ -714,7 +795,9 @@ async function send(body) {
   const answer = await post("answer", Object.assign({ id: lastId }, body));
   if (!answer.taken) {
     buttons.forEach((control) => { control.disabled = false; });
-    $("qwarn").textContent = "الإجابة دي كانت لسؤال فات \u2014 التبويب ده كان قديم.";
+    $("qwarn").textContent = answer.failed
+      ? "الإجابة ماوصلتش للأمر: " + answer.failed
+      : "الإجابة دي كانت لسؤال فات \u2014 التبويب ده كان قديم.";
   }
   return answer;
 }
@@ -727,7 +810,9 @@ function paint(state) {
   if (!state.running) close();
   if (state.host && !$("host").value) $("host").value = state.host;
   if (state.comm_key && !$("key").value) $("key").value = String(state.comm_key);
-  if (state.udp) $("udp").checked = true;
+  // Only until the operator says otherwise: re-checking it on every poll would undo a deliberate
+  // uncheck within one long-poll, and `link()` lets the page's value win.
+  if (state.udp && !$("udp").dataset.touched) $("udp").checked = true;
   if (state.in_out && !$("field").value) $("field").value = state.in_out;
   fillNetworks(state.networks || []);
   const sheet = $("sheet");
@@ -786,7 +871,15 @@ async function poll() {
   setTimeout(poll, 0);
 }
 
-$("start").onclick = () => post("start");
+$("udp").onchange = () => { $("udp").dataset.touched = "1"; };
+$("start").onclick = async () => {
+  const answer = await post("start");
+  if (!answer.started) {
+    $("status").textContent = answer.failed
+      ? "مش قادر أكلم الأمر: " + answer.failed
+      : "مابدأتش: في خطوة شغالة دلوقتي \u2014 استنى لما تخلص";
+  }
+};
 $("halt").onclick = () => post("stop");
 document.querySelectorAll("[data-tool]").forEach((button) => {
   button.onclick = async () => {

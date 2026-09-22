@@ -785,7 +785,7 @@ class Visit:
             address, cidr = networks[0] if len(networks) == 1 else self.choose(
                 "أنهي شبكة فيها الجهاز؟", [((address, network), f"{network} (اللابتوب {address})")
                                           for address, network in networks])
-            if ipaddress.ip_network(cidr).num_addresses > 1024:
+            if ipaddress.ip_network(cidr).num_addresses > probe.SCAN_LIMIT:
                 cidr = str(ipaddress.ip_interface(f"{address}/24").network)
                 self.say(f"   الشبكة كبيرة، هدوّر في {cidr} بس.")
             self.say(f"🔎 بدوّر على الأجهزة في {cidr} (ممكن ياخد دقيقة)...")

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import re
 import time
 import socket
@@ -22,6 +23,9 @@ from . import capture
 from . import zk4370 as zk
 
 ZK_PORT = 4370
+# The widest network `scan` will walk. The wizard and the page both narrow to fit it, so it is
+# named here rather than repeated as a literal at each of the three places that need it.
+SCAN_LIMIT = 1024
 PORTS = {ZK_PORT: "ZKTeco 4370", 80: "HTTP", 443: "HTTPS", 8000: "Hikvision SDK", 8080: "HTTP alt",
          37777: "Dahua", 5010: "Anviz"}
 
@@ -297,7 +301,7 @@ def laptop_network(ip: str | None = None, ping_count: int = 10) -> dict:
 
 def scan(cidr: str, timeout: float = 0.6, workers: int = 96, out=print) -> list[dict]:
     network = ipaddress.ip_network(cidr, strict=False)
-    if network.num_addresses > 1024:
+    if network.num_addresses > SCAN_LIMIT:
         raise ValueError(f"{cidr} is {network.num_addresses} addresses; scan a /22 or smaller")
     hosts = [str(host) for host in network.hosts()]
     out(f"scanning {len(hosts)} addresses on {cidr} for ports {sorted(PORTS)} and ZK over UDP ...")
@@ -314,10 +318,16 @@ def backup_attendance(ip: str, path: str, port: int = 4370, comm_key: int = 0, u
     """Every record on the terminal, to a local TSV, before anything about the terminal is changed."""
     with zk.ZkClient(ip, port, 15, comm_key, udp) as client:
         records = client.attendance()
-    with open(path, "w", encoding="utf-8") as handle:
+    # Written beside the target and moved into place, so an interrupted write leaves no file rather
+    # than a truncated one with a valid-looking header. `os.replace` is atomic within a filesystem.
+    partial = f"{path}.part"
+    with open(partial, "w", encoding="utf-8") as handle:
         handle.write("# user_id\ttimestamp\tstatus(pyzk)\tpunch(pyzk)\trecord_size\n")
         for record in records:
             handle.write(f"{record.user_id}\t{record.timestamp:%Y-%m-%d %H:%M:%S}\t{record.status}\t{record.punch}\t{record.record_size}\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(partial, path)
     return len(records)
 
 

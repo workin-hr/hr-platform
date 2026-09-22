@@ -1,4 +1,5 @@
 """The page drives the real wizard, and nothing else on the laptop may drive the page."""
+import ipaddress
 import json
 import os
 import tempfile
@@ -189,6 +190,39 @@ class APageRunningAVisit(unittest.TestCase):
         self.assertTrue(any("اتوقفت" in found.text for found in self.session.visit.findings),
                         [found.text for found in self.session.visit.findings])
 
+    def test_stopping_mid_visit_still_asks_the_checklist_that_puts_the_terminal_back(self):
+        """The step that matters most when a visit ends early, and the one a page cannot skip.
+
+        `restore()` runs *after* the interrupt is caught and asks its questions through this same
+        console. While the stop flag was sticky, every one of them raised, `restore()` caught that
+        and filed "the restore steps were not completed" -- even when the operator had done all of
+        it -- and the verdict became "N problems" instead of "stopped early". The earlier stop test
+        could not see it, because it stopped at the first question, before `device_started`."""
+        self.assertTrue(self.page.post("start")["started"])
+        # Far enough in that the wizard has a terminal and something to put back.
+        self.page.next_prompt(self.script()[:9], seconds=60)
+        self.assertTrue(self.session.visit.device_started, "stopped before there was anything to restore")
+        self.page.post("stop")
+
+        asked = []
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline and self.session.thread.is_alive():
+            for event in self.page.poll()["events"]:
+                if event["kind"] != "question":
+                    continue
+                asked.append(event["prompt"])
+                self.assertTrue(self.page.post("answer", {"id": event["id"], "choice": 0})["taken"],
+                                f"the checklist question could not be answered: {event['prompt']!r}")
+        self.assertFalse(self.session.thread.is_alive(), "the run did not finish its ending")
+        self.assertTrue(any("Cloud Server Setting" in prompt or "برنامج" in prompt for prompt in asked),
+                        f"the restore checklist was never asked: {asked}")
+        self.assertTrue(any("كابل أو switch" in prompt for prompt in asked), asked)
+        texts = [found.text for found in self.session.visit.findings]
+        self.assertTrue(any("اتوقفت" in text for text in texts), texts)
+        self.assertNotIn("ماكمّلناش خطوات الرجوع", texts,
+                         "the checklist was answered, so nothing may say it was not")
+        self.assertTrue(any(name.startswith("visit-") for name in self.page.poll()["reports"]))
+
     def test_a_second_tab_cannot_answer_the_question_that_replaced_its_own(self):
         """The token URL opened twice shows both tabs the same question. Once one has answered and
         the wizard has moved on, the other tab's press must not land on whatever is waiting now:
@@ -270,6 +304,7 @@ class WhatThePageRefuses(unittest.TestCase):
         self.base = f"http://127.0.0.1:{self.port}"
 
     def tearDown(self):
+        self.session.close(timeout=10)
         self.server.shutdown()
         self.server.server_close()
         self.dir.cleanup()
@@ -431,11 +466,31 @@ class WhatTheToolsMustNotAssume(unittest.TestCase):
         self.assertIn("punch", answer.get("error", ""))
         self.assertIn("status", answer["error"])
 
-    def test_a_standalone_send_uses_the_column_this_visit_proved(self):
-        self.session.visit = types.SimpleNamespace(zk_link=None, in_out="status")
+    def test_a_standalone_send_uses_the_column_this_visit_proved_for_that_address(self):
+        self.session.visit = types.SimpleNamespace(zk_link=("127.0.0.1", 9, 0, False), in_out="status")
+        self.assertEqual(self.session.proved_in_out("127.0.0.1"), "status")
         # Reaches the terminal read, which is what fails here -- the column is no longer the reason.
         answer = self.session.tool("once", {"host": "127.0.0.1", "port": 9})
         self.assertNotIn("punch ولا status", answer.get("error", ""))
+
+    def test_the_column_one_terminal_proved_is_not_carried_to_another(self):
+        """The twin of the connection-settings guard, with a worse outcome: a column carried to a
+        different terminal sends that terminal's whole log with every direction inverted."""
+        self.session.visit = self.stub(zk_link=("192.168.1.201", 4370, 0, False), in_out="status")
+        self.assertEqual(self.session.proved_in_out("10.0.0.9"), "")
+        answer = self.session.tool("once", {"host": "10.0.0.9"})
+        self.assertIn("punch ولا status", answer.get("error", ""),
+                      "another terminal's in/out column was reused without being asked")
+        # And the page is offered it only for the address the visit actually ran against, so the
+        # selector cannot pre-fill the wrong column for a terminal typed into the tools row.
+        self.assertEqual(self.session.state()["in_out"], "status")
+        self.session.visit = self.stub(zk_link=None, in_out="status")
+        self.assertEqual(self.session.state()["in_out"], "")
+
+    @staticmethod
+    def stub(**fields):
+        """A `Visit` as `state()` reads one."""
+        return types.SimpleNamespace(serial="", sheet={}, findings=[], **fields)
 
     # -- the network a standalone scan walks ------------------------------------------------
 
@@ -454,6 +509,15 @@ class WhatTheToolsMustNotAssume(unittest.TestCase):
         with mock.patch.object(web.probe, "scan", side_effect=AssertionError("scanned without consent")):
             answer = self.session.tool("scan", {})
         self.assertIn("إذنه", answer["error"])
+
+    def test_the_narrowing_threshold_is_the_scanners_own(self):
+        """A literal here would let the two drift, and `narrow` would hand `probe.scan` a network it
+        then refuses with an English exception the page would show to an Arabic operator."""
+        edge = ipaddress.ip_network("10.0.0.0/22")
+        self.assertEqual(edge.num_addresses, web.probe.SCAN_LIMIT)
+        self.assertEqual(web.narrow(str(edge), [("10.0.3.7", str(edge))]), str(edge))
+        bigger = "10.0.0.0/21"
+        self.assertEqual(web.narrow(bigger, [("10.0.3.7", bigger)]), "10.0.3.0/24")
 
     def test_a_large_network_is_narrowed_the_way_the_wizard_narrows_it(self):
         self.assertEqual(web.narrow("10.0.0.0/16", [("10.0.3.7", "10.0.0.0/16")]), "10.0.3.0/24")
@@ -527,6 +591,31 @@ class WhatTheWizardWaitsFor(unittest.TestCase):
             self.assertTrue(made.close(timeout=10), "the process would have exited mid-report")
             self.assertEqual((out / "report.md").read_text(encoding="utf-8"), "التقرير")
             self.assertFalse(made.thread.is_alive())
+
+    def test_closing_waits_for_a_tool_that_is_still_writing(self):
+        """A tool does not run on the visit thread -- it runs inline on an HTTP request handler,
+        which is a daemon. `probe.backup_attendance` writes its file row by row, so exiting mid-tool
+        left a truncated backup with a valid-looking header, listed in the page's files panel."""
+        with tempfile.TemporaryDirectory() as folder:
+            made = web.Session(folder, networks=lambda: [])
+            holding, release, done = threading.Event(), threading.Event(), []
+
+            def hold(host, form):
+                holding.set()
+                release.wait(10)
+                done.append(True)
+                return {"held": True}
+
+            made._tool_hold = hold
+            runner = threading.Thread(target=lambda: made.tool("hold", {"host": "10.0.0.9"}), daemon=True)
+            runner.start()
+            self.assertTrue(holding.wait(5))
+            self.assertFalse(made.close(timeout=0.4), "an unfinished tool was reported as closed")
+            self.assertEqual(done, [], "the tool finished on its own, so this proves nothing")
+            release.set()
+            self.assertTrue(made.close(timeout=10))
+            self.assertEqual(done, [True])
+            runner.join(5)
 
     def test_closing_says_so_when_the_visit_did_not_finish_in_time(self):
         with tempfile.TemporaryDirectory() as folder:
