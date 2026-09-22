@@ -511,9 +511,15 @@ class WhatThePageRefuses(unittest.TestCase):
                     status, _ = call(f"{base}/start?t={token}", {}, {"Origin": "http://evil.example"})
                     self.assertEqual(status, 403, host)
                 finally:
-                    session.close(timeout=10)
+                    self.assertTrue(session.close(timeout=10), "the visit did not drain")
                     server.shutdown()
                     server.server_close()
+        # The one host no test can bind: an `/etc/hosts` alias needs system configuration, and
+        # `LOCALHOST` does not exercise this -- its lowercase form *is* the `"localhost"` literal
+        # that is special-cased anyway. A browser lowercases the host it puts in `Origin`, so the
+        # bound name has to be compared lowercased or `--host MyTestBox` 403s every write.
+        self.assertTrue(web.our_origin("mytestbox", "MyTestBox"))
+        self.assertFalse(web.our_origin("someoneelse", "MyTestBox"))
 
     def test_a_field_that_is_not_a_scalar_is_answered_rather_than_reaching_strip(self):
         """The body-level guard landed and the field-level one did not: `{"host": ["..."]}` parses
@@ -538,6 +544,25 @@ class WhatThePageRefuses(unittest.TestCase):
             status, body = call(f"{self.base}/tool/netcheck?t={self.token}", raw=raw)
             self.assertEqual(status, 200, f"{raw!r} was a {status}: {body!r}")
             self.assertNotIn("OverflowError", body.decode("utf-8"), raw)
+
+    def test_a_non_scalar_field_is_present_and_not_true_rather_than_absent(self):
+        """Driven over HTTP, because `_form` is the only thing that decides this and a direct call to
+        `link` never reaches it. Dropping the key made an explicit non-true `udp` mean *inherit the
+        wizard's*, so a client asking for plain TCP got the remembered UDP and the terminal did not
+        answer. Present-and-`None` keeps "the page said something" distinguishable from silence."""
+        self.session.visit = types.SimpleNamespace(zk_link=("127.0.0.1", 4370, 0, True), in_out=None)
+        asked = []
+        with mock.patch.object(web.probe, "zk_summary",
+                               lambda host, port, key, udp, timeout=8: asked.append(udp) or {"error": "x"}):
+            for sent, want in (('{"host":"127.0.0.1"}', True),          # silence inherits
+                               ('{"host":"127.0.0.1","udp":[]}', False),
+                               ('{"host":"127.0.0.1","udp":null}', False),
+                               ('{"host":"127.0.0.1","udp":{"a":1}}', False),
+                               ('{"host":"127.0.0.1","udp":false}', False),
+                               ('{"host":"127.0.0.1","udp":true}', True)):
+                status, body = call(f"{self.base}/tool/zk-info?t={self.token}", raw=sent.encode())
+                self.assertEqual(status, 200, body)
+                self.assertEqual(asked[-1], want, sent)
 
     def test_a_port_that_is_not_a_number_is_refused_rather_than_discarded(self):
         """`isdigit()` decided whether to *use* the typed port, so anything else was dropped without
