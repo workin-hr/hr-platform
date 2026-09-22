@@ -559,6 +559,13 @@ def _md(value: str) -> str:
 
 DOTTED = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
 SERIAL_HIDDEN = "<device-serial>"
+# Below this a serial is indistinguishable from ordinary text, and substituting it would
+# rewrite unrelated cells of the report. `config.SERIAL` accepts a single character.
+SERIAL_MINIMUM = 4
+# The customer's own name, which the report does not carry for the same reason it carries no
+# serial: step 11 says to paste the results sheet into a public issue. It stays on the console,
+# in the visit's folder and in the local copy of the report the operator keeps.
+CUSTOMER_ROW = "الشركة / الفرع"
 ADDRESS_HIDDEN = "<device-ip>"
 
 
@@ -616,6 +623,10 @@ class Visit:
         self.network_ok = True
         self.secrets: list[Path] = []
         self.zk_link: tuple[str, int, int, bool] | None = None
+        # Every serial this visit has *seen*, not the one it settled on. A terminal that pushes
+        # under a different serial than it reports on 4370 is one of the findings this visit
+        # exists to produce, and both of those serials are the credential R-041/R-042 describe.
+        self.serials: set[str] = set()
         self.device_started = False
         self.interrupted = False
         self.restored = False
@@ -861,6 +872,7 @@ class Visit:
         if not cfg.SERIAL.match(serial):
             # The serial names every file the visit writes for this terminal; one the platform
             # refuses (or one with a path in it) goes no further.
+            self.saw_serial(serial)
             self.note("bad", f"الجهاز رد بسيريال السيستم مش هيقبله: {serial!r}",
                       "اكتبه في الـ issue مع صورة الستيكر وشاشة Device Info")
             return None
@@ -1192,6 +1204,8 @@ class Visit:
         if not cfg.SERIAL.match(serial):
             self.note("bad", f"الجهاز بعت سيريال السيستم مش هيقبله: {serial}", "اكتبه في الـ issue مع صورة الستيكر")
             return
+        self.saw_serial(serial)
+        self.saw_serial(expected)
         if expected is not None and serial != expected:
             if not self.yes(f"وصلني اتصال بالسيريال {serial}، مش {expected} اللي الجهاز قاله على 4370. ده نفس الجهاز؟",
                             default=False):
@@ -1199,7 +1213,9 @@ class Visit:
                           "اتأكد إن الإعداد اتحط على الجهاز الصح، وشغّل الأمر تاني")
                 return
             self.note("bad", f"الجهاز بيبعت بالـ Push بسيريال {serial} وعلى 4370 بيقول {expected}",
-                      "معلومة مهمة: اكتب الاتنين في الـ issue مع صورة الستيكر")
+                      "معلومة مهمة، بس السيريالين مانزلوش في issue عام: هما في التقرير المحلي "
+                      "وفي field-report. في الـ issue قول إن الجهاز بيبعت بسيريال غير اللي على "
+                      "4370، وسيب الستيكر وصورته في مكان خاص")
         self.sheet["Push / ADMS موجود؟"] = "نعم"
         if expected is None:
             if not self.yes(f"الجهاز بعت السيريال {serial}. نفس اللي على الستيكر؟"):
@@ -1644,6 +1660,15 @@ class Visit:
                 path.unlink()
                 self.say("✅ مسحت باسورد الجهاز من اللابتوب.")
 
+    def saw_serial(self, serial: str | None) -> None:
+        """Record a serial so the report cannot publish it.
+
+        Short ones are kept out: `config.SERIAL` accepts a single character, and substituting that
+        would rewrite ordinary cells of the report rather than a serial."""
+        text = (serial or "").strip()
+        if len(text) >= SERIAL_MINIMUM and text != "device":
+            self.serials.add(text)
+
     def pasteable(self, value: str) -> str:
         """One line of the report, with what identifies this customer taken out.
 
@@ -1653,11 +1678,14 @@ class Visit:
         (R-042). The console still shows it, the file name still carries it, and the inventory
         records the terminal under a pseudonym. The boundaries exclude alphanumerics only, so a
         longer serial cannot be matched by its prefix while `<serial>: message` -- which is how
-        `sources` prefixes every failure -- still is. Never for the `device` placeholder, which is
-        not a serial but a word the report uses."""
+        `sources` prefixes every failure -- still is. **Every** serial the visit has seen is removed,
+        not only the one it settled on: a push mismatch is a finding about two of them, and a
+        rejected serial is seen before there is a settled one."""
         value = value or ""
-        if self.serial and self.serial != "device":
-            hidden = re.compile(rf"(?<![A-Za-z0-9]){re.escape(self.serial)}(?![A-Za-z0-9])")
+        self.saw_serial(self.serial)
+        # Longest first: one serial can be a prefix of another, and the longer match leaves nothing.
+        for serial in sorted(self.serials, key=len, reverse=True):
+            hidden = re.compile(rf"(?<![A-Za-z0-9]){re.escape(serial)}(?![A-Za-z0-9])")
             value = hidden.sub(SERIAL_HIDDEN, value)
         return _no_address(value)
 
@@ -1676,8 +1704,8 @@ class Visit:
                  f"اتعمل بالأمر `workin_devices visit` يوم {_ltr(f'{self.started:%Y-%m-%d %H:%M}')}، "
                  "في وضع A (سيستم اللاب على اللابتوب). التقرير ده معمول عشان يتلزق في issue عام: "
                  "مفيش فيه أكواد موظفين ولا أسامي ولا أرقام كروت، ولا سيريال الجهاز ولا عنوانه على "
-                 "الشبكة. السيريال في اسم الملف وعلى الشاشة، والجهاز بياخد اسم مستعار في جدول "
-                 "الموديلات.", ""]
+                 "الشبكة، ولا اسم العميل أو الفرع. كل ده على الشاشة وفي فولدر field-report، "
+                 "والجهاز بياخد اسم مستعار في جدول الموديلات.", ""]
         if bad:
             lines += ["## المشاكل والحل", ""]
             lines += [f"- {MARK[finding.level]} {_md(self.pasteable(finding.text))}" +
@@ -1686,7 +1714,8 @@ class Visit:
         if done:
             lines += ["## اللي اشتغل", ""] + [f"- {MARK['ok']} {_md(self.pasteable(finding.text))}" for finding in done] + [""]
         lines += ["## ورقة النتائج", "", "| البند | النتيجة |", "|---|---|"]
-        lines += [f"| {row} | {_ltr(self.pasteable(self.sheet[row])) or '—'} |" for row in SHEET_ROWS]
+        lines += [f"| {row} | {'(في field-report)' if row == CUSTOMER_ROW and self.sheet[row] else (_ltr(self.pasteable(self.sheet[row])) or '—')} |"
+                  for row in SHEET_ROWS]
         lines += ["", "</div>", ""]
         name = self.serial if self.serial and cfg.SERIAL.match(self.serial) else "device"
         path = self.out / f"visit-{name}-{self.started:%Y%m%d-%H%M}.md"
