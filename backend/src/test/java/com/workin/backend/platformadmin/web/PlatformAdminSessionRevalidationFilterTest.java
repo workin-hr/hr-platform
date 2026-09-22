@@ -19,6 +19,8 @@ import com.workin.backend.platformadmin.PlatformAdminRepository;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -108,6 +110,63 @@ class PlatformAdminSessionRevalidationFilterTest {
 			.isNull();
 	}
 
+	@Test
+	void aStaticAssetIsServedWithoutRevalidating() throws Exception {
+		givenAdministrator(true);
+		MockHttpSession session = sessionEstablished(Duration.ofMinutes(5));
+
+		doFilter(session, "/admin/_assets/app-ui.css");
+
+		verifyNoInteractions(this.repository);
+		assertThat(session.isInvalid()).as("nothing about the session changes either").isFalse();
+		assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+	}
+
+	@Test
+	void anAssetRequestPastTheAbsoluteCapIsStillRefused() throws Exception {
+		givenAdministrator(true);
+		MockHttpSession session = sessionEstablished(
+				PlatformAdminWebSecurityConfig.ABSOLUTE_CAP.plusMinutes(1));
+
+		doFilter(session, "/admin/_assets/app-ui.css");
+
+		assertThat(SecurityContextHolder.getContext().getAuthentication())
+			.as("an asset request carries the session cookie, so a page fetching assets must not "
+					+ "carry a session past a cap that is meant to be non-renewable")
+			.isNull();
+		assertThat(session.isInvalid()).isTrue();
+		verifyNoInteractions(this.repository);
+	}
+
+	@Test
+	void anAssetRequestWithNoEstablishmentStampIsRefused() throws Exception {
+		givenAdministrator(true);
+
+		doFilter(new MockHttpSession(), "/admin/_assets/app-ui.css");
+
+		assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+	}
+
+	/**
+	 * The skip reads the raw path, so anything that could still resolve
+	 * elsewhere -- a traversal segment, a double slash, any percent-encoding --
+	 * is revalidated rather than skipped. Spring's firewall rejects most of
+	 * these before they reach a filter; this does not depend on that.
+	 */
+	@Test
+	void aPathThatMerelyBeginsLikeAnAssetIsStillRevalidated() throws Exception {
+		for (String path : List.of("/admin/_assets/../companies", "/admin/_assets//../companies",
+				"/admin/_assets/%2e%2e/companies", "/admin/_assetsx/app.css", "/admin/companies")) {
+			reset(this.repository);
+			givenAdministrator(false);
+
+			doFilter(sessionEstablished(Duration.ofMinutes(5)), path);
+
+			assertThat(SecurityContextHolder.getContext().getAuthentication())
+				.as("revalidated, and refused: " + path).isNull();
+		}
+	}
+
 	// --- helpers ------------------------------------------------------------
 
 	private void givenAdministrator(boolean active) {
@@ -124,11 +183,15 @@ class PlatformAdminSessionRevalidationFilterTest {
 	}
 
 	private void doFilter(MockHttpSession session) throws Exception {
+		doFilter(session, "/admin");
+	}
+
+	private void doFilter(MockHttpSession session, String path) throws Exception {
 		SecurityContextHolder.clearContext();
 		SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
 				new PlatformAdminWebPrincipal(7L, "admin"), null, List.of()));
 
-		MockHttpServletRequest request = new MockHttpServletRequest("GET", "/admin");
+		MockHttpServletRequest request = new MockHttpServletRequest("GET", path);
 		request.setSession(session);
 		this.filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
 	}

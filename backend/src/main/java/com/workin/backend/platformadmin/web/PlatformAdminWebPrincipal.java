@@ -9,7 +9,9 @@ import java.security.Principal;
  * <p>Carries the id and the identifier. It is deliberately <em>not</em> the
  * authorization source:
  * {@link PlatformAdminSessionRevalidationFilter} reloads the row on every
- * request, so what is stored here is an identifier to reload by, never a cached
+ * request that can reach a controller (it skips only the reload, and only for
+ * the public asset prefix -- the session's cap is still checked there, D-273),
+ * so what is stored here is an identifier to reload by, never a cached
  * decision. Serializable because Spring Session JDBC persists it.
  */
 public record PlatformAdminWebPrincipal(long platformAdminId, String phone)

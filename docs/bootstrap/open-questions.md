@@ -348,7 +348,12 @@ substantially closed.
 
 **Deactivation is not on this list either.** **R-026** is closed and **D-145**
 accepted: the active-admin lookup runs per request, and the JTE controllers
-inherit it because it lives in the request path rather than in a handler.
+inherit it because it lives in the request path rather than in a handler. Since
+**D-273** the JTE chain's own filter does not reload the administrator for
+`/admin/_assets/**` — `permitAll` paths with no controller behind them, served
+the same to a signed-out browser — so "per request" there means every request
+that can reach a controller. The session itself is untouched by that skip and
+its absolute cap is still enforced on those requests.
 
 ## Session Revocation On Logout — Both Surfaces (R-027) — ANSWERED
 
