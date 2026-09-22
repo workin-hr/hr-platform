@@ -108,7 +108,9 @@ deferred**:
   separate chain reaches no such filter and revalidates nothing. The JTE chain
   must therefore perform its **own** per-request lookup of the authenticated
   administrator and reject a row that has become inactive or been deleted,
-  rather than trusting the session's contents. Without it, deactivating an
+  rather than trusting the session's contents. "Per request" means every request
+  that can reach a controller; prerequisite 9 states the one exception and why it
+  is safe. Without it, deactivating an
   administrator would leave their existing session working until it expired,
   which is exactly what D-145 exists to prevent (prerequisite 9).
 - **Session invalidation** that is immediate and complete on logout, on
