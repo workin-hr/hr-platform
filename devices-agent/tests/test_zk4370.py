@@ -79,7 +79,10 @@ class ReadOnlyClientAgainstTheEmulator(unittest.TestCase):
         """A Wi-Fi site answers EHOSTUNREACH at once for a terminal that is there."""
         terminal = self.terminal()
         connect = socket.socket.connect
-        refusals = iter([errno.EHOSTUNREACH] * (zk.CONNECT_ATTEMPTS - 1))
+        # Two literal refusals, not `CONNECT_ATTEMPTS - 1`: deriving the injection from the constant
+        # makes the test agree with whatever the constant says, so `CONNECT_ATTEMPTS = 1` -- the
+        # field defect restored -- kept the whole suite green.
+        refusals = iter([errno.EHOSTUNREACH] * 2)
 
         def flaky(sock, address):
             code = next(refusals, None)
@@ -100,8 +103,27 @@ class ReadOnlyClientAgainstTheEmulator(unittest.TestCase):
              mock.patch.object(socket.socket, "connect", unreachable):
             with self.assertRaises(zk.ZkError) as caught:
                 zk.ZkClient("192.0.2.1", 4370, timeout=1).connect()
-        self.assertEqual(unreachable.call_count, zk.CONNECT_ATTEMPTS)
+        self.assertEqual(unreachable.call_count, 3)
         self.assertIn("No route to host", str(caught.exception))
+
+    def test_the_retry_is_bounded_to_the_four_seconds_the_runbook_promises(self):
+        """D-274, the runbook and the pull request all promise a terminal that is genuinely absent
+        costs at most four extra seconds. Nothing pinned that: the two tests above patched the
+        interval to zero and read the attempt count off the constant, so both 1 attempt and 30 were
+        green -- one restores the defect this change exists to fix, the other spends a minute per
+        connect on a visit that reads several terminals."""
+        self.assertEqual(zk.CONNECT_ATTEMPTS, 3)
+        self.assertEqual(zk.CONNECT_RETRY_SECONDS, 2.0)
+        waited = []
+        unreachable = mock.Mock(side_effect=OSError(errno.EHOSTUNREACH, "No route to host"))
+        with mock.patch.object(zk.time, "sleep", waited.append), \
+             mock.patch.object(socket.socket, "connect", unreachable):
+            with self.assertRaises(zk.ZkError):
+                zk.ZkClient("192.0.2.1", 4370, timeout=1).connect()
+        self.assertEqual(unreachable.call_count, 3)
+        # The waits only; the connects themselves fail instantly on these errnos.
+        self.assertLessEqual(sum(waited), 4.0, f"an absent terminal waits {sum(waited)}s")
+        self.assertEqual(waited, [2.0, 2.0])
 
     def test_a_refused_connection_is_answered_not_retried(self):
         """Only a lost ARP exchange is worth a second attempt; a refusal is the terminal's answer."""

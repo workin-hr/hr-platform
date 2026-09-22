@@ -1,5 +1,7 @@
+import contextlib
 import errno
 import http.server
+import io
 import os
 import re
 import shutil
@@ -7,6 +9,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import types
 import urllib.request
 import unittest
 from collections import Counter
@@ -1886,6 +1889,62 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
         self.assertNotIn("اتأكد من الكابل والـ switch", fix, "cable advice with no interface known")
         self.assertIn("الكابل أو الواي فاي", fix)
 
+    def test_a_path_with_no_terminal_to_measure_gives_no_interface_advice(self):
+        """`probe.laptop_network(None)` reports the **first** wireless interface in
+        /proc/net/wireless -- any interface, not the one that would carry this terminal -- with no
+        `interface`, no `arp` and no `ping`. Advising "move closer to the router" from that is the
+        false remedy review round 2 raised, on the one path its `egress` fix does not cover: the
+        Hikvision flow never sets `zk_link`, so before this there was no target at all.
+
+        The previous test of this behaviour injected `wifi: None`, which the real no-target call
+        never returns, so it passed while the live path was broken."""
+        no_target = {"addresses": [{"ip": "10.0.0.5", "network": "10.0.0.0/24"}],
+                     "interface": None,
+                     "wifi": {"interface": "wlp0s20f3", "link": 58, "level": -52,
+                              "misc": 7, "missed_beacon": 0},
+                     "target": None, "arp": None, "ping": None}
+        with tempfile.TemporaryDirectory() as directory:
+            visited = visit.Visit(console=ScriptedConsole([]), out_dir=directory, wait_seconds=1,
+                                  laptop_network=lambda ip=None, ping_count=10: dict(no_target))
+            self.assertIsNone(visited.zk_link, "this path is the one with no link to measure")
+            fix = visited.unreachable_path_fix(self.UNREACHABLE)
+        self.assertNotIn("قرّب اللابتوب من الراوتر", fix,
+                         "Wi-Fi advice from an interface that was never shown to carry this terminal")
+        self.assertNotIn("الـ ARP فشل", fix, "an ARP failure asserted without an ARP state")
+        self.assertIn("الكابل أو الواي فاي", fix)
+
+    def test_the_hikvision_path_measures_its_own_terminal(self):
+        """`send_twice` is called from the ZKTeco flow, where `zk_link` carries the address, and from
+        `hik_flow`, where it never has. The host travels with the config now, so the remedy measures
+        the terminal the delivery was for."""
+        asked = []
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory)
+            visited.laptop_network = lambda ip=None, ping_count=10: (asked.append(ip), dict(self.FACTS))[1]
+            path = Path(directory) / "hik.toml"
+            token = Path(directory) / "agent.token"
+            token.write_text("lab-token", encoding="utf-8")
+            token.chmod(0o600)
+            path.write_text(
+                visited._agent_toml("spool.sqlite3").replace(
+                    str(visit.AGENT_DIR / "lab" / "agent.token"), str(token))
+                + '\n[[devices]]\nserial = "HIK-1"\nkind = "hikvision"\nhost = "10.4.4.9"\n'
+                  'port = 80\nhttps = false\nusername = "admin"\npassword_file = "hik.pw"\n',
+                encoding="utf-8")
+            secret = Path(directory, "hik.pw")
+            secret.write_text("secret", encoding="utf-8")
+            secret.chmod(0o600)
+            result = visit.agent.DeviceResult("HIK-1")
+            result.reachable = False
+            result.error = "HIK-1: GET /ISAPI/System/deviceInfo failed: <urlopen error [Errno 113] No route to host>"
+            original = visit.agent.run_once
+            visit.agent.run_once = lambda config: [result]
+            try:
+                visited.send_twice(path, "10.4.4.9")
+            finally:
+                visit.agent.run_once = original
+        self.assertIn("10.4.4.9", asked, f"the remedy measured {asked} instead of the terminal")
+
     def test_no_tracked_file_publishes_a_terminal_serial(self):
         """A serial is the only thing that identifies a terminal to the device endpoint (R-041,
         R-042) and this repository is public, so a serial read on a visit stays in field-report/ on
@@ -1899,23 +1958,30 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
         the inventory states is the rule; this catches the shape that broke it."""
         shaped = re.compile(r"\b[A-Za-z]{2,6}\d{6,14}\b")
         suffixes = {".md", ".py", ".toml", ".json", ".yml", ".yaml", ".txt"}
+        roots = ("docs", "devices-agent", "contracts", "specs", ".github")
+        # **Tracked**, from git, not a filesystem walk. A visit writes its real serial into
+        # `devices-agent/field-report/<serial>-zk.toml`, which `.gitignore` covers and which the
+        # inventory, the runbook and D-274 all say is where it belongs. A walk found that file and
+        # failed this test on the operator's own laptop, accusing them of publishing the serial they
+        # had correctly kept local -- and the obvious way to go green was to delete the evidence.
+        listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"],
+                                capture_output=True, text=True, check=False)
+        if listed.returncode != 0:
+            self.skipTest("git is unavailable, so the tracked file set cannot be established")
+        tracked = [ROOT / name for name in listed.stdout.split("\0") if name]
         found = []
-        for root in ("docs", "devices-agent", "contracts", "specs", ".github"):
-            for path in sorted((ROOT / root).rglob("*")):
-                if path.suffix not in suffixes or not path.is_file() or ".git" in path.parts:
-                    continue
-                for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").split("\n"), 1):
-                    found += [f"{path.relative_to(ROOT)}:{number}: {match.group(0)}"
-                              for match in shaped.finditer(line)]
-        # Every `.md` in the repository as well as the roots above: the previous form walked them
-        # all, and `evidence/`, `deploy/`, `perf/` and the vendored trees are where a pasted report
-        # would most plausibly land.
-        for name in sorted(ROOT.rglob("*.md")):
-            if ".git" in name.parts:
+        for path in sorted(tracked):
+            # Every tracked `.md` anywhere -- `evidence/`, `deploy/`, `perf/` and the vendored trees
+            # are where a pasted report would most plausibly land -- plus the roots above.
+            wanted = path.suffix == ".md" or (path.suffix in suffixes and path.parts[len(ROOT.parts):][:1]
+                                              and path.relative_to(ROOT).parts[0] in roots)
+            if not wanted or not path.is_file():
                 continue
-            for number, line in enumerate(name.read_text(encoding="utf-8", errors="replace").split("\n"), 1):
-                found += [f"{name.relative_to(ROOT)}:{number}: {match.group(0)}" for match in shaped.finditer(line)]
+            for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").split("\n"), 1):
+                found += [f"{path.relative_to(ROOT)}:{number}: {match.group(0)}"
+                          for match in shaped.finditer(line)]
         self.assertEqual(found, [], "a terminal serial reached a tracked file")
+        self.assertGreater(len(tracked), 100, "the tracked file list came back too short to be real")
 
 
 class WhatTheProbeMustNotCost(unittest.TestCase):
@@ -2023,12 +2089,35 @@ class WhatDoctorMustNotLetTheOperatorDo(unittest.TestCase):
         self.assertIn("مش واضح", verdict, "a column that exists only for zk decided the answer")
 
     def test_only_a_zk_source_is_judged_at_all(self):
-        """`config.in_out_field` steers that source and no other. Without the guard the whole module
-        stayed green, because the direct-call test pins only the `None`-counting half."""
-        import inspect
-        source = inspect.getsource(main.cmd_doctor)
-        self.assertIn('device.kind == "zk"', source,
-                      "the verdict is computed for sources that have no second column")
+        """`config.in_out_field` steers that source and no other, so a Hikvision or file source --
+        which has no second column -- must not be told its column is unclear.
+
+        This asserted the guard's **source text** before, which a gate on behaviour must not do: it
+        would have passed on `device.kind == "zk" or True` and failed on any equivalent refactor.
+        It runs `doctor` now and reads what the operator reads."""
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory, "attlog.tsv")
+            # Every punch the same shape, which is what a constant column looks like: if the
+            # verdict ran for this source it would report the column unclear.
+            log.write_text("".join(f"  100\t2026-03-0{1 + i % 9} 09:0{i % 10}:00\t0\t1\n"
+                                   for i in range(250)), encoding="utf-8")
+            config = Path(directory, "agent.toml")
+            token = Path(directory, "agent.token")
+            token.write_text("lab-token", encoding="utf-8")
+            token.chmod(0o600)
+            config.write_text(
+                f'server_url = "https://localhost:18443"\ntoken_file = "{token}"\n'
+                f'spool_path = "{Path(directory, "spool.sqlite3")}"\nin_out_field = "punch"\n'
+                f'\n[[devices]]\nserial = "FILE-1"\nkind = "file"\npath = "{log}"\n',
+                encoding="utf-8")
+            printed = io.StringIO()
+            with contextlib.redirect_stdout(printed):
+                main.cmd_doctor(types.SimpleNamespace(config=str(config), allow_plain_http=False))
+        said = printed.getvalue()
+        self.assertIn("FILE-1", said, said)
+        self.assertNotIn("in_out_field", said,
+                         "a source with no second column was judged on one")
+        self.assertNotIn("مش واضح", said, said)
 
     def test_in_out_field_itself_refuses_a_constant_column(self):
         """The `doctor` wrapper is pinned above; this pins the other caller, which is what
