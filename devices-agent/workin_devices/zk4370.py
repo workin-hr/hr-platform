@@ -45,6 +45,10 @@ CMD_ACK_OK = 2000
 CMD_ACK_ERROR = 2001
 CMD_ACK_UNAUTH = 2005
 
+# The record layouts this client parses. Named because the device inventory claims a format per
+# model, and a claim there that this cannot read is drift a test catches rather than a visit.
+RECORD_SIZES = (8, 16, 40)
+
 USHRT_MAX = 65535
 TCP_MAGIC = (0x5050, 0x7D82)
 TCP_CHUNK = 0xFFC0
@@ -292,7 +296,7 @@ class ZkClient:
         total = struct.unpack("<I", buffer[:4])[0]
         body = buffer[4:4 + total]
         record_size = total // records if records else 0
-        if record_size not in (8, 16, 40) or record_size * records != total:
+        if record_size not in RECORD_SIZES or record_size * records != total:
             raise ZkError(f"{total} bytes for {records} records is not a record format this client knows")
         out: list[RawAttendance] = []
         for offset in range(0, record_size * records, record_size):

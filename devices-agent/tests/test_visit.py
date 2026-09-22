@@ -1,3 +1,4 @@
+import errno
 import http.server
 import os
 import re
@@ -11,6 +12,7 @@ import unittest
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest import mock
 
 from workin_devices import probe, visit
 from workin_devices.sim import adms
@@ -893,6 +895,21 @@ class ThePiecesTheWizardDecidesWith(unittest.TestCase):
                                             "9: eth3    inet 10.3.0.4/24 scope global eth3\n"),
                          [("10.3.0.4", "10.3.0.0/24")])
 
+    def test_the_inventory_claims_no_record_format_the_client_cannot_read(self):
+        """The device inventory is the authority on what a model stores, and this client is what
+        reads it. A model entered there with a layout the client cannot parse is a visit that fails
+        on the wall, so the two are held together here rather than discovered at a customer."""
+        text = (ROOT / "docs" / "devices" / "attendance-device-model-and-firmware-inventory.md").read_text(
+            encoding="utf-8")
+        formats = re.findall(r"^\| Record format \| (\d+)-byte \|$", text, re.M)
+        self.assertTrue(formats, "no model records a format; the drift gate would pass vacuously")
+        for size in formats:
+            self.assertIn(int(size), visit.zk.RECORD_SIZES, f"{size}-byte is claimed but unreadable")
+        columns = re.findall(r"^\| In/out column \| (\w+) \|$", text, re.M)
+        self.assertTrue(columns)
+        for column in columns:
+            self.assertIn(column, ("punch", "status"), "a record has exactly these two codes")
+
     def test_the_arp_state_is_read_for_the_address_asked_about(self):
         """The state that decides a visit is FAILED: it answers every connect with EHOSTUNREACH at
         once, so the wizard reads the same "no route to host" twice seconds apart and blames a
@@ -936,6 +953,35 @@ class ThePiecesTheWizardDecidesWith(unittest.TestCase):
         # Windows counts with -n and prints a different summary. Reporting 0% loss from output this
         # does not understand would send an operator back to a terminal that is not the problem.
         self.assertIn("unavailable", probe.ping_facts("10.0.0.9", ping_output="Reply from 10.0.0.9: bytes=32"))
+
+    def test_the_discovery_probe_retries_a_lost_arp_exchange_on_one_address(self):
+        """`_open` runs *before* ZkClient.connect(), so without this a lost ARP exchange makes a
+        terminal that is there vanish from the answer and the client's retry never runs. Off for a
+        scan, which asks this of every port of every address and reads a closed port as normal."""
+        calls = []
+
+        def flaky(address, timeout=None):
+            calls.append(address)
+            raise OSError(errno.EHOSTUNREACH, "No route to host")
+
+        with mock.patch.object(visit.zk, "CONNECT_RETRY_SECONDS", 0), \
+             mock.patch.object(probe.socket, "create_connection", flaky):
+            self.assertFalse(probe._open("192.0.2.1", 4370, 0.1, retry_transient=True))
+            self.assertEqual(len(calls), visit.zk.CONNECT_ATTEMPTS)
+            calls.clear()
+            self.assertFalse(probe._open("192.0.2.1", 4370, 0.1))
+            self.assertEqual(len(calls), 1, "a scan must not pay the retry for every closed port")
+
+        refusals = []
+
+        def refused(address, timeout=None):
+            refusals.append(address)
+            raise OSError(errno.ECONNREFUSED, "Connection refused")
+
+        with mock.patch.object(visit.zk, "CONNECT_RETRY_SECONDS", 0), \
+             mock.patch.object(probe.socket, "create_connection", refused):
+            self.assertFalse(probe._open("192.0.2.1", 4370, 0.1, retry_transient=True))
+        self.assertEqual(len(refusals), 1, "a refusal is the answer, not a blip")
 
     def test_the_laptop_network_pings_nothing_when_it_was_given_no_address(self):
         facts = probe.laptop_network()
@@ -1045,6 +1091,15 @@ class ThePiecesTheWizardDecidesWith(unittest.TestCase):
         # A handful of exceptions is not a second value in the sense that matters.
         self.assertFalse(visit.separates({1: 11424, 15: 2}))
         self.assertTrue(visit.separates({0: 5779, 1: 5640, 4: 2, 5: 5}))
+        # A balanced column is never enough on its own. Here the real in/out column is one-sided --
+        # a branch where people rarely press the exit key -- while two verification methods are both
+        # common, so electing "the balanced one" would hand back the verification column and
+        # agent_zk would send the whole log under it.
+        self.assertIsNone(visit.in_out_field(*same, out_value=1,
+                                             spread={"punch": {0: 10450, 1: 550},
+                                                     "status": {1: 6600, 2: 4400}}))
+        self.assertTrue(visit.cannot_separate({1: 11424, 15: 2}))
+        self.assertFalse(visit.cannot_separate({0: 10450, 1: 550}), "550 exits is not 'no exits'")
         # Two balanced columns are ambiguous again, and so is a log too short to carry the argument.
         self.assertIsNone(visit.in_out_field(*same, out_value=1,
                                              spread={"punch": {0: 600, 1: 400}, "status": {1: 600, 2: 400}}))
@@ -1575,11 +1630,17 @@ class WhenTheLaptopNeverReachedTheTerminal(unittest.TestCase):
             self.assertIsNone(visited.one_new_punch("خلي الموظف يعمل بصمة"))
         finding = visited.findings[-1]
         self.assertIn("[Errno 113]", finding.text)
-        for measured in ("شبكة اللابتوب", "-68 dBm", "FAILED", "3 مكرر", "441.49"):
+        for measured in ("-68 dBm", "FAILED", "3 مكرر", "441.49"):
             self.assertIn(measured, finding.fix)
-        self.assertNotIn("issue", finding.fix)
+        # It names the path and hands over both ends. The same errno arrives from a mistyped
+        # address and a terminal that is switched off, so clearing the terminal here would file a
+        # real device fault as somebody else's problem.
+        self.assertIn("الـ IP", finding.fix)
+        self.assertIn("الجهاز شغال", finding.fix)
+        self.assertIn("الشبكة", finding.fix)
+        self.assertNotIn("مش في الجهاز", finding.fix)
         # And the report carries the numbers, so the operator need not remember them.
-        self.assertIn("FAILED", visited.sheet["شبكة اللابتوب وقت المشكلة"])
+        self.assertIn("FAILED", visited.sheet["حالة الشبكة وقت المشكلة"])
 
     def test_a_terminal_that_refuses_keeps_the_terminals_own_remedy(self):
         """A refusal is the terminal answering. Rewriting that as a laptop problem would send an
@@ -1589,4 +1650,4 @@ class WhenTheLaptopNeverReachedTheTerminal(unittest.TestCase):
                 directory, "cannot reach 192.168.1.201:4370 over TCP: [Errno 111] Connection refused")
             self.assertIsNone(visited.one_new_punch("خلي الموظف يعمل بصمة"))
         self.assertEqual(visited.findings[-1].fix, "استنى شوية وشغّل الأمر تاني")
-        self.assertEqual(visited.sheet["شبكة اللابتوب وقت المشكلة"], "")
+        self.assertEqual(visited.sheet["حالة الشبكة وقت المشكلة"], "")
