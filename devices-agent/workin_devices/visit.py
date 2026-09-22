@@ -59,7 +59,7 @@ SHEET_ROWS = (
     "البصمة دي اتسجلت مرة واحدة؟", "الدخول", "الخروج", "الـ in_out_field الصح",
     "توزيع أكواد الدخول/الخروج في سجل الجهاز",
     "الموظفين بيدوسوا زرار الدخول/الخروج؟", "USB: ترتيب الأعمدة زي الـ Push؟", "Hikvision: أكواد الحضور اللي ظهرت",
-    "شبكة اللابتوب وقت المشكلة", "مشاكل تانية",
+    "حالة الشبكة وقت المشكلة", "مشاكل تانية",
 )
 # What this visit cannot test (runbook 5.4, under the table): the recorder speaks plain HTTP only,
 # and the other two need a change on the terminal or a refusal after an upload.
@@ -416,9 +416,14 @@ def push_facts(exchanges: list[Exchange], serial: str) -> tuple[dict[str, str], 
 IN_OUT_LOG_MINIMUM = 200
 # How much of a long log the second-commonest value in a column must hold for that column to be
 # telling entries from exits. Everyone who comes in goes out again, so that column is close to
-# balanced; a tenth leaves room for a branch where people often forget the exit key, and still
-# excludes a column that is one value with a handful of exceptions.
+# balanced; a tenth leaves room for a branch where people often forget the exit key.
 IN_OUT_MINORITY_SHARE = 0.10
+# And how one-sided a column must be before the log can say it is *not* carrying in/out at all.
+# Being balanced is not on its own evidence of meaning -- a terminal where two verification methods
+# are both common has a balanced `status` that records how people identified themselves. So the log
+# elects nothing by itself: it may only rule a column out, and the other column stands only once
+# this says the first cannot be it.
+IN_OUT_CONSTANT_SHARE = 0.01
 
 
 def code_spread(records) -> dict[str, dict[int, int]]:
@@ -435,30 +440,44 @@ def in_out_field(check_in: tuple[int, int], check_out: tuple[int, int], out_valu
     punch, and reading a single check-out record would call that the in/out code.
 
     A terminal can store the check-out with both codes identical to the check-in's, and then the
-    two punches answer nothing. The log already on the laptop still can: everyone who comes in goes
-    out again, so across thousands of stored punches the in/out column is close to balanced, while
-    a column recording how people identified themselves is not. If exactly one of the two is
-    balanced, it is the answer and `spread` is the evidence for it. Still ambiguous is None: the
-    visit reports that rather than picking one."""
+    two punches answer nothing. The log already on the laptop can still *rule a column out*: a
+    column holding one value in all but a hundredth of thousands of punches is not the one that
+    separates an arrival from a departure, because a log that long contains both. Only then does
+    the other column stand, and only if it is itself balanced.
+
+    The log never elects a column on its own. A branch where people rarely press the exit key has a
+    one-sided in/out column, and a terminal used with two verification methods has a balanced
+    `status`; electing "the balanced one" there would hand back the verification column, and
+    `agent_zk` writes that straight into the config and sends the whole log under it. Ambiguous
+    stays None: the visit reports it rather than picking one."""
     changed = [name for index, name in ((0, "punch"), (1, "status"))
                if check_out[index] == out_value and check_in[index] != check_out[index]]
     if len(changed) == 1:
         return changed[0]
     if not spread or sum(spread.get("punch", {}).values()) < IN_OUT_LOG_MINIMUM:
         return None
-    balanced = [name for name in ("punch", "status") if separates(spread.get(name) or {})]
-    return balanced[0] if len(balanced) == 1 else None
+    for name, other in (("punch", "status"), ("status", "punch")):
+        if separates(spread.get(name) or {}) and cannot_separate(spread.get(other) or {}):
+            return name
+    return None
 
 
 def separates(counts: dict[int, int]) -> bool:
-    """Could this column be the one telling an entry from an exit, judged by its own spread?
-
-    Not "does it ever change": ADZV224371697's `status` reads 1 in 11 424 of its 11 426 records and
-    15 in the other two, and two records out of eleven thousand are somebody identifying themselves
-    differently, not the branch going home. A column that separates arrivals from departures
-    carries both in numbers."""
+    """Is this column balanced enough to be the one telling an entry from an exit? Necessary, and
+    on its own never sufficient -- see `in_out_field`."""
     counted = sorted(counts.values(), reverse=True)
     return len(counted) > 1 and counted[1] >= sum(counted) * IN_OUT_MINORITY_SHARE
+
+
+def cannot_separate(counts: dict[int, int]) -> bool:
+    """Is this column so one-sided that it cannot be carrying in/out at all?
+
+    Not "does it ever change": ADZV224371697's `status` reads 1 in 11 424 of its 11 426 records and
+    15 in the other two. Two records out of eleven thousand are somebody identifying themselves
+    differently, not the branch going home."""
+    counted = sorted(counts.values(), reverse=True)
+    total = sum(counted)
+    return total > 0 and (len(counted) == 1 or counted[1] < total * IN_OUT_CONSTANT_SHARE)
 
 
 def unreachable_errno(error) -> int | None:
@@ -724,7 +743,7 @@ class Visit:
         if port is not None:
             kind = self.choose("نوع الجهاز؟", [("zk", "ZKTeco (4370)"), ("hik", "Hikvision"), ("other", "حاجة تانية")])
             return kind, host, port
-        found = probe.probe_host(host)
+        found = probe.probe_host(host, retry_transient=True)
         if not found:
             self.say(f"   مفيش حاجة بترد على {host}.")
             self.note("bad", "مفيش حاجة بترد على العنوان اللي اتكتب",
@@ -787,7 +806,7 @@ class Visit:
             summary = probe.zk_summary(host, port, key, udp, timeout=8)
         if "error" in summary:
             self.note("bad", f"الجهاز مارَدّش: {summary['error']}",
-                      self.laptop_network_fix(summary["error"], host)
+                      self.unreachable_path_fix(summary["error"], host)
                       or "اتأكد من IP الجهاز (صورة رقم 3) ومن الكابل، واستنى شوية وجرّب تاني (ممكن الجهاز مشغول)")
             return None
         serial = str(summary.get("serial") or "")
@@ -842,26 +861,32 @@ class Visit:
             count = probe.backup_attendance(host, str(path), port, key, udp)
         except zk.ZkError as exc:
             self.note("bad", f"النسخة الاحتياطية ماتعملتش: {exc}",
-                      self.laptop_network_fix(exc)
+                      self.unreachable_path_fix(exc)
                       or "ماتغيّرش أي إعداد على الجهاز من غير نسخة. استنى شوية وشغّل الأمر تاني")
             return False
         self.note("ok", f"النسخة الاحتياطية اتعملت: {count} سجل في field-report/{path.name}")
         return True
 
-    def laptop_network_fix(self, error, host: str | None = None) -> str | None:
-        """The remedy for a terminal this laptop never reached, with the laptop's own numbers in it.
+    def unreachable_path_fix(self, error, host: str | None = None) -> str | None:
+        """The remedy for a terminal this laptop never reached, with the measured numbers in it.
 
         EHOSTUNREACH means the kernel could not resolve the address's hardware address and no
-        packet left, so the terminal was never asked and has answered nothing. Sending the operator
-        to open a device-compatibility finding for that files the laptop's Wi-Fi as a fault of the
-        terminal on the wall, and the model's record carries it from then on."""
+        packet left, so whatever is wrong, the terminal has not answered and cannot be the thing
+        the error describes. That is as far as the errno goes: the same one arrives from a mistyped
+        address, a terminal that is switched off, and a lost ARP exchange on a weak link. The
+        remedy therefore names the path, gives the operator both ends to check, and leaves the
+        numbers beside it to say which end -- rather than clearing the terminal, which would file a
+        real device fault as somebody else's problem."""
         if unreachable_errno(error) is None:
             return None
         target = host or (self.zk_link[0] if self.zk_link else None)
         measured = describe_network(self.laptop_network(target, ping_count=5))
-        self.sheet["شبكة اللابتوب وقت المشكلة"] = measured
-        return ("المشكلة في شبكة اللابتوب مش في الجهاز: مفيش ولا حزمة وصلت للجهاز. " + measured
-                + ". قرّب اللابتوب من الراوتر، أو اتوصّل بكابل، وبعدين جرّب الخطوة دي تاني")
+        self.sheet["حالة الشبكة وقت المشكلة"] = measured
+        return ("مفيش ولا حزمة وصلت للجهاز أصلاً (الـ ARP فشل)، فالجهاز ماردّش عشان ماتسألش. "
+                + measured
+                + ". اتأكد الأول إن الـ IP ده بتاع الجهاز فعلاً (صورة رقم 3) وإن الجهاز شغال؛ "
+                "لو الاتنين تمام، فالمشكلة في الشبكة: قرّب اللابتوب من الراوتر أو اتوصّل بكابل، "
+                "وبعدين جرّب الخطوة دي تاني")
 
     def zk_records(self) -> list[zk.RawAttendance]:
         host, port, key, udp = self.zk_link
@@ -944,7 +969,7 @@ class Visit:
             before = Counter((record.user_id, record.timestamp) for record in self.zk_records())
         except zk.ZkError as exc:
             self.note("bad", f"مقدرناش نقرأ سجلات الجهاز: {exc}",
-                      self.laptop_network_fix(exc) or "استنى شوية وشغّل الأمر تاني")
+                      self.unreachable_path_fix(exc) or "استنى شوية وشغّل الأمر تاني")
             return None
         self.mark_push()
         self.enter(instruction)
@@ -1011,7 +1036,7 @@ class Visit:
             self.note("bad", "سيستم اللاب رفض التوكن", "scripts/devices-lab.sh seed وبعدين شغّل الأمر تاني")
             return
         if first.error:
-            fix = (self.laptop_network_fix(first.error)
+            fix = (self.unreachable_path_fix(first.error)
                    or next((text for needle, text in AGENT_FIXES if needle in first.error),
                            "اكتب الرسالة دي في الـ issue"))
             self.note("bad", f"الإرسال فشل: {first.error}", fix)

@@ -9,6 +9,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import re
+import time
 import socket
 import struct
 import urllib.error
@@ -24,12 +25,23 @@ PORTS = {4370: "ZKTeco 4370", 80: "HTTP", 443: "HTTPS", 8000: "Hikvision SDK", 8
          37777: "Dahua", 5010: "Anviz"}
 
 
-def _open(ip: str, port: int, timeout: float) -> bool:
-    try:
-        with socket.create_connection((ip, port), timeout):
-            return True
-    except OSError:
-        return False
+def _open(ip: str, port: int, timeout: float, retry_transient: bool = False) -> bool:
+    """A TCP connect, answered or not.
+
+    `retry_transient` off by default because a scan asks this of every port of every address on a
+    /22 and a closed port is the normal answer. On one address the operator typed, it is on: this
+    check runs *before* ZkClient.connect(), so without it a lost ARP exchange makes a terminal that
+    is there vanish from the answer, which is the failure the client's own retry exists to stop."""
+    for attempt in range(zk.CONNECT_ATTEMPTS if retry_transient else 1):
+        try:
+            with socket.create_connection((ip, port), timeout):
+                return True
+        except OSError as exc:
+            if exc.errno not in zk.TRANSIENT_CONNECT_ERRNOS:
+                return False
+        if attempt + 1 < (zk.CONNECT_ATTEMPTS if retry_transient else 1):
+            time.sleep(zk.CONNECT_RETRY_SECONDS)
+    return False
 
 
 def zk_udp_answers(ip: str, port: int = 4370, timeout: float = 1.0) -> bool:
@@ -92,8 +104,9 @@ def http_fingerprint(ip: str, port: int, timeout: float) -> dict:
     return {"guess": guess, "status": status, "server": headers.get("Server", ""), "title": title.strip()[:80]}
 
 
-def probe_host(ip: str, timeout: float = 0.6, udp_probe: bool = True) -> dict | None:
-    open_ports = [port for port in PORTS if _open(ip, port, timeout)]
+def probe_host(ip: str, timeout: float = 0.6, udp_probe: bool = True,
+               retry_transient: bool = False) -> dict | None:
+    open_ports = [port for port in PORTS if _open(ip, port, timeout, retry_transient)]
     udp = udp_probe and zk_udp_answers(ip, timeout=timeout)
     if not open_ports and not udp:
         return None
