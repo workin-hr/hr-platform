@@ -915,8 +915,10 @@ class ThePiecesTheWizardDecidesWith(unittest.TestCase):
         """The state that decides a visit is FAILED: it answers every connect with EHOSTUNREACH at
         once, so the wizard reads the same "no route to host" twice seconds apart and blames a
         terminal that is on the wall and answering."""
-        table = ("192.168.1.1 dev wlp0s20f3 lladdr d8:0a:60:f3:e7:17 router REACHABLE\n"
-                 "192.168.1.201 dev wlp0s20f3 lladdr 00:17:61:12:78:79 STALE\n")
+        # Locally-administered MACs: the shape is what this parses, and a captured hardware address
+        # identifies the site it was captured at.
+        table = ("192.168.1.1 dev wlp0s20f3 lladdr 02:00:00:00:00:01 router REACHABLE\n"
+                 "192.168.1.201 dev wlp0s20f3 lladdr 02:00:00:00:00:02 STALE\n")
         self.assertEqual(probe.arp_state("192.168.1.201", table), "STALE")
         self.assertEqual(probe.arp_state("192.168.1.1", table), "REACHABLE", "read past `router`")
         self.assertEqual(probe.arp_state("192.168.1.201", "192.168.1.201 dev wlp0s20f3  FAILED\n"), "FAILED")
@@ -1600,8 +1602,6 @@ class WhatTheHeadlineMustNotDeny(unittest.TestCase):
         self.assertIn("| مشاكل تانية | الزيارة اتوقفت قبل ما تخلص |", report)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class WhenTheLaptopNeverReachedTheTerminal(unittest.TestCase):
@@ -1794,22 +1794,83 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
         # The operator still sees it on screen: it is the report that travels.
         self.assertIn("192.168.1.201", visited.console.text)
 
-    def test_a_four_part_firmware_version_is_not_mistaken_for_an_address(self):
-        self.assertEqual(visit._no_address("firmware 6.60.1.2"), "firmware 6.60.1.2")
-        self.assertEqual(visit._no_address("terminal 172.20.3.1"), "terminal <device-ip>")
+    def test_every_address_class_is_redacted_including_a_public_one(self):
+        """A terminal reachable from outside its branch has a public address, and that is the class
+        that identifies a customer outright -- so exempting it to keep a four-part firmware version
+        readable had the rule backwards. The firmware this visit read is three parts."""
+        for address in ("172.20.3.1", "10.0.0.9", "127.0.0.1", "169.254.3.4", "100.64.0.5",
+                        "41.33.7.9", "8.8.8.8"):
+            self.assertEqual(visit._no_address(f"terminal {address}"), "terminal <device-ip>", address)
+        self.assertEqual(visit._no_address("firmware Ver 6.60 Oct 12 2021"), "firmware Ver 6.60 Oct 12 2021")
+
+    def test_the_report_names_no_serial_because_the_runbook_says_to_paste_it_in_public(self):
+        """A serial is the only thing that identifies a terminal to the device endpoint (R-041,
+        R-042), and step 11 tells the operator to paste the results sheet into a public issue. It
+        stays on the console and in the file name."""
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory)
+            visited.serial = "ZK-PASTE-1"
+            visited.sheet["السيريال"] = visited.serial
+            visited.note("bad", f"{visited.serial}: read failed on 192.168.1.201", "جرّب تاني")
+            visited.note("ok", "الجهاز رد")
+            path = visited.write_report()
+            text = path.read_text(encoding="utf-8")
+        self.assertNotIn("ZK-PASTE-1", text)
+        # `_md` escapes the placeholder, which is how GitHub renders it back as one word.
+        self.assertIn("device-serial", text)
+        self.assertNotIn("192.168.1.201", text)
+        self.assertIn("ZK-PASTE-1", path.name, "the file name is local and keeps it")
+        self.assertIn("ZK-PASTE-1", visited.console.text, "the operator still sees it")
+
+    def test_a_placeholder_serial_takes_no_ordinary_text_with_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory)
+            visited.serial = "device"
+            visited.note("bad", "الجهاز ده مش مدعوم", "اكتبها في الـ issue")
+            text = visited.write_report().read_text(encoding="utf-8")
+        self.assertIn("الجهاز ده مش مدعوم", text)
+        self.assertNotIn("device-serial", text)
+
+    def test_the_remedy_claims_only_what_was_measured(self):
+        """Without `ip` or `ping` -- the Windows build, or a stripped laptop -- there is no ARP state
+        to assert and no interface to advise about. The errno alone can be ENETUNREACH or EHOSTDOWN,
+        neither of which is a failed ARP exchange."""
+        blind = {"addresses": [], "interface": None, "wifi": None,
+                 "target": "192.168.1.201", "arp": None, "ping": {"unavailable": "ping did not run"}}
+        with tempfile.TemporaryDirectory() as directory:
+            visited = visit.Visit(console=ScriptedConsole([]), out_dir=directory, wait_seconds=1,
+                                  laptop_network=lambda ip=None, ping_count=10: dict(blind))
+            visited.zk_link = ("192.168.1.201", 4370, 0, False)
+            fix = visited.unreachable_path_fix(self.UNREACHABLE)
+        self.assertNotIn("الـ ARP فشل", fix, "an ARP failure was asserted without an ARP state")
+        self.assertNotIn("قرّب اللابتوب من الراوتر", fix, "Wi-Fi advice with no interface known")
+        self.assertNotIn("اتأكد من الكابل والـ switch", fix, "cable advice with no interface known")
+        self.assertIn("الكابل أو الواي فاي", fix)
 
     def test_no_tracked_file_publishes_a_terminal_serial(self):
         """A serial is the only thing that identifies a terminal to the device endpoint (R-041,
         R-042) and this repository is public, so a serial read on a visit stays in field-report/ on
-        the laptop. Verified terminals are named by pseudonym."""
-        shaped = re.compile(r"\b[A-Z]{3,5}\d{8,14}\b")
+        the laptop. Verified terminals are named by pseudonym.
+
+        **What this does and does not enforce.** It fails on the ZKTeco form -- two to six letters
+        followed by six to fourteen digits -- in any tracked document, agent file, contract or spec.
+        It is a backstop for the mistake that was actually made, not a proof that no identifier can
+        slip through: an all-digit serial is indistinguishable from a record count or a date, and a
+        one-letter or punctuated serial that `config.SERIAL` would accept is not matched. The rule
+        the inventory states is the rule; this catches the shape that broke it."""
+        shaped = re.compile(r"\b[A-Za-z]{2,6}\d{6,14}\b")
+        suffixes = {".md", ".py", ".toml", ".json", ".yml", ".yaml", ".txt"}
         found = []
-        for path in sorted(ROOT.rglob("*.md")) + sorted((ROOT / "devices-agent").rglob("*.py")):
-            if ".git" in path.parts:
-                continue
-            for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").split("\n"), 1):
-                found += [f"{path.relative_to(ROOT)}:{number}: {match.group(0)}"
-                          for match in shaped.finditer(line)]
+        for root in ("docs", "devices-agent", "contracts", "specs", ".github"):
+            for path in sorted((ROOT / root).rglob("*")):
+                if path.suffix not in suffixes or not path.is_file() or ".git" in path.parts:
+                    continue
+                for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").split("\n"), 1):
+                    found += [f"{path.relative_to(ROOT)}:{number}: {match.group(0)}"
+                              for match in shaped.finditer(line)]
+        for name in sorted(ROOT.glob("*.md")):
+            for number, line in enumerate(name.read_text(encoding="utf-8", errors="replace").split("\n"), 1):
+                found += [f"{name.name}:{number}: {match.group(0)}" for match in shaped.finditer(line)]
         self.assertEqual(found, [], "a terminal serial reached a tracked file")
 
 
@@ -1824,7 +1885,7 @@ class WhatTheProbeMustNotCost(unittest.TestCase):
             attempts.append((port, retry_transient))
             return False
 
-        original, slept = probe._open, []
+        original = probe._open
         probe._open = refuse
         try:
             self.assertIsNone(probe.probe_host("192.168.44.99", udp_probe=False, retry_transient=True))
@@ -1833,7 +1894,6 @@ class WhatTheProbeMustNotCost(unittest.TestCase):
         self.assertEqual([port for port, retried in attempts if retried], [probe.ZK_PORT],
                          "the retry was paid for on ports this tool does not exist for")
         self.assertEqual(len(attempts), len(probe.PORTS))
-        self.assertEqual(slept, [])
 
     def test_the_wifi_facts_describe_the_interface_that_reaches_the_terminal(self):
         """Customer Ethernet plus a phone hotspot: the terminal is reached over the cable, and the
@@ -1894,10 +1954,33 @@ class WhatDoctorMustNotLetTheOperatorDo(unittest.TestCase):
         verdict = main.in_out_verdict("status", flipped)
         self.assertIn("غيّر in_out_field لـ punch", verdict)
 
+    def test_a_column_nobody_ever_presses_is_not_evidence_against_itself(self):
+        """A single value across the whole log is exactly what an in/out key nobody presses looks
+        like. Ruling that column out elects the *other* one -- and on a terminal used with both a
+        fingerprint and a card, the other one is verification: every card punch becomes a check-out,
+        and correcting the mapping afterwards resends the whole log."""
+        constant = self.log([(0, 1)] * 7000 + [(0, 4)] * 4426)
+        verdict = main.in_out_verdict("punch", constant)
+        self.assertIn("مش واضح", verdict)
+        self.assertIn("ماتشغّلش once", verdict)
+
     def test_two_balanced_columns_stay_unclear_rather_than_guessing(self):
         verdict = main.in_out_verdict("punch", self.log([(0, 1)] * 100 + [(1, 15)] * 100))
         self.assertIn("مش واضح", verdict)
         self.assertIn("ماتشغّلش once", verdict)
 
+    def test_a_source_that_sets_only_one_column_is_not_judged_on_the_other(self):
+        """Hikvision and file sources leave `verify` unset and can leave `status` unset too. Counted
+        as values, a `None` cannot be sorted against an int -- which aborts `doctor` before the
+        remaining terminals are read -- and an all-`None` column read as "constant" would tell an
+        operator not to deliver from a terminal that is perfectly healthy."""
+        mixed = self.log([(0, None)] * 120 + [(1, None)] * 100 + [(None, None)] * 30)
+        verdict = main.in_out_verdict("punch", mixed)
+        self.assertIn("مش واضح", verdict, "a column that exists only for zk decided the answer")
+
     def test_a_log_too_short_to_carry_the_argument_says_nothing(self):
         self.assertIsNone(main.in_out_verdict("punch", self.log([(0, 1)] * 5)))
+
+
+if __name__ == "__main__":
+    unittest.main()

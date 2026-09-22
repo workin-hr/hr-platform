@@ -502,10 +502,17 @@ def cannot_separate(counts: dict[int, int]) -> bool:
 
     Not "does it ever change": TERMINAL-A's `status` reads 1 in 11 424 of its 11 426 records and
     15 in the other two. Two records out of eleven thousand are somebody identifying themselves
-    differently, not the branch going home."""
+    differently, not the branch going home.
+
+    And not "is it constant" either. A column with **one** value across the whole log is exactly
+    what an in/out key nobody presses looks like, so it is no evidence that the column is not the
+    in/out one -- which is why a second value is required before this rules anything out. Without
+    that, a branch that never presses the exit key and identifies people two ways would have had
+    its *verification* column elected: constant `punch`, balanced `status`, and the log would say
+    `status`."""
     counted = sorted(counts.values(), reverse=True)
     total = sum(counted)
-    return total > 0 and (len(counted) == 1 or counted[1] < total * IN_OUT_CONSTANT_SHARE)
+    return total > 0 and len(counted) > 1 and counted[1] < total * IN_OUT_CONSTANT_SHARE
 
 
 def unreachable_errno(error) -> int | None:
@@ -579,8 +586,8 @@ def _md(value: str) -> str:
 
 
 DOTTED = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
-# Not covered by `is_private` on every Python this ships on, and a branch can sit behind it.
-CARRIER_NAT = ipaddress.ip_network("100.64.0.0/10")
+SERIAL_HIDDEN = "<device-serial>"
+ADDRESS_HIDDEN = "<device-ip>"
 
 
 def _no_address(value: str) -> str:
@@ -591,17 +598,15 @@ def _no_address(value: str) -> str:
     finding was written. The console still shows the operator which address it was, and the address
     stays in field-report/ on the laptop.
 
-    Only addresses that are private, loopback, link-local or carrier-NAT: those are what a branch
-    LAN is made of, and the exemption is what keeps a four-part firmware version -- which is also a
-    valid dotted quad -- readable in the report it is evidence in."""
+    Every address, not only the private ones. A terminal reachable from outside its branch has a
+    public address, and that is the one address class that identifies a customer outright -- so
+    exempting it to keep a four-part firmware version readable had the rule backwards."""
     def one(match):
         try:
-            found = ipaddress.IPv4Address(match.group(0))
+            ipaddress.IPv4Address(match.group(0))
         except ValueError:
             return match.group(0)
-        internal = (found.is_private or found.is_loopback or found.is_link_local
-                    or found in CARRIER_NAT)
-        return "<device-ip>" if internal else match.group(0)
+        return ADDRESS_HIDDEN
     return DOTTED.sub(one, value)
 
 
@@ -948,12 +953,20 @@ class Visit:
         measured = describe_network(facts)
         self.sheet["حالة الشبكة وقت المشكلة"] = measured
         wireless = (facts.get("wifi") or {}).get("level") is not None
-        return ("مفيش ولا حزمة وصلت للجهاز أصلاً (الـ ARP فشل)، فالجهاز ماردّش عشان ماتسألش. "
-                + measured
+        # Each half says only what was measured. Without `ip` or `ping` -- the Windows build, or a
+        # stripped laptop -- there is no ARP state to assert and no interface to advise about, and
+        # the errno alone can be ENETUNREACH or EHOSTDOWN rather than a failed ARP exchange.
+        opening = ("مفيش ولا حزمة وصلت للجهاز أصلاً (الـ ARP فشل)، "
+                   if facts.get("arp") == "FAILED" else "مفيش ولا حزمة وصلت للجهاز أصلاً، ")
+        if wireless:
+            path = "قرّب اللابتوب من الراوتر أو اتوصّل بكابل"
+        elif facts.get("interface"):
+            path = "اتأكد من الكابل والـ switch وإن الجهاز على نفس الشبكة"
+        else:
+            path = "اتأكد من الكابل أو الواي فاي وإن الجهاز على نفس الشبكة"
+        return (opening + "فالجهاز ماردّش عشان ماتسألش. " + measured
                 + ". اتأكد الأول إن الـ IP ده بتاع الجهاز فعلاً (صورة رقم 3) وإن الجهاز شغال؛ "
-                "لو الاتنين تمام، فالمشكلة في الشبكة: "
-                + ("قرّب اللابتوب من الراوتر أو اتوصّل بكابل"
-                   if wireless else "اتأكد من الكابل والـ switch وإن الجهاز على نفس الشبكة")
+                "لو الاتنين تمام، فالمشكلة في الشبكة: " + path
                 + "، وبعدين جرّب الخطوة دي تاني")
 
     def zk_records(self) -> list[zk.RawAttendance]:
@@ -1660,6 +1673,23 @@ class Visit:
                 path.unlink()
                 self.say("✅ مسحت باسورد الجهاز من اللابتوب.")
 
+    def pasteable(self, value: str) -> str:
+        """One line of the report, with what identifies this customer taken out.
+
+        Step 11 of the runbook tells the operator to paste the results sheet into a public issue, and
+        a terminal's serial is the only thing that identifies it to the device endpoint: a known
+        serial is punch injection against a claimed device (R-041) or a squat on an unclaimed one
+        (R-042). The console still shows it, the file name still carries it, and the inventory
+        records the terminal under a pseudonym. The boundaries exclude alphanumerics only, so a
+        longer serial cannot be matched by its prefix while `<serial>: message` -- which is how
+        `sources` prefixes every failure -- still is. Never for the `device` placeholder, which is
+        not a serial but a word the report uses."""
+        value = value or ""
+        if self.serial and self.serial != "device":
+            hidden = re.compile(rf"(?<![A-Za-z0-9]){re.escape(self.serial)}(?![A-Za-z0-9])")
+            value = hidden.sub(SERIAL_HIDDEN, value)
+        return _no_address(value)
+
     def write_report(self) -> Path:
         bad = [finding for finding in self.findings if finding.level != "ok"]
         # "مفيش" is a claim that the visit looked and found nothing, so it is only written when
@@ -1669,19 +1699,23 @@ class Visit:
         self.sheet["مشاكل تانية"] = self.sheet["مشاكل تانية"] or "، ".join(
             finding.text for finding in bad if finding.level == "bad") or nothing
         verdict = self.verdict()
-        lines = [f"# تقرير زيارة: جهاز {_md(self.serial or 'مش معروف')}", "", '<div dir="rtl">', "",
+        lines = [f"# تقرير زيارة: جهاز {_md(self.pasteable(self.serial) or 'مش معروف')}", "",
+                 '<div dir="rtl">', "",
                  f"**النتيجة:** {verdict}", "",
                  f"اتعمل بالأمر `workin_devices visit` يوم {_ltr(f'{self.started:%Y-%m-%d %H:%M}')}، "
-                 "في وضع A (سيستم اللاب على اللابتوب). مفيش فيه أكواد موظفين ولا أسامي ولا أرقام كروت.", ""]
+                 "في وضع A (سيستم اللاب على اللابتوب). التقرير ده معمول عشان يتلزق في issue عام: "
+                 "مفيش فيه أكواد موظفين ولا أسامي ولا أرقام كروت، ولا سيريال الجهاز ولا عنوانه على "
+                 "الشبكة. السيريال في اسم الملف وعلى الشاشة، والجهاز بياخد اسم مستعار في جدول "
+                 "الموديلات.", ""]
         if bad:
             lines += ["## المشاكل والحل", ""]
-            lines += [f"- {MARK[finding.level]} {_md(_no_address(finding.text))}" +
-                      (f" ← **الحل:** {_md(_no_address(finding.fix))}" if finding.fix else "") for finding in bad] + [""]
+            lines += [f"- {MARK[finding.level]} {_md(self.pasteable(finding.text))}" +
+                      (f" ← **الحل:** {_md(self.pasteable(finding.fix))}" if finding.fix else "") for finding in bad] + [""]
         done = [finding for finding in self.findings if finding.level == "ok"]
         if done:
-            lines += ["## اللي اشتغل", ""] + [f"- {MARK['ok']} {_md(_no_address(finding.text))}" for finding in done] + [""]
+            lines += ["## اللي اشتغل", ""] + [f"- {MARK['ok']} {_md(self.pasteable(finding.text))}" for finding in done] + [""]
         lines += ["## ورقة النتائج", "", "| البند | النتيجة |", "|---|---|"]
-        lines += [f"| {row} | {_ltr(_no_address(self.sheet[row])) or '—'} |" for row in SHEET_ROWS]
+        lines += [f"| {row} | {_ltr(self.pasteable(self.sheet[row])) or '—'} |" for row in SHEET_ROWS]
         lines += ["", "</div>", ""]
         name = self.serial if self.serial and cfg.SERIAL.match(self.serial) else "device"
         path = self.out / f"visit-{name}-{self.started:%Y%m%d-%H%M}.md"
@@ -1725,4 +1759,5 @@ class Visit:
         if report is not None:
             self.say(f"📄 التقرير: {report}")
             self.say("   حطه في issue بقالب device-compatibility-finding، مع الصور.")
+            self.say("   التقرير مكتوب من غير سيريال الجهاز ولا عنوانه: سيبه كده، الريبو عام.")
             self.say("   لجهاز تاني: شغّل الأمر تاني.")

@@ -872,6 +872,11 @@ python3 -m workin_devices capture --listen 0.0.0.0:8081 --out field-report/captu
    <span dir="ltr">`.github/ISSUE_TEMPLATE/device-compatibility-finding.yml`</span>، وحط فيه **ورقة
    النتائج** (آخر الدليل) وأي مشكلة (FAIL، `413`، دخول/خروج مقلوب، ترتيب أعمدة
    USB، كود Hikvision، بصمات مكررة). **من غير أكواد موظفين أو أسامي أو أرقام كروت.**
+   **والريبو ده عام:** التقرير اللي الأمر بيكتبه أصلاً مافيهوش سيريال الجهاز ولا عنوانه
+   على الشبكة — الزقه زي ما هو **وماترجّعهمش**. سيريال الجهاز هو الحاجة الوحيدة اللي
+   بتعرّفه للسيستم، فنشره معناه إن أي حد يقدر يبعت بصمات باسمه (R-041) أو يحجزه قبل
+   العميل (R-042). لو محتاج تفرّق بين جهازين، سمّيهم بالاسم المستعار اللي في جدول
+   الموديلات (<span dir="ltr">`TERMINAL-A`</span>، <span dir="ltr">`TERMINAL-B`</span>).
 3. الإجابات تتنقل في PR للملفين دول، وده اللي بيحوّل معلومات الـ documentation
    لمعلومات متأكدين منها من جهاز حقيقي:
    - جدول الموديلات والـ firmware: [attendance-device-model-and-firmware-inventory.md](attendance-device-model-and-firmware-inventory.md)

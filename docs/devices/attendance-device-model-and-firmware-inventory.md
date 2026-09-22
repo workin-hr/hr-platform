@@ -68,7 +68,7 @@ was not observed says so.
 
 ### Observed
 
-A terminal's serial is the **only** thing that identifies it to the device endpoint (`docs/api/device-endpoints.md`), so knowing one is enough to inject punches against a claimed device (R-041) or to squat an unclaimed one (R-042). A serial read on a visit therefore never reaches a tracked file: this repository is public. Each verified terminal gets a stable pseudonym here -- `TERMINAL-A`, `TERMINAL-B`, ... -- and the real serial stays in that visit's own `field-report/` on the operator's laptop. `test_no_tracked_file_publishes_a_terminal_serial` is the gate.
+A terminal's serial is the **only** thing that identifies it to the device endpoint (`docs/api/device-endpoints.md`), so knowing one is enough to inject punches against a claimed device (R-041) or to squat an unclaimed one (R-042). A serial read on a visit therefore never reaches a tracked file: this repository is public. Each verified terminal gets a stable pseudonym here -- `TERMINAL-A`, `TERMINAL-B`, ... -- and the real serial stays in that visit's own `field-report/` on the operator's laptop. `test_no_tracked_file_publishes_a_terminal_serial` fails on the ZKTeco form -- two to six letters then six to fourteen digits -- in any tracked document, agent file, contract or spec. It is a backstop for the mistake that was actually made, not a proof that nothing can slip through: an all-digit serial is indistinguishable from a record count or a date. The visit report is written without the serial or any address for the same reason, since the runbook's step 11 says to paste it into a public issue.
 
 | Field | Value |
 |---|---|
@@ -125,7 +125,7 @@ anything requiring a settings change — the visit changes nothing on a terminal
 
 ### Evidence For This Terminal
 
-- Site visit 2026-09-21, `workin_devices visit` against `192.168.1.201`; the terminal's
+- Site visit 2026-09-21, `workin_devices visit` against the terminal on the branch LAN; its
   own answers to `CMD_GET_VERSION`, `CMD_OPTIONS_RRQ` and `CMD_GET_FREE_SIZES`.
 - The attendance log backup the visit took (11 426 records), counted for the record
   format and the code distribution above. The file itself stays on the operator's laptop:
