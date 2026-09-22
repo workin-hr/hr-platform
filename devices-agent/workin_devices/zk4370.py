@@ -20,8 +20,10 @@ advanced, and the first reply id sent is 0.
 """
 from __future__ import annotations
 
+import errno
 import socket
 import struct
+import time
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -47,6 +49,16 @@ USHRT_MAX = 65535
 TCP_MAGIC = (0x5050, 0x7D82)
 TCP_CHUNK = 0xFFC0
 UDP_CHUNK = 16 * 1024
+
+# A terminal usually sits on a customer's Wi-Fi. When an ARP exchange is lost there the
+# kernel marks the address unreachable and then answers EHOSTUNREACH instantly -- to every
+# connect, until the neighbour entry is probed again -- for a terminal that is present and
+# answers a moment later. Treating that first instant refusal as the terminal's answer ends
+# a site visit that could have continued, so these errors alone are retried; every other
+# one, a refusal or a timeout included, is the answer.
+TRANSIENT_CONNECT_ERRNOS = frozenset({errno.EHOSTUNREACH, errno.ENETUNREACH, errno.EHOSTDOWN})
+CONNECT_ATTEMPTS = 3
+CONNECT_RETRY_SECONDS = 2.0
 
 READ_ONLY_COMMANDS = frozenset({
     CMD_CONNECT, CMD_EXIT, CMD_AUTH, CMD_GET_VERSION, CMD_OPTIONS_RRQ, CMD_GET_FREE_SIZES,
@@ -184,15 +196,9 @@ class ZkClient:
         return False
 
     def connect(self) -> None:
-        family = socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM
-        self._sock = socket.socket(socket.AF_INET, family)
-        self._sock.settimeout(self.timeout)
+        self._open_socket()
         if not self.udp:
-            try:
-                self._sock.connect((self.host, self.port))
-            except OSError as exc:
-                self._close()
-                raise ZkError(f"cannot reach {self.host}:{self.port} over TCP: {exc}") from exc
+            self._connect_tcp()
         self._session = 0
         self._reply = USHRT_MAX - 1
         code, session, _ = self._send(CMD_CONNECT)
@@ -218,6 +224,23 @@ class ZkClient:
         finally:
             self.connected = False
             self._close()
+
+    def _open_socket(self) -> None:
+        family = socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM
+        self._sock = socket.socket(socket.AF_INET, family)
+        self._sock.settimeout(self.timeout)
+
+    def _connect_tcp(self) -> None:
+        for attempt in range(CONNECT_ATTEMPTS):
+            try:
+                self._sock.connect((self.host, self.port))
+                return
+            except OSError as exc:
+                self._close()
+                if exc.errno not in TRANSIENT_CONNECT_ERRNOS or attempt == CONNECT_ATTEMPTS - 1:
+                    raise ZkError(f"cannot reach {self.host}:{self.port} over TCP: {exc}") from exc
+            time.sleep(CONNECT_RETRY_SECONDS)
+            self._open_socket()
 
     def _close(self) -> None:
         if self._sock is not None:

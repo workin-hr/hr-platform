@@ -1,18 +1,21 @@
 """The site-visit kit: find the terminals on a LAN and read what each one is, without changing any.
 
 Scanning a customer's network is something to ask permission for first; the runbook says so.
-Every probe here is a read: a TCP connect, a ZK CONNECT/EXIT, an HTTP GET.
+Every probe here is a read: a TCP connect, a ZK CONNECT/EXIT, an HTTP GET, an ICMP echo, and two
+files the kernel keeps about this laptop's own link.
 """
 from __future__ import annotations
 
 import ipaddress
 import json
+import re
 import socket
 import struct
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from pathlib import Path
 
 from . import capture
 from . import zk4370 as zk
@@ -141,6 +144,108 @@ def lan_networks(ip_output: str | None = None) -> list[tuple[str, str]]:
     except OSError:
         return []
     return [] if address.startswith("127.") else [(address, str(ipaddress.ip_interface(f"{address}/24").network))]
+
+
+NEIGHBOUR_STATES = ("REACHABLE", "STALE", "DELAY", "PROBE", "FAILED", "INCOMPLETE", "NOARP", "PERMANENT")
+
+# /proc/net/wireless's data columns after the interface name, in the kernel's own order. Its header
+# spells them: status | link level noise | nwid crypt frag retry misc | beacon. `misc` is the
+# counter that actually moves on a marginal link; `missed_beacon` stays 0 on several drivers, so a
+# reader that watches only the last column concludes the link is healthy while packets are dropping.
+WIRELESS_COLUMNS = ("status", "link", "level", "noise", "nwid", "crypt", "frag", "retry", "misc",
+                    "missed_beacon")
+
+
+def arp_state(ip: str, neigh_output: str | None = None) -> str | None:
+    """What the kernel currently thinks of that address's hardware address, or None when it holds no
+    entry and when there is no `ip` command to ask.
+
+    This is the fact that separates a terminal that is refusing from a laptop that cannot ask. On
+    Wi-Fi one lost ARP exchange is enough to drive the entry to FAILED, and a FAILED entry answers
+    every connect with EHOSTUNREACH *instantly*, for a terminal that is on the wall and answering
+    -- so a visit reads two identical "no route to host" errors seconds apart and blames the wall."""
+    if neigh_output is None:
+        import subprocess
+        try:
+            neigh_output = subprocess.run(["ip", "neigh", "show", ip], capture_output=True, text=True,
+                                          timeout=5).stdout
+        except (OSError, subprocess.SubprocessError):
+            return None
+    for line in neigh_output.splitlines():
+        fields = line.split()
+        if not fields or fields[0] != ip:
+            continue
+        # The state is the last field, but `router`, `proxy` and `extern_learn` can follow the
+        # address, so match the vocabulary rather than the position.
+        for field in reversed(fields):
+            if field in NEIGHBOUR_STATES:
+                return field
+    return None
+
+
+def wifi_link(proc_wireless: str | None = None) -> dict | None:
+    """This laptop's Wi-Fi link as the driver reports it, or None when it has no Wi-Fi -- and on
+    Windows, where the file does not exist. `level` is dBm: about -50 is a strong link, -70 is
+    where a site visit starts losing exchanges."""
+    if proc_wireless is None:
+        try:
+            proc_wireless = Path("/proc/net/wireless").read_text(encoding="utf-8")
+        except OSError:
+            return None
+    for line in proc_wireless.splitlines()[2:]:
+        name, _, rest = line.partition(":")
+        fields = rest.split()
+        if not name.strip() or len(fields) < len(WIRELESS_COLUMNS):
+            continue
+        link = {"interface": name.strip()}
+        for column, value in zip(WIRELESS_COLUMNS, fields):
+            link[column] = int(float(value.rstrip(".")))
+        return link
+    return None
+
+
+def ping_facts(ip: str, count: int = 10, ping_output: str | None = None) -> dict:
+    """Loss, duplicates and the spread of round-trip times to one address.
+
+    Duplicates are why this exists next to a loss count: a repeated or bridged Wi-Fi answers every
+    echo and still loses ARP, so `0% packet loss` alone reads as a healthy network. A duplicate
+    reply, or a round trip that ranges over two orders of magnitude, is the fabric saying otherwise.
+
+    Unparsed output is reported as unavailable rather than as a healthy result: ping's summary
+    differs between platforms (Windows counts with -n), and a wrong zero here would send an
+    operator back to the terminal."""
+    if ping_output is None:
+        import subprocess
+        try:
+            ping_output = subprocess.run(["ping", "-c", str(count), "-W", "1", ip], capture_output=True,
+                                         text=True, timeout=count + 5).stdout
+        except (OSError, subprocess.SubprocessError) as exc:
+            return {"unavailable": f"ping did not run: {exc}"}
+    summary = re.search(r"(\d+) packets transmitted, (\d+) (?:packets )?received,"
+                        r"(?: \+(\d+) duplicates,)?.*?([\d.]+)% packet loss", ping_output, re.S)
+    if not summary:
+        return {"unavailable": "ping's summary was not in a shape this reads"}
+    facts = {"transmitted": int(summary.group(1)), "received": int(summary.group(2)),
+             "duplicates": int(summary.group(3) or 0), "loss_percent": float(summary.group(4))}
+    times = re.search(r"min/avg/max/mdev = ([\d.]+)/([\d.]+)/([\d.]+)/([\d.]+)", ping_output)
+    if times:
+        facts["rtt_ms"] = {name: float(times.group(index)) for index, name in
+                           enumerate(("min", "avg", "max", "mdev"), 1)}
+    return facts
+
+
+def laptop_network(ip: str | None = None, ping_count: int = 10) -> dict:
+    """Everything this laptop can say about its own side of the link, and about one address on it.
+
+    A visit that cannot reach a terminal reports this beside the terminal's error, so the operator
+    reads which of the two was at fault instead of filing the laptop's Wi-Fi as a device finding."""
+    facts: dict = {"addresses": [{"ip": address, "network": network} for address, network in lan_networks()],
+                   "wifi": wifi_link()}
+    if ip:
+        facts["target"] = ip
+        facts["arp"] = arp_state(ip)
+        facts["ping"] = ping_facts(ip, ping_count)
+    return facts
 
 
 def scan(cidr: str, timeout: float = 0.6, workers: int = 96, out=print) -> list[dict]:

@@ -893,6 +893,55 @@ class ThePiecesTheWizardDecidesWith(unittest.TestCase):
                                             "9: eth3    inet 10.3.0.4/24 scope global eth3\n"),
                          [("10.3.0.4", "10.3.0.0/24")])
 
+    def test_the_arp_state_is_read_for_the_address_asked_about(self):
+        """The state that decides a visit is FAILED: it answers every connect with EHOSTUNREACH at
+        once, so the wizard reads the same "no route to host" twice seconds apart and blames a
+        terminal that is on the wall and answering."""
+        table = ("192.168.1.1 dev wlp0s20f3 lladdr d8:0a:60:f3:e7:17 router REACHABLE\n"
+                 "192.168.1.201 dev wlp0s20f3 lladdr 00:17:61:12:78:79 STALE\n")
+        self.assertEqual(probe.arp_state("192.168.1.201", table), "STALE")
+        self.assertEqual(probe.arp_state("192.168.1.1", table), "REACHABLE", "read past `router`")
+        self.assertEqual(probe.arp_state("192.168.1.201", "192.168.1.201 dev wlp0s20f3  FAILED\n"), "FAILED")
+        # An address the table does not carry has no state, and one address is not another's prefix.
+        self.assertIsNone(probe.arp_state("192.168.1.20", table))
+        self.assertIsNone(probe.arp_state("192.168.1.201", ""))
+
+    def test_the_wifi_link_reads_the_column_the_driver_actually_moves(self):
+        """/proc/net/wireless ends with Missed beacon, which stays 0 on this card while `misc`
+        climbs on a marginal link: a reader that takes the last column calls that link healthy."""
+        link = probe.wifi_link(
+            "Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE\n"
+            " face | tus | link level noise |  nwid  crypt   frag  retry   misc | beacon | 22\n"
+            "wlp0s20f3: 0000   42.  -68.  -256        0      0      0      4    403        0\n")
+        self.assertEqual(link["interface"], "wlp0s20f3")
+        self.assertEqual((link["link"], link["level"]), (42, -68))
+        self.assertEqual((link["misc"], link["missed_beacon"]), (403, 0))
+        self.assertIsNone(probe.wifi_link("Inter-| sta-|\n face | tus |\n"), "a laptop with no Wi-Fi")
+
+    def test_ping_counts_duplicates_and_never_invents_a_healthy_result(self):
+        """0% loss is not a healthy network. A repeated or bridged Wi-Fi answers every echo, loses
+        the ARP exchange anyway, and gives itself away by duplicating replies and spreading the
+        round trip over two orders of magnitude."""
+        measured = probe.ping_facts("192.168.1.201", ping_output=(
+            "--- 192.168.1.201 ping statistics ---\n"
+            "120 packets transmitted, 120 received, +9 duplicates, 0% packet loss, time 119193ms\n"
+            "rtt min/avg/max/mdev = 0.890/41.690/441.490/75.562 ms\n"))
+        self.assertEqual((measured["transmitted"], measured["received"], measured["duplicates"],
+                          measured["loss_percent"]), (120, 120, 9, 0.0))
+        self.assertEqual(measured["rtt_ms"]["max"], 441.49)
+        lossy = probe.ping_facts("10.0.0.9", ping_output=(
+            "5 packets transmitted, 3 received, 40% packet loss, time 4050ms\n"
+            "rtt min/avg/max/mdev = 1.000/2.000/3.000/0.500 ms\n"))
+        self.assertEqual((lossy["received"], lossy["duplicates"], lossy["loss_percent"]), (3, 0, 40.0))
+        # Windows counts with -n and prints a different summary. Reporting 0% loss from output this
+        # does not understand would send an operator back to a terminal that is not the problem.
+        self.assertIn("unavailable", probe.ping_facts("10.0.0.9", ping_output="Reply from 10.0.0.9: bytes=32"))
+
+    def test_the_laptop_network_pings_nothing_when_it_was_given_no_address(self):
+        facts = probe.laptop_network()
+        self.assertIn("addresses", facts)
+        self.assertEqual(set(facts) & {"target", "arp", "ping"}, set())
+
     def test_the_push_cross_check_reads_the_serial_the_terminal_pushes_under(self):
         """A terminal that reports one serial on 4370 and pushes under another is a finding of its
         own, and the visit carries on. The in/out cross-check has to follow it to the serial the
@@ -973,6 +1022,46 @@ class ThePiecesTheWizardDecidesWith(unittest.TestCase):
             self.assertTrue(marker.exists(), "a valid allocation does go to the lab database")
             self.assertNotEqual(done.returncode, 0)
 
+
+    def test_code_spread_counts_both_columns_across_the_log(self):
+        def record(punch, status):
+            return visit.zk.RawAttendance("1", datetime(2026, 9, 1, 8, 0), status=status, punch=punch,
+                                          record_size=40)
+        self.assertEqual(visit.code_spread([record(0, 1), record(1, 1), record(0, 1)]),
+                         {"punch": {0: 2, 1: 1}, "status": {1: 3}})
+
+    # ADZV224371697's own log, counted from the backup the 2026-09-21 visit took: 11 426 records.
+    REAL_SPREAD = {"punch": {0: 5779, 1: 5640, 4: 2, 5: 5}, "status": {1: 11424, 15: 2}}
+
+    def test_the_log_decides_the_in_out_code_when_the_two_punches_cannot(self):
+        """That terminal stored the check-out with the same two codes as the check-in, so the pair
+        answers nothing. Its log does -- but not by either column being constant: `status` is 1 in
+        11 424 records and 15 in two, which is two people identifying themselves differently, not
+        the branch going home. The column that tells an arrival from a departure carries both in
+        numbers, and `punch` splits 5 779 to 5 640."""
+        same = ((5, 1), (5, 1))
+        self.assertIsNone(visit.in_out_field(*same, out_value=1))
+        self.assertEqual(visit.in_out_field(*same, out_value=1, spread=self.REAL_SPREAD), "punch")
+        # A handful of exceptions is not a second value in the sense that matters.
+        self.assertFalse(visit.separates({1: 11424, 15: 2}))
+        self.assertTrue(visit.separates({0: 5779, 1: 5640, 4: 2, 5: 5}))
+        # Two balanced columns are ambiguous again, and so is a log too short to carry the argument.
+        self.assertIsNone(visit.in_out_field(*same, out_value=1,
+                                             spread={"punch": {0: 600, 1: 400}, "status": {1: 600, 2: 400}}))
+        self.assertIsNone(visit.in_out_field(*same, out_value=1,
+                                             spread={"punch": {0: 100, 1: 50}, "status": {1: 150}}))
+        # What was watched keeps precedence: `status` changed between these two punches, so it stays
+        # the answer even though the log's `punch` column is the balanced one.
+        self.assertEqual(visit.in_out_field((15, 0), (15, 1), out_value=1, spread=self.REAL_SPREAD), "status")
+
+    def test_only_an_errno_that_means_the_packet_never_left_counts(self):
+        """113 is EHOSTUNREACH: the kernel never resolved the hardware address, so nothing was sent
+        and the terminal said nothing. 111 is the terminal refusing, which is the terminal talking."""
+        self.assertEqual(visit.unreachable_errno(
+            "cannot reach 192.168.1.201:4370 over TCP: [Errno 113] No route to host"), 113)
+        self.assertEqual(visit.unreachable_errno(OSError(113, "No route to host")), 113)
+        self.assertIsNone(visit.unreachable_errno("[Errno 111] Connection refused"))
+        self.assertIsNone(visit.unreachable_errno("the terminal did not answer in time"))
 
 class ABacklogThatIsStillDraining(unittest.TestCase):
     """Runbook 5.4 asks how long a punch takes to arrive and which code carries in/out. A terminal
@@ -1457,3 +1546,47 @@ class WhatTheHeadlineMustNotDeny(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WhenTheLaptopNeverReachedTheTerminal(unittest.TestCase):
+    """EHOSTUNREACH means no packet left this laptop, so the terminal was never asked and has
+    answered nothing. None of it belongs in a device-compatibility finding."""
+
+    FACTS = {"addresses": [{"ip": "192.168.1.26", "network": "192.168.1.0/24"}],
+             "wifi": {"interface": "wlp0s20f3", "link": 42, "level": -68, "misc": 403, "missed_beacon": 0},
+             "target": "192.168.1.201", "arp": "FAILED",
+             "ping": {"transmitted": 5, "received": 5, "duplicates": 3, "loss_percent": 0.0,
+                      "rtt_ms": {"min": 0.89, "avg": 41.6, "max": 441.49, "mdev": 75.5}}}
+
+    def visit_whose_read_fails(self, directory, message):
+        visited = visit.Visit(console=ScriptedConsole([]), out_dir=directory, wait_seconds=1,
+                              laptop_network=lambda ip=None, ping_count=10: dict(self.FACTS))
+        visited.zk_link = ("192.168.1.201", 4370, 0, False)
+
+        def refuse():
+            raise visit.zk.ZkError(message)
+        visited.zk_records = refuse
+        return visited
+
+    def test_the_remedy_names_this_laptops_network_instead_of_the_issue_tracker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_whose_read_fails(
+                directory, "cannot reach 192.168.1.201:4370 over TCP: [Errno 113] No route to host")
+            self.assertIsNone(visited.one_new_punch("خلي الموظف يعمل بصمة"))
+        finding = visited.findings[-1]
+        self.assertIn("[Errno 113]", finding.text)
+        for measured in ("شبكة اللابتوب", "-68 dBm", "FAILED", "3 مكرر", "441.49"):
+            self.assertIn(measured, finding.fix)
+        self.assertNotIn("issue", finding.fix)
+        # And the report carries the numbers, so the operator need not remember them.
+        self.assertIn("FAILED", visited.sheet["شبكة اللابتوب وقت المشكلة"])
+
+    def test_a_terminal_that_refuses_keeps_the_terminals_own_remedy(self):
+        """A refusal is the terminal answering. Rewriting that as a laptop problem would send an
+        operator to move the laptop while the terminal sits there refusing on 4370."""
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_whose_read_fails(
+                directory, "cannot reach 192.168.1.201:4370 over TCP: [Errno 111] Connection refused")
+            self.assertIsNone(visited.one_new_punch("خلي الموظف يعمل بصمة"))
+        self.assertEqual(visited.findings[-1].fix, "استنى شوية وشغّل الأمر تاني")
+        self.assertEqual(visited.sheet["شبكة اللابتوب وقت المشكلة"], "")

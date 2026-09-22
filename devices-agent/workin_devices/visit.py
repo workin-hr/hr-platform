@@ -57,8 +57,9 @@ SHEET_ROWS = (
     "سطر ATTLOG: الفاصل", "طول كود الموظف", "عدد السجلات على الجهاز", "عدد الموظفين", "بصمة وصلت خلال",
     "شلنا الكابل: البصمات وصلت بعد الرجوع؟", "وقفنا الـ capture 10 دقايق: الجهاز عاد الإرسال؟",
     "البصمة دي اتسجلت مرة واحدة؟", "الدخول", "الخروج", "الـ in_out_field الصح",
+    "توزيع أكواد الدخول/الخروج في سجل الجهاز",
     "الموظفين بيدوسوا زرار الدخول/الخروج؟", "USB: ترتيب الأعمدة زي الـ Push؟", "Hikvision: أكواد الحضور اللي ظهرت",
-    "مشاكل تانية",
+    "شبكة اللابتوب وقت المشكلة", "مشاكل تانية",
 )
 # What this visit cannot test (runbook 5.4, under the table): the recorder speaks plain HTTP only,
 # and the other two need a change on the terminal or a refusal after an upload.
@@ -409,15 +410,85 @@ def push_facts(exchanges: list[Exchange], serial: str) -> tuple[dict[str, str], 
     return facts, findings
 
 
-def in_out_field(check_in: tuple[int, int], check_out: tuple[int, int], out_value: int) -> str | None:
+# Below this many records the log cannot carry the argument in_out_field makes from it: a branch
+# of a few dozen employees writes this in about two days, and a shorter log can hold a run of
+# entries with no exit in it at all, whose one-sided column would then be read as meaningful.
+IN_OUT_LOG_MINIMUM = 200
+# How much of a long log the second-commonest value in a column must hold for that column to be
+# telling entries from exits. Everyone who comes in goes out again, so that column is close to
+# balanced; a tenth leaves room for a branch where people often forget the exit key, and still
+# excludes a column that is one value with a handful of exceptions.
+IN_OUT_MINORITY_SHARE = 0.10
+
+
+def code_spread(records) -> dict[str, dict[int, int]]:
+    """How many records carry each value of the two codes, across the whole log just read."""
+    return {name: dict(sorted(Counter(getattr(record, name) for record in records).items()))
+            for name in ("punch", "status")}
+
+
+def in_out_field(check_in: tuple[int, int], check_out: tuple[int, int], out_value: int,
+                 spread: dict[str, dict[int, int]] | None = None) -> str | None:
     """Which of a 4370 record's two codes carries in/out, from a check-in punch and a check-out
     punch as (punch, status): the code that CHANGED to the check-out value. One record cannot
     answer this -- a terminal whose verify mode is 1 (fingerprint) reads 1 in `status` on every
-    punch, and reading a single check-out record would call that the in/out code. Ambiguous
-    (both changed, or neither) is None: the visit reports it rather than picking one."""
+    punch, and reading a single check-out record would call that the in/out code.
+
+    A terminal can store the check-out with both codes identical to the check-in's, and then the
+    two punches answer nothing. The log already on the laptop still can: everyone who comes in goes
+    out again, so across thousands of stored punches the in/out column is close to balanced, while
+    a column recording how people identified themselves is not. If exactly one of the two is
+    balanced, it is the answer and `spread` is the evidence for it. Still ambiguous is None: the
+    visit reports that rather than picking one."""
     changed = [name for index, name in ((0, "punch"), (1, "status"))
                if check_out[index] == out_value and check_in[index] != check_out[index]]
-    return changed[0] if len(changed) == 1 else None
+    if len(changed) == 1:
+        return changed[0]
+    if not spread or sum(spread.get("punch", {}).values()) < IN_OUT_LOG_MINIMUM:
+        return None
+    balanced = [name for name in ("punch", "status") if separates(spread.get(name) or {})]
+    return balanced[0] if len(balanced) == 1 else None
+
+
+def separates(counts: dict[int, int]) -> bool:
+    """Could this column be the one telling an entry from an exit, judged by its own spread?
+
+    Not "does it ever change": ADZV224371697's `status` reads 1 in 11 424 of its 11 426 records and
+    15 in the other two, and two records out of eleven thousand are somebody identifying themselves
+    differently, not the branch going home. A column that separates arrivals from departures
+    carries both in numbers."""
+    counted = sorted(counts.values(), reverse=True)
+    return len(counted) > 1 and counted[1] >= sum(counted) * IN_OUT_MINORITY_SHARE
+
+
+def unreachable_errno(error) -> int | None:
+    """The errno of a connect that never reached the terminal, read out of whatever the visit holds
+    -- the exception, or the text an agent pass has already flattened it into.
+
+    `[Errno 113]` is written by Python and is not translated; the strerror beside it is, so the
+    number is what this reads. Only the errnos that mean the packet never left count: they are the
+    ones that say nothing at all about the terminal."""
+    match = re.search(r"\[Errno (\d+)\]", str(error))
+    found = int(match.group(1)) if match else None
+    return found if found in zk.TRANSIENT_CONNECT_ERRNOS else None
+
+
+def describe_network(facts: dict) -> str:
+    """This laptop's own link, in one line an operator can read out and paste into an issue."""
+    parts = []
+    wifi = facts.get("wifi")
+    if wifi:
+        parts.append(f"الواي فاي {wifi['level']} dBm (link {wifi['link']}، discarded misc {wifi['misc']})")
+    if facts.get("arp"):
+        parts.append(f"ARP {facts['target']}: {facts['arp']}")
+    ping = facts.get("ping") or {}
+    if "loss_percent" in ping:
+        spread = ping.get("rtt_ms") or {}
+        parts.append(f"ping {ping['loss_percent']}% loss، {ping['duplicates']} مكرر"
+                     + (f"، {spread['min']}-{spread['max']} ms" if spread else ""))
+    elif ping.get("unavailable"):
+        parts.append(f"ping: {ping['unavailable']}")
+    return "، ".join(parts) if parts else "مفيش أرقام عن شبكة اللابتوب ده"
 
 
 def usb_files(out_dir: Path, user: str | None = None) -> list[Path]:
@@ -456,7 +527,7 @@ class Visit:
                  settle_seconds: float = 15, pause_seconds: float = 600, quiet_seconds: float = 25,
                  sleep=time.sleep, clock=time.monotonic,
                  now=datetime.now, utc_now=lambda: datetime.now(timezone.utc), networks=probe.lan_networks,
-                 scan=probe.scan):
+                 scan=probe.scan, laptop_network=probe.laptop_network):
         self.console = console or Console()
         self.lab = lab or Lab()
         self.out = Path(out_dir or AGENT_DIR / "field-report")
@@ -464,8 +535,9 @@ class Visit:
         self.wait_seconds, self.settle_seconds, self.pause_seconds = wait_seconds, settle_seconds, pause_seconds
         self.quiet_seconds = quiet_seconds
         self.sleep, self.clock, self.now, self.utc_now = sleep, clock, now, utc_now
-        self.networks, self.scan = networks, scan
+        self.networks, self.scan, self.laptop_network = networks, scan, laptop_network
         self.sheet = {row: "لم يُختبر" if row in UNTESTED else "" for row in SHEET_ROWS}
+        self.code_spread: dict[str, dict[int, int]] = {}
         self.findings: list[Finding] = []
         self.serial: str | None = None
         self.allocated: dict[str, str] = {}
@@ -715,7 +787,8 @@ class Visit:
             summary = probe.zk_summary(host, port, key, udp, timeout=8)
         if "error" in summary:
             self.note("bad", f"الجهاز مارَدّش: {summary['error']}",
-                      "اتأكد من IP الجهاز (صورة رقم 3) ومن الكابل، واستنى شوية وجرّب تاني (ممكن الجهاز مشغول)")
+                      self.laptop_network_fix(summary["error"], host)
+                      or "اتأكد من IP الجهاز (صورة رقم 3) ومن الكابل، واستنى شوية وجرّب تاني (ممكن الجهاز مشغول)")
             return None
         serial = str(summary.get("serial") or "")
         if not cfg.SERIAL.match(serial):
@@ -769,15 +842,34 @@ class Visit:
             count = probe.backup_attendance(host, str(path), port, key, udp)
         except zk.ZkError as exc:
             self.note("bad", f"النسخة الاحتياطية ماتعملتش: {exc}",
-                      "ماتغيّرش أي إعداد على الجهاز من غير نسخة. استنى شوية وشغّل الأمر تاني")
+                      self.laptop_network_fix(exc)
+                      or "ماتغيّرش أي إعداد على الجهاز من غير نسخة. استنى شوية وشغّل الأمر تاني")
             return False
         self.note("ok", f"النسخة الاحتياطية اتعملت: {count} سجل في field-report/{path.name}")
         return True
 
+    def laptop_network_fix(self, error, host: str | None = None) -> str | None:
+        """The remedy for a terminal this laptop never reached, with the laptop's own numbers in it.
+
+        EHOSTUNREACH means the kernel could not resolve the address's hardware address and no
+        packet left, so the terminal was never asked and has answered nothing. Sending the operator
+        to open a device-compatibility finding for that files the laptop's Wi-Fi as a fault of the
+        terminal on the wall, and the model's record carries it from then on."""
+        if unreachable_errno(error) is None:
+            return None
+        target = host or (self.zk_link[0] if self.zk_link else None)
+        measured = describe_network(self.laptop_network(target, ping_count=5))
+        self.sheet["شبكة اللابتوب وقت المشكلة"] = measured
+        return ("المشكلة في شبكة اللابتوب مش في الجهاز: مفيش ولا حزمة وصلت للجهاز. " + measured
+                + ". قرّب اللابتوب من الراوتر، أو اتوصّل بكابل، وبعدين جرّب الخطوة دي تاني")
+
     def zk_records(self) -> list[zk.RawAttendance]:
         host, port, key, udp = self.zk_link
         with zk.ZkClient(host, port, 15, key, udp) as client:
-            return client.attendance()
+            records = client.attendance()
+        # Kept for in_out_field: every full read refreshes what the stored log says about the codes.
+        self.code_spread = code_spread(records)
+        return records
 
     def agent_zk(self, summary: dict) -> None:
         self.title("6. قراءة الجهاز عن طريق الـ agent")
@@ -816,14 +908,26 @@ class Visit:
             out_value, source = int(self.push.out_value), "رقم الخروج في تجربة الـ Push"
         self.say(f"   بصمة الدخول: punch={check_in.punch}، status={check_in.status}")
         self.say(f"   بصمة الخروج: punch={check_out.punch}، status={check_out.status} ({source}: {out_value})")
-        field = in_out_field((check_in.punch, check_in.status), (check_out.punch, check_out.status), out_value)
+        if self.code_spread:
+            self.sheet["توزيع أكواد الدخول/الخروج في سجل الجهاز"] = (
+                f"punch {self.code_spread['punch']}، status {self.code_spread['status']}")
+        field = in_out_field((check_in.punch, check_in.status), (check_out.punch, check_out.status), out_value,
+                             self.code_spread)
         if field is None:
             self.sheet["الـ in_out_field الصح"] = "مش واضح"
             self.note("bad", f"مش واضح أنهي عمود فيه الدخول والخروج: الدخول (punch={check_in.punch}، "
-                             f"status={check_in.status}) والخروج (punch={check_out.punch}، status={check_out.status})",
+                             f"status={check_in.status}) والخروج (punch={check_out.punch}، status={check_out.status})"
+                             + (f"، وفي سجل الجهاز punch {self.code_spread['punch']} و status "
+                                f"{self.code_spread['status']}" if self.code_spread else ""),
                       "اتأكد إن الموظف داس زرار الخروج في البصمة التانية بس، وجرّب تاني؛ "
                       "لو نفس النتيجة اكتب الأرقام دي في الـ issue")
             return None
+        if (check_in.punch, check_in.status) == (check_out.punch, check_out.status):
+            self.note("warn", f"الجهاز سجّل بصمة الخروج بنفس الكودين بتاعين الدخول "
+                              f"(punch={check_out.punch}، status={check_out.status})، "
+                              f"والعمود اتحدد من سجل الجهاز نفسه",
+                      "يا إما الموظف مادسش زرار الخروج، يا إما الفيرموير ده مابيغيّرش الكود: "
+                      "اكتب التوزيع اللي في ورقة النتائج في الـ issue")
         self.sheet["الـ in_out_field الصح"] = field
         index = 0 if field == "punch" else 1
         self.sheet["الدخول"] = str((check_in.punch, check_in.status)[index])
@@ -839,7 +943,8 @@ class Visit:
             # same second are two records that look identical, and a set would hide the second.
             before = Counter((record.user_id, record.timestamp) for record in self.zk_records())
         except zk.ZkError as exc:
-            self.note("bad", f"مقدرناش نقرأ سجلات الجهاز: {exc}", "استنى شوية وشغّل الأمر تاني")
+            self.note("bad", f"مقدرناش نقرأ سجلات الجهاز: {exc}",
+                      self.laptop_network_fix(exc) or "استنى شوية وشغّل الأمر تاني")
             return None
         self.mark_push()
         self.enter(instruction)
@@ -906,7 +1011,9 @@ class Visit:
             self.note("bad", "سيستم اللاب رفض التوكن", "scripts/devices-lab.sh seed وبعدين شغّل الأمر تاني")
             return
         if first.error:
-            fix = next((text for needle, text in AGENT_FIXES if needle in first.error), "اكتب الرسالة دي في الـ issue")
+            fix = (self.laptop_network_fix(first.error)
+                   or next((text for needle, text in AGENT_FIXES if needle in first.error),
+                           "اكتب الرسالة دي في الـ issue"))
             self.note("bad", f"الإرسال فشل: {first.error}", fix)
             return
         self.agent_sent = True
