@@ -373,7 +373,12 @@ are both answered and implemented:
    consequences follow and are accepted: an asset request still counts as
    session activity, so a browser fetching assets keeps a session from going
    idle; and a deactivated administrator's browser is served assets until a
-   request that can reach a controller is revalidated and refused. Every
+   request that can reach a controller is revalidated and refused. The
+   **absolute cap is not skipped**, precisely because of the first consequence —
+   a page that keeps fetching assets must not carry a session past a cap that is
+   non-renewable by construction, so `stillValid` checks the cap on every
+   request and only the repository reload is conditional
+   (`anAssetRequestPastTheAbsoluteCapIsStillRefused`). Every
    request that can reach a controller is still revalidated, which is what
    "next request" means here and what the deactivation tests assert. The
    exception is refused for any path under the prefix that contains a

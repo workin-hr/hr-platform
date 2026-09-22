@@ -122,6 +122,31 @@ class PlatformAdminSessionRevalidationFilterTest {
 		assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
 	}
 
+	@Test
+	void anAssetRequestPastTheAbsoluteCapIsStillRefused() throws Exception {
+		givenAdministrator(true);
+		MockHttpSession session = sessionEstablished(
+				PlatformAdminWebSecurityConfig.ABSOLUTE_CAP.plusMinutes(1));
+
+		doFilter(session, "/admin/_assets/app-ui.css");
+
+		assertThat(SecurityContextHolder.getContext().getAuthentication())
+			.as("an asset request carries the session cookie, so a page fetching assets must not "
+					+ "carry a session past a cap that is meant to be non-renewable")
+			.isNull();
+		assertThat(session.isInvalid()).isTrue();
+		verifyNoInteractions(this.repository);
+	}
+
+	@Test
+	void anAssetRequestWithNoEstablishmentStampIsRefused() throws Exception {
+		givenAdministrator(true);
+
+		doFilter(new MockHttpSession(), "/admin/_assets/app-ui.css");
+
+		assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+	}
+
 	/**
 	 * The skip reads the raw path, so anything that could still resolve
 	 * elsewhere -- a traversal segment, a double slash, any percent-encoding --
