@@ -964,7 +964,11 @@ class Visit:
         facts = self.laptop_network(target, ping_count=5)
         measured = describe_network(facts)
         self.sheet["حالة الشبكة وقت المشكلة"] = measured
-        wireless = (facts.get("wifi") or {}).get("level") is not None
+        # `interface` first: with no target to route to, `laptop_network` reports the first
+        # wireless interface in /proc/net/wireless -- any interface, not the one that would carry
+        # this terminal -- and advising "move closer to the router" from that is the false remedy
+        # the round-2 finding was about. No resolved interface means no interface-specific advice.
+        wireless = bool(facts.get("interface")) and (facts.get("wifi") or {}).get("level") is not None
         # Each half says only what was measured. Without `ip` or `ping` -- the Windows build, or a
         # stripped laptop -- there is no ARP state to assert and no interface to advise about, and
         # the errno alone can be ENETUNREACH or EHOSTDOWN rather than a failed ARP exchange.
@@ -1130,8 +1134,12 @@ class Visit:
                 f"server_url = {_toml(self.lab.server_url)}\ntoken_file = {_toml(str(self.lab.token_path))}\n"
                 f"spool_path = {_toml(spool)}\ninsecure_skip_tls_verify = true\nin_out_field = {_toml(in_out_field)}\n")
 
-    def send_twice(self, path: Path) -> None:
-        """Runbook 6.4: the first pass sends the log, the second must store nothing."""
+    def send_twice(self, path: Path, host: str | None = None) -> None:
+        """Runbook 6.4: the first pass sends the log, the second must store nothing.
+
+        `host` is the terminal this config sends, for the remedy below. `zk_link` carries it on the
+        ZKTeco path; the Hikvision path never sets `zk_link`, so without this it measured no target
+        at all."""
         try:
             config = cfg.load(str(path))
         except cfg.ConfigError as exc:
@@ -1150,7 +1158,7 @@ class Visit:
             # Only when the terminal itself was not reached. `reachable` is set after it answered, so
             # the same errno arriving with it set came from the delivery to the lab server, and
             # telling the operator to check the terminal's network path would be false.
-            fix = ((self.unreachable_path_fix(first.error) if not first.reachable else None)
+            fix = ((self.unreachable_path_fix(first.error, host) if not first.reachable else None)
                    or next((text for needle, text in AGENT_FIXES if needle in first.error),
                            "اكتب الرسالة دي في الـ issue"))
             self.note("bad", f"الإرسال فشل: {first.error}", fix)
@@ -1527,7 +1535,7 @@ class Visit:
                         f"\n[[devices]]\nserial = {_toml(serial)}\nkind = \"hikvision\"\nhost = {_toml(host)}\n"
                         f"port = {device.port}\nhttps = {'true' if device.https else 'false'}\n"
                         f"username = {_toml(username)}\npassword_file = \"hik.pw\"\n", encoding="utf-8")
-        self.send_twice(path)
+        self.send_twice(path, host)
 
     # -- USB (runbook 7) and anything else (runbook 9) ----------------------------------------
 
@@ -1698,7 +1706,14 @@ class Visit:
         """Record a serial so the report cannot publish it.
 
         Short ones are kept out: `config.SERIAL` accepts a single character, and substituting that
-        would rewrite ordinary cells of the report rather than a serial."""
+        would rewrite ordinary cells of the report rather than a serial -- the in/out cells are one
+        digit each.
+
+        **The residual, since the report's preamble claims it carries no serial at all:** a two- or
+        three-character serial is below `SERIAL_MINIMUM` and so is published. `config.SERIAL` accepts
+        one, so an operator can type it at the USB prompt. The floor is kept anyway -- real ZKTeco
+        serials are long, and a narrower rule reintroduces the rewriting of the report's own
+        numbers, which is the worse failure."""
         text = (serial or "").strip()
         if len(text) >= SERIAL_MINIMUM and text != "device":
             self.serials.add(text)
