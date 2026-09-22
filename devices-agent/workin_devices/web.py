@@ -372,7 +372,11 @@ class Session:
                 return {"error": "الزيارة شغالة دلوقتي: استنى لما تخلص، أو أوقفها"}
             # `ip:port` as the wizard's own "type the address" step accepts it, so the simulator and
             # a terminal on an unusual port are reachable from here too.
-            host, _, typed_port = (form.get("host") or "").strip().partition(":")
+            host, _, typed_port = str(form.get("host") or "").strip().partition(":")
+            if host and typed_port and not typed_port.isdigit():
+                # Dropped in silence before: `192.168.1.201:-1` reported the terminal unreachable
+                # **on 4370**, a port the operator never asked for.
+                return {"error": f"البورت لازم يكون رقم بين 1 و 65535، مش {typed_port!r}"}
             if typed_port.isdigit():
                 # Range-checked here rather than at `connect()`, where an out-of-range port raises
                 # `OverflowError` -- which is not an `OSError` and so escaped the refusal below as
@@ -423,8 +427,14 @@ class Session:
             return ""
         return (self.visit.in_out if self.visit else "") or ""
 
+    PING_LIMIT = 30
+
     def _tool_netcheck(self, host: str, form: dict) -> dict:
-        return {"network": probe.laptop_network(host, ping_count=int(form.get("count") or 10))}
+        # `ping_facts` waits `count + 5` seconds, and `tool` holds `gate` for the whole call -- the
+        # same gate `start()` and `close()` take, so an unbounded count from a hand-rolled client
+        # would block Start and make Ctrl-C report the visit unfinished.
+        asked = int(form.get("count") or 10)
+        return {"network": probe.laptop_network(host, ping_count=max(1, min(asked, self.PING_LIMIT)))}
 
     def _tool_scan(self, host: str, form: dict) -> dict:
         """The network the operator picked, narrowed as the wizard narrows it, and kept on disk.
@@ -462,6 +472,13 @@ class Session:
         summary = probe.zk_summary(host, port, key, udp, timeout=8)
         if "error" in summary:
             return {"error": summary["error"]}
+        if summary.get("comm_key_required"):
+            # Not "the device replied with a serial the system will not accept: ''", which is what
+            # the serial check below said: `zk_summary` returns no `error` key for an unauthorised
+            # answer, so both tools fell through with an empty serial and sent the operator to
+            # photograph a sticker over a box on their own screen.
+            return {"error": "الجهاز عليه Comm Key: اكتبه في خانة الـ Comm Key وجرّب تاني "
+                             "(Menu → Comm. → Connection)"}
         serial = str(summary.get("serial") or "")
         if not cfg.SERIAL.match(serial):
             return {"error": f"الجهاز رد بسيريال السيستم مش هيقبله: {serial!r}"}
@@ -483,6 +500,13 @@ class Session:
         summary = probe.zk_summary(host, port, key, udp, timeout=8)
         if "error" in summary:
             return {"error": summary["error"]}
+        if summary.get("comm_key_required"):
+            # Not "the device replied with a serial the system will not accept: ''", which is what
+            # the serial check below said: `zk_summary` returns no `error` key for an unauthorised
+            # answer, so both tools fell through with an empty serial and sent the operator to
+            # photograph a sticker over a box on their own screen.
+            return {"error": "الجهاز عليه Comm Key: اكتبه في خانة الـ Comm Key وجرّب تاني "
+                             "(Menu → Comm. → Connection)"}
         serial = str(summary.get("serial") or "")
         if not cfg.SERIAL.match(serial):
             return {"error": f"الجهاز رد بسيريال السيستم مش هيقبله: {serial!r}"}
@@ -497,7 +521,29 @@ class Session:
         return {"serial": serial, "in_out": field, "findings": len(visited.findings)}
 
 
-def make_handler(session: Session, token: str, out: Path):
+def our_origin(name: str | None, bound: str) -> bool:
+    """May a page on this `Origin` drive the visit? The same set of hosts `loopback()` may bind.
+
+    They were two different sets: this listed `127.0.0.1` and `localhost` literally, while
+    `loopback()` blesses any host whose every address is loopback. So `--host ::1` -- which round
+    5 taught the server to bind and `page_address` prints correctly -- served the page, polled the
+    transcript, and then answered **403 to every write**: Start, Stop, every answer, every tool. A
+    browser sends `Origin` on a same-origin POST, and `[::1]` is not in that tuple.
+
+    No name resolution: the `Origin` is attacker-chosen text, and looking it up would make a
+    refusal depend on DNS. A literal is judged as a literal, and the host actually bound is
+    accepted by name, which covers an alias in `/etc/hosts` that `loopback()` resolved."""
+    if not name:
+        return False
+    if name == bound or name == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(name.partition("%")[0]).is_loopback
+    except ValueError:
+        return False
+
+
+def make_handler(session: Session, token: str, out: Path, bound: str = "127.0.0.1"):
     class Handler(http.server.BaseHTTPRequestHandler):
         server_version = "workin-devices-web"
 
@@ -513,7 +559,7 @@ def make_handler(session: Session, token: str, out: Path):
             # A page on another origin may send a request but must not read or drive this one. Its
             # Origin is the browser's word, not the sender's, which is exactly what makes it useful.
             origin = self.headers.get("Origin")
-            return not origin or urlparse(origin).hostname in ("127.0.0.1", "localhost")
+            return not origin or our_origin(urlparse(origin).hostname, bound)
 
         def _json(self, payload: dict, status: int = 200) -> None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -533,8 +579,13 @@ def make_handler(session: Session, token: str, out: Path):
             except (ValueError, UnicodeDecodeError):
                 return {}
             # A JSON list or string parses fine and then has no `.get`, which reached the route
-            # bodies below as an `AttributeError`.
-            return sent if isinstance(sent, dict) else {}
+            # bodies below as an `AttributeError`. A *field* that is not a scalar did the same one
+            # level down -- `{"host": ["..."]}` reached `.strip()` -- so those are dropped rather
+            # than coerced: `bool("false")` is True, and `udp` and `consent` are read as booleans.
+            if not isinstance(sent, dict):
+                return {}
+            return {key: value for key, value in sent.items()
+                    if isinstance(value, (str, int, float, bool))}
 
         # -- reads ------------------------------------------------------------------------
 
@@ -668,7 +719,7 @@ def serve(session: Session, token: str, host: str = "127.0.0.1", port: int = DEF
     kind = http.server.ThreadingHTTPServer
     if socket.getaddrinfo(allowed, None, type=socket.SOCK_STREAM)[0][0] == socket.AF_INET6:
         kind = _Server6
-    server = kind((allowed, port), make_handler(session, token, session.out))
+    server = kind((allowed, port), make_handler(session, token, session.out, allowed))
     server.daemon_threads = True
     return server
 

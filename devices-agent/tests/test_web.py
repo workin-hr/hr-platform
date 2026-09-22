@@ -303,6 +303,16 @@ class APageRunningAVisit(unittest.TestCase):
         self.assertTrue(built, "a tool did not build the non-interruptible visit")
         self.assertTrue(slept, "a tool's wait was skipped by a Stop from a finished run")
         self.assertNotIn(0, slept, "a wait was reduced to nothing")
+        # The other half of the property, and the operationally worse one: this assertion was
+        # dropped when the test was rewritten, and a mutant handing the wizard a plain `time.sleep`
+        # then left the whole suite green. `FastSession` overrides `new_visit`, so the real wiring
+        # is only reachable through a plain `Session`.
+        plain = web.Session(self.out)
+        plain.console.stop()
+        started = time.monotonic()
+        plain.new_visit().sleep(30)
+        self.assertLess(time.monotonic() - started, 0.5,
+                        "the wizard's wait stopped being interruptible")
 
     def test_the_button_writes_its_own_file_through_the_path_a_tool_takes(self):
         """A sibling test pins `write_zk_agent_config`'s new `name` parameter. This pins the **call
@@ -477,6 +487,57 @@ class WhatThePageRefuses(unittest.TestCase):
         status, _ = call(f"{self.base}/start?t={self.token}", {}, {"Origin": self.base})
         self.assertEqual(status, 200)
 
+    def test_every_host_the_page_may_bind_may_also_drive_it(self):
+        """`loopback()` decides which hosts may be **bound**; the `Origin` check decides which may
+        **drive**. They were different sets -- the check listed two names literally -- so
+        `--host ::1`, which round 5 taught the server to bind and `page_address` prints correctly,
+        served the page and polled the transcript and then answered **403 to every write**: Start,
+        Stop, every answer to a question, every tool button. Driven, not asserted on the string:
+        a real listener on each host, with the `Origin` a browser sends on a same-origin POST."""
+        for host in ("127.0.0.1", "localhost", "::1", "127.0.0.2"):
+            with tempfile.TemporaryDirectory() as directory:
+                token = "bound-" + "b" * 20
+                session = web.Session(directory)
+                server = web.serve(session, token, host, 0)
+                threading.Thread(target=server.serve_forever, daemon=True).start()
+                try:
+                    base = web.page_address(host, server.server_address[1], token).split("/?")[0]
+                    status, body = call(f"{base}/start?t={token}", {}, {"Origin": base})
+                    self.assertEqual(status, 200, f"{host} could be bound but not driven: {body!r}")
+                    # And someone else's page still cannot, on every one of them.
+                    status, _ = call(f"{base}/start?t={token}", {}, {"Origin": "http://evil.example"})
+                    self.assertEqual(status, 403, host)
+                finally:
+                    session.close(timeout=10)
+                    server.shutdown()
+                    server.server_close()
+
+    def test_a_field_that_is_not_a_scalar_is_answered_rather_than_reaching_strip(self):
+        """The body-level guard landed and the field-level one did not: `{"host": ["..."]}` parses
+        into a dict and then reaches `.strip()` as an `AttributeError`, which is not in `tool`'s
+        refusal tuple -- so the shape the body guard's own docstring names, a hand-rolled client or
+        a stale script, still got an English 500 and a stack."""
+        for sent in ({"host": ["127.0.0.1"]}, {"host": {"ip": "127.0.0.1"}}, {"host": 7},
+                     {"host": "127.0.0.1", "count": [1]}):
+            status, body = call(f"{self.base}/tool/netcheck?t={self.token}", sent)
+            self.assertEqual(status, 200, f"{sent} was a {status}: {body!r}")
+            answered = json.loads(body)
+            self.assertNotIn("AttributeError", json.dumps(answered, ensure_ascii=False), sent)
+            self.assertNotIn("TypeError", json.dumps(answered, ensure_ascii=False), sent)
+
+    def test_a_port_that_is_not_a_number_is_refused_rather_than_discarded(self):
+        """`isdigit()` decided whether to *use* the typed port, so anything else was dropped without
+        a word and the tool reported the terminal unreachable on 4370 -- a port the operator never
+        asked for. The range was checked; the parse was not."""
+        # Not a trailing space: the whole address is stripped before it is split, so `"4370 "`
+        # is the ordinary path and reaching for it here would have tested the strip, not the parse.
+        for typed in ("-1", "abc", "4370.5", "+4370", "43 70"):
+            answered = self.session.tool("zk-info", {"host": f"192.0.2.9:{typed}"})
+            self.assertIn("error", answered, typed)
+            self.assertIn("البورت", answered["error"], typed)
+        # An address with no port at all is still the ordinary path.
+        self.assertEqual(self.session.link("192.0.2.9", {}), (4370, 0, False))
+
     def test_a_download_cannot_leave_the_report_directory(self):
         # A unique name, not a fixed one beside the temporary directory: two suite runs sharing a
         # TMPDIR both wrote `outside.md` there and each deleted the other's in teardown.
@@ -573,6 +634,41 @@ class WhatTheToolsMustNotAssume(unittest.TestCase):
         self.dir.cleanup()
 
     # -- the connection a repeated step uses ------------------------------------------------
+
+    def test_a_terminal_behind_a_comm_key_names_the_box_to_fill_not_an_issue_to_file(self):
+        """`zk_summary` answers `{"comm_key_required": True}` with **no** `error` key when the
+        terminal refuses the key, so both tools fell through to the serial check and said "the
+        device replied with a serial the system will not accept: `''`" -- whose remedy in the
+        runbook is to file an issue and photograph the sticker. The correction is one box on the
+        operator's own screen, which is why that box exists, and the wizard already says so. It is
+        the likeliest misconfiguration in the tools row."""
+        emulator = Emulator(Terminal(serial="SIM-KEYED-1", comm_key=1234), port=0).start()
+        address = f"127.0.0.1:{emulator.port}"
+        try:
+            for tool, extra in (("backup", {}), ("once", {"in_out_field": "punch"})):
+                answered = self.session.tool(tool, {"host": address, **extra})
+                self.assertIn("error", answered, tool)
+                self.assertIn("Comm Key", answered["error"], tool)
+                self.assertNotIn("سيريال", answered["error"],
+                                 f"{tool} blamed the serial for a key the operator can type")
+            # And with the key typed in, the same button gets through.
+            answered = self.session.tool("backup", {"host": address, "comm_key": "1234"})
+            self.assertNotIn("error", answered, answered)
+            self.assertEqual(answered["serial"], "SIM-KEYED-1")
+        finally:
+            emulator.stop()
+
+    def test_a_ping_count_cannot_hold_the_gate_the_whole_visit_waits_on(self):
+        """`ping_facts` waits `count + 5` seconds and `tool` holds `gate` for the whole call -- the
+        same gate `start()` and `close()` take, so an unbounded count would block Start and make
+        Ctrl-C report the visit unfinished. The shipped page never sends `count`; this is the API
+        the token in the browser's URL bar also reaches."""
+        asked = []
+        with mock.patch.object(web.probe, "laptop_network",
+                              lambda ip=None, ping_count=10: asked.append(ping_count) or {}):
+            for sent in (100000, 0, -5, 7):
+                self.session.tool("netcheck", {"host": "127.0.0.1", "count": sent})
+        self.assertEqual(asked, [web.Session.PING_LIMIT, 10, 1, 7])
 
     def test_a_repeated_step_reuses_the_comm_key_and_udp_the_wizard_discovered(self):
         """A terminal behind a Comm Key, or speaking UDP, answers nothing on port 4370/key 0/TCP.
