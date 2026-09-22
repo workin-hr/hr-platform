@@ -390,7 +390,10 @@ class Session:
                     # Dropped in silence before: `192.168.1.201:-1` reported the terminal
                     # unreachable **on 4370**, a port the operator never asked for.
                     return {"error": f"البورت لازم يكون رقم بين 1 و 65535، مش {typed_port!r}"}
-                if typed_port:
+                if typed_port.isdigit():
+                    # `isdigit()` again rather than `if typed_port:`, so this `int()` is safe on its
+                    # own terms instead of depending on the refusal three lines above -- removing
+                    # that refusal would otherwise raise `ValueError` straight past `tool`.
                     # Range-checked here rather than at `connect()`, where an out-of-range port
                     # raises `OverflowError` -- not an `OSError`, so it escaped the refusal below
                     # as a reset connection and a traceback, for one extra digit in the box.

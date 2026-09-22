@@ -636,7 +636,15 @@ def _no_path(value: str) -> str:
 
     At the seam rather than at the call site, for the reason `_no_address` gives: an exception's own
     text carries paths too, and redacting per finding holds only until the next finding is written.
-    The console still shows the whole path, and it stays in field-report/ on the laptop."""
+    The console still shows the whole path, and it stays in field-report/ on the laptop.
+
+    **Two limits, both deliberate and neither silent.** A directory name containing a space is
+    indistinguishable from prose to any regex, so `/home/k/شركة النور/x.dat` keeps the middle word --
+    which is why `usb_flow`, the one place that knows it holds a path, does not rely on this. And the
+    pattern is **POSIX-rooted only**: a Windows path (`C:\\Users\\...`, or `C:/Users/...`, whose
+    leading slash follows a colon exactly as `https://` does) is not matched, so on the Windows
+    executable this backstop protects nothing. The call-site fix covers every platform; this covers a
+    path that arrives inside an exception's text, on POSIX."""
     def one(found):
         # An exception quotes the path it could not open, and the quote is not part of it.
         last = found.group(1).rstrip("'\"»)]},;:.")

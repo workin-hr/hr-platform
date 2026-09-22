@@ -1889,6 +1889,13 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
         # holds a path does not rely on this, and why a path inside an exception's text is a
         # backstop rather than a guarantee.
         self.assertIn("النور", visit._no_path("/home/k/شركة النور/x.dat"))
+        # And the other stated limit, asserted so the docstring cannot quietly become false: this
+        # package ships as a Windows executable, and neither Windows form is matched -- a backslash
+        # path has no rooted `/`, and `C:/...`'s leading slash follows a colon exactly as `https://`
+        # does. The call-site fix covers every platform; this backstop is POSIX-only.
+        for windows in (r"C:\Users\Karim\AlNoor\attlog.dat", "C:/Users/Karim/AlNoor/attlog.dat",
+                        r"\\server\share\Karim\attlog.dat"):
+            self.assertEqual(visit._no_path(windows), windows, windows)
 
     def test_the_report_names_no_serial_because_the_runbook_says_to_paste_it_in_public(self):
         """A serial is the only thing that identifies a terminal to the device endpoint (R-041,
