@@ -68,13 +68,15 @@ was not observed says so.
 
 ### Observed
 
+A terminal's serial is the **only** thing that identifies it to the device endpoint (`docs/api/device-endpoints.md`), so knowing one is enough to inject punches against a claimed device (R-041) or to squat an unclaimed one (R-042). A serial read on a visit therefore never reaches a tracked file: this repository is public. Each verified terminal gets a stable pseudonym here -- `TERMINAL-A`, `TERMINAL-B`, ... -- and the real serial stays in that visit's own `field-report/` on the operator's laptop. `test_no_tracked_file_publishes_a_terminal_serial` is the gate.
+
 | Field | Value |
 |---|---|
 | Vendor | ZKTeco |
 | Model | MB20/ID |
 | Platform | ZLM60_TFT |
 | Firmware | Ver 6.60 Oct 12 2021 |
-| Serial | ADZV224371697 |
+| Serial | `TERMINAL-A` |
 | Transport | TCP 4370 |
 | Comm key | none set |
 | Record format | 40-byte |

@@ -53,6 +53,32 @@ def cmd_once(args):
     return 0 if all(result.healthy for result in results) else 1
 
 
+def in_out_verdict(configured: str, punches) -> str | None:
+    """What the whole log says about which column can carry in/out, or None when it says nothing.
+
+    `doctor` already reads every record, and the manual Mode B procedure picks `in_out_field` from
+    what `doctor` prints. Read from the last punch alone that choice is wrong on a terminal that
+    stores a check-out with the same codes as a check-in: the operator switches columns until the
+    number reads 1, which on such a terminal lands on the verification column, and the next `once`
+    sends the whole log with every direction inverted. The log cannot elect a column -- see
+    `visit.in_out_field` -- so this only ever rules one out, and says so plainly when it cannot."""
+    from collections import Counter
+    from .visit import IN_OUT_LOG_MINIMUM, cannot_separate, separates
+    if len(punches) < IN_OUT_LOG_MINIMUM:
+        return None
+    other = "status" if configured == "punch" else "punch"
+    spread = {configured: dict(Counter(punch.status for punch in punches)),
+              other: dict(Counter(punch.verify for punch in punches))}
+    shown = "، ".join(f"{name} {dict(sorted(counts.items()))}" for name, counts in spread.items())
+    for name, rest in ((configured, other), (other, configured)):
+        if separates(spread[name]) and cannot_separate(spread[rest]):
+            return (f"in_out_field={name} ({shown}): {rest} ثابت في السجل كله فمايقدرش يكون "
+                    f"الدخول/الخروج، و{name} متوازن"
+                    + ("" if name == configured else f" — غيّر in_out_field لـ {name} قبل أي once"))
+    return (f"in_out_field مش واضح ({shown}): متسبتش على تخمين — "
+            "اكتب التوزيع ده في الـ issue، وماتشغّلش once لحد ما يتحدد")
+
+
 def cmd_doctor(args):
     """Reads every configured terminal and says what it is. Delivers nothing, changes nothing."""
     from .sources import SourceError, open_source
@@ -70,6 +96,9 @@ def cmd_doctor(args):
                   + ("  SERIAL MISMATCH" if mismatch else ""))
             for punch in punches[-3:]:
                 print(f"      last: PIN {punch.pin} {punch.local_time} in/out={punch.status} verify={punch.verify}")
+            verdict = in_out_verdict(config.in_out_field, punches)
+            if verdict:
+                print(f"      {verdict}")
             bad |= bool(mismatch)
         except SourceError as exc:
             print(f"  {device.serial:<24} {device.kind:<10} FAIL {exc}")

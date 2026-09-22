@@ -21,7 +21,8 @@ from pathlib import Path
 from . import capture
 from . import zk4370 as zk
 
-PORTS = {4370: "ZKTeco 4370", 80: "HTTP", 443: "HTTPS", 8000: "Hikvision SDK", 8080: "HTTP alt",
+ZK_PORT = 4370
+PORTS = {ZK_PORT: "ZKTeco 4370", 80: "HTTP", 443: "HTTPS", 8000: "Hikvision SDK", 8080: "HTTP alt",
          37777: "Dahua", 5010: "Anviz"}
 
 
@@ -106,7 +107,12 @@ def http_fingerprint(ip: str, port: int, timeout: float) -> dict:
 
 def probe_host(ip: str, timeout: float = 0.6, udp_probe: bool = True,
                retry_transient: bool = False) -> dict | None:
-    open_ports = [port for port in PORTS if _open(ip, port, timeout, retry_transient)]
+    # The retry is for the address, not for each port: EHOSTUNREACH is an ARP failure, which is per
+    # address, and `_open` returns instantly on it. Asked of all seven ports it would spend 28 s on
+    # an address that is simply not there, so it is asked of the one port this tool exists for --
+    # which is what keeps the cost of an absent host to the four seconds the runbook promises.
+    open_ports = [port for port in PORTS
+                  if _open(ip, port, timeout, retry_transient and port == ZK_PORT)]
     udp = udp_probe and zk_udp_answers(ip, timeout=timeout)
     if not open_ports and not udp:
         return None
@@ -196,10 +202,29 @@ def arp_state(ip: str, neigh_output: str | None = None) -> str | None:
     return None
 
 
-def wifi_link(proc_wireless: str | None = None) -> dict | None:
+def egress(ip: str, route_output: str | None = None) -> str | None:
+    """The interface the kernel would send to `ip` through, or None when it cannot be asked.
+
+    Which interface carries the traffic decides whether this laptop's Wi-Fi is evidence at all: on a
+    visit run over the customer's Ethernet with a phone hotspot also up, the hotspot's signal says
+    nothing about the link that failed, and a remedy naming it sends the operator to the wrong
+    router."""
+    if route_output is None:
+        import subprocess
+        try:
+            route_output = subprocess.run(["ip", "route", "get", ip], capture_output=True, text=True,
+                                          timeout=5).stdout
+        except (OSError, subprocess.SubprocessError):
+            return None
+    fields = route_output.split()
+    return fields[fields.index("dev") + 1] if "dev" in fields[:-1] else None
+
+
+def wifi_link(proc_wireless: str | None = None, interface: str | None = None) -> dict | None:
     """This laptop's Wi-Fi link as the driver reports it, or None when it has no Wi-Fi -- and on
     Windows, where the file does not exist. `level` is dBm: about -50 is a strong link, -70 is
-    where a site visit starts losing exchanges."""
+    where a site visit starts losing exchanges. With `interface`, only that one: a laptop can hold
+    two wireless links up, and only the one carrying the traffic is evidence."""
     if proc_wireless is None:
         try:
             proc_wireless = Path("/proc/net/wireless").read_text(encoding="utf-8")
@@ -209,6 +234,8 @@ def wifi_link(proc_wireless: str | None = None) -> dict | None:
         name, _, rest = line.partition(":")
         fields = rest.split()
         if not name.strip() or len(fields) < len(WIRELESS_COLUMNS):
+            continue
+        if interface is not None and name.strip() != interface:
             continue
         link = {"interface": name.strip()}
         for column, value in zip(WIRELESS_COLUMNS, fields):
@@ -252,8 +279,15 @@ def laptop_network(ip: str | None = None, ping_count: int = 10) -> dict:
 
     A visit that cannot reach a terminal reports this beside the terminal's error, so the operator
     reads which of the two was at fault instead of filing the laptop's Wi-Fi as a device finding."""
-    facts: dict = {"addresses": [{"ip": address, "network": network} for address, network in lan_networks()],
-                   "wifi": wifi_link()}
+    facts: dict = {"addresses": [{"ip": address, "network": network} for address, network in lan_networks()]}
+    route = egress(ip) if ip else None
+    facts["interface"] = route
+    # Wi-Fi facts only for the interface that reaches this address. Asked without one, any wireless
+    # link is what the laptop has; asked about a target reached over Ethernet, there is nothing
+    # wireless to report and saying so is the answer.
+    facts["wifi"] = wifi_link(interface=route) if route else (None if ip else wifi_link())
+    if ip and route and facts["wifi"] is None:
+        facts["wifi"] = {"unavailable": f"الجهاز بيتوصل عن طريق {route}، وده مش واي فاي"}
     if ip:
         facts["target"] = ip
         facts["arp"] = arp_state(ip)
