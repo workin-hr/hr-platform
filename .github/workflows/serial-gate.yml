@@ -1,0 +1,38 @@
+name: Serial Gate
+
+# `test_no_tracked_file_publishes_a_terminal_serial` reads the **tracked file set**: every tracked
+# Markdown document anywhere in the tree, plus the agent, docs, contracts, specs and workflow trees.
+# No `paths:` filter can express that, so this workflow has none -- a pull request publishing a
+# terminal serial in a document that `devices-agent.yml`'s filter does not cover would otherwise skip
+# the only check meant to stop it (R-041, R-042; this repository is public). Separate from
+# `Devices Agent` so the whole device suite and its `pyzk` install do not run on every documentation
+# change; this job needs nothing installed and no network.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  serial:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository (immutable action reference)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Python (immutable action reference; exact Python version, not checksum-verified)
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12.13"
+
+      # It enumerates `git ls-files`, so it fails rather than skips only when this is a real
+      # checkout. A shallow clone is fine: the index is complete at any depth.
+      - name: No tracked file publishes a terminal serial
+        working-directory: devices-agent
+        run: >-
+          python3 -m unittest -v
+          tests.test_visit.WhatReviewRoundTwoAsked.test_no_tracked_file_publishes_a_terminal_serial

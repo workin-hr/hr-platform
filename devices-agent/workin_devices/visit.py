@@ -570,8 +570,10 @@ ADDRESS_HIDDEN = "<device-ip>"
 PATH_HIDDEN = "<path>"
 # Rooted only, and never after a word character, `:` or `/`, so `https://host/x` and
 # `field-report/captures` and `8081/tcp` are left alone. One directory at minimum, so the
-# `/` in `الشركة / الفرع` -- which is followed by a space -- cannot match.
-ROOTED_PATH = re.compile(r"(?<![\w:/])/(?:[^\s/]+/)+([^\s/]*)")
+# `/` in `الشركة / الفرع` -- which is followed by a space -- cannot match. `ISAPI` and `iclock` are
+# the terminals' own request namespaces, which `sources` puts into its error text and which a
+# device-compatibility report exists to carry: redacting those read as "something private was here".
+ROOTED_PATH = re.compile(r"(?<![\w:/])/(?!(?:ISAPI|iclock)/)(?:[^\s/]+/)+([^\s/]*)")
 
 
 def _no_address(value: str) -> str:
@@ -607,7 +609,14 @@ def _no_path(value: str) -> str:
     At the seam rather than at the call site, for the reason `_no_address` gives: an exception's own
     text carries paths too, and redacting per finding holds only until the next finding is written.
     The console still shows the whole path, and it stays in field-report/ on the laptop."""
-    return ROOTED_PATH.sub(lambda found: f"{PATH_HIDDEN}/{found.group(1)}", value)
+    def one(found):
+        # An exception quotes the path it could not open, and the quote is not part of it.
+        last = found.group(1).rstrip("'\"»)]},;:.")
+        closing = found.group(1)[len(last):]
+        # A last component with no `.` in it is a directory, not a file -- `/home/karim` would
+        # otherwise publish a username, and a typed folder would publish the customer.
+        return (f"{PATH_HIDDEN}/{last}" if "." in last else PATH_HIDDEN) + closing
+    return ROOTED_PATH.sub(one, value)
 
 
 def _ltr(value: str) -> str:
@@ -1551,7 +1560,13 @@ class Visit:
         choice = self.choose("أنهي ملف؟", [(path, str(path)) for path in files] + [(None, "اكتب مكان الملف بإيدك")])
         path = choice or Path(os.path.expanduser(self.console.ask("👉 مكان الملف:")))
         if not path.is_file():
-            self.note("bad", f"مالقيتش الملف {path}", "اتأكد من الاسم والمكان وشغّل الأمر تاني")
+            # The path itself goes nowhere near the report. `_no_path` is a backstop for paths that
+            # arrive inside an exception's text, and it cannot be exact: a directory name with a
+            # space in it is indistinguishable from prose, so the seam leaves `شركة النور فرع` in
+            # place. Here the program *knows* the whole string is a path, and a public issue needs
+            # none of it -- a file the operator could not point at is not a fact about the terminal.
+            self.say(f"   المكان اللي كتبته: {path}")
+            self.note("bad", "مالقيتش الملف اللي كتبته", "اتأكد من الاسم والمكان وشغّل الأمر تاني")
             return
         if path.resolve().parent != self.out.resolve():
             copy = self.out / path.name

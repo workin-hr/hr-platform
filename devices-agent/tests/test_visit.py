@@ -1869,11 +1869,26 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
         operator to open, the firewall rule a remedy prints, and the `/` in the customer row's own
         label are all text the report exists to carry."""
         self.assertEqual(visit._no_path("/home/k/عميل/SN-attlog.dat"), "<path>/SN-attlog.dat")
-        self.assertEqual(visit._no_path("/media/afaqy/USB/"), "<path>/")
         self.assertEqual(visit._no_path("مالقيتش الملف /a/b/c.dat خالص"), "مالقيتش الملف <path>/c.dat خالص")
+        # A last component with no suffix is a directory, and neither an exception's closing quote
+        # nor a sentence's full stop is one: each would otherwise publish a username.
+        self.assertEqual(visit._no_path("/media/afaqy/USB/"), "<path>")
+        self.assertEqual(visit._no_path("/home/karim"), "<path>")
+        self.assertEqual(visit._no_path("مش لاقي /home/karim."), "مش لاقي <path>.")
+        self.assertEqual(visit._no_path("ping: '/usr/bin/ping'"), "ping: '<path>'")
         for kept in ("https://localhost:18443/api", "field-report/captures/x.json", "الشركة / الفرع",
-                     "sudo ufw allow 8081/tcp", "Menu → USB Manager → Download", "/", "2026-09-22"):
+                     "sudo ufw allow 8081/tcp", "Menu → USB Manager → Download", "/", "2026-09-22",
+                     # The terminals' own request namespaces: `sources` puts them in its error text
+                     # and a device-compatibility report exists to carry them. Redacting them would
+                     # read as "something private was here", which is the opposite of the truth.
+                     "HIK-1: GET /ISAPI/System/deviceInfo answered 401",
+                     "/iclock/cdata?SN=X&table=ATTLOG"):
             self.assertEqual(visit._no_path(kept), kept, kept)
+        # And what this seam cannot do, asserted rather than assumed: a directory name containing a
+        # space is prose as far as any regex is concerned. That is why the one place that knows it
+        # holds a path does not rely on this, and why a path inside an exception's text is a
+        # backstop rather than a guarantee.
+        self.assertIn("النور", visit._no_path("/home/k/شركة النور/x.dat"))
 
     def test_the_report_names_no_serial_because_the_runbook_says_to_paste_it_in_public(self):
         """A serial is the only thing that identifies a terminal to the device endpoint (R-041,
@@ -1933,30 +1948,35 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
         self.assertNotIn("شركة الاختبار", text)
         self.assertIn("(في field-report)", text)
 
-    def test_a_path_the_operator_typed_is_not_published_with_the_customer_in_it(self):
-        """`usb_flow` quotes the path back when the file is not there, and on a real visit that path
+    def test_no_path_the_operator_typed_is_published_whatever_shape_it_is(self):
+        """`usb_flow` quoted the path back when the file was not there, and on a real visit that path
         is under the operator's home, in a folder named after the customer, holding a file named
-        after the terminal -- three of the things the preamble says the report does not carry, from
-        one mistyped character. The file name is kept: it is what the operator has to recognise, and
-        it is the one part that names no person. A serial inside that file name is the residual --
-        which is why the name here is the inventory's pseudonym, not a serial: writing a real one
-        into this file is what `test_no_tracked_file_publishes_a_terminal_serial` exists to stop,
-        and it caught this fixture's first draft."""
-        typed = "/home/karim/شركة-النور-فرع-المعادي/TERMINAL-A-attlog.dat"
-        with tempfile.TemporaryDirectory() as directory:
-            visited = self.visit_in(directory, [("معاك ملف USB", "2"), ("أنهي ملف", "1"),
-                                                ("مكان الملف", typed)])
-            # Not the machine's own removable drives: `usb_files` globs `/media/<user>/*`, so a
-            # mounted stick would change the list this test picks from.
-            with mock.patch.object(visit, "usb_files", return_value=[]):
-                visited.usb_flow(None)
-            text = visited.write_report().read_text(encoding="utf-8")
-        self.assertEqual(visited.console.answers, [])
-        self.assertIn("مالقيتش الملف", text)
-        self.assertNotIn("karim", text, "the operator's own name was published")
-        self.assertNotIn("النور", text, "the customer was published")
-        self.assertIn("TERMINAL-A-attlog.dat", text, "the operator still learns which file")
-        self.assertIn(typed, visited.console.text, "the whole path is still on the screen")
+        after the terminal. Redacting it at the report's seam fixed only the shape the first version
+        of this test used: a directory name **with a space in it** is indistinguishable from prose,
+        so the seam left `شركة النور فرع المعادي` standing, and typing the folder rather than the
+        file published the customer as the "file name".
+
+        The call site does it now, where the program knows the whole string is a path and a public
+        issue needs none of it -- a file the operator could not point at is not a fact about the
+        terminal. It stays on the console, which is where they read it."""
+        for typed in ("/home/karim/شركة-النور-فرع-المعادي/TERMINAL-A-attlog.dat",
+                      "/home/karim/شركة النور فرع المعادي/TERMINAL-A-attlog.dat",
+                      "/home/karim/Client Files/TERMINAL-A.dat",
+                      "/home/karim/شركة-النور-فرع-المعادي",
+                      "/home/karim",
+                      "عميل-النور/TERMINAL-A-attlog.dat"):
+            with tempfile.TemporaryDirectory() as directory:
+                visited = self.visit_in(directory, [("معاك ملف USB", "2"), ("أنهي ملف", "1"),
+                                                    ("مكان الملف", typed)])
+                # Not the machine's own removable drives: `usb_files` globs `/media/<user>/*`, so a
+                # mounted stick would change the list this test picks from.
+                with mock.patch.object(visit, "usb_files", return_value=[]):
+                    visited.usb_flow(None)
+                text = visited.write_report().read_text(encoding="utf-8")
+            self.assertIn("مالقيتش الملف", text, typed)
+            for secret in ("karim", "النور", "Client", "TERMINAL-A"):
+                self.assertNotIn(secret, text, f"{typed!r} published {secret!r}")
+            self.assertIn(typed, visited.console.text, f"{typed!r} left the operator's screen")
 
     def test_a_placeholder_serial_takes_no_ordinary_text_with_it(self):
         with tempfile.TemporaryDirectory() as directory:
