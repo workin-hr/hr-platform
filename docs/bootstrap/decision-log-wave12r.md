@@ -4486,7 +4486,7 @@ Posted as a single comment before the merge, containing: the head SHA; which una
 | Rollback | Revert the merge. Nothing is stored or migrated; both exports only read, on the same `WHERE` each list already runs, with no `LIMIT` because legacy has none -- the same unmeasured-size risk D-269 recorded and #302 carries, now for three exports rather than one. If either fails, the operator gets the dashboard's error page instead of a download, and the request shows in the access log as a 500 on `/admin/penalties?export=csv` or `/admin/advances?export=csv`; nothing is written either way. |
 | Related | **#219**, **#211**, R-073, hr-legacy#23, D-269 (the leave balances export and its shape), D-176 (company scope), R-046, #302 (unmeasured export size). |
 
-## D-272: A Visit Blamed The Terminal For The Laptop's Wi-Fi, And Called The In/Out Column Unclear With The Answer Already On Disk
+## D-274: A Visit Blamed The Terminal For The Laptop's Wi-Fi, And Called The In/Out Column Unclear With The Answer Already On Disk
 
 | Field | Value |
 |---|---|
