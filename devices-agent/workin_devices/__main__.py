@@ -67,8 +67,10 @@ def in_out_verdict(configured: str, punches) -> str | None:
     if len(punches) < IN_OUT_LOG_MINIMUM:
         return None
     other = "status" if configured == "punch" else "punch"
-    spread = {configured: dict(Counter(punch.status for punch in punches)),
-              other: dict(Counter(punch.verify for punch in punches))}
+    # A source that leaves a column unset contributes nothing to that column's distribution rather
+    # than a `None` key, which `sorted` cannot order against an int.
+    spread = {configured: dict(Counter(p.status for p in punches if p.status is not None)),
+              other: dict(Counter(p.verify for p in punches if p.verify is not None))}
     shown = "، ".join(f"{name} {dict(sorted(counts.items()))}" for name, counts in spread.items())
     for name, rest in ((configured, other), (other, configured)):
         if separates(spread[name]) and cannot_separate(spread[rest]):
@@ -96,7 +98,10 @@ def cmd_doctor(args):
                   + ("  SERIAL MISMATCH" if mismatch else ""))
             for punch in punches[-3:]:
                 print(f"      last: PIN {punch.pin} {punch.local_time} in/out={punch.status} verify={punch.verify}")
-            verdict = in_out_verdict(config.in_out_field, punches)
+            # Only for a terminal read over the ZK protocol: `config.in_out_field` steers that
+            # source and no other, and a Hikvision or file source has no second column to weigh --
+            # judging one would tell the operator not to deliver from a terminal that is fine.
+            verdict = in_out_verdict(config.in_out_field, punches) if device.kind == "zk" else None
             if verdict:
                 print(f"      {verdict}")
             bad |= bool(mismatch)
