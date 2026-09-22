@@ -567,6 +567,11 @@ SERIAL_MINIMUM = 4
 # in the visit's folder and in the local copy of the report the operator keeps.
 CUSTOMER_ROW = "الشركة / الفرع"
 ADDRESS_HIDDEN = "<device-ip>"
+PATH_HIDDEN = "<path>"
+# Rooted only, and never after a word character, `:` or `/`, so `https://host/x` and
+# `field-report/captures` and `8081/tcp` are left alone. One directory at minimum, so the
+# `/` in `الشركة / الفرع` -- which is followed by a space -- cannot match.
+ROOTED_PATH = re.compile(r"(?<![\w:/])/(?:[^\s/]+/)+([^\s/]*)")
 
 
 def _no_address(value: str) -> str:
@@ -587,6 +592,22 @@ def _no_address(value: str) -> str:
             return match.group(0)
         return ADDRESS_HIDDEN
     return DOTTED.sub(one, value)
+
+
+def _no_path(value: str) -> str:
+    """The same seam again, for a path the operator typed on a customer's site.
+
+    `usb_flow` asks the operator where the export is and quotes the answer back when it is not
+    there. On a real visit that answer is a path under their home directory, in a folder named
+    after the customer, holding a file named after the terminal -- so one mistyped character put
+    the operator's name, the customer's name and a serial into the artefact step 11 says to paste
+    into a public issue. The file name is kept, because that is what the operator has to recognise;
+    the directories are what identify anybody.
+
+    At the seam rather than at the call site, for the reason `_no_address` gives: an exception's own
+    text carries paths too, and redacting per finding holds only until the next finding is written.
+    The console still shows the whole path, and it stays in field-report/ on the laptop."""
+    return ROOTED_PATH.sub(lambda found: f"{PATH_HIDDEN}/{found.group(1)}", value)
 
 
 def _ltr(value: str) -> str:
@@ -1719,7 +1740,7 @@ class Visit:
         for serial in sorted(self.serials, key=len, reverse=True):
             hidden = re.compile(rf"(?<![A-Za-z0-9]){re.escape(serial)}(?![A-Za-z0-9])")
             value = hidden.sub(SERIAL_HIDDEN, value)
-        return _no_address(value)
+        return _no_path(_no_address(value))
 
     def write_report(self) -> Path:
         bad = [finding for finding in self.findings if finding.level != "ok"]

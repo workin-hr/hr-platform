@@ -1863,6 +1863,18 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
             self.assertEqual(visit._no_address(f"terminal {address}"), "terminal <device-ip>", address)
         self.assertEqual(visit._no_address("firmware Ver 6.60 Oct 12 2021"), "firmware Ver 6.60 Oct 12 2021")
 
+    def test_only_a_rooted_path_is_redacted_and_a_url_is_not_one(self):
+        """This seam runs over every line of the report, so what it must **not** match matters as
+        much as what it must: the lab's own URL, the `field-report/` paths the runbook tells the
+        operator to open, the firewall rule a remedy prints, and the `/` in the customer row's own
+        label are all text the report exists to carry."""
+        self.assertEqual(visit._no_path("/home/k/عميل/SN-attlog.dat"), "<path>/SN-attlog.dat")
+        self.assertEqual(visit._no_path("/media/afaqy/USB/"), "<path>/")
+        self.assertEqual(visit._no_path("مالقيتش الملف /a/b/c.dat خالص"), "مالقيتش الملف <path>/c.dat خالص")
+        for kept in ("https://localhost:18443/api", "field-report/captures/x.json", "الشركة / الفرع",
+                     "sudo ufw allow 8081/tcp", "Menu → USB Manager → Download", "/", "2026-09-22"):
+            self.assertEqual(visit._no_path(kept), kept, kept)
+
     def test_the_report_names_no_serial_because_the_runbook_says_to_paste_it_in_public(self):
         """A serial is the only thing that identifies a terminal to the device endpoint (R-041,
         R-042), and step 11 tells the operator to paste the results sheet into a public issue. It
@@ -1920,6 +1932,31 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
         self.assertNotIn("مدينة نصر", text)
         self.assertNotIn("شركة الاختبار", text)
         self.assertIn("(في field-report)", text)
+
+    def test_a_path_the_operator_typed_is_not_published_with_the_customer_in_it(self):
+        """`usb_flow` quotes the path back when the file is not there, and on a real visit that path
+        is under the operator's home, in a folder named after the customer, holding a file named
+        after the terminal -- three of the things the preamble says the report does not carry, from
+        one mistyped character. The file name is kept: it is what the operator has to recognise, and
+        it is the one part that names no person. A serial inside that file name is the residual --
+        which is why the name here is the inventory's pseudonym, not a serial: writing a real one
+        into this file is what `test_no_tracked_file_publishes_a_terminal_serial` exists to stop,
+        and it caught this fixture's first draft."""
+        typed = "/home/karim/شركة-النور-فرع-المعادي/TERMINAL-A-attlog.dat"
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory, [("معاك ملف USB", "2"), ("أنهي ملف", "1"),
+                                                ("مكان الملف", typed)])
+            # Not the machine's own removable drives: `usb_files` globs `/media/<user>/*`, so a
+            # mounted stick would change the list this test picks from.
+            with mock.patch.object(visit, "usb_files", return_value=[]):
+                visited.usb_flow(None)
+            text = visited.write_report().read_text(encoding="utf-8")
+        self.assertEqual(visited.console.answers, [])
+        self.assertIn("مالقيتش الملف", text)
+        self.assertNotIn("karim", text, "the operator's own name was published")
+        self.assertNotIn("النور", text, "the customer was published")
+        self.assertIn("TERMINAL-A-attlog.dat", text, "the operator still learns which file")
+        self.assertIn(typed, visited.console.text, "the whole path is still on the screen")
 
     def test_a_placeholder_serial_takes_no_ordinary_text_with_it(self):
         with tempfile.TemporaryDirectory() as directory:
