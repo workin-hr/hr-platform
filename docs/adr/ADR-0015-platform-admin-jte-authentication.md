@@ -108,7 +108,9 @@ deferred**:
   separate chain reaches no such filter and revalidates nothing. The JTE chain
   must therefore perform its **own** per-request lookup of the authenticated
   administrator and reject a row that has become inactive or been deleted,
-  rather than trusting the session's contents. Without it, deactivating an
+  rather than trusting the session's contents. "Per request" means every request
+  that can reach a controller; prerequisite 9 states the one exception and why it
+  is safe. Without it, deactivating an
   administrator would leave their existing session working until it expired,
   which is exactly what D-145 exists to prevent (prerequisite 9).
 - **Session invalidation** that is immediate and complete on logout, on
@@ -360,6 +362,30 @@ are both answered and implemented:
    equivalent, proven by a test that deactivates an administrator mid-session
    and asserts the next page request is refused rather than served until
    expiry (**D-145**).
+   **One exception, added by D-273**: requests under the public asset prefix
+   `/admin/_assets/**` are not revalidated. They are `permitAll`, so serving one
+   does not depend on the caller being an administrator — a signed-out browser
+   is served the same bytes — and the prefix has no controller behind it, only
+   `AdminAssetCaching`'s resource handlers over one classpath directory. What is
+   skipped is the repository check, **not the session**: an authenticated
+   browser still sends its `JSESSIONID`, Spring Security still restores its
+   context before this filter, and both survive the request —
+   `PlatformAdminSessionRevalidationFilterTest.aStaticAssetIsServedWithoutRevalidating`
+   asserts the session stays valid and the authentication present. Two
+   consequences follow and are accepted: an asset request still counts as
+   session activity, so a browser fetching assets keeps a session from going
+   idle; and a deactivated administrator's browser is served assets until a
+   request that can reach a controller is revalidated and refused. The
+   **absolute cap is not skipped**, precisely because of the first consequence —
+   a page that keeps fetching assets must not carry a session past a cap that is
+   non-renewable by construction, so `stillValid` checks the cap on every
+   request and only the repository reload is conditional
+   (`anAssetRequestPastTheAbsoluteCapIsStillRefused`). Every
+   request that can reach a controller is still revalidated, which is what
+   "next request" means here and what the deactivation tests assert. The
+   exception is refused for any path under the prefix that contains a
+   percent-encoding, a double slash or a traversal segment, so it cannot
+   depend on the firewall in front of it having normalised the URI.
 10. **Audit coverage for administrative actions, then retention.**
     `PlatformAdminAuditEventType` today holds only `LOGIN`, `LOGIN_FAILED`,
     `LOGOUT`, `SESSION_REUSE_REVOKED`, and the row carries only actor, type, a
