@@ -1822,6 +1822,45 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
         self.assertIn("ZK-PASTE-1", path.name, "the file name is local and keeps it")
         self.assertIn("ZK-PASTE-1", visited.console.text, "the operator still sees it")
 
+    def test_every_serial_the_visit_saw_is_redacted_not_only_the_one_it_settled_on(self):
+        """A terminal that pushes under a different serial than it reports on 4370 is one of the
+        findings this visit exists to produce, and both serials are the credential R-041/R-042
+        describe. A rejected serial is seen before there is a settled one at all."""
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory)
+            visited.serial = "ZK-ON-4370"
+            visited.saw_serial("ZK-PUSHED-9")
+            visited.note("bad", "الجهاز بيبعت بالـ Push بسيريال ZK-PUSHED-9 وعلى 4370 بيقول ZK-ON-4370",
+                         "معلومة مهمة")
+            text = visited.write_report().read_text(encoding="utf-8")
+        self.assertNotIn("ZK-PUSHED-9", text, "the pushed serial was published")
+        self.assertNotIn("ZK-ON-4370", text)
+        # H1, both serials in the finding, and both again in the `مشاكل تانية` row it feeds.
+        self.assertEqual(text.count("device-serial"), 5)
+
+    def test_a_serial_short_enough_to_be_ordinary_text_is_left_alone(self):
+        """`config.SERIAL` accepts a single character, so an operator typo at the USB serial prompt
+        must not rewrite the report's own numbers -- the in/out cells are one digit each."""
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory)
+            visited.serial = "1"
+            visited.sheet["الدخول"] = "1"
+            visited.sheet["الخروج"] = "0"
+            text = visited.write_report().read_text(encoding="utf-8")
+        self.assertNotIn("device-serial", text)
+        self.assertIn("| الدخول | <span dir=\"ltr\">1</span> |", text)
+
+    def test_the_report_does_not_name_the_customer(self):
+        """The last identifier in an artefact whose preamble enumerates what it omits. It stays on
+        the console and in field-report/, which is where step 11 says to keep the folder."""
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory)
+            visited.sheet["الشركة / الفرع"] = "شركة الاختبار / فرع مدينة نصر"
+            text = visited.write_report().read_text(encoding="utf-8")
+        self.assertNotIn("مدينة نصر", text)
+        self.assertNotIn("شركة الاختبار", text)
+        self.assertIn("(في field-report)", text)
+
     def test_a_placeholder_serial_takes_no_ordinary_text_with_it(self):
         with tempfile.TemporaryDirectory() as directory:
             visited = self.visit_in(directory)
@@ -1868,9 +1907,14 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
                 for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").split("\n"), 1):
                     found += [f"{path.relative_to(ROOT)}:{number}: {match.group(0)}"
                               for match in shaped.finditer(line)]
-        for name in sorted(ROOT.glob("*.md")):
+        # Every `.md` in the repository as well as the roots above: the previous form walked them
+        # all, and `evidence/`, `deploy/`, `perf/` and the vendored trees are where a pasted report
+        # would most plausibly land.
+        for name in sorted(ROOT.rglob("*.md")):
+            if ".git" in name.parts:
+                continue
             for number, line in enumerate(name.read_text(encoding="utf-8", errors="replace").split("\n"), 1):
-                found += [f"{name.name}:{number}: {match.group(0)}" for match in shaped.finditer(line)]
+                found += [f"{name.relative_to(ROOT)}:{number}: {match.group(0)}" for match in shaped.finditer(line)]
         self.assertEqual(found, [], "a terminal serial reached a tracked file")
 
 
@@ -1977,6 +2021,23 @@ class WhatDoctorMustNotLetTheOperatorDo(unittest.TestCase):
         mixed = self.log([(0, None)] * 120 + [(1, None)] * 100 + [(None, None)] * 30)
         verdict = main.in_out_verdict("punch", mixed)
         self.assertIn("مش واضح", verdict, "a column that exists only for zk decided the answer")
+
+    def test_only_a_zk_source_is_judged_at_all(self):
+        """`config.in_out_field` steers that source and no other. Without the guard the whole module
+        stayed green, because the direct-call test pins only the `None`-counting half."""
+        import inspect
+        source = inspect.getsource(main.cmd_doctor)
+        self.assertIn('device.kind == "zk"', source,
+                      "the verdict is computed for sources that have no second column")
+
+    def test_in_out_field_itself_refuses_a_constant_column(self):
+        """The `doctor` wrapper is pinned above; this pins the other caller, which is what
+        `agent_zk` writes into the config."""
+        self.assertIsNone(visit.in_out_field((0, 1), (0, 1), 1,
+                                             {"punch": {0: 11426}, "status": {1: 7000, 4: 4426}}))
+        self.assertEqual(visit.in_out_field((5, 1), (5, 1), 1,
+                                            {"punch": {0: 5779, 1: 5640}, "status": {1: 11424, 15: 2}}),
+                         "punch")
 
     def test_a_log_too_short_to_carry_the_argument_says_nothing(self):
         self.assertIsNone(main.in_out_verdict("punch", self.log([(0, 1)] * 5)))

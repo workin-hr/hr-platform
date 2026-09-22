@@ -51,7 +51,8 @@ The dashboard has **one administrator and one password**, and no other way in.
   let anyone lock the administrator out from anywhere, and PHP's per-session
   lock is walked around by a new session; session rotation on login; the
   `Secure`/`HttpOnly`/`SameSite=Lax` cookie; a CSRF token on every state
-  change; per-request revalidation of the row's `active` flag; 30-minute idle
+  change; per-request revalidation of the row's `active` flag on every request
+  that can reach a controller (ADR-0015 prerequisite 9, D-273); 30-minute idle
   and 8-hour absolute limits; an audit row for every login, miss and logout.
 - **Removed**, not disabled: the TOTP second factor and its enrolment
   ceremony, the seed cipher and its key, step-up approvals and the three-step

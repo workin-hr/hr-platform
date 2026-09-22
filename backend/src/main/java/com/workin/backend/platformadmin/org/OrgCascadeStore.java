@@ -1,6 +1,7 @@
 package com.workin.backend.platformadmin.org;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,32 +61,81 @@ public class OrgCascadeStore {
 				+ " WHERE (d.is_active = 1 OR d.id = ?)" + inCompany.formatted("d");
 		Object[] departmentsByBranchArgs = args(scoped, companyId, kept.departmentId());
 		if (kept.departmentId() > 0 && kept.branchId() > 0) {
-			departmentsByBranch = "SELECT id, name, grp FROM (" + departmentsByBranch
+			departmentsByBranch = departmentsByBranch
 					+ " UNION SELECT d.id, d.name, b.id AS grp FROM departments d"
 					+ " INNER JOIN branches b ON b.id = ? AND b.company_id = d.company_id"
-					+ " WHERE d.id = ?" + inCompany.formatted("d") + ") placed ORDER BY grp, name";
+					+ " WHERE d.id = ?" + inCompany.formatted("d");
 			departmentsByBranchArgs = scoped
 					? new Object[] { kept.departmentId(), companyId, kept.branchId(), kept.departmentId(), companyId }
 					: new Object[] { kept.departmentId(), kept.branchId(), kept.departmentId() };
 		}
-		else {
-			departmentsByBranch += " ORDER BY db.branch_id, d.name";
-		}
-		return new OrgCascade(
-				grouped("SELECT b.id, b.name, b.company_id AS grp FROM branches b"
-						+ " WHERE (b.is_active = 1 OR b.id = ?)" + inCompany.formatted("b")
-						+ " ORDER BY b.company_id, b.name", args(scoped, companyId, kept.branchId())),
-				grouped("SELECT d.id, d.name, d.company_id AS grp FROM departments d"
-						+ " WHERE (d.is_active = 1 OR d.id = ?)" + inCompany.formatted("d")
-						+ " ORDER BY d.company_id, d.name", args(scoped, companyId, kept.departmentId())),
-				grouped(departmentsByBranch, departmentsByBranchArgs),
-				grouped("SELECT jt.id, jt.name, jt.department_id AS grp FROM job_titles jt"
+
+		List<Part> parts = List.of(
+				new Part("SELECT b.id, b.name, b.company_id AS grp FROM branches b"
+						+ " WHERE (b.is_active = 1 OR b.id = ?)" + inCompany.formatted("b"),
+						args(scoped, companyId, kept.branchId())),
+				new Part("SELECT d.id, d.name, d.company_id AS grp FROM departments d"
+						+ " WHERE (d.is_active = 1 OR d.id = ?)" + inCompany.formatted("d"),
+						args(scoped, companyId, kept.departmentId())),
+				new Part(departmentsByBranch, departmentsByBranchArgs),
+				new Part("SELECT jt.id, jt.name, jt.department_id AS grp FROM job_titles jt"
 						+ " INNER JOIN departments d ON d.id = jt.department_id AND d.company_id = jt.company_id"
-						+ " WHERE (jt.is_active = 1 OR jt.id = ?)" + inCompany.formatted("jt")
-						+ " ORDER BY jt.department_id, jt.name", args(scoped, companyId, kept.jobTitleId())),
-				grouped("SELECT jt.id, jt.name, jt.company_id AS grp FROM job_titles jt"
-						+ " WHERE (jt.is_active = 1 OR jt.id = ?)" + inCompany.formatted("jt")
-						+ " ORDER BY jt.company_id, jt.name", args(scoped, companyId, kept.jobTitleId())));
+						+ " WHERE (jt.is_active = 1 OR jt.id = ?)" + inCompany.formatted("jt"),
+						args(scoped, companyId, kept.jobTitleId())),
+				new Part("SELECT jt.id, jt.name, jt.company_id AS grp FROM job_titles jt"
+						+ " WHERE (jt.is_active = 1 OR jt.id = ?)" + inCompany.formatted("jt"),
+						args(scoped, companyId, kept.jobTitleId())));
+
+		List<Map<Long, List<OrgCascade.Option>>> maps = groupedInOneTrip(parts);
+		return new OrgCascade(maps.get(0), maps.get(1), maps.get(2), maps.get(3), maps.get(4));
+	}
+
+	/** One of the cascade's lists: the select that produces it, and its arguments. */
+	private record Part(String sql, Object[] args) {
+	}
+
+	/**
+	 * The five lists in one round trip.
+	 *
+	 * <p>They were five queries, which is five network round trips on every page
+	 * that opens a form and on every unscoped list page. Against a database in
+	 * another network -- 106 ms away, measured -- that was half a second of a
+	 * page's wait for data that one statement returns. They are unioned with a
+	 * discriminator and split here.
+	 *
+	 * <p>Each part keeps its own order because the single {@code ORDER BY} sorts
+	 * by the discriminator first and then by the same {@code grp, name} every
+	 * part used: the rows arrive grouped by part, in each part's own order, and
+	 * {@link LinkedHashMap} keeps the groups in the order they first appear, as
+	 * five separate queries did.
+	 *
+	 * <p>{@code id} breaks the tie that {@code name} alone leaves. The collation
+	 * is {@code utf8mb4_unicode_ci}, so {@code Tie} and {@code tie} sort equal
+	 * and the order between them was whatever each plan happened to produce --
+	 * one plan per query before, one for the union now, and they do not agree.
+	 * The rows are the same either way; this makes the order the same too.
+	 */
+	private List<Map<Long, List<OrgCascade.Option>>> groupedInOneTrip(List<Part> parts) {
+		StringBuilder sql = new StringBuilder();
+		List<Object> args = new ArrayList<>();
+		for (int part = 0; part < parts.size(); part++) {
+			sql.append(part == 0 ? "" : " UNION ALL ")
+					.append("SELECT ").append(part).append(" AS part, id, name, grp FROM (")
+					.append(parts.get(part).sql()).append(") AS part").append(part);
+			args.addAll(Arrays.asList(parts.get(part).args()));
+		}
+		sql.append(" ORDER BY part, grp, name, id");
+
+		List<Map<Long, List<OrgCascade.Option>>> maps = new ArrayList<>();
+		for (int part = 0; part < parts.size(); part++) {
+			maps.add(new LinkedHashMap<>());
+		}
+		this.jdbcTemplate.query(sql.toString(),
+				(RowCallbackHandler) rs -> maps.get(rs.getInt("part"))
+						.computeIfAbsent(rs.getLong("grp"), key -> new ArrayList<>())
+						.add(new OrgCascade.Option(rs.getLong("id"), rs.getString("name"))),
+				args.toArray());
+		return maps;
 	}
 
 	/**

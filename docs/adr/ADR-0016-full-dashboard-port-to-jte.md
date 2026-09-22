@@ -99,7 +99,8 @@ hand-maintained, so the generated file stays purely generated.
   therefore asks for a phone as well as a password where PHP's admin tab
   asks only for a password.
 - **ADR-0015's security posture** in full: order-0 chain, CSRF on,
-  session revalidation per request, step-up for privileged operations,
+  session revalidation on every request that can reach a controller (ADR-0015
+  prerequisite 9, D-273), step-up for privileged operations,
   audit in the same transaction.
 - **The desktop client.** It is not deprecated by this and keeps serving
   the same company-scoped work.

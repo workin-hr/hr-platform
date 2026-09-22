@@ -250,7 +250,15 @@ public class PlatformAdminWebSecurityConfig {
 	 * Spring's firewall rejects a traversal attempt before matching. {@code PlatformAdminAssetsExposureTest} holds both
 	 * halves of that.
 	 */
-	public static final String ASSETS_PATTERN = PATH_PREFIX + "/_assets/**";
+	public static final String ASSETS_PREFIX = PATH_PREFIX + "/_assets/";
+
+	/**
+	 * The pattern the chain matches, built from the prefix so the two cannot
+	 * drift: {@link PlatformAdminSessionRevalidationFilter} skips the same
+	 * prefix, and a prefix that meant one thing here and another there would
+	 * be a filter skipped for paths this rule does not cover.
+	 */
+	public static final String ASSETS_PATTERN = ASSETS_PREFIX + "**";
 
 	@Bean
 	@Order(0)
