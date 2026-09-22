@@ -84,13 +84,13 @@ was not observed says so.
 | Fingerprints | 60 |
 | Faces | 1 |
 
-### Firmware
+### Firmware And Push Version
 
 `Ver 6.60 Oct 12 2021`, reported by the terminal to `CMD_GET_VERSION`. No `pushver`:
 this terminal has no Cloud Server / ADMS screen in its menu, so it never handshakes
 and reports no push protocol version.
 
-### Integration Pattern
+### Integration Pattern For This Firmware
 
 **Pull over the ZKTeco binary protocol on TCP 4370**, which is what the agent does
 (`workin_devices/zk4370.py`, read-only by construction). Push is not available on
@@ -107,7 +107,7 @@ log while `status` reads 1 in 11 424 records and 15 in two. A single check-in an
 check-out could not settle it, because this terminal recorded both with identical codes
 (`punch=5, status=1`) — see D-274 for why that is, and for the rule that reads it.
 
-### Network Constraints
+### Network Constraints Observed
 
 - Answers on TCP 4370 on the branch LAN; no inbound port from outside the branch.
 - HTTPS: not applicable — there is no web or push surface on this firmware.
@@ -121,7 +121,7 @@ check-out could not settle it, because this terminal recorded both with identica
 Push/ADMS behaviour, HTTPS, `pushver`, `DeviceType`, USB export column order, and
 anything requiring a settings change — the visit changes nothing on a terminal.
 
-### Evidence
+### Evidence For This Terminal
 
 - Site visit 2026-09-21, `workin_devices visit` against `192.168.1.201`; the terminal's
   own answers to `CMD_GET_VERSION`, `CMD_OPTIONS_RRQ` and `CMD_GET_FREE_SIZES`.
