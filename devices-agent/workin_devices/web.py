@@ -413,10 +413,7 @@ class Session:
                     form = {**form, "port": asked}
             try:
                 return runner(host, form)
-            # `ArithmeticError` covers the `OverflowError` an out-of-range or infinite number
-            # raises: it is not an `OSError` and not a `ValueError`, so it escaped as a 500.
-            except (zk.ZkError, gw.Unauthorized, cfg.ConfigError, OSError, ValueError,
-                    ArithmeticError) as exc:
+            except (zk.ZkError, gw.Unauthorized, cfg.ConfigError, OSError, ValueError) as exc:
                 return {"error": str(exc)}
         finally:
             self.gate.release()
