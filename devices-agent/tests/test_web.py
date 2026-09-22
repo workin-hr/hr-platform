@@ -281,6 +281,40 @@ class APageRunningAVisit(unittest.TestCase):
         drawn = [event for event in self.page.poll()["events"] if event["kind"] == "finding"]
         self.assertEqual(len(drawn), answer["findings"])
 
+    def test_a_tools_waits_are_real_waits_after_a_stop(self):
+        """`_sleep` waits on `console.stopping`, which only `rearm()` clears and only `start()`
+        calls -- and a tool must not rearm, because that would also clear `abandoned` and un-abandon
+        a process that is shutting down. So after any Stop every wait inside a tool returned
+        instantly, `send_twice`'s gap between its two passes included.
+
+        Driven through `tool/once`, which is the path a tool actually takes. Asserting on the helper
+        directly passed while `_tool_once` still built its visit with `new_visit()` -- the fix was
+        dead code and the test confirmed a method nothing called."""
+        self.session.console.stop()                  # as a real run's Stop leaves it
+        self.assertTrue(self.session.console.stopping.is_set())
+        built, slept = [], []
+        original = self.session._uninterruptible_visit
+        self.session._uninterruptible_visit = lambda: (built.append(1), original())[1]
+        with mock.patch.object(web.time, "sleep", lambda s: slept.append(s)):
+            answer = self.page.post("tool/once", {"host": f"127.0.0.1:{self.emulator.port}",
+                                                  "in_out_field": "punch"})
+        self.assertNotIn("error", answer, answer)
+        self.assertTrue(built, "a tool did not build the non-interruptible visit")
+        self.assertTrue(slept, "a tool's wait was skipped by a Stop from a finished run")
+        self.assertNotIn(0, slept, "a wait was reduced to nothing")
+
+    def test_the_button_writes_its_own_file_through_the_path_a_tool_takes(self):
+        """A sibling test pins `write_zk_agent_config`'s new `name` parameter. This pins the **call
+        site**: dropping `name=` from `_tool_once` left the whole suite green, because nothing
+        asserted which `.toml` a real button press writes."""
+        answer = self.page.post("tool/once", {"host": f"127.0.0.1:{self.emulator.port}",
+                                              "in_out_field": "punch"})
+        self.assertNotIn("error", answer, answer)
+        written = sorted(path.name for path in Path(self.out).glob("*.toml"))
+        self.assertTrue(written, "the button wrote no config at all")
+        self.assertTrue(all(name.endswith("-zk-tool.toml") for name in written),
+                        f"the button wrote the wizard's own file name: {written}")
+
     def test_an_address_may_carry_its_port_as_the_wizard_accepts_one(self):
         """The simulator, and a terminal on an unusual port, are typed the way the wizard's own
         "type the address" step takes them."""
@@ -356,6 +390,43 @@ class WhatThePageRefuses(unittest.TestCase):
                          "the listener did not survive")
         self.assertFalse(self.session.gate.locked(), "the gate was not released")
 
+    def test_an_unexpected_error_is_answered_and_its_stack_is_still_written(self):
+        """The catch-all keeps the socket open, which the operator needs -- but it displaces
+        `socketserver`'s own `traceback.print_exc()`, and `log_message` is silenced, so without an
+        explicit write the stack existed nowhere and a field bug was unattributable. Nothing pinned
+        the catch-all at all: removing it left every test green."""
+        import io, contextlib
+        boom = types.SimpleNamespace(**{})
+        with mock.patch.object(self.session, "state",
+                               lambda: (_ for _ in ()).throw(TypeError("a bug nobody predicted"))):
+            captured = io.StringIO()
+            with contextlib.redirect_stderr(captured):
+                status, body = call(f"{self.base}/events?since=0&t={self.token}")
+                time.sleep(0.2)
+            printed = captured.getvalue()
+        self.assertEqual(status, 500, body)
+        self.assertIn("a bug nobody predicted", json.loads(body)["error"])
+        self.assertIn("Traceback", printed, "the stack was written nowhere")
+        self.assertIn("a bug nobody predicted", printed)
+
+    def test_an_unknown_tool_name_is_refused_even_when_a_helper_shares_the_prefix(self):
+        """`tool()` dispatches by `getattr(self, f"_tool_{name}")`, so any `_tool_*` attribute is an
+        addressable route. A helper added in round 5 was named `_tool_visit`, which turned
+        `POST /tool/visit` into a 500 naming its signature."""
+        for name in ("visit", "nope", "once_", "sleep"):
+            answered = self.session.tool(name, {"host": "127.0.0.1"})
+            self.assertIn("error", answered, f"/tool/{name} -> {answered}")
+            self.assertNotIn("positional argument", answered["error"], f"/tool/{name} leaked a signature")
+
+    def test_a_port_sent_on_its_own_is_range_checked_like_one_typed_into_the_address(self):
+        """The round-5 check lived on the `host:port` parse branch alone, so a `port` field -- which
+        three of this suite's own tests send -- still reached `connect()` and came back as an opaque
+        `OverflowError` 500 rather than the refusal one line away."""
+        for form in ({"host": "127.0.0.1", "port": "437000"}, {"host": "127.0.0.1", "port": "-5"}):
+            answered = self.session.tool("zk-info", form)
+            self.assertIn("error", answered, form)
+            self.assertIn("65535", answered["error"], f"{form} -> {answered}")
+
     def test_a_body_that_is_not_an_object_is_answered_rather_than_dropping_the_connection(self):
         """A JSON list parses fine and then has no `.get`. Same class as the port typo: the route
         body raised, `socketserver` closed the connection, and the page showed `Failed to fetch`."""
@@ -396,18 +467,23 @@ class WhatThePageRefuses(unittest.TestCase):
         self.assertEqual(status, 200)
 
     def test_a_download_cannot_leave_the_report_directory(self):
-        secret = Path(self.dir.name).parent / "outside.md"
-        secret.write_text("not yours", encoding="utf-8")
+        # A unique name, not a fixed one beside the temporary directory: two suite runs sharing a
+        # TMPDIR both wrote `outside.md` there and each deleted the other's in teardown.
+        with tempfile.NamedTemporaryFile(suffix="-outside.md", dir=Path(self.dir.name).parent,
+                                         delete=False) as handle:
+            handle.write(b"not yours")
+            secret = Path(handle.name)
         Path(self.dir.name, "inside.md").write_text("# report", encoding="utf-8")
         try:
-            for name in ("../outside.md", "..%2Foutside.md", "/etc/passwd", "", "%00inside.md",
-                         str(secret), "sub/../../outside.md"):
+            escapes = [f"../{secret.name}", f"..%2F{secret.name}", "/etc/passwd", "",
+                       "%00inside.md", str(secret), f"sub/../../{secret.name}"]
+            for name in escapes:
                 status, _ = call(f"{self.base}/report?t={self.token}&name={name}")
                 self.assertEqual(status, 404, name)
             status, body = call(f"{self.base}/report?t={self.token}&name=inside.md")
             self.assertEqual((status, body), (200, b"# report"))
         finally:
-            secret.unlink()
+            secret.unlink(missing_ok=True)
 
     def test_an_unknown_route_is_not_found_rather_than_a_traceback(self):
         self.assertEqual(call(f"{self.base}/nope?t={self.token}")[0], 404)
@@ -715,27 +791,6 @@ class WhatTheWizardWaitsFor(unittest.TestCase):
             self.assertTrue(made.console.reply(answer="", qid=asked[-1]["id"]),
                             "the new visit's first question could not be answered")
             made.close(timeout=10)
-
-    def test_a_tools_waits_are_real_waits_after_a_stop(self):
-        """`_sleep` waits on `console.stopping`, which a Stop leaves set until the next run's
-        `rearm()` -- and a tool never rearms, because `rearm()` also clears `abandoned` and would
-        un-abandon a process that is shutting down. So after any Stop every wait inside a tool
-        returned instantly, including the gap `send_twice` leaves between its two passes. A tool is
-        not interruptible by Stop anyway (`stop()` refuses with no visit running), so its `Visit`
-        gets a plain `time.sleep`."""
-        with tempfile.TemporaryDirectory() as folder:
-            made = web.Session(folder, networks=lambda: [])
-            made.console.stop()                      # as a real run's Stop leaves it
-            self.assertTrue(made.console.stopping.is_set())
-            slept = []
-            with mock.patch.object(web.time, "sleep", slept.append):
-                made._tool_visit().sleep(1)
-            self.assertEqual(slept, [1], "a tool's wait was skipped by a Stop from a finished run")
-            # The wizard's own waits stay interruptible, which is what Stop is for.
-            started = time.monotonic()
-            made.new_visit().sleep(1)
-            self.assertLess(time.monotonic() - started, 0.5,
-                            "the wizard's wait stopped being interruptible")
 
     def test_a_single_step_keeps_its_own_config_beside_the_wizards(self):
         """Both go through `write_zk_agent_config`, which is the point -- but that means the same

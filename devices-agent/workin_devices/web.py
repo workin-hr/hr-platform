@@ -29,6 +29,7 @@ import secrets
 import socket
 import threading
 import time
+import traceback
 import webbrowser
 from datetime import datetime
 from pathlib import Path
@@ -300,8 +301,13 @@ class Session:
         return visit.Visit(console=self.console, lab=self.lab, out_dir=self.out,
                            wait_seconds=self.wait_seconds, sleep=self._sleep)
 
-    def _tool_visit(self) -> visit.Visit:
+    def _uninterruptible_visit(self) -> visit.Visit:
         """A tool's own `Visit`. Its waits are `time.sleep`, not `_sleep`.
+
+        Deliberately **not** named `_tool_*`: `tool()` dispatches by
+        `getattr(self, f"_tool_{name}")`, so a helper with that prefix becomes an addressable route
+        -- `POST /tool/visit` answered a 500 naming this method's signature instead of the ordinary
+        "no such tool" refusal.
 
         `_sleep` waits on `console.stopping`, which a Stop leaves set until the next run's
         `rearm()` -- and a tool never rearms, because `rearm()` would also clear `abandoned` and
@@ -396,6 +402,12 @@ class Session:
         known = found if found and found[0] == host else ()
         said = lambda name: str(form.get(name) or "").strip()
         port = int(said("port") or (known[1] if known else 0) or DEFAULT_ZK_PORT)
+        if not 1 <= port <= 65535:
+            # Every tool funnels through here. The `host:port` branch in `tool()` checks its own
+            # parse, but a `port` field sent on its own reached `connect()` and raised
+            # `OverflowError` -- caught by the handler's catch-all as an opaque English 500 rather
+            # than the refusal one line away.
+            raise ValueError(f"البورت لازم يكون بين 1 و 65535، مش {port}")
         key = int(said("comm_key")) if said("comm_key") else (known[2] if known else 0)
         udp = bool(form["udp"]) if "udp" in form else bool(known[3]) if known else False
         return port, key, udp
@@ -474,7 +486,7 @@ class Session:
         serial = str(summary.get("serial") or "")
         if not cfg.SERIAL.match(serial):
             return {"error": f"الجهاز رد بسيريال السيستم مش هيقبله: {serial!r}"}
-        visited = self.new_visit()
+        visited = self._uninterruptible_visit()
         visited.serial, visited.zk_link = serial, (host, port, key, udp)
         self.out.mkdir(parents=True, exist_ok=True)
         visited.send_twice(visited.write_zk_agent_config(
@@ -544,6 +556,11 @@ def make_handler(session: Session, token: str, out: Path):
             try:
                 route()
             except Exception as exc:  # noqa: BLE001 - the operator gets a line, not a dropped socket
+                # `socketserver` printed the traceback before this wrapper existed, and
+                # `log_message` above is silenced, so without this the stack is written nowhere at
+                # all: the operator gets one English line and whoever has to fix it gets nothing.
+                # The request *log* is what is silenced; a crash is not.
+                traceback.print_exc()
                 try:
                     self._json({"error": f"{type(exc).__name__}: {exc}"}, status=500)
                 except OSError:
@@ -671,7 +688,11 @@ def run(host: str = "127.0.0.1", port: int = DEFAULT_PORT, out_dir: str | None =
     except (ValueError, OSError) as exc:
         out(f"❌ {exc}")
         return 2
-    address = f"http://{host}:{server.server_address[1]}/?t={token}"
+    # Bracketed when it is an IPv6 literal: `http://::1:18100/` is not a URI any conformant parser
+    # accepts -- `urlsplit().hostname` is None -- and it is both printed as the line carrying the
+    # token and handed to `webbrowser.open`, which would treat it as a search term.
+    shown = f"[{host}]" if ":" in host else host
+    address = f"http://{shown}:{server.server_address[1]}/?t={token}"
     out(f"صفحة الزيارة: {address}")
     out("سيبها مفتوحة. لما تخلص، اقفل الأمر ده بـ Ctrl-C.")
     if open_browser:
