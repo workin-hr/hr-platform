@@ -7,8 +7,10 @@ on:
   pull_request:
     paths:
       - "devices-agent/**"
-      # tests/test_visit.py reads both: the results sheet and the lab allocation it drives.
+      # tests/test_visit.py reads all three: the results sheet, the lab allocation it drives, and
+      # the inventory its model/firmware rows are checked against.
       - "docs/devices/field-visit-runbook.md"
+      - "docs/devices/attendance-device-model-and-firmware-inventory.md"
       - "scripts/devices-lab.sh"
       - ".github/workflows/devices-agent.yml"
   push:
@@ -16,6 +18,7 @@ on:
     paths:
       - "devices-agent/**"
       - "docs/devices/field-visit-runbook.md"
+      - "docs/devices/attendance-device-model-and-firmware-inventory.md"
       - "scripts/devices-lab.sh"
       - ".github/workflows/devices-agent.yml"
   workflow_dispatch:

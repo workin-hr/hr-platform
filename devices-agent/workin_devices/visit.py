@@ -869,10 +869,13 @@ class Visit:
                       or "اتأكد من IP الجهاز (صورة رقم 3) ومن الكابل، واستنى شوية وجرّب تاني (ممكن الجهاز مشغول)")
             return None
         serial = str(summary.get("serial") or "")
+        # Recorded before it is judged. `pasteable` removes only the serials `saw_serial` was
+        # told about, and the refusal below quotes the rejected one into a report whose own preamble
+        # promises it carries no serial at all.
+        # It also names every file the visit writes for this terminal, so one the platform refuses
+        # (or one with a path in it) goes no further than here.
+        self.saw_serial(serial)
         if not cfg.SERIAL.match(serial):
-            # The serial names every file the visit writes for this terminal; one the platform
-            # refuses (or one with a path in it) goes no further.
-            self.saw_serial(serial)
             self.note("bad", f"الجهاز رد بسيريال السيستم مش هيقبله: {serial!r}",
                       "اكتبه في الـ issue مع صورة الستيكر وشاشة Device Info")
             return None
@@ -1216,11 +1219,14 @@ class Visit:
             self.note("bad", "الجهاز مابعتش حاجة للابتوب", "راجع الإعدادات والـ firewall (sudo ufw allow 8081/tcp) وجرّب تاني")
             return
         serial = hello.serial
+        # Recorded before it is judged. `pasteable` removes only the serials `saw_serial` was
+        # told about, and the refusal below quotes the rejected one into a report whose own preamble
+        # promises it carries no serial at all.
+        self.saw_serial(serial)
+        self.saw_serial(expected)
         if not cfg.SERIAL.match(serial):
             self.note("bad", f"الجهاز بعت سيريال السيستم مش هيقبله: {serial}", "اكتبه في الـ issue مع صورة الستيكر")
             return
-        self.saw_serial(serial)
-        self.saw_serial(expected)
         if expected is not None and serial != expected:
             if not self.yes(f"وصلني اتصال بالسيريال {serial}، مش {expected} اللي الجهاز قاله على 4370. ده نفس الجهاز؟",
                             default=False):
@@ -1467,6 +1473,10 @@ class Visit:
             self.note("bad", f"الجهاز مارَدّش: {error}", "اتأكد من الـ IP وإن صفحة الجهاز بتفتح في المتصفح")
             return
         serial = str(info["serial"] or "")
+        # Recorded before it is judged. `pasteable` removes only the serials `saw_serial` was
+        # told about, and the refusal below quotes the rejected one into a report whose own preamble
+        # promises it carries no serial at all.
+        self.saw_serial(serial)
         if not cfg.SERIAL.match(serial):
             self.note("bad", f"سيريال الجهاز السيستم مش هيقبله: {serial!r}", "اكتبه في الـ issue مع صورة الستيكر")
             return

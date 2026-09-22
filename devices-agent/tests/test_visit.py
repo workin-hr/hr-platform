@@ -312,6 +312,32 @@ class AVisitOfAPushTerminal(unittest.TestCase):
         self.platform.close()
         self.dir.cleanup()
 
+    def test_a_pushed_serial_the_system_rejects_is_kept_out_of_the_report(self):
+        """The refusal quotes the identifier, and nothing had recorded it: both `saw_serial` calls
+        sat below the `return`. `pasteable` removes only what it was told about, so the report
+        published an identifier while its own preamble promises it carries none and step 11 tells
+        the operator to paste it into a public issue. A terminal whose identifier `config.SERIAL`
+        refuses -- a `/`, a space, over 64 characters -- is exactly the visit worth reporting."""
+        rejected = "PUSH/VISIT/2"
+        visited = None
+
+        def the_terminal_says_hello():
+            adms.PushTerminal(f"http://127.0.0.1:{visited.receiver.port}", rejected, timeout=2).handshake()
+            return ""
+
+        console = ScriptedConsole([("لما تحفظ الإعدادات", the_terminal_says_hello)])
+        visited = quick_visit(console, self.lab, self.out)
+        try:
+            visited.push_flow(None, "192.168.1.201")
+            text = visited.write_report().read_text(encoding="utf-8")
+        finally:
+            visited.stop_receiver()
+        self.assertEqual(console.answers, [])
+        self.assertIn("مش هيقبله", text)
+        self.assertNotIn(rejected, text, "the report published a serial the visit refused")
+        self.assertIn("device-serial", text)
+        self.assertIn(rejected, console.text, "the operator still sees it on screen")
+
     def test_the_whole_push_visit_runs_every_check_and_reports_without_an_employee_code(self):
         console = ScriptedConsole([])
         visited = quick_visit(console, self.lab, self.out)
@@ -588,7 +614,11 @@ class ATerminalThatSaysSomethingOdd(unittest.TestCase):
         visited, code, console = self.visit_terminal(terminal, [("برنامج", "1"), ("كابل أو switch", "1")])
         self.assertEqual(console.answers, [])
         self.assertEqual(code, 1)
-        self.assertIn("مش هيقبله", report_of(self.out))
+        report = report_of(self.out)
+        self.assertIn("مش هيقبله", report)
+        self.assertNotIn("evil", report, "a refused serial is still a serial the report must not publish")
+        self.assertIn("device-serial", report)
+        self.assertIn("evil", console.text, "the operator still sees it on screen")
         self.assertEqual(self.lab.allocations, [])
         self.assertEqual([path.name for path in Path(self.dir.name).rglob("*evil*")], [])
 
@@ -670,6 +700,29 @@ class AVisitOfAHikvisionTerminal(unittest.TestCase):
         now = datetime.now(self.terminal.zone).replace(tzinfo=None)
         self.terminal.add_event(PIN, now, 75, "checkIn")
         return ""
+
+    def test_a_serial_the_system_rejects_is_kept_out_of_the_report(self):
+        """The same hole, and here nothing recorded the identifier at any point: `device()` is the
+        only other writer of `self.serials` and it sits below the `return` too."""
+        rejected = "HIK/VISIT/2"
+        terminal = HikTerminal(serial=rejected, password="s3cret-pass")
+        terminal.populate([PIN], days=1)
+        server = serve_hik(terminal)
+        Path(self.out).mkdir(parents=True, exist_ok=True)
+        try:
+            console = ScriptedConsole([("اسم المستخدم", ""), ("الباسورد", "s3cret-pass")])
+            visited = quick_visit(console, self.lab, self.out)
+            visited.hik_flow("127.0.0.1", server.server_address[1])
+            text = visited.write_report().read_text(encoding="utf-8")
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(console.answers, [])
+        self.assertIn("مش هيقبله", text)
+        self.assertNotIn(rejected, text, "the report published a serial the visit refused")
+        self.assertIn("device-serial", text)
+        self.assertIn(rejected, console.text, "the operator still sees it on screen")
+        self.assertEqual(self.lab.allocations, [], "nothing is claimed under a refused serial")
 
     def test_codes_a_live_punch_and_two_sends_and_the_password_does_not_outlive_the_visit(self):
         answers = VisitStart() + [
@@ -1956,9 +2009,11 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
         self.assertIn("10.4.4.9", asked, f"the remedy measured {asked} instead of the terminal")
 
     def test_a_delivery_cannot_be_sent_without_naming_the_terminal_it_is_for(self):
-        """`host` was optional, so `hik_flow` dropping it again would be silent -- and no test could
-        catch it without a Hikvision simulator. Required, it cannot be dropped at all, which closes
-        the coverage limit instead of recording it."""
+        """`host` was optional, so `hik_flow` dropping it again would be *semantically* silent: the
+        in-function fallback produced `None` and `AVisitOfAHikvisionTerminal`, which does drive
+        `hik_flow` end to end against `sim/hikvision.py`, asserts nothing about the resulting remedy.
+        Required, the argument cannot be dropped at all -- and that end-to-end test now fails on the
+        `TypeError` if it is. This pins the signature directly, so neither test relies on the other."""
         with tempfile.TemporaryDirectory() as directory:
             visited = self.visit_in(directory)
             with self.assertRaises(TypeError):
