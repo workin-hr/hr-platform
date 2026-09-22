@@ -13,8 +13,10 @@ Use this area for attendance-device vendor analysis, protocol notes, certificati
   marked per field). Not hardware-verified.
 - `attendance-device-model-and-firmware-inventory.md` — populated
   2026-09-02 with what is known (vendor, current manual pattern, network
-  constraints); model and firmware remain `Not yet discovered` until a real
-  terminal connects.
+  constraints). **One model is now hardware-verified**: a ZKTeco MB20/ID on
+  `Ver 6.60 Oct 12 2021`, read on a 2026-09-21 site visit and recorded as the
+  document's second entry (D-274). The rest of the fleet's models and firmware
+  remain `Not yet discovered` until each terminal is read.
 - `zkteco-adms-receiver-setup.md` — operator steps for the pilot: point a
   terminal at the receiver, claim it, verify punches, and the hardware
   checklist that fills the two documents above.

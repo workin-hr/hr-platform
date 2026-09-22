@@ -55,6 +55,13 @@ body:
     id: evidence
     attributes:
       label: Evidence
+      description: >-
+        This repository is public. Paste the visit report's results sheet, which is written with
+        the terminal's serial and network addresses already removed. Do not add them back: a
+        serial is the only thing that identifies a terminal to the device endpoint, so publishing
+        one permits punch injection against a claimed device (R-041) or a squat on an unclaimed
+        one (R-042). Refer to the terminal by its inventory pseudonym (TERMINAL-A, TERMINAL-B, ...)
+        and keep the real values in the visit's own field-report/ folder.
   - type: textarea
     id: definition_of_done
     attributes:

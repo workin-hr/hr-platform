@@ -1,7 +1,7 @@
 """workin-devices: the agent, the site-visit kit and the lab simulators, one command each.
 
   agent       run | once | doctor | import-usb
-  site visit  scan | zk-info | hik-info | capture
+  site visit  visit (the whole visit, guided) | scan | zk-info | hik-info | capture
   lab         sim-zk | sim-push | sim-hik | sim-usb
 """
 from __future__ import annotations
@@ -53,6 +53,34 @@ def cmd_once(args):
     return 0 if all(result.healthy for result in results) else 1
 
 
+def in_out_verdict(configured: str, punches) -> str | None:
+    """What the whole log says about which column can carry in/out, or None when it says nothing.
+
+    `doctor` already reads every record, and the manual Mode B procedure picks `in_out_field` from
+    what `doctor` prints. Read from the last punch alone that choice is wrong on a terminal that
+    stores a check-out with the same codes as a check-in: the operator switches columns until the
+    number reads 1, which on such a terminal lands on the verification column, and the next `once`
+    sends the whole log with every direction inverted. The log cannot elect a column -- see
+    `visit.in_out_field` -- so this only ever rules one out, and says so plainly when it cannot."""
+    from collections import Counter
+    from .visit import IN_OUT_LOG_MINIMUM, cannot_separate, separates
+    if len(punches) < IN_OUT_LOG_MINIMUM:
+        return None
+    other = "status" if configured == "punch" else "punch"
+    # A source that leaves a column unset contributes nothing to that column's distribution rather
+    # than a `None` key, which `sorted` cannot order against an int.
+    spread = {configured: dict(Counter(p.status for p in punches if p.status is not None)),
+              other: dict(Counter(p.verify for p in punches if p.verify is not None))}
+    shown = "، ".join(f"{name} {dict(sorted(counts.items()))}" for name, counts in spread.items())
+    for name, rest in ((configured, other), (other, configured)):
+        if separates(spread[name]) and cannot_separate(spread[rest]):
+            return (f"in_out_field={name} ({shown}): {rest} ثابت في السجل كله فمايقدرش يكون "
+                    f"الدخول/الخروج، و{name} متوازن"
+                    + ("" if name == configured else f" — غيّر in_out_field لـ {name} قبل أي once"))
+    return (f"in_out_field مش واضح ({shown}): متسبتش على تخمين — "
+            "اكتب التوزيع ده في الـ issue، وماتشغّلش once لحد ما يتحدد")
+
+
 def cmd_doctor(args):
     """Reads every configured terminal and says what it is. Delivers nothing, changes nothing."""
     from .sources import SourceError, open_source
@@ -70,6 +98,12 @@ def cmd_doctor(args):
                   + ("  SERIAL MISMATCH" if mismatch else ""))
             for punch in punches[-3:]:
                 print(f"      last: PIN {punch.pin} {punch.local_time} in/out={punch.status} verify={punch.verify}")
+            # Only for a terminal read over the ZK protocol: `config.in_out_field` steers that
+            # source and no other, and a Hikvision or file source has no second column to weigh --
+            # judging one would tell the operator not to deliver from a terminal that is fine.
+            verdict = in_out_verdict(config.in_out_field, punches) if device.kind == "zk" else None
+            if verdict:
+                print(f"      {verdict}")
             bad |= bool(mismatch)
         except SourceError as exc:
             print(f"  {device.serial:<24} {device.kind:<10} FAIL {exc}")
@@ -121,13 +155,13 @@ def cmd_hik_info(args):
 
 
 def cmd_capture(args):
-    from . import capture
+    from . import capture, probe
     host, _, port = args.listen.rpartition(":")
     server = capture.serve(host or "0.0.0.0", int(port), args.out, args.upstream, args.host_header)
     print("=" * 72)
     print(f"  recording on {args.listen} -> {os.path.abspath(args.out)}/<serial>/")
     print(f"  {'forwarding to ' + args.upstream + ' as Host ' + str(args.host_header) if args.upstream else 'standalone: answering like an unknown receiver'}")
-    for address in _lan_addresses():
+    for address, _network in probe.lan_networks():
         print(f"  on the terminal: Server Address = {address}   Server Port = {port}")
     print("  Ctrl-C to stop")
     print("=" * 72, flush=True)
@@ -135,6 +169,11 @@ def cmd_capture(args):
         server.serve_forever()
     except KeyboardInterrupt:
         server.shutdown()
+
+
+def cmd_visit(args):
+    from . import visit
+    return visit.Visit(out_dir=args.out).run()
 
 
 def cmd_sim_zk(args):
@@ -200,18 +239,6 @@ def _pins(text: str) -> list[str]:
     return [pin.strip() for pin in text.split(",") if pin.strip()]
 
 
-def _lan_addresses() -> list[str]:
-    import socket
-    addresses = set()
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.connect(("10.255.255.255", 1))
-            addresses.add(sock.getsockname()[0])
-    except OSError:
-        pass
-    return sorted(address for address in addresses if not address.startswith("127."))
-
-
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="workin-devices", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -267,6 +294,10 @@ def main(argv=None):
     sub.add_argument("--host-header", help="the name the platform's device receiver answers on, e.g. devices.localhost")
     sub.add_argument("--out", default="captures")
     sub.set_defaults(handler=cmd_capture)
+
+    sub = commands.add_parser("visit", help="the whole site visit, step by step, ending in a report (Mode A: the lab)")
+    sub.add_argument("--out", help="where the visit's files go (default: devices-agent/field-report)")
+    sub.set_defaults(handler=cmd_visit)
 
     sub = commands.add_parser("sim-zk", help="lab: a pretend ZKTeco terminal on port 4370")
     sub.add_argument("--host", default="127.0.0.1")

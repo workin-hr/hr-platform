@@ -57,7 +57,7 @@ recommendations pending human confirmation, not decisions).
 
 - GitHub MCP
 - Flutter (Discovery note: API-side Discovery done, but no Flutter client source read yet — blocker only partially resolved)
-- .NET (Discovery note: device discovery still not started — `docs/devices/*.md` remain empty templates)
+- .NET (Discovery note: device discovery is underway, not blocked — the device documents are populated and one ZKTeco MB20/ID is hardware-verified as of 2026-09-21; D-164 makes ADMS push the primary path and the .NET gateway a fallback. See `docs/devices/README.md`)
 - pgloader
 - Testcontainers
 - WireMock
