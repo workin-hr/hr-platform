@@ -300,6 +300,18 @@ class Session:
         return visit.Visit(console=self.console, lab=self.lab, out_dir=self.out,
                            wait_seconds=self.wait_seconds, sleep=self._sleep)
 
+    def _tool_visit(self) -> visit.Visit:
+        """A tool's own `Visit`. Its waits are `time.sleep`, not `_sleep`.
+
+        `_sleep` waits on `console.stopping`, which a Stop leaves set until the next run's
+        `rearm()` -- and a tool never rearms, because `rearm()` would also clear `abandoned` and
+        un-abandon a process that is shutting down. So after any Stop every wait inside a tool
+        returned instantly, including the gap `send_twice` leaves between its two passes. A tool
+        is not interruptible by Stop anyway (`stop()` refuses when no visit thread is alive), so
+        the honest fix is for it not to watch that flag at all."""
+        return visit.Visit(console=self.console, lab=self.lab, out_dir=self.out,
+                           wait_seconds=self.wait_seconds, sleep=time.sleep)
+
     def _sleep(self, seconds: float) -> None:
         """The wizard's own waits, made interruptible. Stop should not have to wait out the ten
         minutes of the capture-paused step before the visit hears it."""
@@ -356,7 +368,13 @@ class Session:
             # a terminal on an unusual port are reachable from here too.
             host, _, typed_port = (form.get("host") or "").strip().partition(":")
             if typed_port.isdigit():
-                form = {**form, "port": int(typed_port)}
+                # Range-checked here rather than at `connect()`, where an out-of-range port raises
+                # `OverflowError` -- which is not an `OSError` and so escaped the refusal below as
+                # a reset connection and a traceback, for one extra digit in the address box.
+                asked = int(typed_port)
+                if not 1 <= asked <= 65535:
+                    return {"error": f"البورت لازم يكون بين 1 و 65535، مش {asked}"}
+                form = {**form, "port": asked}
             runner = getattr(self, f"_tool_{name.replace('-', '_')}", None)
             if runner is None:
                 return {"error": f"مفيش أداة اسمها {name}"}
@@ -459,7 +477,8 @@ class Session:
         visited = self.new_visit()
         visited.serial, visited.zk_link = serial, (host, port, key, udp)
         self.out.mkdir(parents=True, exist_ok=True)
-        visited.send_twice(visited.write_zk_agent_config(serial, f"{serial}-zk-tool.sqlite3", field))
+        visited.send_twice(visited.write_zk_agent_config(
+            serial, f"{serial}-zk-tool.sqlite3", field, name=f"{serial}-zk-tool.toml"))
         # The findings are not returned: `send_twice` wrote them through the shared console, so they
         # are already in the transcript. Returned as well, the page would draw each one twice and
         # every warning would read as two.
@@ -498,13 +517,39 @@ def make_handler(session: Session, token: str, out: Path):
             if not length:
                 return {}
             try:
-                return json.loads(self.rfile.read(length).decode("utf-8")) or {}
+                sent = json.loads(self.rfile.read(length).decode("utf-8"))
             except (ValueError, UnicodeDecodeError):
                 return {}
+            # A JSON list or string parses fine and then has no `.get`, which reached the route
+            # bodies below as an `AttributeError`.
+            return sent if isinstance(sent, dict) else {}
 
         # -- reads ------------------------------------------------------------------------
 
         def do_GET(self):
+            self._answer(self._get)
+
+        def do_POST(self):
+            self._answer(self._post)
+
+        def _answer(self, route) -> None:
+            """Every route body, behind one refusal.
+
+            `BaseHTTPRequestHandler` lets an exception out of `do_GET`/`do_POST` reach
+            `socketserver`, which closes the connection without a response and prints a traceback --
+            to the very terminal whose request log is silenced above and which the runbook tells the
+            operator to watch. The page then shows `Failed to fetch`, which says the page is broken
+            rather than what to correct. An unexpected error is still a bug; it should read as one
+            line in the tools panel."""
+            try:
+                route()
+            except Exception as exc:  # noqa: BLE001 - the operator gets a line, not a dropped socket
+                try:
+                    self._json({"error": f"{type(exc).__name__}: {exc}"}, status=500)
+                except OSError:
+                    pass
+
+        def _get(self):
             route = urlparse(self.path)
             query = parse_qs(route.query)
             if route.path in ("/", "/index.html"):
@@ -548,7 +593,7 @@ def make_handler(session: Session, token: str, out: Path):
 
         # -- writes -----------------------------------------------------------------------
 
-        def do_POST(self):
+        def _post(self):
             route = urlparse(self.path)
             if not self._allowed(parse_qs(route.query)):
                 return self._json({"error": "forbidden"}, 403)
@@ -558,8 +603,13 @@ def make_handler(session: Session, token: str, out: Path):
             if route.path == "/stop":
                 return self._json({"stopping": session.stop()})
             if route.path == "/answer":
-                taken = session.console.reply(str(form.get("value") or ""), int(form.get("choice") or 0),
-                                              int(form.get("id") or 0))
+                # A number the page did not write is a bad request, not a server fault: the catch-all
+                # below would answer 500 and call the operator's browser a crash.
+                try:
+                    choice, asked = int(form.get("choice") or 0), int(form.get("id") or 0)
+                except (TypeError, ValueError):
+                    return self._json({"taken": False, "error": "choice and id must be numbers"}, 400)
+                taken = session.console.reply(str(form.get("value") or ""), choice, asked)
                 return self._json({"taken": taken, "asked": session.console.asked},
                                   200 if taken else 409)
             if route.path.startswith("/tool/"):
@@ -588,10 +638,20 @@ def loopback(host: str) -> str:
     return host
 
 
+class _Server6(http.server.ThreadingHTTPServer):
+    """`ThreadingHTTPServer` is `AF_INET` only, so `--host ::1` passed `loopback()` and then died
+    with `[Errno -9] Address family for hostname not supported` before anything bound."""
+
+    address_family = socket.AF_INET6
+
+
 def serve(session: Session, token: str, host: str = "127.0.0.1", port: int = DEFAULT_PORT):
     """Built and returned, not started: the caller owns the thread, as capture.serve leaves it."""
-    server = http.server.ThreadingHTTPServer((loopback(host), port),
-                                             make_handler(session, token, session.out))
+    allowed = loopback(host)
+    kind = http.server.ThreadingHTTPServer
+    if socket.getaddrinfo(allowed, None, type=socket.SOCK_STREAM)[0][0] == socket.AF_INET6:
+        kind = _Server6
+    server = kind((allowed, port), make_handler(session, token, session.out))
     server.daemon_threads = True
     return server
 

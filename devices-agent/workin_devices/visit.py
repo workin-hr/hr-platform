@@ -1109,12 +1109,17 @@ class Visit:
                                     and arrival.fields[1] == stamp), None),
             self.push_mark, self.wait_seconds / 6)
 
-    def write_zk_agent_config(self, serial: str, spool: str, in_out_field: str = "punch") -> Path:
-        """The config the agent reads for one ZKTeco terminal, and the one place it is written: the
-        page's own `once` button writes it through here too, so a file a single step sends cannot
-        drift from the file the whole wizard sends."""
+    def write_zk_agent_config(self, serial: str, spool: str, in_out_field: str = "punch",
+                              name: str | None = None) -> Path:
+        """The config the agent reads for one ZKTeco terminal, and the one place it is written.
+
+        The page's `once` button writes through here too, so both go through the same writer and
+        the same `[[devices]]` shape. It does **not** mean they write the same contents: the button
+        sends whatever address, key and in/out column the operator typed, which is the point of a
+        repeatable single step. `name` is how it keeps its own file -- overwriting the wizard's
+        would leave `field-report/` disagreeing with the report beside it."""
         host, port, key, udp = self.zk_link
-        path = self.out / f"{serial}-zk.toml"
+        path = self.out / (name or f"{serial}-zk.toml")
         path.write_text(self._agent_toml(spool, in_out_field=in_out_field) +
                         f"\n[[devices]]\nserial = {_toml(serial)}\nkind = \"zk\"\nhost = {_toml(host)}\n"
                         f"port = {port}\ncomm_key = {key}\nudp = {'true' if udp else 'false'}\n", encoding="utf-8")

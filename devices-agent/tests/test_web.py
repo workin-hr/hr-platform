@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import types
+import socket
 import threading
 import time
 import unittest
@@ -19,8 +20,10 @@ from tests.support import FakePlatform
 from tests.test_visit import FakeLab, PIN
 
 
-def call(url, body=None, headers=None, method=None):
-    data = json.dumps(body).encode("utf-8") if body is not None else None
+def call(url, body=None, headers=None, method=None, raw=None):
+    # `raw` sends bytes the JSON encoder would never produce -- a list, a bare string -- which is
+    # what a hand-rolled client or a stale script sends.
+    data = raw if raw is not None else (json.dumps(body).encode("utf-8") if body is not None else None)
     request = urllib.request.Request(url, data=data, method=method or ("POST" if data is not None else "GET"),
                                      headers={"Content-Type": "application/json", **(headers or {})})
     try:
@@ -322,6 +325,47 @@ class WhatThePageRefuses(unittest.TestCase):
         said = []
         self.assertEqual(web.run(host="0.0.0.0", out=said.append), 2, said)
         self.assertTrue(any("اللابتوب نفسه" in line for line in said), said)
+
+    def test_a_loopback_host_that_resolves_to_ipv6_can_actually_bind(self):
+        """`loopback()` blessed `::1` and `serve()` could not bind it: `ThreadingHTTPServer` is
+        `AF_INET`, so `--host ::1` passed the allowlist and then died with `[Errno -9] Address family
+        for hostname not supported`. The set of hosts the check accepts and the set the server can
+        bind have to be the same set."""
+        server = web.serve(self.session, self.token, "::1", 0)
+        try:
+            self.assertEqual(server.address_family, socket.AF_INET6)
+            self.assertEqual(server.server_address[0], "::1")
+        finally:
+            server.server_close()
+        # And the IPv4 default is untouched.
+        self.assertEqual(self.server.address_family, socket.AF_INET)
+
+    def test_a_typo_in_the_port_is_answered_rather_than_dropping_the_connection(self):
+        """An out-of-range port raises `OverflowError` at `connect()`, which is not an `OSError`, so
+        it escaped `tool`'s refusal: the socket was reset with no response and a traceback printed to
+        the terminal `log_message` exists to keep quiet and the runbook tells the operator to watch.
+        One extra digit in the address box read as "the page is broken"."""
+        answered = self.session.tool("zk-info", {"host": "127.0.0.1:437000"})
+        self.assertIn("error", answered, answered)
+        self.assertIn("65535", answered["error"])
+        # Over HTTP, and the listener is still serving afterwards.
+        reply = call(f"{self.base}/tool/zk-info?t={self.token}", {"host": "127.0.0.1:99999999999"})
+        self.assertEqual(reply[0], 200, reply)
+        self.assertIn("error", json.loads(reply[1]))
+        self.assertEqual(call(f"{self.base}/events?since=0&t={self.token}")[0], 200,
+                         "the listener did not survive")
+        self.assertFalse(self.session.gate.locked(), "the gate was not released")
+
+    def test_a_body_that_is_not_an_object_is_answered_rather_than_dropping_the_connection(self):
+        """A JSON list parses fine and then has no `.get`. Same class as the port typo: the route
+        body raised, `socketserver` closed the connection, and the page showed `Failed to fetch`."""
+        for shape in ("[1, 2]", '"a string"', "7"):
+            status, body = call(f"{self.base}/tool/zk-info?t={self.token}", raw=shape.encode("utf-8"))
+            self.assertEqual(status, 200, f"{shape} -> {status}")
+            self.assertIn("error", json.loads(body), shape)
+        status, body = call(f"{self.base}/answer?t={self.token}", {"value": "x", "choice": "not-a-number"})
+        self.assertEqual(status, 400, body)
+        self.assertIn("must be numbers", json.loads(body)["error"])
 
     def test_the_page_itself_loads_without_a_token_and_carries_none(self):
         status, body = call(self.base + "/")
@@ -671,6 +715,51 @@ class WhatTheWizardWaitsFor(unittest.TestCase):
             self.assertTrue(made.console.reply(answer="", qid=asked[-1]["id"]),
                             "the new visit's first question could not be answered")
             made.close(timeout=10)
+
+    def test_a_tools_waits_are_real_waits_after_a_stop(self):
+        """`_sleep` waits on `console.stopping`, which a Stop leaves set until the next run's
+        `rearm()` -- and a tool never rearms, because `rearm()` also clears `abandoned` and would
+        un-abandon a process that is shutting down. So after any Stop every wait inside a tool
+        returned instantly, including the gap `send_twice` leaves between its two passes. A tool is
+        not interruptible by Stop anyway (`stop()` refuses with no visit running), so its `Visit`
+        gets a plain `time.sleep`."""
+        with tempfile.TemporaryDirectory() as folder:
+            made = web.Session(folder, networks=lambda: [])
+            made.console.stop()                      # as a real run's Stop leaves it
+            self.assertTrue(made.console.stopping.is_set())
+            slept = []
+            with mock.patch.object(web.time, "sleep", slept.append):
+                made._tool_visit().sleep(1)
+            self.assertEqual(slept, [1], "a tool's wait was skipped by a Stop from a finished run")
+            # The wizard's own waits stay interruptible, which is what Stop is for.
+            started = time.monotonic()
+            made.new_visit().sleep(1)
+            self.assertLess(time.monotonic() - started, 0.5,
+                            "the wizard's wait stopped being interruptible")
+
+    def test_a_single_step_keeps_its_own_config_beside_the_wizards(self):
+        """Both go through `write_zk_agent_config`, which is the point -- but that means the same
+        writer and, before this, the same path. A standalone `once` on the same address with the
+        in/out dropdown changed rewrote the wizard's `<serial>-zk.toml`, `in_out_field` included,
+        leaving `field-report/` disagreeing with the visit report beside it. The `.toml` is not in the
+        page's file lists either, so nothing showed that it had changed."""
+        with tempfile.TemporaryDirectory() as folder:
+            visited = visit.Visit(console=visit.Console(), out_dir=folder, wait_seconds=1)
+            visited.out.mkdir(parents=True, exist_ok=True)
+            visited.zk_link = ("127.0.0.1", 4370, 0, False)
+            wizard = visited.write_zk_agent_config("SN1", "SN1-zk-20260922-1030.sqlite3", "punch")
+            kept = wizard.read_text(encoding="utf-8")
+
+            visited.zk_link = ("127.0.0.1", 4371, 9876, True)
+            tool = visited.write_zk_agent_config("SN1", "SN1-zk-tool.sqlite3", "status",
+                                                 name="SN1-zk-tool.toml")
+            self.assertNotEqual(tool, wizard, "the button overwrote the wizard's config")
+            self.assertEqual(wizard.read_text(encoding="utf-8"), kept,
+                             "the wizard's config changed under it")
+            self.assertIn('in_out_field = "status"', tool.read_text(encoding="utf-8"))
+            self.assertIn('in_out_field = "punch"', kept)
+            self.assertEqual(sorted(p.name for p in visited.out.glob("*.toml")),
+                             ["SN1-zk-tool.toml", "SN1-zk.toml"])
 
     def test_a_stop_armed_by_a_run_that_ended_does_not_reach_the_next_one(self):
         """The state a stop pressed during a run leaves behind when the run ends before any question
