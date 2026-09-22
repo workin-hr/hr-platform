@@ -49,7 +49,11 @@
 		new java.util.LinkedHashMap<>(filters.asQueryParameters());}
 !{carry.put("from", from);}
 !{carry.put("to", to);}
-!{carry.put("page", String.valueOf(result.page()));}
+<%-- filters.page(), not result.page(): pagerHtml() replays the raw $_GET, and
+     DashboardPage clamps a page past the last one for display while keeping the
+     offset it was asked for. Carrying the clamped value would rewrite a
+     bookmarked page=99 into the last page the moment the other pager is used. --%>
+!{carry.put("page", String.valueOf(filters.page()));}
 !{carry.put("agg_page", String.valueOf(aggPage));}
 <%-- dashboard/pages/attendance/page.php.
 

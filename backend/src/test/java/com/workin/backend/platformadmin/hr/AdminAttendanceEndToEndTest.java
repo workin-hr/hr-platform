@@ -311,6 +311,30 @@ class AdminAttendanceEndToEndTest {
 	}
 
 	/**
+	 * {@code pagerHtml()} replays the raw {@code $_GET} (query.php:241-243), so a page number
+	 * past the last page travels to the other pager as it was asked for. The port clamps
+	 * {@code result.page()} for display while keeping the offset it was given
+	 * ({@code DashboardPage.of}), and carrying that clamped value would quietly rewrite a
+	 * bookmarked {@code page=99} into the last page as soon as the aggregate pager is clicked --
+	 * repopulating a detail table the operator had paged past the end of.
+	 */
+	@Test
+	void theOtherPagerCarriesThePageThatWasAskedForNotTheOneItLandedOn() {
+		createEmployee(this.companyA, "A101", "Amir", "Alpha");
+		for (int i = 0; i < 3; i++) {
+			attendance(this.employeeA, "2026-03-0" + (2 + i) + " 09:00:00", "2026-03-0" + (2 + i) + " 17:00:00", null);
+		}
+
+		String html = body(PATH + range() + "&company_id=" + this.companyA + "&per_page=1&page=99&agg_page=2");
+
+		Matcher aggLink = Pattern.compile("href=\"(/admin/attendance\\?agg_page=1[^\"]*)\"").matcher(html);
+		assertThat(aggLink.find()).as("the aggregate table's first-page link").isTrue();
+		assertThat(HtmlUtils.htmlUnescape(aggLink.group(1)))
+				.as("it carries the detail page that was asked for, as legacy replays it")
+				.contains("&page=99");
+	}
+
+	/**
 	 * query.php's pagerHtml() replays the whole current {@code $_GET} into every link, so paging
 	 * one of this page's two tables leaves the other's {@code page}/{@code agg_page} exactly where
 	 * it was. The port built each pager's link from an explicit, filter-only map that held neither
