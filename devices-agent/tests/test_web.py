@@ -2,12 +2,15 @@
 import json
 import os
 import tempfile
+import types
 import threading
 import time
 import unittest
 import urllib.error
 import urllib.request
+from datetime import datetime
 from pathlib import Path
+from unittest import mock
 
 from workin_devices import visit, web
 from workin_devices.sim.zk4370 import Emulator, Terminal, populate
@@ -57,10 +60,10 @@ class Page:
         assert fragment in question["prompt"], f"expected a question about {fragment!r}, got {question['prompt']!r}"
         if callable(value):
             value = value()
-        if question["mode"] == "choice":
-            self.post("answer", {"choice": value})
-        else:
-            self.post("answer", {"value": "" if value is None else str(value)})
+        # Every answer names the question it answers, as the page's own script does.
+        taken = self.post("answer", {"id": question["id"], "choice": value} if question["mode"] == "choice"
+                          else {"id": question["id"], "value": "" if value is None else str(value)})
+        assert taken.get("taken"), f"the wizard refused the answer to {question['prompt']!r}: {taken}"
 
     def next_prompt(self, script: list, seconds: float = 60) -> str:
         """Answer the script, then hand back the question that follows it, unanswered."""
@@ -93,15 +96,17 @@ class FastSession(web.Session):
     length and the LAN scan finding nothing, so the test picks its terminal by address."""
 
     def __init__(self, out_dir, lab):
-        super().__init__(out_dir, lab)
+        super().__init__(out_dir, lab, wait_seconds=10, networks=lambda: [("127.0.0.1", "127.0.0.0/30")])
         self.scans: list[str] = []
 
     def new_visit(self):
         return visit.Visit(console=self.console, lab=self.lab, out_dir=self.out, capture_host="127.0.0.1",
                            capture_port=0, wait_seconds=10, settle_seconds=0.3, pause_seconds=0.5,
-                           quiet_seconds=0.4, sleep=lambda seconds: time.sleep(min(seconds, 0.3)),
-                           networks=lambda: [("127.0.0.1", "127.0.0.0/30")],
+                           quiet_seconds=0.4, sleep=self._sleep, networks=self.networks,
                            scan=lambda cidr, **kwargs: self.scans.append(cidr) or [])
+
+    def _sleep(self, seconds: float) -> None:
+        self.console.stopping.wait(min(seconds, 0.3))
 
 
 class APageRunningAVisit(unittest.TestCase):
@@ -184,6 +189,37 @@ class APageRunningAVisit(unittest.TestCase):
         self.assertTrue(any("اتوقفت" in found.text for found in self.session.visit.findings),
                         [found.text for found in self.session.visit.findings])
 
+    def test_a_second_tab_cannot_answer_the_question_that_replaced_its_own(self):
+        """The token URL opened twice shows both tabs the same question. Once one has answered and
+        the wizard has moved on, the other tab's press must not land on whatever is waiting now:
+        the question after this one is the consent to scan the customer's network, and a typed
+        answer arriving at a choice prompt would choose option 0 -- which is yes."""
+        self.assertTrue(self.page.post("start")["started"])
+        first = self.await_question(1)
+        self.assertEqual(first["mode"], "text")
+        self.assertEqual(self.page.post("answer", {"id": 1, "value": "شركة تجربة"}), {"taken": True, "asked": 1})
+
+        consent = self.await_question(2)
+        self.assertIn("العميل وافق", consent["prompt"])
+        self.assertEqual(consent["mode"], "choice")
+        stale = self.page.post("answer", {"id": 1, "value": "شركة تجربة"})
+        self.assertEqual(stale, {"status": 409}, "the first tab's answer was applied to the next question")
+        self.assertFalse(self.session.console.answered.is_set(), "the wizard took an answer for a past question")
+
+        # Answered as the operator meant it -- option 1, no consent -- the scan never runs.
+        self.page.post("answer", {"id": 2, "choice": 1})
+        self.await_question(3)
+        self.assertEqual(self.session.scans, [], "the stale answer granted consent to scan the customer's LAN")
+
+    def await_question(self, number: int, seconds: float = 30) -> dict:
+        """The question the wizard is waiting on, by its id, as the page sees it."""
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            for event in self.page.poll()["events"]:
+                if event.get("kind") == "question" and event["id"] == number:
+                    return event
+        raise AssertionError(f"question {number} never arrived")
+
     def test_a_single_step_runs_on_its_own_and_not_while_the_wizard_is_running(self):
         """The whole point of the tools row: the step that failed can be repeated by itself."""
         read = self.page.post("tool/zk-info", {"host": f"127.0.0.1", "port": self.emulator.port})
@@ -213,7 +249,7 @@ class WhatThePageRefuses(unittest.TestCase):
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.session = web.Session(self.dir.name)
+        self.session = web.Session(self.dir.name, networks=lambda: [("127.0.0.1", "127.0.0.0/30")])
         self.token = "right-" + "r" * 20
         self.server = web.serve(self.session, self.token, "127.0.0.1", 0)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -310,7 +346,9 @@ class TheTranscriptThePageReads(unittest.TestCase):
         asker.start()
         time.sleep(0.3)
         self.assertFalse(picked, "the wizard carried on without an answer")
-        console.reply(choice=1)
+        self.assertFalse(console.reply(choice=1, qid=console.asked + 1), "an answer to another question was taken")
+        self.assertFalse(picked, "the wizard took an answer meant for another question")
+        self.assertTrue(console.reply(choice=1, qid=console.asked))
         asker.join(5)
         self.assertEqual(picked, [1])
 
@@ -327,6 +365,145 @@ class TheTranscriptThePageReads(unittest.TestCase):
         console.stop()
         waiter.join(5)
         self.assertEqual(stopped, [True], "Stop must arrive inside the waiting question")
+
+
+class WhatTheToolsMustNotAssume(unittest.TestCase):
+    """The buttons that repeat one step alone. Each of these was a way the page could do something
+    the wizard would not: answer the wrong question, send the wrong column, read a terminal the
+    wizard was already reading, or scan the wrong network."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.out = os.path.join(self.dir.name, "field-report")
+        os.makedirs(self.out)
+        self.session = web.Session(self.out, networks=lambda: [("10.0.0.5", "10.0.0.0/24")],
+                                   now=lambda: datetime(2026, 9, 22, 10, 30, 0))
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    # -- the connection a repeated step uses ------------------------------------------------
+
+    def test_a_repeated_step_reuses_the_comm_key_and_udp_the_wizard_discovered(self):
+        """A terminal behind a Comm Key, or speaking UDP, answers nothing on port 4370/key 0/TCP.
+        The wizard found the tuple that works; a button that repeats its step must use it."""
+        self.assertEqual(self.session.link("192.168.1.201", {}), (4370, 0, False))
+        self.session.visit = types.SimpleNamespace(zk_link=("192.168.1.201", 4371, 9876, True), in_out=None)
+        self.assertEqual(self.session.link("192.168.1.201", {}), (4371, 9876, True))
+
+    def test_the_page_may_still_say_otherwise_and_another_address_gets_the_defaults(self):
+        self.session.visit = types.SimpleNamespace(zk_link=("192.168.1.201", 4371, 9876, True), in_out=None)
+        self.assertEqual(self.session.link("192.168.1.201", {"comm_key": "5", "udp": False}), (4371, 5, False))
+        self.assertEqual(self.session.link("192.168.1.9", {}), (4370, 0, False),
+                         "another terminal's settings were carried over to this one")
+
+    # -- the column a standalone send writes ------------------------------------------------
+
+    def test_a_standalone_send_refuses_to_guess_the_in_out_column(self):
+        """On a terminal whose direction lives in `status`, a pass written for `punch` sends every
+        arrival with the wrong direction and verification, and re-mapping afterwards makes the whole
+        log look new and send again. Silence is not `punch`."""
+        answer = self.session.tool("once", {"host": "127.0.0.1", "port": 9})
+        self.assertIn("punch", answer.get("error", ""))
+        self.assertIn("status", answer["error"])
+
+    def test_a_standalone_send_uses_the_column_this_visit_proved(self):
+        self.session.visit = types.SimpleNamespace(zk_link=None, in_out="status")
+        # Reaches the terminal read, which is what fails here -- the column is no longer the reason.
+        answer = self.session.tool("once", {"host": "127.0.0.1", "port": 9})
+        self.assertNotIn("punch ولا status", answer.get("error", ""))
+
+    # -- the network a standalone scan walks ------------------------------------------------
+
+    def test_a_scan_on_a_laptop_with_several_networks_asks_which_one(self):
+        """Customer Ethernet plus Wi-Fi plus a VPN: taking the first would search the wrong one and
+        report the terminal missing."""
+        self.session.seen_networks = [("10.0.0.5", "10.0.0.0/24"), ("192.168.1.7", "192.168.1.0/24")]
+        self.session.seen_at = self.session.clock()
+        answer = self.session.tool("scan", {})
+        self.assertIn("اختار الشبكة", answer["error"])
+        self.assertEqual(answer["networks"], ["10.0.0.0/24", "192.168.1.0/24"])
+
+    def test_a_large_network_is_narrowed_the_way_the_wizard_narrows_it(self):
+        self.assertEqual(web.narrow("10.0.0.0/16", [("10.0.3.7", "10.0.0.0/16")]), "10.0.3.0/24")
+        self.assertEqual(web.narrow("10.0.0.0/24", [("10.0.0.5", "10.0.0.0/24")]), "10.0.0.0/24")
+        with self.assertRaises(ValueError):
+            web.narrow("172.16.0.0/16", [("10.0.0.5", "10.0.0.0/24")])
+
+    def test_a_scan_run_from_a_button_is_kept_like_any_other_evidence(self):
+        """The CLI scan and the wizard both write `scan-*.json`. A result that lives only in one
+        JSON response disappears on a reload and cannot be attached to the visit."""
+        self.session._networks = lambda: [("10.0.0.5", "10.0.0.0/24")]
+        with mock.patch.object(web.probe, "scan", return_value=[{"ip": "10.0.0.9", "ports": [4370]}]):
+            answer = self.session.tool("scan", {})
+        self.assertEqual(answer["cidr"], "10.0.0.0/24")
+        self.assertEqual(answer["file"], "scan-20260922-103000.json")
+        kept = json.loads(Path(self.out, answer["file"]).read_text(encoding="utf-8"))
+        self.assertEqual(kept, [{"ip": "10.0.0.9", "ports": [4370]}])
+        self.assertIn("scan-20260922-103000.json", self.session.state()["scans"])
+
+    # -- one terminal, one reader ------------------------------------------------------------
+
+    def test_a_visit_cannot_start_while_a_tool_is_still_reading(self):
+        """A ZK terminal serves one session at a time, and both write the same config and backup
+        files. The visit used to start anyway, because tools took no lock at all."""
+        holding, release = threading.Event(), threading.Event()
+
+        def hold(host, form):
+            holding.set()
+            release.wait(5)
+            return {"held": True}
+
+        self.session._tool_hold = hold
+        runner = threading.Thread(target=lambda: self.session.tool("hold", {"host": "10.0.0.9"}), daemon=True)
+        runner.start()
+        self.assertTrue(holding.wait(5))
+        self.assertFalse(self.session.start(), "the wizard started while a tool was reading a terminal")
+        release.set()
+        runner.join(5)
+
+
+class WhatTheWizardWaitsFor(unittest.TestCase):
+    """Stopping is not the same as abandoning: everything that puts a terminal and this laptop back
+    runs after the interrupt reaches the wizard."""
+
+    class Ending:
+        """A visit that ends the way the real one ends: its own work happens after the interrupt."""
+
+        def __init__(self, console, out: Path, delay: float):
+            self.console, self.out, self.delay = console, out, delay
+            self.serial, self.sheet, self.findings, self.zk_link, self.in_out = "", {}, [], None, None
+
+        def run(self) -> int:
+            try:
+                self.console.ask("مستني")
+            except KeyboardInterrupt:
+                time.sleep(self.delay)
+                (self.out / "report.md").write_text("التقرير", encoding="utf-8")
+            return 0
+
+    def session(self, out: Path, delay: float) -> web.Session:
+        made = web.Session(out, networks=lambda: [])
+        made.new_visit = lambda: self.Ending(made.console, out, delay)
+        return made
+
+    def test_closing_waits_for_the_report_the_interrupted_visit_still_has_to_write(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            made = self.session(out, delay=0.6)
+            self.assertTrue(made.start())
+            time.sleep(0.3)
+            self.assertTrue(made.close(timeout=10), "the process would have exited mid-report")
+            self.assertEqual((out / "report.md").read_text(encoding="utf-8"), "التقرير")
+            self.assertFalse(made.thread.is_alive())
+
+    def test_closing_says_so_when_the_visit_did_not_finish_in_time(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            made = self.session(out, delay=5)
+            self.assertTrue(made.start())
+            time.sleep(0.3)
+            self.assertFalse(made.close(timeout=0.5), "an unfinished visit was reported as closed")
 
 
 if __name__ == "__main__":

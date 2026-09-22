@@ -17,10 +17,13 @@ somebody else's `Origin` is refused before it reaches any of this.
 from __future__ import annotations
 
 import http.server
+import ipaddress
 import json
 import secrets
 import threading
+import time
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -28,9 +31,29 @@ from . import config as cfg, gateway as gw, probe, visit
 from . import zk4370 as zk
 
 DEFAULT_PORT = 18100
+DEFAULT_ZK_PORT = 4370
 # Long enough that a browser is not asking every second, short enough that a page which has just
 # been reopened does not sit blank waiting for the previous poll to time out.
 POLL_SECONDS = 20.0
+# `/events` answers the moment a transcript line lands, and reading the laptop's addresses forks
+# `ip`. Cached for this long so a talkative step does not fork once per line.
+NETWORK_SECONDS = 30.0
+# What `probe.scan` refuses to walk, and so the size above which the wizard narrows to a /24.
+SCAN_LIMIT = 1024
+# On top of `wait_seconds`, which is the longest a stopped visit can stay parked in `Visit.wait`
+# before it asks the console a question and hears the stop.
+CLOSE_GRACE_SECONDS = 20.0
+
+
+def narrow(cidr: str, addresses: list[tuple[str, str]]) -> str:
+    """The wizard's own rule, so a page scan reaches the same network a terminal scan reaches:
+    anything larger than the scanner walks becomes the /24 around this laptop's address on it."""
+    if ipaddress.ip_network(cidr).num_addresses <= SCAN_LIMIT:
+        return cidr
+    here = next((address for address, network in addresses if network == cidr), None)
+    if here is None:
+        raise ValueError(f"الشبكة {cidr} كبيرة واللابتوب مش عليها: اكتب شبكة /24")
+    return str(ipaddress.ip_interface(f"{here}/24").network)
 
 
 class Events:
@@ -68,6 +91,7 @@ class WebConsole(visit.Console):
     def __init__(self, events: Events):
         self.events = events
         self.asked = 0
+        self.turn = threading.Lock()
         self.answered = threading.Event()
         self.stopping = threading.Event()
         self.answer: str = ""
@@ -102,19 +126,31 @@ class WebConsole(visit.Console):
         return self.choice if 0 <= self.choice < len(labels) else 0
 
     def _pose(self, kind: str, prompt: str, labels: list[str] | None = None) -> None:
-        self.asked += 1
-        self.answered.clear()
-        self.events.add("question", id=self.asked, mode=kind, prompt=prompt, labels=labels or [])
+        with self.turn:
+            self.asked += 1
+            self.answered.clear()
+            asked = self.asked
+        self.events.add("question", id=asked, mode=kind, prompt=prompt, labels=labels or [])
         while not self.answered.wait(0.2):
             if self.stopping.is_set():
                 raise KeyboardInterrupt
         if self.stopping.is_set():
             raise KeyboardInterrupt
-        self.events.add("answered", id=self.asked)
+        self.events.add("answered", id=asked)
 
-    def reply(self, answer: str = "", choice: int = 0) -> None:
-        self.answer, self.choice = answer, choice
-        self.answered.set()
+    def reply(self, answer: str = "", choice: int = 0, qid: int = 0) -> bool:
+        """An answer belongs to the question it was rendered for, and says so.
+
+        The token URL can be open in two tabs, so an answer typed in one can arrive after the
+        other has already answered and the wizard has moved on. Applied blind it would answer
+        whichever question is now waiting -- and a typed answer landing on a choice prompt would
+        pick option 0, which on the consent prompts is yes. False means nothing was taken."""
+        with self.turn:
+            if qid != self.asked or self.answered.is_set():
+                return False
+            self.answer, self.choice = answer, choice
+            self.answered.set()
+            return True
 
     def stop(self) -> None:
         self.stopping.set()
@@ -125,10 +161,14 @@ class Session:
     """One page, one laptop, at most one run at a time."""
 
     def __init__(self, out_dir: str | Path | None = None, lab: visit.Lab | None = None,
-                 wait_seconds: float = 180):
+                 wait_seconds: float = 180, now=datetime.now, clock=time.monotonic,
+                 networks=probe.lan_networks):
         self.out = Path(out_dir) if out_dir else visit.AGENT_DIR / "field-report"
         self.lab = lab or visit.Lab()
         self.wait_seconds = wait_seconds
+        self.now, self.clock, self._networks = now, clock, networks
+        self.seen_networks: list[tuple[str, str]] | None = None
+        self.seen_at = 0.0
         self.events = Events()
         # One line before anything happens, so the page's first poll answers at once and paints the
         # state instead of sitting blank for a whole long-poll while nothing is running.
@@ -136,26 +176,43 @@ class Session:
         self.console = WebConsole(self.events)
         self.visit: visit.Visit | None = None
         self.thread: threading.Thread | None = None
-        self.busy = threading.Lock()
+        # One gate over both doors. A tool holds it for its whole run, so Start cannot slip past
+        # while one is still reading the terminal -- the two would read the same terminal and
+        # write the same config and backup files.
+        self.gate = threading.Lock()
 
     # -- state the page draws beside the transcript ----------------------------------------
 
     def state(self) -> dict:
         running = bool(self.thread and self.thread.is_alive())
         visited = self.visit
+        link = (visited.zk_link if visited else None) or ("", DEFAULT_ZK_PORT, 0, False)
         return {"running": running,
                 "serial": (visited.serial if visited else None) or "",
                 "sheet": {row: value for row, value in (visited.sheet if visited else {}).items() if value},
                 "findings": [{"level": found.level, "text": found.text, "fix": found.fix}
                              for found in (visited.findings if visited else [])],
+                # What the wizard discovered, so the buttons that repeat a step alone repeat it
+                # against the same terminal on the same terms instead of the defaults.
+                "host": link[0], "port": link[1], "comm_key": link[2], "udp": bool(link[3]),
+                "in_out": (visited.in_out if visited else None) or "",
+                "networks": [network for _, network in self.networks()],
                 "reports": sorted(path.name for path in self.out.glob("*.md")),
-                "backups": sorted(path.name for path in self.out.glob("*.tsv"))}
+                "backups": sorted(path.name for path in self.out.glob("*.tsv")),
+                "scans": sorted(path.name for path in self.out.glob("*.json"))}
+
+    def networks(self) -> list[tuple[str, str]]:
+        """Cached: this is read on every `/events` answer, and that answer comes back the moment a
+        transcript line lands."""
+        if self.seen_networks is None or self.clock() - self.seen_at > NETWORK_SECONDS:
+            self.seen_networks, self.seen_at = self._networks(), self.clock()
+        return self.seen_networks
 
     # -- the wizard ------------------------------------------------------------------------
 
     def start(self) -> bool:
         """The whole visit, on a worker thread. False when one is already running."""
-        if not self.busy.acquire(blocking=False):
+        if not self.gate.acquire(blocking=False):
             return False
         try:
             if self.thread and self.thread.is_alive():
@@ -167,7 +224,7 @@ class Session:
             self.thread.start()
             return True
         finally:
-            self.busy.release()
+            self.gate.release()
 
     def _run(self, visited: visit.Visit) -> None:
         try:
@@ -179,51 +236,106 @@ class Session:
 
     def new_visit(self) -> visit.Visit:
         return visit.Visit(console=self.console, lab=self.lab, out_dir=self.out,
-                           wait_seconds=self.wait_seconds)
+                           wait_seconds=self.wait_seconds, sleep=self._sleep)
+
+    def _sleep(self, seconds: float) -> None:
+        """The wizard's own waits, made interruptible. Stop should not have to wait out the ten
+        minutes of the capture-paused step before the visit hears it."""
+        self.console.stopping.wait(seconds)
 
     def stop(self) -> None:
         self.console.stop()
 
+    def close(self, timeout: float | None = None) -> bool:
+        """Stop, and wait for the visit to finish ending itself. False when it did not.
+
+        Everything that puts a terminal and this laptop back -- the restore checklist, the report,
+        the receiver, the temporary password -- runs *after* the interrupt reaches the wizard, and
+        the visit runs on a daemon thread, which the interpreter kills where it stands at exit. A
+        visit parked in `Visit.wait` hears the stop only when that wait times out and it asks the
+        console whether to keep waiting, so the wait here covers one `wait_seconds`."""
+        self.stop()
+        thread = self.thread
+        if thread is None or not thread.is_alive():
+            return True
+        thread.join(self.wait_seconds + CLOSE_GRACE_SECONDS if timeout is None else timeout)
+        return not thread.is_alive()
+
     # -- one step at a time, when no wizard is running --------------------------------------
 
     def tool(self, name: str, form: dict) -> dict:
-        """A single step against one address, so a step that failed can be repeated alone."""
-        if self.thread and self.thread.is_alive():
-            return {"error": "الزيارة شغالة دلوقتي: استنى لما تخلص، أو أوقفها"}
-        # `ip:port` as the wizard's own "type the address" step accepts it, so the simulator and a
-        # terminal on an unusual port are reachable from here too.
-        host, _, typed_port = (form.get("host") or "").strip().partition(":")
-        if typed_port.isdigit():
-            form = {**form, "port": int(typed_port)}
-        runner = getattr(self, f"_tool_{name.replace('-', '_')}", None)
-        if runner is None:
-            return {"error": f"مفيش أداة اسمها {name}"}
-        if name != "scan" and not host:
-            return {"error": "اكتب IP الجهاز"}
+        """A single step against one address, so a step that failed can be repeated alone.
+
+        Held under the same gate `start` takes, for the whole operation: a tool and a visit reading
+        one terminal at once would fight over a session it serves one at a time, and would write
+        the same config and backup files."""
+        if not self.gate.acquire(blocking=False):
+            return {"error": "في خطوة شغالة دلوقتي: استنى لما تخلص"}
         try:
-            return runner(host, form)
-        except (zk.ZkError, gw.Unauthorized, cfg.ConfigError, OSError, ValueError) as exc:
-            return {"error": str(exc)}
+            if self.thread and self.thread.is_alive():
+                return {"error": "الزيارة شغالة دلوقتي: استنى لما تخلص، أو أوقفها"}
+            # `ip:port` as the wizard's own "type the address" step accepts it, so the simulator and
+            # a terminal on an unusual port are reachable from here too.
+            host, _, typed_port = (form.get("host") or "").strip().partition(":")
+            if typed_port.isdigit():
+                form = {**form, "port": int(typed_port)}
+            runner = getattr(self, f"_tool_{name.replace('-', '_')}", None)
+            if runner is None:
+                return {"error": f"مفيش أداة اسمها {name}"}
+            if name != "scan" and not host:
+                return {"error": "اكتب IP الجهاز"}
+            try:
+                return runner(host, form)
+            except (zk.ZkError, gw.Unauthorized, cfg.ConfigError, OSError, ValueError) as exc:
+                return {"error": str(exc)}
+        finally:
+            self.gate.release()
+
+    def link(self, host: str, form: dict) -> tuple[int, int, bool]:
+        """Port, Comm Key and UDP for one address: what the page sent, else what the visit found.
+
+        A terminal behind a Comm Key or speaking UDP answers nothing on the defaults, so a button
+        that repeated a step with port 4370, key 0 and TCP could not repeat the step that failed."""
+        found = (self.visit.zk_link if self.visit else None) or ()
+        known = found if found and found[0] == host else ()
+        said = lambda name: str(form.get(name) or "").strip()
+        port = int(said("port") or (known[1] if known else 0) or DEFAULT_ZK_PORT)
+        key = int(said("comm_key")) if said("comm_key") else (known[2] if known else 0)
+        udp = bool(form["udp"]) if "udp" in form else bool(known[3]) if known else False
+        return port, key, udp
 
     def _tool_netcheck(self, host: str, form: dict) -> dict:
         return {"network": probe.laptop_network(host, ping_count=int(form.get("count") or 10))}
 
     def _tool_scan(self, host: str, form: dict) -> dict:
+        """The network the operator picked, narrowed as the wizard narrows it, and kept on disk.
+
+        A laptop on customer Ethernet *and* Wi-Fi *and* a VPN has several; scanning whichever came
+        back first would quietly search the wrong one and report the terminal missing."""
+        addresses = self.networks()
         cidr = (form.get("cidr") or "").strip()
         if not cidr:
-            addresses = probe.lan_networks()
             if not addresses:
                 return {"error": "اللابتوب مش على شبكة"}
+            if len(addresses) > 1:
+                return {"error": "اللابتوب على أكتر من شبكة: اختار الشبكة اللي فيها الجهاز",
+                        "networks": [network for _, network in addresses]}
             cidr = addresses[0][1]
-        return {"cidr": cidr, "found": probe.scan(cidr, out=lambda line: None)}
+        cidr = narrow(cidr, addresses)
+        found = probe.scan(cidr, out=lambda line: None)
+        # Written where the wizard writes its own scan, so a scan run from a button is evidence
+        # that survives the reload and can be attached to the visit like any other.
+        self.out.mkdir(parents=True, exist_ok=True)
+        path = self.out / f"scan-{self.now():%Y%m%d-%H%M%S}.json"
+        path.write_text(json.dumps(found, indent=2, ensure_ascii=False), encoding="utf-8")
+        return {"cidr": cidr, "found": found, "file": path.name}
 
     def _tool_zk_info(self, host: str, form: dict) -> dict:
-        return {"device": probe.zk_summary(host, int(form.get("port") or 4370),
-                                           int(form.get("comm_key") or 0),
-                                           bool(form.get("udp")), timeout=8)}
+        port, key, udp = self.link(host, form)
+        return {"device": probe.zk_summary(host, port, key, udp, timeout=8)}
 
     def _tool_backup(self, host: str, form: dict) -> dict:
-        port, key, udp = int(form.get("port") or 4370), int(form.get("comm_key") or 0), bool(form.get("udp"))
+        port, key, udp = self.link(host, form)
         summary = probe.zk_summary(host, port, key, udp, timeout=8)
         if "error" in summary:
             return {"error": summary["error"]}
@@ -237,7 +349,14 @@ class Session:
 
     def _tool_once(self, host: str, form: dict) -> dict:
         """The agent's own pass, written and run the way the wizard's step 6.4 writes and runs it."""
-        port, key, udp = int(form.get("port") or 4370), int(form.get("comm_key") or 0), bool(form.get("udp"))
+        port, key, udp = self.link(host, form)
+        # Never a default. On a terminal whose in/out lives in `status`, a pass written for `punch`
+        # sends every arrival with the direction and verification taken from the wrong column, and
+        # correcting the mapping afterwards makes the whole log look new and send again.
+        field = (form.get("in_out_field") or "").strip() or (self.visit.in_out if self.visit else "")
+        if field not in ("punch", "status"):
+            return {"error": "اختار العمود اللي فيه الدخول والخروج (punch ولا status) قبل الإرسال: "
+                             "لو اتبعت غلط، الدخول هيتسجل خروج"}
         summary = probe.zk_summary(host, port, key, udp, timeout=8)
         if "error" in summary:
             return {"error": summary["error"]}
@@ -247,9 +366,8 @@ class Session:
         visited = self.new_visit()
         visited.serial, visited.zk_link = serial, (host, port, key, udp)
         self.out.mkdir(parents=True, exist_ok=True)
-        field = "status" if form.get("in_out_field") == "status" else "punch"
         visited.send_twice(visited.write_zk_agent_config(serial, f"{serial}-zk-tool.sqlite3", field))
-        return {"serial": serial, "findings": [{"level": f.level, "text": f.text, "fix": f.fix}
+        return {"serial": serial, "in_out": field, "findings": [{"level": f.level, "text": f.text, "fix": f.fix}
                                                for f in visited.findings]}
 
 
@@ -346,8 +464,10 @@ def make_handler(session: Session, token: str, out: Path):
                 session.stop()
                 return self._json({"stopping": True})
             if route.path == "/answer":
-                session.console.reply(str(form.get("value") or ""), int(form.get("choice") or 0))
-                return self._json({"taken": True})
+                taken = session.console.reply(str(form.get("value") or ""), int(form.get("choice") or 0),
+                                              int(form.get("id") or 0))
+                return self._json({"taken": taken, "asked": session.console.asked},
+                                  200 if taken else 409)
             if route.path.startswith("/tool/"):
                 return self._json(session.tool(route.path[len("/tool/"):], form))
             return self._json({"error": "not found"}, 404)
@@ -383,7 +503,10 @@ def run(host: str = "127.0.0.1", port: int = DEFAULT_PORT, out_dir: str | None =
     except KeyboardInterrupt:
         out("")
     finally:
-        session.stop()
+        if session.thread and session.thread.is_alive():
+            out("بوقّف الزيارة وبستنى تخلّص آخر خطوة (التقرير ورجوع إعدادات الجهاز). Ctrl-C تاني يقفل فورًا.")
+        if not session.close():
+            out("⚠️ الزيارة ماخلصتش لوحدها: التقرير ممكن يكون ناقص، وإعدادات الجهاز محتاجة مراجعة يدوي.")
         server.shutdown()
         server.server_close()
     return 0
@@ -456,11 +579,18 @@ PAGE = """<!DOCTYPE html>
     <section id="q" class="idle">
       <div class="prompt" id="qtext"></div>
       <div class="row" id="qbody"></div>
+      <div class="dim" id="qwarn"></div>
     </section>
     <section>
       <h2>أدوات: خطوة واحدة لوحدها</h2>
       <div class="tools">
         <label>IP <input id="host" size="14" placeholder="192.168.1.201" inputmode="decimal"></label>
+        <label>Comm Key <input id="key" size="5" placeholder="0" inputmode="numeric"></label>
+        <label><input id="udp" type="checkbox"> UDP</label>
+        <label>عمود الدخول/الخروج
+          <select id="field"><option value="">—</option><option value="punch">punch</option>
+          <option value="status">status</option></select></label>
+        <label>الشبكة <select id="cidr"><option value="">—</option></select></label>
         <button data-tool="zk-info">اقرأ الجهاز</button>
         <button data-tool="backup">نسخة احتياطية</button>
         <button data-tool="once">إرسال once</button>
@@ -538,17 +668,36 @@ function ask(event) {
   }
 }
 
-const close = () => { $("q").className = "idle"; $("qbody").textContent = ""; };
+const close = () => { $("q").className = "idle"; $("qbody").textContent = ""; $("qwarn").textContent = ""; };
 const post = (path, body) => fetch(path + "?t=" + encodeURIComponent(TOKEN),
   { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) })
   .then((answer) => answer.json());
-const send = (body) => { close(); return post("answer", body); };
+
+// The box closes when the wizard says it took the answer, not when the button was pressed: the
+// same token can be open in another tab, and an answer to a question that has already moved on
+// is refused rather than applied to whatever is waiting now.
+async function send(body) {
+  const buttons = $("qbody").querySelectorAll("button, input");
+  buttons.forEach((control) => { control.disabled = true; });
+  const answer = await post("answer", Object.assign({ id: lastId }, body));
+  if (!answer.taken) {
+    buttons.forEach((control) => { control.disabled = false; });
+    $("qwarn").textContent = "الإجابة دي كانت لسؤال فات \u2014 التبويب ده كان قديم.";
+  }
+  return answer;
+}
 
 function paint(state) {
   $("status").textContent = state.running
     ? "شغالة" + (state.serial ? " \\u00b7 " + state.serial : "")
     : "مش شغالة";
   $("start").disabled = state.running;
+  if (!state.running) close();
+  if (state.host && !$("host").value) $("host").value = state.host;
+  if (state.comm_key && !$("key").value) $("key").value = String(state.comm_key);
+  if (state.udp) $("udp").checked = true;
+  if (state.in_out && !$("field").value) $("field").value = state.in_out;
+  fillNetworks(state.networks || []);
   const sheet = $("sheet");
   sheet.textContent = "";
   for (const [row, value] of Object.entries(state.sheet || {})) {
@@ -558,7 +707,7 @@ function paint(state) {
     cell.className = "num";
     cell.textContent = value;
   }
-  const files = [].concat(state.reports || [], state.backups || []);
+  const files = [].concat(state.reports || [], state.backups || [], state.scans || []);
   $("files").textContent = "";
   if (!files.length) $("files").textContent = "\\u2014";
   files.forEach((name) => {
@@ -569,6 +718,25 @@ function paint(state) {
     const holder = text($("files"), "", "");
     holder.appendChild(link);
   });
+}
+
+function fillNetworks(list) {
+  const box = $("cidr");
+  if (box.dataset.list === list.join(",")) return;
+  box.dataset.list = list.join(",");
+  const chosen = box.value;
+  box.textContent = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "\u2014";
+  box.appendChild(none);
+  list.forEach((cidr) => {
+    const option = document.createElement("option");
+    option.value = cidr;
+    option.textContent = cidr;
+    box.appendChild(option);
+  });
+  box.value = list.indexOf(chosen) >= 0 ? chosen : (list.length === 1 ? list[0] : "");
 }
 
 async function poll() {
@@ -592,7 +760,9 @@ document.querySelectorAll("[data-tool]").forEach((button) => {
   button.onclick = async () => {
     const name = button.dataset.tool;
     $("tool").textContent = "…" + button.textContent;
-    const answer = await post("tool/" + name, { host: $("host").value.trim() });
+    const answer = await post("tool/" + name, {
+      host: $("host").value.trim(), comm_key: $("key").value.trim(), udp: $("udp").checked,
+      in_out_field: $("field").value, cidr: $("cidr").value });
     $("tool").textContent = "";
     const block = document.createElement("pre");
     block.style.whiteSpace = "pre-wrap";

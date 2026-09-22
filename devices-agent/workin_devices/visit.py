@@ -596,6 +596,9 @@ class Visit:
         self.network_ok = True
         self.secrets: list[Path] = []
         self.zk_link: tuple[str, int, int, bool] | None = None
+        # Kept, not just written to the sheet: a later step that sends on this terminal's
+        # behalf must use the column this visit proved, never a default.
+        self.in_out: str | None = None
         self.device_started = False
         self.interrupted = False
         self.restored = False
@@ -968,7 +971,7 @@ class Visit:
                               f"والعمود اتحدد من سجل الجهاز نفسه",
                       "يا إما الموظف مادسش زرار الخروج، يا إما الفيرموير ده مابيغيّرش الكود: "
                       "اكتب التوزيع اللي في ورقة النتائج في الـ issue")
-        self.sheet["الـ in_out_field الصح"] = field
+        self.sheet["الـ in_out_field الصح"] = self.in_out = field
         index = 0 if field == "punch" else 1
         self.sheet["الدخول"] = str((check_in.punch, check_in.status)[index])
         self.sheet["الخروج"] = str((check_out.punch, check_out.status)[index])
