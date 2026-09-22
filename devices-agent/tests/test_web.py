@@ -176,7 +176,11 @@ class APageRunningAVisit(unittest.TestCase):
         other prompt would fail this too."""
         self.assertTrue(self.page.post("start")["started"])
         script = self.script()
-        padded = [(("اكتب IP", f"  127.0.0.1:{self.emulator.port} ") if fragment == "اكتب IP"
+        # Trailing space only on the address. With a leading space too, reverting the strip fails
+        # this test on the *host* -- `ipaddress.ip_address(" 127.0.0.1")` raises before the port
+        # guard is reached -- so it would pass for a reason that is not the regression it pins.
+        # The leading-space case is kept on the company name, which has its own assertion below.
+        padded = [(("اكتب IP", f"127.0.0.1:{self.emulator.port} ") if fragment == "اكتب IP"
                    else ("اسم الشركة", "  شركة تجربة / فرع الاختبار  ") if fragment == "اسم الشركة"
                    else (fragment, answer))
                   for fragment, answer in script]
