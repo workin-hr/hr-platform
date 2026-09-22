@@ -361,10 +361,19 @@ are both answered and implemented:
    and asserts the next page request is refused rather than served until
    expiry (**D-145**).
    **One exception, added by D-273**: requests under the public asset prefix
-   `/admin/_assets/**` are not revalidated. They are `permitAll` and are served
-   with no session at all, so a request for one carries no decision that
-   revalidation could withdraw; the prefix has no controller behind it, only
-   `AdminAssetCaching`'s resource handlers over one classpath directory. Every
+   `/admin/_assets/**` are not revalidated. They are `permitAll`, so serving one
+   does not depend on the caller being an administrator — a signed-out browser
+   is served the same bytes — and the prefix has no controller behind it, only
+   `AdminAssetCaching`'s resource handlers over one classpath directory. What is
+   skipped is the repository check, **not the session**: an authenticated
+   browser still sends its `JSESSIONID`, Spring Security still restores its
+   context before this filter, and both survive the request —
+   `PlatformAdminSessionRevalidationFilterTest.aStaticAssetIsServedWithoutRevalidating`
+   asserts the session stays valid and the authentication present. Two
+   consequences follow and are accepted: an asset request still counts as
+   session activity, so a browser fetching assets keeps a session from going
+   idle; and a deactivated administrator's browser is served assets until a
+   request that can reach a controller is revalidated and refused. Every
    request that can reach a controller is still revalidated, which is what
    "next request" means here and what the deactivation tests assert. The
    exception is refused for any path under the prefix that contains a
