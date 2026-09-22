@@ -11,6 +11,7 @@ import unittest
 import urllib.error
 import urllib.request
 from datetime import datetime
+from urllib.parse import urlsplit
 from pathlib import Path
 from unittest import mock
 
@@ -373,6 +374,16 @@ class WhatThePageRefuses(unittest.TestCase):
             server.server_close()
         # And the IPv4 default is untouched.
         self.assertEqual(self.server.address_family, socket.AF_INET)
+
+    def test_the_address_the_operator_copies_is_a_url_for_every_host_that_binds(self):
+        """The line above blesses `::1`, and this is the line that carries the token -- printed for
+        the operator and handed to `webbrowser.open`. Unbracketed it is not a URI any parser reads,
+        so the browser treats it as a search term and the token goes to a search engine."""
+        for host in ("127.0.0.1", "localhost", "::1"):
+            shown = urlsplit(web.page_address(host, 18100, "tok-1"))
+            self.assertEqual(shown.hostname, host, host)
+            self.assertEqual(shown.port, 18100, host)
+            self.assertEqual(shown.query, "t=tok-1", host)
 
     def test_a_typo_in_the_port_is_answered_rather_than_dropping_the_connection(self):
         """An out-of-range port raises `OverflowError` at `connect()`, which is not an `OSError`, so

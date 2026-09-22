@@ -673,6 +673,16 @@ def serve(session: Session, token: str, host: str = "127.0.0.1", port: int = DEF
     return server
 
 
+def page_address(host: str, port: int, token: str) -> str:
+    """The one line the operator copies, and the string `webbrowser.open` is handed.
+
+    An IPv6 literal is bracketed. `loopback()` accepts `::1`, and `http://::1:18100/?t=...` is not a
+    URI any conformant parser reads -- `urlsplit().hostname` is None -- so a browser handed it
+    treats it as a search term, which is the token typed into a search engine."""
+    shown = f"[{host}]" if ":" in host else host
+    return f"http://{shown}:{port}/?t={token}"
+
+
 def _tell(line: str) -> None:
     """Flushed, because the address carries the token: redirected to a file or a service log, a
     block-buffered stdout holds the one line the operator needs until the process ends."""
@@ -688,11 +698,7 @@ def run(host: str = "127.0.0.1", port: int = DEFAULT_PORT, out_dir: str | None =
     except (ValueError, OSError) as exc:
         out(f"❌ {exc}")
         return 2
-    # Bracketed when it is an IPv6 literal: `http://::1:18100/` is not a URI any conformant parser
-    # accepts -- `urlsplit().hostname` is None -- and it is both printed as the line carrying the
-    # token and handed to `webbrowser.open`, which would treat it as a search term.
-    shown = f"[{host}]" if ":" in host else host
-    address = f"http://{shown}:{server.server_address[1]}/?t={token}"
+    address = page_address(host, server.server_address[1], token)
     out(f"صفحة الزيارة: {address}")
     out("سيبها مفتوحة. لما تخلص، اقفل الأمر ده بـ Ctrl-C.")
     if open_browser:
