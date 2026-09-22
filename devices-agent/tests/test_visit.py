@@ -2101,6 +2101,13 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
             # ROOT is not a git repository. A missing `git` *binary* is a different case and is
             # deliberately not caught: `check=False` suppresses an exit status, not a
             # `FileNotFoundError`, so that errors rather than quietly passing.
+            #
+            # In CI it is not a skip. `serial-gate.yml` runs this test **alone** and reports the
+            # job's exit status, and a skip exits 0 -- so a tree without `.git`, a future
+            # `sparse-checkout`, or this job reused somewhere else would turn the one gate meant to
+            # stop a serial reaching a public repository into a no-op that reports green.
+            if os.environ.get("CI"):
+                self.fail("the tracked file set is unknown: this gate cannot pass without reading it")
             self.skipTest("this tree is not a git repository, so the tracked file set is unknown")
         tracked = [ROOT / name for name in listed.stdout.split("\0") if name]
         found = []
