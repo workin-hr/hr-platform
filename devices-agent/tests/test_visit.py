@@ -636,6 +636,21 @@ class ATerminalThatSaysSomethingOdd(unittest.TestCase):
         # Ignored, and the visit says which number it used instead -- not the terminal's.
         self.assertIn("الرقم المعتاد للخروج", console.text)
         self.assertEqual(visited.sheet["الخروج"], "1")
+        # **The combined case.** `self.push.out_value` has the same provenance -- the third field
+        # of a line the terminal uploaded -- so guarding only the branch above handed the value it
+        # had just rejected to the `elif` below it, which parsed it unguarded. With `push` left
+        # unset, as a bare `quick_visit` leaves it, that branch short-circuits and this test is
+        # blind to it. Both shapes here: a rejected `pushed` falling through, and no `pushed` at all.
+        for pushed_line in (visit.Arrival(0.0, [PIN, "2026-09-20 08:00:00", "²", "15", "0", "0", "0"]), None):
+            console = ScriptedConsole([])
+            visited = quick_visit(console, self.lab, self.out)
+            punches = [types.SimpleNamespace(punch=0, status=15, user_id=PIN, timestamp=datetime.now()),
+                       types.SimpleNamespace(punch=1, status=15, user_id=PIN, timestamp=datetime.now())]
+            visited.one_new_punch = lambda instruction: punches.pop(0)
+            visited.pushed_line = lambda record: pushed_line
+            visited.push = visit.Push(serial="PUSH-VISIT-1", in_value="0", out_value="²")
+            self.assertEqual(visited.find_in_out(), "punch", f"pushed={pushed_line}")
+            self.assertEqual(visited.sheet["الخروج"], "1", f"pushed={pushed_line}")
         # And a plain number the terminal sends is still read from the terminal.
         console = ScriptedConsole([])
         visited = quick_visit(console, self.lab, self.out)
@@ -789,6 +804,36 @@ class AVisitOfAHikvisionTerminal(unittest.TestCase):
         self.assertIn("²", visited.sheet["Hikvision: أكواد الحضور اللي ظهرت"])
         self.assertTrue(any(f.level == "warn" and "²" in f.text for f in visited.findings),
                         "a code that is not attendance is reported, whatever shape it is")
+
+    def test_the_live_punchs_own_minor_code_is_reported_whatever_shape_it_is(self):
+        """The codes *counted* for the sheet were guarded; the code of the punch the operator was
+        just asked for, read off the same JSON sixteen lines later, was parsed with a bare
+        `int()`. A terminal sending anything but a plain number there ended the visit on an
+        English traceback -- after the read, before the allocation, so the operator was left with
+        nothing and had to start over in front of the customer."""
+        for minor in ("²", "checkIn", None, "-3"):
+            def punch(code=minor):
+                now = datetime.now(self.terminal.zone).replace(tzinfo=None)
+                self.terminal.add_event(PIN, now, code, "checkIn")
+                return ""
+
+            console = ScriptedConsole([("اسم المستخدم", ""), ("الباسورد", "s3cret-pass"),
+                                       ("يعمل بصمة على الجهاز", punch),
+                                       ("الجهاز متظبط على إيه", "4"), ("بتتظبط لوحدها", "1")])
+            visited = quick_visit(console, self.lab, self.out)
+            Path(self.out).mkdir(parents=True, exist_ok=True)
+            visited.hik_flow("127.0.0.1", self.server.server_address[1])
+            self.assertEqual(console.answers, [], f"minor={minor!r}: {console.text[-400:]}")
+            # Not attendance, whatever shape it is -- and the code is quoted so the issue can name it.
+            self.assertTrue(any(f.level == "bad" and "مش بيتحسب حضور" in f.text for f in visited.findings),
+                            f"minor={minor!r} was not reported: {[f.text for f in visited.findings]}")
+        # A plain code still reads as attendance, so the guard did not swallow the ordinary path.
+        console = ScriptedConsole([("اسم المستخدم", ""), ("الباسورد", "s3cret-pass"),
+                                   ("يعمل بصمة على الجهاز", self.punch_now),
+                                   ("الجهاز متظبط على إيه", "4"), ("بتتظبط لوحدها", "1")])
+        visited = quick_visit(console, self.lab, self.out)
+        visited.hik_flow("127.0.0.1", self.server.server_address[1])
+        self.assertIn("وده بيتحسب حضور", console.text)
 
     def test_codes_a_live_punch_and_two_sends_and_the_password_does_not_outlive_the_visit(self):
         answers = VisitStart() + [
@@ -947,6 +992,12 @@ class ThePiecesTheWizardDecidesWith(unittest.TestCase):
         # Arabic-Indic digits are ordinary numbers and must still choose.
         console = ScriptedConsole([("سؤال", "٢")])
         self.assertEqual(console.choose("سؤال؟", ["أول", "تاني"]), 1)
+        # Length is the second way `int()` refuses a string that is all decimal digits: CPython
+        # caps a conversion at `sys.get_int_max_str_digits()`, 4300 by default. `isdecimal()`
+        # alone says nothing about it, so this answer passed that guard and raised too.
+        console = ScriptedConsole([("سؤال", "9" * 5000), ("سؤال", "1")])
+        self.assertEqual(console.choose("سؤال؟", ["أول", "تاني"]), 0)
+        self.assertIn("الرقم ده مش في القايمة", console.text)
 
     def test_the_results_sheet_is_the_runbooks_appendix_row_for_row(self):
         text = (ROOT / "docs" / "devices" / "field-visit-runbook.md").read_text(encoding="utf-8")
@@ -1512,14 +1563,24 @@ class WhenTheVisitCannotFinish(unittest.TestCase):
         failed = []
 
         def punch_in_a_charset_nobody_asked_for():
-            """From a thread and after a moment, like `drip_old_records` and like the device's own
-            loop -- not inside the answer. `punch_test` takes its mark *after* the prompt returns,
-            deliberately: an upload already on its way when the operator was asked is the backlog,
-            not the punch. Posted inside the answer this upload raced that mark, and on the runs
-            where the recorder's thread won it landed before the mark and was invisible, so the
-            visit waited out the full window and asked a question no script answers."""
-            def upload():
-                time.sleep(0.25)
+            """Uploaded **after** the mark, as an ordering rather than as a head start.
+
+            `punch_test` takes its mark *after* the prompt returns, deliberately: an upload
+            already on its way when the operator was asked is the backlog, not the punch. Posted
+            inside the answer, this upload raced that mark, and on the runs where the recorder's
+            thread won it landed first, was invisible, and the visit waited out the whole window
+            and asked a question no script answers -- one run in six under parallel load.
+
+            A sleep only widens that window, and the suite has narrower ones: `PushDevice._loop`
+            polls every 50 ms, so every ordinary punch fixture has a fifth of the margin a sleep
+            here would buy. Hooking `mark` instead makes the order a fact -- the upload starts
+            once the visit has taken the mark it will compare against, which is exactly what the
+            operator's real punch does."""
+            real = visited.receiver.mark
+
+            def mark_then_upload():
+                taken = real()
+                visited.receiver.mark = real          # this fixture answers one prompt only
                 # A line the recorder keeps nothing from: the platform still answered 200.
                 body = f"{PIN}\t2026-09-20 08:00:00\t0\t1\t".encode() + bytes([0xB4, 0xF7, 0xC3, 0xFB])
                 request = urllib.request.Request(
@@ -1531,8 +1592,9 @@ class WhenTheVisitCannotFinish(unittest.TestCase):
                     # Swallowed, this reads as "the punch never arrived" and the visit asks an
                     # unscripted question -- a failure that names neither the upload nor the cause.
                     failed.append(exc)
+                return taken
 
-            threading.Thread(target=upload, daemon=True).start()
+            visited.receiver.mark = mark_then_upload
             return ""
 
         console.answers = VisitStart() + [

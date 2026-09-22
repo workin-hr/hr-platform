@@ -217,6 +217,11 @@ class WebConsole(visit.Console):
         self.stop()
 
 
+def shown(value: str, most: int = 24) -> str:
+    """A value quoted back into a refusal the page draws. A text box holds far more than fits."""
+    return value if len(value) <= most else value[:most] + "…"
+
+
 class Session:
     """One page, one laptop, at most one run at a time."""
 
@@ -386,19 +391,19 @@ class Session:
             if name != "scan":
                 if not host:
                     return {"error": "اكتب IP الجهاز"}
-                # `isdecimal()`, not `isdigit()`: the latter is true for `²` and `1²`
-                # (Numeric_Type=Digit), which `int()` refuses -- so `127.0.0.1:²` passed the
-                # guard and raised inside `int()`, escaping as an opaque English 500 with a stack
-                # on the very path this refusal exists to keep in Arabic. Arabic-Indic digits stay
-                # accepted, because `int("٤٣٧٠")` is 4370 and this tool's operators type them.
-                if typed_port and not typed_port.isdecimal():
+                # `visit.reads_as_int`, not `isdigit()` and not `isdecimal()` alone: the first is
+                # true for `²` and the second says nothing about length, and both of those reach
+                # `int()` and raise -- an opaque English 500 with a stack, on the very path this
+                # refusal exists to keep in Arabic. Arabic-Indic digits stay accepted.
+                if typed_port and not visit.reads_as_int(typed_port):
                     # Dropped in silence before: `192.168.1.201:-1` reported the terminal
                     # unreachable **on 4370**, a port the operator never asked for.
-                    return {"error": f"البورت لازم يكون رقم بين 1 و 65535، مش {typed_port!r}"}
-                if typed_port.isdecimal():
+                    return {"error": f"البورت لازم يكون رقم بين 1 و 65535، مش {shown(typed_port)!r}"}
+                if visit.reads_as_int(typed_port):
                     # The same predicate rather than `if typed_port:`, so this `int()` is safe on
                     # its own terms instead of depending on the refusal three lines above --
-                    # removing that refusal would otherwise raise `ValueError` straight past `tool`.
+                    # removing that refusal would otherwise raise `ValueError` straight past `tool`,
+                    # which this one is genuinely outside of.
                     # Range-checked here rather than at `connect()`, where an out-of-range port
                     # raises `OverflowError` -- not an `OSError`, so it escaped the refusal below
                     # as a reset connection and a traceback, for one extra digit in the box.
@@ -408,10 +413,38 @@ class Session:
                     form = {**form, "port": asked}
             try:
                 return runner(host, form)
-            except (zk.ZkError, gw.Unauthorized, cfg.ConfigError, OSError, ValueError) as exc:
+            # `ArithmeticError` covers the `OverflowError` an out-of-range or infinite number
+            # raises: it is not an `OSError` and not a `ValueError`, so it escaped as a 500.
+            except (zk.ZkError, gw.Unauthorized, cfg.ConfigError, OSError, ValueError,
+                    ArithmeticError) as exc:
                 return {"error": str(exc)}
         finally:
             self.gate.release()
+
+    def number(self, form: dict, name: str, what: str, default: int) -> int:
+        """One box the operator filled, read as a number or refused in the page's own language.
+
+        Bare `int()` on these raised `ValueError` carrying the standard library's English
+        sentence -- caught by `tool`, so not a 500, but `invalid literal for int() with base 10:
+        'abc'` is what the Comm Key box showed for a typo, in a tool whose every other word is
+        Arabic. Every typed number on the page goes through here so none of them can drift apart
+        again: the address box's port is checked in `tool`, and `port`, `comm_key` and `count`
+        are checked here.
+
+        Absent is absent and `0` is not: `str(form.get(name) or "")` read a JSON `port: 0` as
+        nothing sent and dialled 4370. `_form` already maps every non-scalar to `None`, so `None`
+        is the only absent value."""
+        value = "" if form.get(name) is None else str(form.get(name)).strip()
+        if not value:
+            return default
+        # One leading `-` is read rather than refused, so a negative number reaches the caller's
+        # range check and is told the bounds, instead of being told it is not a number.
+        body = value[1:] if value.startswith("-") else value
+        if not visit.reads_as_int(body):
+            # Quoted short: the refusal is drawn on the page, and a box can hold thousands of
+            # characters -- which is one of the shapes that gets here.
+            raise ValueError(f"{what} لازم يكون رقم، مش {shown(value)!r}")
+        return int(value)
 
     def link(self, host: str, form: dict) -> tuple[int, int, bool]:
         """Port, Comm Key and UDP for one address: what the page sent, else what the visit found.
@@ -420,28 +453,19 @@ class Session:
         that repeated a step with port 4370, key 0 and TCP could not repeat the step that failed."""
         found = (self.visit.zk_link if self.visit else None) or ()
         known = found if found and found[0] == host else ()
-        said = lambda name: str(form.get(name) or "").strip()
-
-        def typed(name: str, what: str) -> int:
-            """A box the operator filled, read as a number or refused in the page's own language.
-
-            Bare `int()` here raised `ValueError` with the standard library's English sentence --
-            caught by `tool`, so not a 500, but `invalid literal for int() with base 10: 'abc'` is
-            what the Comm Key box showed for a typo, one line above a refusal written in Arabic.
-            `isdecimal()` rather than `isdigit()` for the reason the port parse in `tool` gives."""
-            value = said(name)
-            if not value.isdecimal():
-                raise ValueError(f"{what} لازم يكون رقم، مش {value!r}")
-            return int(value)
-
-        port = typed("port", "البورت") if said("port") else (known[1] if known else 0) or DEFAULT_ZK_PORT
+        port = self.number(form, "port", "البورت", (known[1] if known else 0) or DEFAULT_ZK_PORT)
         if not 1 <= port <= 65535:
             # Every tool funnels through here. The `host:port` branch in `tool()` checks its own
             # parse, but a `port` field sent on its own reached `connect()` and raised
             # `OverflowError` -- caught by the handler's catch-all as an opaque English 500 rather
             # than the refusal one line away.
             raise ValueError(f"البورت لازم يكون بين 1 و 65535، مش {port}")
-        key = typed("comm_key", "الـ Comm Key") if said("comm_key") else (known[2] if known else 0)
+        key = self.number(form, "comm_key", "الـ Comm Key", known[2] if known else 0)
+        if key < 0:
+            # `number` reads a leading `-` so that a range check can name the bounds it breaks;
+            # this is that check. A terminal's Comm Key is a non-negative number, and a negative
+            # one otherwise reached `make_commkey` and came back as "the terminal did not answer".
+            raise ValueError(f"الـ Comm Key لازم يكون رقم موجب، مش {key}")
         udp = form["udp"] is True if "udp" in form else bool(known[3]) if known else False
         return port, key, udp
 
@@ -462,7 +486,11 @@ class Session:
         # `ping_facts` waits `count + 5` seconds, and `tool` holds `gate` for the whole call -- the
         # same gate `start()` and `close()` take, so an unbounded count from a hand-rolled client
         # would block Start and make Ctrl-C report the visit unfinished.
-        asked = int(form.get("count") or 10)
+        # The third box the page sends as typed text, and the one the Comm Key sweep missed: a
+        # bare `int()` answered a typo with the standard library's English sentence, and a JSON
+        # `1e400` -- an ordinary number literal, so `parse_constant` never sees it -- arrived as
+        # `float("inf")` and made `int()` raise `OverflowError`, which is not a `ValueError`.
+        asked = self.number(form, "count", "عدد المحاولات", 10)
         return {"network": probe.laptop_network(host, ping_count=max(1, min(asked, self.PING_LIMIT)))}
 
     def _tool_scan(self, host: str, form: dict) -> dict:
@@ -683,9 +711,10 @@ def make_handler(session: Session, token: str, out: Path, bound: str = "127.0.0.
                 return self._json({"error": "forbidden"}, 403)
             if route.path == "/events":
                 given = (query.get("since") or ["0"])[0]
-                # `isdecimal()` for the same reason as the port: `?since=²` passed `isdigit()`
-                # and raised inside `int()`, which is a 500 and a stack for a poll.
-                cursor = int(given) if given.isdecimal() else 0
+                # The same guard as the port, for the same reason: `?since=²` and a cursor of
+                # five thousand digits both reach `int()` and raise, which is a 500 and a stack
+                # for the page's own polling loop. A cursor is an index, so it may be long.
+                cursor = int(given) if visit.reads_as_int(given, 19) else 0
                 items = session.events.since(cursor)
                 return self._json({"events": items, "next": cursor + len(items), **session.state()})
             if route.path == "/report":

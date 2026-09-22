@@ -545,6 +545,8 @@ class WhatThePageRefuses(unittest.TestCase):
     def test_a_poll_cursor_that_is_not_a_number_does_not_drop_the_poll(self):
         """`?since=²` passed `isdigit()` and raised inside `int()`, which the catch-all turns into a
         500 -- for the page's own polling loop, which would then show the transcript as broken."""
+        # `""` is here for the route, not the guard: `parse_qs` drops a blank value, so that one
+        # exercises the `or ["0"]` default. `²` is the entry that discriminates.
         for since in ("²", "abc", "-1", "4.5", ""):
             # Percent-encoded, as a browser sends it: a raw `²` is not an ASCII request line at all.
             status, body = call(f"{self.base}/events?t={self.token}&since={quote(since)}")
@@ -555,6 +557,12 @@ class WhatThePageRefuses(unittest.TestCase):
             self.assertEqual(answered["next"], len(answered["events"]), since)
         status, body = call(f"{self.base}/events?t={self.token}&since={quote('٠')}")
         self.assertEqual(status, 200, "an Arabic-Indic zero is a number")
+        # All decimal digits and still refused by `int()`: CPython caps a conversion at
+        # `sys.get_int_max_str_digits()` (4300), so `isdecimal()` alone left this a 500 and a
+        # stack -- for the page's own polling loop, which is the thing that would go dark.
+        status, body = call(f"{self.base}/events?t={self.token}&since=" + "9" * 5000)
+        self.assertEqual(status, 200, f"a 5000-digit cursor was a {status}: {body[:120]!r}")
+        self.assertEqual(json.loads(body)["next"], len(json.loads(body)["events"]))
 
     def test_jsons_infinity_extension_is_answered_rather_than_raising(self):
         """`json.loads` accepts `Infinity`, `-Infinity` and `NaN` as an extension over strict JSON,
@@ -617,6 +625,8 @@ class WhatThePageRefuses(unittest.TestCase):
         box next to it reached a bare `int()`, so a typo answered the operator with the standard
         library's `invalid literal for int() with base 10: 'abc'` -- English, in a tool whose every
         other word is Arabic, for the one field a terminal behind a key forces them to use."""
+        # `-1` reaches a different refusal than the rest -- it parses, and is then refused for
+        # being negative -- but both are in Arabic and both name the field, which is the contract.
         for typed in ("abc", "²", "12 34", "0x1f", "-1"):
             answered = self.session.tool("zk-info", {"host": "192.0.2.9", "comm_key": typed})
             self.assertIn("error", answered, typed)
@@ -629,6 +639,71 @@ class WhatThePageRefuses(unittest.TestCase):
             for sent in ("1234", "١٢٣٤"):
                 self.assertNotIn("error", self.session.tool("zk-info", {"host": "192.0.2.9", "comm_key": sent}))
         self.assertEqual(asked, [1234, 1234])
+
+    def test_a_number_too_long_for_int_is_refused_like_any_other_non_number(self):
+        """`isdecimal()` was adopted as "the predicate that matches what `int()` accepts". It is
+        not: since CPython 3.11 a conversion of more than `sys.get_int_max_str_digits()` digits
+        (4300) raises `ValueError` as well, so `"9" * 5000` passes `isdecimal()` and still raises.
+        Two of these four sites answered a 500 with a stack, and two the English sentence."""
+        long = "9" * 5000
+        answered = self.session.tool("zk-info", {"host": f"192.0.2.9:{long}"})
+        self.assertIn("البورت", answered.get("error", ""))
+        for field, word in (("port", "البورت"), ("comm_key", "Comm Key"), ("count", "المحاولات")):
+            tool = "netcheck" if field == "count" else "zk-info"
+            answered = self.session.tool(tool, {"host": "127.0.0.1", field: long})
+            self.assertIn(word, answered.get("error", ""), f"{field}: {answered}")
+            self.assertNotIn("invalid literal", answered.get("error", ""), field)
+            self.assertNotIn("Exceeds the limit", answered.get("error", ""), field)
+        # And the refusal is drawn on the page, so it does not quote five thousand characters.
+        self.assertLess(len(answered["error"]), 120, answered["error"])
+
+    def test_the_attempt_count_is_read_like_every_other_typed_number(self):
+        """The round that fixed the Comm Key box called it "the sibling one box over". `count` is
+        the third box and it was not swept: a bare `int()` answered a typo with the standard
+        library's English sentence, and a JSON `1e400` -- an ordinary number literal, so
+        `parse_constant` never sees it -- arrived as `float("inf")` and raised `OverflowError`,
+        which is not a `ValueError` and so escaped `tool`'s refusals as a 500 with a stack."""
+        for sent in ('{"host":"127.0.0.1","count":"abc"}', '{"host":"127.0.0.1","count":"²"}',
+                     '{"host":"127.0.0.1","count":1e400}'):
+            status, body = call(f"{self.base}/tool/netcheck?t={self.token}", raw=sent.encode())
+            self.assertEqual(status, 200, f"{sent} -> {status}: {body[:120]!r}")
+            answered = json.loads(body)
+            self.assertIn("error", answered, sent)
+            self.assertIn("المحاولات", answered["error"], sent)
+            self.assertNotIn("invalid literal", answered["error"], sent)
+            self.assertNotIn("OverflowError", answered["error"], sent)
+        # An absent count is still the default, and a real one is still honoured and clamped.
+        seen = []
+        with mock.patch.object(web.probe, "laptop_network",
+                               lambda host, ping_count=10: seen.append(ping_count) or {}):
+            self.session.tool("netcheck", {"host": "127.0.0.1"})
+            self.session.tool("netcheck", {"host": "127.0.0.1", "count": "3"})
+            self.session.tool("netcheck", {"host": "127.0.0.1", "count": 9999})
+            # A negative count is clamped rather than refused: unlike the port it has no bounds
+            # to be told, and `max(1, min(...))` is the bound. One ping, not a refusal.
+            self.session.tool("netcheck", {"host": "127.0.0.1", "count": "-1"})
+        self.assertEqual(seen, [10, 3, self.session.PING_LIMIT, 1])
+
+    def test_a_port_sent_as_a_json_number_is_read_like_one_typed_as_text(self):
+        """`str(form.get(name) or "")` read a JSON `port: 0` as nothing sent, so the tool dialled
+        **4370** -- the silent drop this branch removed from the address box, still live on the
+        field beside it. And `-5` was refused as "not a number", about a number: the parse ran
+        before the range check could name the bounds it breaks."""
+        for sent in (0, "0", -5, "-5", 70000, "70000"):
+            answered = self.session.tool("zk-info", {"host": "192.0.2.9", "port": sent})
+            self.assertIn("error", answered, f"port={sent!r} -> {answered}")
+            self.assertIn("65535", answered["error"], f"port={sent!r} -> {answered}")
+        # `--5` is not a number at all, and says so rather than reaching `int()`.
+        answered = self.session.tool("zk-info", {"host": "192.0.2.9", "port": "--5"})
+        self.assertIn("رقم", answered["error"])
+        self.assertNotIn("65535", answered["error"])
+        # A port that parses and is in range still connects, in either script.
+        asked = []
+        with mock.patch.object(web.probe, "zk_summary",
+                               lambda host, port, key, udp, timeout=8: asked.append(port) or {"serial": "TERMINAL-A"}):
+            for sent in ("14370", 14370, "١٤٣٧٠"):
+                self.assertNotIn("error", self.session.tool("zk-info", {"host": "192.0.2.9", "port": sent}))
+        self.assertEqual(asked, [14370, 14370, 14370])
 
     def test_a_download_cannot_leave_the_report_directory(self):
         # A unique name, not a fixed one beside the temporary directory: two suite runs sharing a
@@ -809,7 +884,15 @@ class WhatTheToolsMustNotAssume(unittest.TestCase):
                               lambda ip=None, ping_count=10: asked.append(ping_count) or {}):
             for sent in (100000, 0, -5, 7):
                 self.session.tool("netcheck", {"host": "127.0.0.1", "count": sent})
-        self.assertEqual(asked, [web.Session.PING_LIMIT, 10, 1, 7])
+        # `0` asked for one ping, not ten. It used to read as ten, because `int(form.get("count")
+        # or 10)` could not tell a sent `0` from an absent field -- the same `or` that read a sent
+        # `port: 0` as nothing and dialled 4370. Absent still means ten; this asserts the
+        # difference rather than the old conflation.
+        self.assertEqual(asked, [web.Session.PING_LIMIT, 1, 1, 7])
+        with mock.patch.object(web.probe, "laptop_network",
+                              lambda ip=None, ping_count=10: asked.append(ping_count) or {}):
+            self.session.tool("netcheck", {"host": "127.0.0.1"})
+        self.assertEqual(asked[-1], 10, "an absent count is still the default")
 
     def test_a_repeated_step_reuses_the_comm_key_and_udp_the_wizard_discovered(self):
         """A terminal behind a Comm Key, or speaking UDP, answers nothing on port 4370/key 0/TCP.

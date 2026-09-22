@@ -87,6 +87,28 @@ AGENT_FIXES = (
 )
 
 
+# A port, a code, a count, a cursor, a menu choice: every number this package reads off a
+# terminal, a request or an operator is short. Ten digits is past every one of them and well
+# inside CPython's limit below.
+INT_DIGITS = 10
+
+
+def reads_as_int(value: str, digits: int = INT_DIGITS) -> bool:
+    """Can `int(value)` be called on this without raising?
+
+    Two ways a string that looks like a number is refused by `int()`, and a guard needs both.
+    `str.isdigit()` is true for Numeric_Type=Digit characters -- `\u00b2`, `1\u00b2` -- that `int()` refuses,
+    so it was never the right predicate. `str.isdecimal()` fixes the charset and not the length:
+    since CPython 3.11 an `int()` conversion of more than `sys.get_int_max_str_digits()` digits
+    (4300 by default) raises `ValueError` too, so `"9" * 5000` is `isdecimal()` and still raises.
+
+    Arabic-Indic digits are decimal, so `int("\u0664\u0663\u0667\u0660")` is 4370 and stays accepted -- this
+    tool's operators type them. A leading `-` is **not** accepted: a caller that wants a negative
+    number range-checked strips the sign itself, so its refusal can say which of the two it is.
+    """
+    return value.isdecimal() and len(value) <= digits
+
+
 class Console:
     """The terminal. A test replaces it with a scripted one, and `web.WebConsole` with a page.
 
@@ -123,7 +145,7 @@ class Console:
             answer = self.ask("   اكتب الرقم (Enter = 1):")
             if not answer:
                 return 0
-            if answer.isdecimal() and 1 <= int(answer) <= len(labels):
+            if reads_as_int(answer) and 1 <= int(answer) <= len(labels):
                 return int(answer) - 1
             self.say("   الرقم ده مش في القايمة.")
 
@@ -920,7 +942,7 @@ class Visit:
             if not text:
                 self.note("bad", "الجهاز عليه Comm Key ومقدرناش نقرأه", "اسأل العميل على الـ Comm Key وشغّل الأمر تاني")
                 return None
-            if not text.isdecimal():
+            if not reads_as_int(text):
                 self.say("   الـ Comm Key أرقام بس.")
                 continue
             key = int(text)
@@ -1070,11 +1092,15 @@ class Visit:
             return None
         out_value, source = 1, "الرقم المعتاد للخروج"
         pushed = self.pushed_line(check_out)
-        # The terminal chooses this string, and `isdigit()` admits `²`, which `int()` refuses.
-        if pushed and pushed.in_out and pushed.in_out.isdecimal():
-            out_value, source = int(pushed.in_out), "الرقم اللي الجهاز بعته بالـ Push لنفس البصمة"
-        elif self.push and self.push.out_value and self.push.out_value != self.push.in_value:
-            out_value, source = int(self.push.out_value), "رقم الخروج في تجربة الـ Push"
+        # Both of these are the third tab-separated field of a line the *terminal* uploaded, so the
+        # terminal chooses them and both need the same guard. Guarding only the first sent the
+        # value it rejected straight into the second, which moved the traceback one line down.
+        sent = pushed.in_out if pushed else None
+        tried = self.push.out_value if self.push and self.push.out_value != self.push.in_value else None
+        if sent and reads_as_int(sent):
+            out_value, source = int(sent), "الرقم اللي الجهاز بعته بالـ Push لنفس البصمة"
+        elif tried and reads_as_int(tried):
+            out_value, source = int(tried), "رقم الخروج في تجربة الـ Push"
         self.say(f"   بصمة الدخول: punch={check_in.punch}، status={check_in.status}")
         self.say(f"   بصمة الخروج: punch={check_out.punch}، status={check_out.status} ({source}: {out_value})")
         if self.code_spread:
@@ -1562,7 +1588,7 @@ class Visit:
         # Same again, and these keys come straight from the terminal's own event log: under
         # `isdigit()` a code of `²` passed the guard and raised inside the comprehension.
         unexpected = sorted(code for code in minors
-                            if not code.isdecimal() or int(code) not in HIK_ATTENDANCE)
+                            if not reads_as_int(code) or int(code) not in HIK_ATTENDANCE)
         if unexpected:
             self.note("warn", f"فيه أحداث فيها موظف بأكواد {', '.join(unexpected)} مش بتتحسب حضور",
                       "لو دي بصمات حضور فعلاً، اكتب الأكواد في الـ issue (هنضيفها في attendance_minors)")
@@ -1578,7 +1604,11 @@ class Visit:
         offset = None
         if with_employee:
             event = with_employee[-1]
-            minor = int(event.get("minor", -1))
+            # Same field, same terminal, same JSON as the codes counted above -- and `null` is a
+            # third shape, where `int(None)` is a `TypeError` that no caller on this path catches.
+            raw = str(event.get("minor", -1))
+            body = raw[1:] if raw.startswith("-") else raw   # one sign, not `lstrip`: `--5` is not a number
+            minor = int(raw) if reads_as_int(body) else raw
             status = event.get("attendanceStatus")
             offset = str(event.get("time", ""))[19:] or None
             if minor in HIK_ATTENDANCE:
