@@ -209,7 +209,7 @@ customer data, not schema-structure inference.
   `docs/migration/data-quality-analysis.md` and siblings;
   `workin-hr/hr-platform#11`.
 
-### PMR-04: Attendance Device/Hardware Discovery Not Started
+### PMR-04: Attendance Device/Hardware Discovery Executed On One Terminal, Fleet Validation Outstanding
 
 **Update 2026-08-04**: still genuinely blocked for real vendor/hardware
 evidence, but no longer blocks backend architecture or implementation
@@ -594,7 +594,7 @@ ADR-0006 with vendor named but protocol/connectivity still open).
 |---|---|---|---|---|---|---|
 | PMR-05 | **Confirmed live 2026-08-04, remediated 2026-08-05**: `DEBUG=true` was in production, live value now changed | Critical → Closed on production | Was a live security incident; code-level defect in `hr-legacy` remains tracked separately | Closed on production | None remaining | `hr-legacy#4` |
 | PMR-07 | Tenant-isolation mechanism unvalidated hands-on | Done | N/A — H2 spike executed, RLS accepted (ADR-0002 Part B) | Done | None | `hr-platform#13` |
-| PMR-04 | Device/hardware Discovery not started | Medium (architecture + vendor now done) / High (final protocol validation) | ADR-0006's final protocol/connectivity direction, final device validation only | Ready for architecture; vendor named (ZKTeco, all versions); Blocked for protocol-specific validation | ZKTeco SDK/integration docs or device access (validation only) | `hr-platform#12` |
+| PMR-04 | Device/hardware Discovery executed on one terminal; the same checklist on the fleet's other models is outstanding | Medium (architecture + vendor now done) / High (final protocol validation) | ADR-0006's final protocol/connectivity direction, final device validation only | Ready for architecture; vendor named (ZKTeco, all versions); Blocked for protocol-specific validation | ZKTeco SDK/integration docs or device access (validation only) | `hr-platform#12` |
 | PMR-10 | No correctness test plan/harness | High | Production cutover | Blocked | Target schema, authorization catalog (ADR-0010) | `hr-platform#16` |
 | PMR-01 | Dashboard Discovery incomplete | Medium-High | Dashboard modules | **Done 2026-08-07** (every file read; `dashboard-discovery-completion.md`) | None | `hr-platform#9` |
 | PMR-02 | Flutter client contract — depth remaining | Medium (was Critical/High) | Full per-endpoint contract confirmation, not the whole migration | Ready | None | `hr-platform#10` |

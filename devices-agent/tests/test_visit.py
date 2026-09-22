@@ -1863,6 +1863,33 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
             self.assertEqual(visit._no_address(f"terminal {address}"), "terminal <device-ip>", address)
         self.assertEqual(visit._no_address("firmware Ver 6.60 Oct 12 2021"), "firmware Ver 6.60 Oct 12 2021")
 
+    def test_only_a_rooted_path_is_redacted_and_a_url_is_not_one(self):
+        """This seam runs over every line of the report, so what it must **not** match matters as
+        much as what it must: the lab's own URL, the `field-report/` paths the runbook tells the
+        operator to open, the firewall rule a remedy prints, and the `/` in the customer row's own
+        label are all text the report exists to carry."""
+        self.assertEqual(visit._no_path("/home/k/عميل/SN-attlog.dat"), "<path>/SN-attlog.dat")
+        self.assertEqual(visit._no_path("مالقيتش الملف /a/b/c.dat خالص"), "مالقيتش الملف <path>/c.dat خالص")
+        # A last component with no suffix is a directory, and neither an exception's closing quote
+        # nor a sentence's full stop is one: each would otherwise publish a username.
+        self.assertEqual(visit._no_path("/media/afaqy/USB/"), "<path>")
+        self.assertEqual(visit._no_path("/home/karim"), "<path>")
+        self.assertEqual(visit._no_path("مش لاقي /home/karim."), "مش لاقي <path>.")
+        self.assertEqual(visit._no_path("ping: '/usr/bin/ping'"), "ping: '<path>'")
+        for kept in ("https://localhost:18443/api", "field-report/captures/x.json", "الشركة / الفرع",
+                     "sudo ufw allow 8081/tcp", "Menu → USB Manager → Download", "/", "2026-09-22",
+                     # The terminals' own request namespaces: `sources` puts them in its error text
+                     # and a device-compatibility report exists to carry them. Redacting them would
+                     # read as "something private was here", which is the opposite of the truth.
+                     "HIK-1: GET /ISAPI/System/deviceInfo answered 401",
+                     "/iclock/cdata?SN=X&table=ATTLOG"):
+            self.assertEqual(visit._no_path(kept), kept, kept)
+        # And what this seam cannot do, asserted rather than assumed: a directory name containing a
+        # space is prose as far as any regex is concerned. That is why the one place that knows it
+        # holds a path does not rely on this, and why a path inside an exception's text is a
+        # backstop rather than a guarantee.
+        self.assertIn("النور", visit._no_path("/home/k/شركة النور/x.dat"))
+
     def test_the_report_names_no_serial_because_the_runbook_says_to_paste_it_in_public(self):
         """A serial is the only thing that identifies a terminal to the device endpoint (R-041,
         R-042), and step 11 tells the operator to paste the results sheet into a public issue. It
@@ -1920,6 +1947,36 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
         self.assertNotIn("مدينة نصر", text)
         self.assertNotIn("شركة الاختبار", text)
         self.assertIn("(في field-report)", text)
+
+    def test_no_path_the_operator_typed_is_published_whatever_shape_it_is(self):
+        """`usb_flow` quoted the path back when the file was not there, and on a real visit that path
+        is under the operator's home, in a folder named after the customer, holding a file named
+        after the terminal. Redacting it at the report's seam fixed only the shape the first version
+        of this test used: a directory name **with a space in it** is indistinguishable from prose,
+        so the seam left `شركة النور فرع المعادي` standing, and typing the folder rather than the
+        file published the customer as the "file name".
+
+        The call site does it now, where the program knows the whole string is a path and a public
+        issue needs none of it -- a file the operator could not point at is not a fact about the
+        terminal. It stays on the console, which is where they read it."""
+        for typed in ("/home/karim/شركة-النور-فرع-المعادي/TERMINAL-A-attlog.dat",
+                      "/home/karim/شركة النور فرع المعادي/TERMINAL-A-attlog.dat",
+                      "/home/karim/Client Files/TERMINAL-A.dat",
+                      "/home/karim/شركة-النور-فرع-المعادي",
+                      "/home/karim",
+                      "عميل-النور/TERMINAL-A-attlog.dat"):
+            with tempfile.TemporaryDirectory() as directory:
+                visited = self.visit_in(directory, [("معاك ملف USB", "2"), ("أنهي ملف", "1"),
+                                                    ("مكان الملف", typed)])
+                # Not the machine's own removable drives: `usb_files` globs `/media/<user>/*`, so a
+                # mounted stick would change the list this test picks from.
+                with mock.patch.object(visit, "usb_files", return_value=[]):
+                    visited.usb_flow(None)
+                text = visited.write_report().read_text(encoding="utf-8")
+            self.assertIn("مالقيتش الملف", text, typed)
+            for secret in ("karim", "النور", "Client", "TERMINAL-A"):
+                self.assertNotIn(secret, text, f"{typed!r} published {secret!r}")
+            self.assertIn(typed, visited.console.text, f"{typed!r} left the operator's screen")
 
     def test_a_placeholder_serial_takes_no_ordinary_text_with_it(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -2044,6 +2101,13 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
             # ROOT is not a git repository. A missing `git` *binary* is a different case and is
             # deliberately not caught: `check=False` suppresses an exit status, not a
             # `FileNotFoundError`, so that errors rather than quietly passing.
+            #
+            # In CI it is not a skip. `serial-gate.yml` runs this test **alone** and reports the
+            # job's exit status, and a skip exits 0 -- so a tree without `.git`, a future
+            # `sparse-checkout`, or this job reused somewhere else would turn the one gate meant to
+            # stop a serial reaching a public repository into a no-op that reports green.
+            if os.environ.get("CI"):
+                self.fail("the tracked file set is unknown: this gate cannot pass without reading it")
             self.skipTest("this tree is not a git repository, so the tracked file set is unknown")
         tracked = [ROOT / name for name in listed.stdout.split("\0") if name]
         found = []

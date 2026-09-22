@@ -8,7 +8,8 @@ on:
     paths:
       - "devices-agent/**"
       # tests/test_visit.py reads all three: the results sheet, the lab allocation it drives, and
-      # the inventory its model/firmware rows are checked against.
+      # the model-and-firmware inventory, whose `Record format` and `In/out column` rows are checked
+      # against what the client can actually read.
       - "docs/devices/field-visit-runbook.md"
       - "docs/devices/attendance-device-model-and-firmware-inventory.md"
       - "scripts/devices-lab.sh"
