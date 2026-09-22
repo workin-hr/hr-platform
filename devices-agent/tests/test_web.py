@@ -494,7 +494,10 @@ class WhatThePageRefuses(unittest.TestCase):
         served the page and polled the transcript and then answered **403 to every write**: Start,
         Stop, every answer to a question, every tool button. Driven, not asserted on the string:
         a real listener on each host, with the `Origin` a browser sends on a same-origin POST."""
-        for host in ("127.0.0.1", "localhost", "::1", "127.0.0.2"):
+        # `LOCALHOST` and `127.1` are the two that need both branches of the predicate: a browser
+        # lowercases the host it puts in `Origin`, so the bound name must be compared lowercased,
+        # and `ip_address("127.1")` raises -- only the bound-name branch saves it.
+        for host in ("127.0.0.1", "localhost", "LOCALHOST", "::1", "127.0.0.2", "127.1"):
             with tempfile.TemporaryDirectory() as directory:
                 token = "bound-" + "b" * 20
                 session = web.Session(directory)
@@ -524,6 +527,17 @@ class WhatThePageRefuses(unittest.TestCase):
             answered = json.loads(body)
             self.assertNotIn("AttributeError", json.dumps(answered, ensure_ascii=False), sent)
             self.assertNotIn("TypeError", json.dumps(answered, ensure_ascii=False), sent)
+
+    def test_jsons_infinity_extension_is_answered_rather_than_raising(self):
+        """`json.loads` accepts `Infinity`, `-Infinity` and `NaN` as an extension over strict JSON,
+        a float is a scalar so it arrived intact, and `int(float("inf"))` raises `OverflowError` --
+        not an `OSError`, so it escaped the refusal exactly as an out-of-range port used to, after
+        the port check, the field guard and the ping clamp had all been added."""
+        for raw in (b'{"host":"127.0.0.1","count":Infinity}', b'{"host":"127.0.0.1","count":-Infinity}',
+                    b'{"host":"127.0.0.1","count":NaN}', b'{"host":"127.0.0.1","port":Infinity}'):
+            status, body = call(f"{self.base}/tool/netcheck?t={self.token}", raw=raw)
+            self.assertEqual(status, 200, f"{raw!r} was a {status}: {body!r}")
+            self.assertNotIn("OverflowError", body.decode("utf-8"), raw)
 
     def test_a_port_that_is_not_a_number_is_refused_rather_than_discarded(self):
         """`isdigit()` decided whether to *use* the typed port, so anything else was dropped without
@@ -635,6 +649,18 @@ class WhatTheToolsMustNotAssume(unittest.TestCase):
 
     # -- the connection a repeated step uses ------------------------------------------------
 
+    def test_an_explicit_not_true_udp_is_not_the_wizards_remembered_udp(self):
+        """`link` tells "the page said something about UDP" from "it said nothing" by `"udp" in
+        form`, so dropping a non-scalar turned an explicit non-true value into *inherit*: a client
+        asking for plain TCP got the wizard's remembered UDP and the terminal did not answer. And
+        `bool("false")` is `True`, which would have forced UDP on for a string."""
+        self.session.visit = types.SimpleNamespace(zk_link=("10.1.1.1", 4370, 7777, True), in_out=None)
+        self.assertEqual(self.session.link("10.1.1.1", {})[2], True, "inherits when the page says nothing")
+        # `None` is what `_form` now leaves for a non-scalar: present, and not true.
+        for said, want in ((True, True), (False, False), ("false", False), ("0", False),
+                           (None, False), (0, False), ("", False)):
+            self.assertEqual(self.session.link("10.1.1.1", {"udp": said})[2], want, repr(said))
+
     def test_a_terminal_behind_a_comm_key_names_the_box_to_fill_not_an_issue_to_file(self):
         """`zk_summary` answers `{"comm_key_required": True}` with **no** `error` key when the
         terminal refuses the key, so both tools fell through to the serial check and said "the
@@ -652,11 +678,48 @@ class WhatTheToolsMustNotAssume(unittest.TestCase):
                 self.assertNotIn("سيريال", answered["error"],
                                  f"{tool} blamed the serial for a key the operator can type")
             # And with the key typed in, the same button gets through.
+            # The leftmost, cheapest button must say it too: the flag alone is true and tells the
+            # operator nothing to do, so the tool they press first was the one that stayed silent.
+            answered = self.session.tool("zk-info", {"host": address})
+            self.assertTrue(answered["device"]["comm_key_required"])
+            self.assertIn("Comm Key", answered["error"])
+            # And with the key typed in, all three get through.
             answered = self.session.tool("backup", {"host": address, "comm_key": "1234"})
             self.assertNotIn("error", answered, answered)
             self.assertEqual(answered["serial"], "SIM-KEYED-1")
+            self.assertNotIn("error", self.session.tool("zk-info", {"host": address, "comm_key": "1234"}))
         finally:
             emulator.stop()
+
+    def test_the_customers_permission_is_a_boolean_and_not_a_truthy_string(self):
+        """`"false"` and `"0"` are scalars, so they arrive intact, and both are truthy in Python --
+        so `if not form.get("consent")` let a stale script run an **active scan of a customer's
+        network** while saying the opposite. The runbook requires that permission; round 2 made the
+        missing gate a P2. The shipped page sends a real boolean, so this is the API's own door."""
+        ran = []
+        with mock.patch.object(web.probe, "scan", lambda cidr, out=None: ran.append(cidr) or []):
+            for sent in (True,):
+                self.assertNotIn("error", self.session.tool("scan", {"consent": sent}), sent)
+            self.assertEqual(len(ran), 1, "the permitted scan did not run")
+            for refused in ("false", "0", "true", 1, [], None, 0, False):
+                answered = self.session.tool("scan", {"consent": refused})
+                self.assertIn("error", answered, repr(refused))
+                self.assertIn("العميل وافق", answered["error"], repr(refused))
+            self.assertEqual(len(ran), 1, "a scan ran without the customer's permission")
+
+    def test_a_search_is_not_refused_because_the_address_box_it_ignores_is_malformed(self):
+        """The page sends the address box to **every** tool, and `scan` ignores it -- it is the tool
+        that exists to *find* the address the operator is halfway through mistyping. Putting the
+        port refusal above the `scan` exemption broke the button in the one situation it is for."""
+        ran = []
+        with mock.patch.object(web.probe, "scan", lambda cidr, out=None: ran.append(cidr) or []):
+            for box in ("", "10.0.0.5", "10.0.0.5:-1", "10.0.0.5:abc", "10.0.0.5:70000"):
+                answered = self.session.tool("scan", {"host": box, "consent": True})
+                self.assertNotIn("error", answered, f"the search was refused over {box!r}")
+        self.assertEqual(len(ran), 5)
+        # The same shapes are still refused for a tool that does read the box.
+        for box in ("10.0.0.5:-1", "10.0.0.5:abc", "10.0.0.5:70000"):
+            self.assertIn("error", self.session.tool("zk-info", {"host": box}), box)
 
     def test_a_ping_count_cannot_hold_the_gate_the_whole_visit_waits_on(self):
         """`ping_facts` waits `count + 5` seconds and `tool` holds `gate` for the whole call -- the

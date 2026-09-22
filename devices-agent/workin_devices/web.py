@@ -39,6 +39,9 @@ from . import config as cfg, gateway as gw, probe, visit
 from . import zk4370 as zk
 
 DEFAULT_PORT = 18100
+# One sentence for all three tools that can meet a keyed terminal.
+COMM_KEY_ASKED = ("الجهاز عليه Comm Key: اكتبه في خانة الـ Comm Key وجرّب تاني "
+                  "(Menu → Comm. → Connection)")
 DEFAULT_ZK_PORT = 4370
 # Long enough that a browser is not asking every second, short enough that a page which has just
 # been reopened does not sit blank waiting for the previous poll to time out.
@@ -373,23 +376,28 @@ class Session:
             # `ip:port` as the wizard's own "type the address" step accepts it, so the simulator and
             # a terminal on an unusual port are reachable from here too.
             host, _, typed_port = str(form.get("host") or "").strip().partition(":")
-            if host and typed_port and not typed_port.isdigit():
-                # Dropped in silence before: `192.168.1.201:-1` reported the terminal unreachable
-                # **on 4370**, a port the operator never asked for.
-                return {"error": f"البورت لازم يكون رقم بين 1 و 65535، مش {typed_port!r}"}
-            if typed_port.isdigit():
-                # Range-checked here rather than at `connect()`, where an out-of-range port raises
-                # `OverflowError` -- which is not an `OSError` and so escaped the refusal below as
-                # a reset connection and a traceback, for one extra digit in the address box.
-                asked = int(typed_port)
-                if not 1 <= asked <= 65535:
-                    return {"error": f"البورت لازم يكون بين 1 و 65535، مش {asked}"}
-                form = {**form, "port": asked}
             runner = getattr(self, f"_tool_{name.replace('-', '_')}", None)
             if runner is None:
                 return {"error": f"مفيش أداة اسمها {name}"}
-            if name != "scan" and not host:
-                return {"error": "اكتب IP الجهاز"}
+            # Every refusal here is about the address box, and the page sends that box to **every**
+            # tool -- including `scan`, which ignores it and exists to *find* the address the
+            # operator is halfway through mistyping. Refusing the search because the box it does not
+            # read is malformed breaks the button in the one situation it is for.
+            if name != "scan":
+                if not host:
+                    return {"error": "اكتب IP الجهاز"}
+                if typed_port and not typed_port.isdigit():
+                    # Dropped in silence before: `192.168.1.201:-1` reported the terminal
+                    # unreachable **on 4370**, a port the operator never asked for.
+                    return {"error": f"البورت لازم يكون رقم بين 1 و 65535، مش {typed_port!r}"}
+                if typed_port:
+                    # Range-checked here rather than at `connect()`, where an out-of-range port
+                    # raises `OverflowError` -- not an `OSError`, so it escaped the refusal below
+                    # as a reset connection and a traceback, for one extra digit in the box.
+                    asked = int(typed_port)
+                    if not 1 <= asked <= 65535:
+                        return {"error": f"البورت لازم يكون بين 1 و 65535، مش {asked}"}
+                    form = {**form, "port": asked}
             try:
                 return runner(host, form)
             except (zk.ZkError, gw.Unauthorized, cfg.ConfigError, OSError, ValueError) as exc:
@@ -413,7 +421,7 @@ class Session:
             # than the refusal one line away.
             raise ValueError(f"البورت لازم يكون بين 1 و 65535، مش {port}")
         key = int(said("comm_key")) if said("comm_key") else (known[2] if known else 0)
-        udp = bool(form["udp"]) if "udp" in form else bool(known[3]) if known else False
+        udp = form["udp"] is True if "udp" in form else bool(known[3]) if known else False
         return port, key, udp
 
     def proved_in_out(self, host: str) -> str:
@@ -442,8 +450,11 @@ class Session:
         A laptop on customer Ethernet *and* Wi-Fi *and* a VPN has several; scanning whichever came
         back first would quietly search the wrong one and report the terminal missing."""
         # The runbook requires the customer's permission before an active scan of their network,
-        # and the wizard asks for it. A button that skipped the question would be a way around it.
-        if not form.get("consent"):
+        # and the wizard asks for it; a button that skipped the question would be a way around it.
+        # `is not True` rather than truthiness, because `"false"` and `"0"` are scalars, arrive
+        # intact, and are both truthy in Python -- so a stale script could run the scan while saying
+        # the opposite.
+        if form.get("consent") is not True:
             return {"error": "البحث في شبكة العميل لازم يكون بعد إذنه: علّم على \"العميل وافق\" الأول"}
         addresses = self.networks()
         cidr = (form.get("cidr") or "").strip()
@@ -465,7 +476,13 @@ class Session:
 
     def _tool_zk_info(self, host: str, form: dict) -> dict:
         port, key, udp = self.link(host, form)
-        return {"device": probe.zk_summary(host, port, key, udp, timeout=8)}
+        summary = probe.zk_summary(host, port, key, udp, timeout=8)
+        if summary.get("comm_key_required"):
+            # The flag is true and says nothing to do, and this is the leftmost, cheapest button --
+            # so the tool an operator presses first was the one that did not answer the question the
+            # other two answer.
+            return {"device": summary, "error": COMM_KEY_ASKED}
+        return {"device": summary}
 
     def _tool_backup(self, host: str, form: dict) -> dict:
         port, key, udp = self.link(host, form)
@@ -477,8 +494,7 @@ class Session:
             # the serial check below said: `zk_summary` returns no `error` key for an unauthorised
             # answer, so both tools fell through with an empty serial and sent the operator to
             # photograph a sticker over a box on their own screen.
-            return {"error": "الجهاز عليه Comm Key: اكتبه في خانة الـ Comm Key وجرّب تاني "
-                             "(Menu → Comm. → Connection)"}
+            return {"error": COMM_KEY_ASKED}
         serial = str(summary.get("serial") or "")
         if not cfg.SERIAL.match(serial):
             return {"error": f"الجهاز رد بسيريال السيستم مش هيقبله: {serial!r}"}
@@ -505,8 +521,7 @@ class Session:
             # the serial check below said: `zk_summary` returns no `error` key for an unauthorised
             # answer, so both tools fell through with an empty serial and sent the operator to
             # photograph a sticker over a box on their own screen.
-            return {"error": "الجهاز عليه Comm Key: اكتبه في خانة الـ Comm Key وجرّب تاني "
-                             "(Menu → Comm. → Connection)"}
+            return {"error": COMM_KEY_ASKED}
         serial = str(summary.get("serial") or "")
         if not cfg.SERIAL.match(serial):
             return {"error": f"الجهاز رد بسيريال السيستم مش هيقبله: {serial!r}"}
@@ -535,7 +550,9 @@ def our_origin(name: str | None, bound: str) -> bool:
     accepted by name, which covers an alias in `/etc/hosts` that `loopback()` resolved."""
     if not name:
         return False
-    if name == bound or name == "localhost":
+    # `loopback()` returns the operator's own spelling, and a browser lowercases the host it puts
+    # in `Origin` -- so `--host MyTestBox` was bound, printed, and then 403 on every write.
+    if name == bound.lower() or name == "localhost":
         return True
     try:
         return ipaddress.ip_address(name.partition("%")[0]).is_loopback
@@ -575,17 +592,27 @@ def make_handler(session: Session, token: str, out: Path, bound: str = "127.0.0.
             if not length:
                 return {}
             try:
-                sent = json.loads(self.rfile.read(length).decode("utf-8"))
+                # `json.loads` accepts `Infinity`, `-Infinity` and `NaN` as an extension, and
+                # `int(float("inf"))` raises `OverflowError`, which is not an `OSError` and so
+                # escaped `tool`'s refusal exactly as an out-of-range port used to.
+                sent = json.loads(self.rfile.read(length).decode("utf-8"),
+                                  parse_constant=lambda _: None)
             except (ValueError, UnicodeDecodeError):
                 return {}
             # A JSON list or string parses fine and then has no `.get`, which reached the route
             # bodies below as an `AttributeError`. A *field* that is not a scalar did the same one
-            # level down -- `{"host": ["..."]}` reached `.strip()` -- so those are dropped rather
-            # than coerced: `bool("false")` is True, and `udp` and `consent` are read as booleans.
+            # level down -- `{"host": ["..."]}` reached `.strip()`.
+            #
+            # Mapped to `None`, not dropped. `link` distinguishes "the page said something about
+            # UDP" from "it said nothing" by `"udp" in form`, so dropping the key turned an explicit
+            # non-true value into *inherit the wizard's* -- a client asking for plain TCP got the
+            # remembered UDP and the terminal did not answer. Present-and-`None` keeps that
+            # distinction. Nothing is coerced either: `bool("false")` is `True`, so the readers
+            # below test `is True` rather than truthiness.
             if not isinstance(sent, dict):
                 return {}
-            return {key: value for key, value in sent.items()
-                    if isinstance(value, (str, int, float, bool))}
+            return {key: (value if isinstance(value, (str, int, float, bool)) else None)
+                    for key, value in sent.items()}
 
         # -- reads ------------------------------------------------------------------------
 
