@@ -11,7 +11,7 @@ import unittest
 import urllib.error
 import urllib.request
 from datetime import datetime
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from pathlib import Path
 from unittest import mock
 
@@ -443,10 +443,18 @@ class WhatThePageRefuses(unittest.TestCase):
         """The round-5 check lived on the `host:port` parse branch alone, so a `port` field -- which
         three of this suite's own tests send -- still reached `connect()` and came back as an opaque
         `OverflowError` 500 rather than the refusal one line away."""
-        for form in ({"host": "127.0.0.1", "port": "437000"}, {"host": "127.0.0.1", "port": "-5"}):
+        for form in ({"host": "127.0.0.1", "port": "437000"}, {"host": "127.0.0.1", "port": 70000}):
             answered = self.session.tool("zk-info", form)
             self.assertIn("error", answered, form)
             self.assertIn("65535", answered["error"], f"{form} -> {answered}")
+        # `-5` reached this range check only because `int()` accepted it; a field that is not a
+        # number at all never got that far and raised the standard library's English `ValueError`
+        # instead. Both are refused, and each says which of the two it is.
+        for form in ({"host": "127.0.0.1", "port": "-5"}, {"host": "127.0.0.1", "port": "abc"}):
+            answered = self.session.tool("zk-info", form)
+            self.assertIn("error", answered, form)
+            self.assertIn("البورت", answered["error"], f"{form} -> {answered}")
+            self.assertNotIn("invalid literal", answered["error"], f"{form} -> {answered}")
 
     def test_a_body_that_is_not_an_object_is_answered_rather_than_dropping_the_connection(self):
         """A JSON list parses fine and then has no `.get`. Same class as the port typo: the route
@@ -534,6 +542,20 @@ class WhatThePageRefuses(unittest.TestCase):
             self.assertNotIn("AttributeError", json.dumps(answered, ensure_ascii=False), sent)
             self.assertNotIn("TypeError", json.dumps(answered, ensure_ascii=False), sent)
 
+    def test_a_poll_cursor_that_is_not_a_number_does_not_drop_the_poll(self):
+        """`?since=²` passed `isdigit()` and raised inside `int()`, which the catch-all turns into a
+        500 -- for the page's own polling loop, which would then show the transcript as broken."""
+        for since in ("²", "abc", "-1", "4.5", ""):
+            # Percent-encoded, as a browser sends it: a raw `²` is not an ASCII request line at all.
+            status, body = call(f"{self.base}/events?t={self.token}&since={quote(since)}")
+            self.assertEqual(status, 200, f"since={since!r} was a {status}: {body!r}")
+            # `next` is `cursor + len(items)`, so a cursor read as 0 means it equals the number of
+            # events returned -- the poll starts from the beginning rather than dropping.
+            answered = json.loads(body)
+            self.assertEqual(answered["next"], len(answered["events"]), since)
+        status, body = call(f"{self.base}/events?t={self.token}&since={quote('٠')}")
+        self.assertEqual(status, 200, "an Arabic-Indic zero is a number")
+
     def test_jsons_infinity_extension_is_answered_rather_than_raising(self):
         """`json.loads` accepts `Infinity`, `-Infinity` and `NaN` as an extension over strict JSON,
         a float is a scalar so it arrived intact, and `int(float("inf"))` raises `OverflowError` --
@@ -570,12 +592,43 @@ class WhatThePageRefuses(unittest.TestCase):
         asked for. The range was checked; the parse was not."""
         # Not a trailing space: the whole address is stripped before it is split, so `"4370 "`
         # is the ordinary path and reaching for it here would have tested the strip, not the parse.
-        for typed in ("-1", "abc", "4370.5", "+4370", "43 70"):
+        # `²` and `1²` are the subtle ones: `str.isdigit()` is True for Numeric_Type=Digit, which
+        # is wider than `int()` accepts, so these passed the guard and raised -- an opaque English
+        # 500 and a stack, which is the exact failure the port check was added to stop.
+        for typed in ("-1", "abc", "4370.5", "+4370", "43 70", "²", "1²", "²³"):
             answered = self.session.tool("zk-info", {"host": f"192.0.2.9:{typed}"})
             self.assertIn("error", answered, typed)
             self.assertIn("البورت", answered["error"], typed)
         # An address with no port at all is still the ordinary path.
         self.assertEqual(self.session.link("192.0.2.9", {}), (4370, 0, False))
+        # And Arabic-Indic digits must keep working: this tool's operators type them, `isdecimal()`
+        # accepts them and `int("٤٣٧٠")` is 4370. Refusing them would be the fix overshooting.
+        # The probe is patched rather than dialled: an address no route reaches costs this one
+        # assertion an 8-second connect timeout, and the port `zk_summary` was handed is the
+        # assertion anyway -- reaching the network would test the network.
+        asked = []
+        with mock.patch.object(web.probe, "zk_summary",
+                               lambda host, port, key, udp, timeout=8: asked.append(port) or {"serial": "TERMINAL-A"}):
+            self.assertNotIn("error", self.session.tool("zk-info", {"host": "192.0.2.9:٤٣٧٠"}))
+        self.assertEqual(asked, [4370])
+
+    def test_a_comm_key_that_is_not_a_number_is_refused_in_the_pages_own_language(self):
+        """The same parse, one box over. The address box's port is refused in Arabic; the Comm Key
+        box next to it reached a bare `int()`, so a typo answered the operator with the standard
+        library's `invalid literal for int() with base 10: 'abc'` -- English, in a tool whose every
+        other word is Arabic, for the one field a terminal behind a key forces them to use."""
+        for typed in ("abc", "²", "12 34", "0x1f", "-1"):
+            answered = self.session.tool("zk-info", {"host": "192.0.2.9", "comm_key": typed})
+            self.assertIn("error", answered, typed)
+            self.assertIn("Comm Key", answered["error"], typed)
+            self.assertNotIn("invalid literal", answered["error"], typed)
+        # And the key the operator actually types still reaches the terminal, in either script.
+        asked = []
+        with mock.patch.object(web.probe, "zk_summary",
+                               lambda host, port, key, udp, timeout=8: asked.append(key) or {"serial": "TERMINAL-A"}):
+            for sent in ("1234", "١٢٣٤"):
+                self.assertNotIn("error", self.session.tool("zk-info", {"host": "192.0.2.9", "comm_key": sent}))
+        self.assertEqual(asked, [1234, 1234])
 
     def test_a_download_cannot_leave_the_report_directory(self):
         # A unique name, not a fixed one beside the temporary directory: two suite runs sharing a

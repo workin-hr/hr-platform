@@ -386,14 +386,19 @@ class Session:
             if name != "scan":
                 if not host:
                     return {"error": "اكتب IP الجهاز"}
-                if typed_port and not typed_port.isdigit():
+                # `isdecimal()`, not `isdigit()`: the latter is true for `²` and `1²`
+                # (Numeric_Type=Digit), which `int()` refuses -- so `127.0.0.1:²` passed the
+                # guard and raised inside `int()`, escaping as an opaque English 500 with a stack
+                # on the very path this refusal exists to keep in Arabic. Arabic-Indic digits stay
+                # accepted, because `int("٤٣٧٠")` is 4370 and this tool's operators type them.
+                if typed_port and not typed_port.isdecimal():
                     # Dropped in silence before: `192.168.1.201:-1` reported the terminal
                     # unreachable **on 4370**, a port the operator never asked for.
                     return {"error": f"البورت لازم يكون رقم بين 1 و 65535، مش {typed_port!r}"}
-                if typed_port.isdigit():
-                    # `isdigit()` again rather than `if typed_port:`, so this `int()` is safe on its
-                    # own terms instead of depending on the refusal three lines above -- removing
-                    # that refusal would otherwise raise `ValueError` straight past `tool`.
+                if typed_port.isdecimal():
+                    # The same predicate rather than `if typed_port:`, so this `int()` is safe on
+                    # its own terms instead of depending on the refusal three lines above --
+                    # removing that refusal would otherwise raise `ValueError` straight past `tool`.
                     # Range-checked here rather than at `connect()`, where an out-of-range port
                     # raises `OverflowError` -- not an `OSError`, so it escaped the refusal below
                     # as a reset connection and a traceback, for one extra digit in the box.
@@ -416,14 +421,27 @@ class Session:
         found = (self.visit.zk_link if self.visit else None) or ()
         known = found if found and found[0] == host else ()
         said = lambda name: str(form.get(name) or "").strip()
-        port = int(said("port") or (known[1] if known else 0) or DEFAULT_ZK_PORT)
+
+        def typed(name: str, what: str) -> int:
+            """A box the operator filled, read as a number or refused in the page's own language.
+
+            Bare `int()` here raised `ValueError` with the standard library's English sentence --
+            caught by `tool`, so not a 500, but `invalid literal for int() with base 10: 'abc'` is
+            what the Comm Key box showed for a typo, one line above a refusal written in Arabic.
+            `isdecimal()` rather than `isdigit()` for the reason the port parse in `tool` gives."""
+            value = said(name)
+            if not value.isdecimal():
+                raise ValueError(f"{what} لازم يكون رقم، مش {value!r}")
+            return int(value)
+
+        port = typed("port", "البورت") if said("port") else (known[1] if known else 0) or DEFAULT_ZK_PORT
         if not 1 <= port <= 65535:
             # Every tool funnels through here. The `host:port` branch in `tool()` checks its own
             # parse, but a `port` field sent on its own reached `connect()` and raised
             # `OverflowError` -- caught by the handler's catch-all as an opaque English 500 rather
             # than the refusal one line away.
             raise ValueError(f"البورت لازم يكون بين 1 و 65535، مش {port}")
-        key = int(said("comm_key")) if said("comm_key") else (known[2] if known else 0)
+        key = typed("comm_key", "الـ Comm Key") if said("comm_key") else (known[2] if known else 0)
         udp = form["udp"] is True if "udp" in form else bool(known[3]) if known else False
         return port, key, udp
 
@@ -665,7 +683,9 @@ def make_handler(session: Session, token: str, out: Path, bound: str = "127.0.0.
                 return self._json({"error": "forbidden"}, 403)
             if route.path == "/events":
                 given = (query.get("since") or ["0"])[0]
-                cursor = int(given) if given.isdigit() else 0
+                # `isdecimal()` for the same reason as the port: `?since=²` passed `isdigit()`
+                # and raised inside `int()`, which is a 500 and a stack for a poll.
+                cursor = int(given) if given.isdecimal() else 0
                 items = session.events.since(cursor)
                 return self._json({"events": items, "next": cursor + len(items), **session.state()})
             if route.path == "/report":

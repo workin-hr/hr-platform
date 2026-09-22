@@ -1428,13 +1428,30 @@ class WhenTheVisitCannotFinish(unittest.TestCase):
             self.device = PushDevice(f"http://127.0.0.1:{visited.receiver.port}")
             return ""
 
+        failed = []
+
         def punch_in_a_charset_nobody_asked_for():
-            # A line the recorder keeps nothing from: the platform still answered 200.
-            body = f"{PIN}\t2026-09-20 08:00:00\t0\t1\t".encode() + bytes([0xB4, 0xF7, 0xC3, 0xFB])
-            request = urllib.request.Request(
-                f"http://127.0.0.1:{visited.receiver.port}/iclock/cdata?SN=PUSH-VISIT-1&table=ATTLOG&Stamp=9",
-                data=body, method="POST", headers={"Content-Type": "application/x-www-form-urlencoded"})
-            urllib.request.urlopen(request, timeout=5).read()
+            """From a thread and after a moment, like `drip_old_records` and like the device's own
+            loop -- not inside the answer. `punch_test` takes its mark *after* the prompt returns,
+            deliberately: an upload already on its way when the operator was asked is the backlog,
+            not the punch. Posted inside the answer this upload raced that mark, and on the runs
+            where the recorder's thread won it landed before the mark and was invisible, so the
+            visit waited out the full window and asked a question no script answers."""
+            def upload():
+                time.sleep(0.25)
+                # A line the recorder keeps nothing from: the platform still answered 200.
+                body = f"{PIN}\t2026-09-20 08:00:00\t0\t1\t".encode() + bytes([0xB4, 0xF7, 0xC3, 0xFB])
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{visited.receiver.port}/iclock/cdata?SN=PUSH-VISIT-1&table=ATTLOG&Stamp=9",
+                    data=body, method="POST", headers={"Content-Type": "application/x-www-form-urlencoded"})
+                try:
+                    urllib.request.urlopen(request, timeout=5).read()
+                except Exception as exc:                      # pragma: no cover - reported below
+                    # Swallowed, this reads as "the punch never arrived" and the visit asks an
+                    # unscripted question -- a failure that names neither the upload nor the cause.
+                    failed.append(exc)
+
+            threading.Thread(target=upload, daemon=True).start()
             return ""
 
         console.answers = VisitStart() + [
@@ -1453,6 +1470,7 @@ class WhenTheVisitCannotFinish(unittest.TestCase):
         self.assertIn("البصمة وصلت للسيستم، بس الـ capture مافهمش سطور الرفعة", console.text)
         self.assertNotIn("ماوصلتش", console.text, "the punch did arrive; the line shape is the finding")
         self.assertIn("البصمتين ورا بعض اتسجلوا الاتنين", console.text, "the visit carried on")
+        self.assertEqual(failed, [], "the unreadable upload never reached the receiver")
 
     def test_a_terminal_whose_lines_cannot_be_read_gets_no_latency_for_a_punch_never_made(self):
         """The headline number of the whole visit is "بصمة وصلت خلال". On a terminal whose line
@@ -1893,6 +1911,11 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
         # package ships as a Windows executable, and neither Windows form is matched -- a backslash
         # path has no rooted `/`, and `C:/...`'s leading slash follows a colon exactly as `https://`
         # does. The call-site fix covers every platform; this backstop is POSIX-only.
+        # The third stated limit: a dotted *leaf directory* reads as a file name and is kept, while
+        # an undotted one and a trailing slash are not. `usb_flow` is why that is tolerable.
+        self.assertEqual(visit._no_path("/home/karim/visits/AlNoor.2026"), "<path>/AlNoor.2026")
+        self.assertEqual(visit._no_path("/home/karim/visits/AlNoor.2026/"), "<path>")
+        self.assertEqual(visit._no_path("/home/karim/visits/AlNoor"), "<path>")
         for windows in (r"C:\Users\Karim\AlNoor\attlog.dat", "C:/Users/Karim/AlNoor/attlog.dat",
                         r"\\server\share\Karim\attlog.dat"):
             self.assertEqual(visit._no_path(windows), windows, windows)

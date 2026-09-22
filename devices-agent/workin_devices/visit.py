@@ -123,7 +123,7 @@ class Console:
             answer = self.ask("   اكتب الرقم (Enter = 1):")
             if not answer:
                 return 0
-            if answer.isdigit() and 1 <= int(answer) <= len(labels):
+            if answer.isdecimal() and 1 <= int(answer) <= len(labels):
                 return int(answer) - 1
             self.say("   الرقم ده مش في القايمة.")
 
@@ -638,13 +638,16 @@ def _no_path(value: str) -> str:
     text carries paths too, and redacting per finding holds only until the next finding is written.
     The console still shows the whole path, and it stays in field-report/ on the laptop.
 
-    **Two limits, both deliberate and neither silent.** A directory name containing a space is
+    **Three limits, all deliberate and none silent.** A directory name containing a space is
     indistinguishable from prose to any regex, so `/home/k/شركة النور/x.dat` keeps the middle word --
     which is why `usb_flow`, the one place that knows it holds a path, does not rely on this. And the
     pattern is **POSIX-rooted only**: a Windows path (`C:\\Users\\...`, or `C:/Users/...`, whose
     leading slash follows a colon exactly as `https://` does) is not matched, so on the Windows
-    executable this backstop protects nothing. The call-site fix covers every platform; this covers a
-    path that arrives inside an exception's text, on POSIX."""
+    executable this backstop protects nothing. And a **leaf directory whose name contains a dot** is
+    kept, because `one()` reads a dotted last component as a file name: `/home/k/AlNoor.2026` keeps
+    its last word, while `/home/k/AlNoor` and `/home/k/AlNoor.2026/` do not. The call-site fix covers
+    every platform and every shape; this covers a path that arrives inside an exception's text, on
+    POSIX, whose leaf is a file."""
     def one(found):
         # An exception quotes the path it could not open, and the quote is not part of it.
         last = found.group(1).rstrip("'\"»)]},;:.")
@@ -917,7 +920,7 @@ class Visit:
             if not text:
                 self.note("bad", "الجهاز عليه Comm Key ومقدرناش نقرأه", "اسأل العميل على الـ Comm Key وشغّل الأمر تاني")
                 return None
-            if not text.isdigit():
+            if not text.isdecimal():
                 self.say("   الـ Comm Key أرقام بس.")
                 continue
             key = int(text)
@@ -1067,7 +1070,8 @@ class Visit:
             return None
         out_value, source = 1, "الرقم المعتاد للخروج"
         pushed = self.pushed_line(check_out)
-        if pushed and pushed.in_out and pushed.in_out.isdigit():
+        # The terminal chooses this string, and `isdigit()` admits `²`, which `int()` refuses.
+        if pushed and pushed.in_out and pushed.in_out.isdecimal():
             out_value, source = int(pushed.in_out), "الرقم اللي الجهاز بعته بالـ Push لنفس البصمة"
         elif self.push and self.push.out_value and self.push.out_value != self.push.in_value:
             out_value, source = int(self.push.out_value), "رقم الخروج في تجربة الـ Push"
@@ -1555,7 +1559,10 @@ class Visit:
         self.note("ok", f"الجهاز رد: {serial}، {info.get('model')}، {info['events']} حدث في آخر 7 أيام")
         minors = info["events_with_employee_by_minor"]
         self.sheet["Hikvision: أكواد الحضور اللي ظهرت"] = "، ".join(f"{code} ({count})" for code, count in sorted(minors.items()))
-        unexpected = sorted(code for code in minors if not code.isdigit() or int(code) not in HIK_ATTENDANCE)
+        # Same again, and these keys come straight from the terminal's own event log: under
+        # `isdigit()` a code of `²` passed the guard and raised inside the comprehension.
+        unexpected = sorted(code for code in minors
+                            if not code.isdecimal() or int(code) not in HIK_ATTENDANCE)
         if unexpected:
             self.note("warn", f"فيه أحداث فيها موظف بأكواد {', '.join(unexpected)} مش بتتحسب حضور",
                       "لو دي بصمات حضور فعلاً، اكتب الأكواد في الـ issue (هنضيفها في attendance_minors)")
