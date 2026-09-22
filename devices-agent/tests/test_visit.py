@@ -482,12 +482,12 @@ kind = "zk"
 host = "127.0.0.1"
 port = {self.emulator.port}
 """, encoding="utf-8")
-        visited.send_twice(config)
+        visited.send_twice(config, "127.0.0.1")
         self.assertFalse([f for f in visited.findings if f.level != "ok"], "the first delivery is clean")
 
         config.write_text(config.read_text().replace(first_spool, second_spool), encoding="utf-8")
         visited.findings.clear()
-        visited.send_twice(config)
+        visited.send_twice(config, "127.0.0.1")
         warned = [f for f in visited.findings if f.level == "warn"]
         self.assertTrue(warned, [f.text for f in visited.findings])
         self.assertIn("مفيش ولا سجل جديد اتسجل في السيستم", warned[0].text)
@@ -514,7 +514,7 @@ kind = "zk"
 host = "127.0.0.1"
 port = {self.emulator.port}
 """, encoding="utf-8")
-        visited.send_twice(config)
+        visited.send_twice(config, "127.0.0.1")
         warned = [f for f in visited.findings if f.level == "warn"]
         self.assertTrue(warned, [f.text for f in visited.findings])
         self.assertIn("بصمة جديدة اتعملت في اللحظة دي", warned[0].text)
@@ -1611,7 +1611,11 @@ class WhenTheLaptopNeverReachedTheTerminal(unittest.TestCase):
     """EHOSTUNREACH means no packet left this laptop, so the terminal was never asked and has
     answered nothing. None of it belongs in a device-compatibility finding."""
 
+    # `interface` is always present in the real shape: `probe.laptop_network` sets it to the egress
+    # route or to None. Omitting it here made this fixture unreal, which is how a remedy that names
+    # an unresolved interface's numbers passed its own test.
     FACTS = {"addresses": [{"ip": "192.168.1.26", "network": "192.168.1.0/24"}],
+             "interface": "wlp0s20f3",
              "wifi": {"interface": "wlp0s20f3", "link": 42, "level": -68, "misc": 403, "missed_beacon": 0},
              "target": "192.168.1.201", "arp": "FAILED",
              "ping": {"transmitted": 5, "received": 5, "duplicates": 3, "loss_percent": 0.0,
@@ -1725,7 +1729,7 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
         original = visit.agent.run_once
         visit.agent.run_once = lambda config: [result]
         try:
-            visited.send_twice(path)
+            visited.send_twice(path, "192.168.1.201")
         finally:
             visit.agent.run_once = original
         return visited
@@ -1912,6 +1916,12 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
                          "Wi-Fi advice from an interface that was never shown to carry this terminal")
         self.assertNotIn("الـ ARP فشل", fix, "an ARP failure asserted without an ARP state")
         self.assertIn("الكابل أو الواي فاي", fix)
+        # The numbers, not only the advice: naming an interface's signal in the row the runbook
+        # says to paste is the same false claim, made with more authority.
+        self.assertNotIn("wlp0s20f3", fix, "an unrelated interface was named in the remedy")
+        self.assertNotIn("-52", fix, "an unrelated interface's signal was reported")
+        self.assertNotIn("wlp0s20f3", visited.sheet["حالة الشبكة وقت المشكلة"],
+                         "an unrelated interface was named in the results sheet")
 
     def test_the_hikvision_path_measures_its_own_terminal(self):
         """`send_twice` is called from the ZKTeco flow, where `zk_link` carries the address, and from
@@ -1945,6 +1955,15 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
                 visit.agent.run_once = original
         self.assertIn("10.4.4.9", asked, f"the remedy measured {asked} instead of the terminal")
 
+    def test_a_delivery_cannot_be_sent_without_naming_the_terminal_it_is_for(self):
+        """`host` was optional, so `hik_flow` dropping it again would be silent -- and no test could
+        catch it without a Hikvision simulator. Required, it cannot be dropped at all, which closes
+        the coverage limit instead of recording it."""
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory)
+            with self.assertRaises(TypeError):
+                visited.send_twice(Path(directory) / "any.toml")
+
     def test_no_tracked_file_publishes_a_terminal_serial(self):
         """A serial is the only thing that identifies a terminal to the device endpoint (R-041,
         R-042) and this repository is public, so a serial read on a visit stays in field-report/ on
@@ -1967,7 +1986,10 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
         listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"],
                                 capture_output=True, text=True, check=False)
         if listed.returncode != 0:
-            self.skipTest("git is unavailable, so the tracked file set cannot be established")
+            # ROOT is not a git repository. A missing `git` *binary* is a different case and is
+            # deliberately not caught: `check=False` suppresses an exit status, not a
+            # `FileNotFoundError`, so that errors rather than quietly passing.
+            self.skipTest("this tree is not a git repository, so the tracked file set is unknown")
         tracked = [ROOT / name for name in listed.stdout.split("\0") if name]
         found = []
         for path in sorted(tracked):

@@ -941,6 +941,12 @@ class Visit:
             return None
         target = host or (self.zk_link[0] if self.zk_link else None)
         facts = self.laptop_network(target, ping_count=5)
+        if not facts.get("interface"):
+            # No interface resolved means nothing here was shown to carry this terminal. The advice
+            # below already refuses to name one; the *numbers* must refuse too, or the row the
+            # runbook tells the operator to paste carries some other link's signal and discard
+            # counters as though they were the terminal's.
+            facts = {**facts, "wifi": None}
         measured = describe_network(facts)
         self.sheet["حالة الشبكة وقت المشكلة"] = measured
         # `interface` first: with no target to route to, `laptop_network` reports the first
@@ -985,7 +991,7 @@ class Visit:
                                          in_out_field=field or "punch") +
                         f"\n[[devices]]\nserial = {_toml(serial)}\nkind = \"zk\"\nhost = {_toml(host)}\n"
                         f"port = {port}\ncomm_key = {key}\nudp = {'true' if udp else 'false'}\n", encoding="utf-8")
-        self.send_twice(path)
+        self.send_twice(path, self.zk_link[0])
         self.check_the_clock_did_not_move(self.clock_skew(summary))
 
     def find_in_out(self) -> str | None:
@@ -1100,12 +1106,13 @@ class Visit:
                 f"server_url = {_toml(self.lab.server_url)}\ntoken_file = {_toml(str(self.lab.token_path))}\n"
                 f"spool_path = {_toml(spool)}\ninsecure_skip_tls_verify = true\nin_out_field = {_toml(in_out_field)}\n")
 
-    def send_twice(self, path: Path, host: str | None = None) -> None:
+    def send_twice(self, path: Path, host: str) -> None:
         """Runbook 6.4: the first pass sends the log, the second must store nothing.
 
-        `host` is the terminal this config sends, for the remedy below. `zk_link` carries it on the
-        ZKTeco path; the Hikvision path never sets `zk_link`, so without this it measured no target
-        at all."""
+        `host` is the terminal this config sends, for the remedy below, and it is **required**: the
+        Hikvision path never sets `zk_link`, so a caller that omits it leaves the remedy with no
+        target to measure. Defaulting it to `None` made that a silent regression which no test could
+        catch without a Hikvision simulator; required, it is a `TypeError` at import-time reach."""
         try:
             config = cfg.load(str(path))
         except cfg.ConfigError as exc:
