@@ -57,8 +57,9 @@ SHEET_ROWS = (
     "سطر ATTLOG: الفاصل", "طول كود الموظف", "عدد السجلات على الجهاز", "عدد الموظفين", "بصمة وصلت خلال",
     "شلنا الكابل: البصمات وصلت بعد الرجوع؟", "وقفنا الـ capture 10 دقايق: الجهاز عاد الإرسال؟",
     "البصمة دي اتسجلت مرة واحدة؟", "الدخول", "الخروج", "الـ in_out_field الصح",
+    "توزيع أكواد الدخول/الخروج في سجل الجهاز",
     "الموظفين بيدوسوا زرار الدخول/الخروج؟", "USB: ترتيب الأعمدة زي الـ Push؟", "Hikvision: أكواد الحضور اللي ظهرت",
-    "مشاكل تانية",
+    "حالة الشبكة وقت المشكلة", "مشاكل تانية",
 )
 # What this visit cannot test (runbook 5.4, under the table): the recorder speaks plain HTTP only,
 # and the other two need a change on the terminal or a refusal after an upload.
@@ -409,15 +410,127 @@ def push_facts(exchanges: list[Exchange], serial: str) -> tuple[dict[str, str], 
     return facts, findings
 
 
-def in_out_field(check_in: tuple[int, int], check_out: tuple[int, int], out_value: int) -> str | None:
+# Below this many records the log cannot carry the argument in_out_field makes from it: a branch
+# of a few dozen employees writes this in about two days, and a shorter log can hold a run of
+# entries with no exit in it at all, whose one-sided column would then be read as meaningful.
+IN_OUT_LOG_MINIMUM = 200
+# How much of a long log the second-commonest value in a column must hold for that column to be
+# telling entries from exits. Everyone who comes in goes out again, so that column is close to
+# balanced; a tenth leaves room for a branch where people often forget the exit key.
+IN_OUT_MINORITY_SHARE = 0.10
+# And how one-sided a column must be before the log can say it is *not* carrying in/out at all.
+# Being balanced is not on its own evidence of meaning -- a terminal where two verification methods
+# are both common has a balanced `status` that records how people identified themselves. So the log
+# elects nothing by itself: it may only rule a column out, and the other column stands only once
+# this says the first cannot be it.
+IN_OUT_CONSTANT_SHARE = 0.01
+
+
+def code_spread(records) -> dict[str, dict[int, int]]:
+    """How many records carry each value of the two codes, across the whole log just read."""
+    return {name: dict(sorted(Counter(getattr(record, name) for record in records).items()))
+            for name in ("punch", "status")}
+
+
+def in_out_field(check_in: tuple[int, int], check_out: tuple[int, int], out_value: int,
+                 spread: dict[str, dict[int, int]] | None = None) -> str | None:
     """Which of a 4370 record's two codes carries in/out, from a check-in punch and a check-out
     punch as (punch, status): the code that CHANGED to the check-out value. One record cannot
     answer this -- a terminal whose verify mode is 1 (fingerprint) reads 1 in `status` on every
-    punch, and reading a single check-out record would call that the in/out code. Ambiguous
-    (both changed, or neither) is None: the visit reports it rather than picking one."""
+    punch, and reading a single check-out record would call that the in/out code.
+
+    A terminal can store the check-out with both codes identical to the check-in's, and then the
+    two punches answer nothing. The log already on the laptop can still *rule a column out*: a
+    column holding one value in all but a hundredth of thousands of punches is not the one that
+    separates an arrival from a departure, because a log that long contains both. Only then does
+    the other column stand, and only if it is itself balanced.
+
+    The log never elects a column on its own. A branch where people rarely press the exit key has a
+    one-sided in/out column, and a terminal used with two verification methods has a balanced
+    `status`; electing "the balanced one" there would hand back the verification column, and
+    `agent_zk` writes that straight into the config and sends the whole log under it. Ambiguous
+    stays None: the visit reports it rather than picking one."""
     changed = [name for index, name in ((0, "punch"), (1, "status"))
                if check_out[index] == out_value and check_in[index] != check_out[index]]
-    return changed[0] if len(changed) == 1 else None
+    if len(changed) == 1:
+        return changed[0]
+    if not spread or sum(spread.get("punch", {}).values()) < IN_OUT_LOG_MINIMUM:
+        return None
+    for name, other in (("punch", "status"), ("status", "punch")):
+        if separates(spread.get(name) or {}) and cannot_separate(spread.get(other) or {}):
+            return name
+    return None
+
+
+def separates(counts: dict[int, int]) -> bool:
+    """Is this column balanced enough to be the one telling an entry from an exit? Necessary, and
+    on its own never sufficient -- see `in_out_field`."""
+    counted = sorted(counts.values(), reverse=True)
+    return len(counted) > 1 and counted[1] >= sum(counted) * IN_OUT_MINORITY_SHARE
+
+
+def cannot_separate(counts: dict[int, int]) -> bool:
+    """Is this column so one-sided that it cannot be carrying in/out at all?
+
+    Not "does it ever change": TERMINAL-A's `status` reads 1 in 11 424 of its 11 426 records and
+    15 in the other two. Two records out of eleven thousand are somebody identifying themselves
+    differently, not the branch going home.
+
+    And not "is it constant" either. A column with **one** value across the whole log is exactly
+    what an in/out key nobody presses looks like, so it is no evidence that the column is not the
+    in/out one -- which is why a second value is required before this rules anything out. Without
+    that, a branch that never presses the exit key and identifies people two ways would have had
+    its *verification* column elected: constant `punch`, balanced `status`, and the log would say
+    `status`."""
+    counted = sorted(counts.values(), reverse=True)
+    total = sum(counted)
+    return total > 0 and len(counted) > 1 and counted[1] < total * IN_OUT_CONSTANT_SHARE
+
+
+def unreachable_errno(error) -> int | None:
+    """The errno of a connect that never reached the terminal, read out of whatever the visit holds
+    -- the exception, or the text an agent pass has already flattened it into.
+
+    The number is taken from the exception wherever one survives -- `ZkError` chains the `OSError`
+    it was raised from -- because that holds on every platform. Only the flattened text needs
+    parsing, and then both spellings count: Python writes `[Errno 113]` on Linux and
+    `[WinError 10065]` on Windows for the same condition, and this ships as a Windows executable.
+    Only the errnos that mean the packet never left qualify: they are the ones that say nothing at
+    all about the terminal."""
+    found = getattr(error, "errno", None)
+    if found is None:
+        found = getattr(getattr(error, "__cause__", None), "errno", None)
+    if found is None:
+        posix = re.search(r"\[Errno (\d+)\]", str(error))
+        windows = re.search(r"\[WinError (\d+)\]", str(error))
+        if posix:
+            found = int(posix.group(1))
+        elif windows:
+            found = zk.WINDOWS_TRANSIENT_CODES.get(int(windows.group(1)))
+    return found if found in zk.TRANSIENT_CONNECT_ERRNOS else None
+
+
+def describe_network(facts: dict) -> str:
+    """This laptop's own link, in one line an operator can read out and paste into an issue."""
+    parts = []
+    wifi = facts.get("wifi") or {}
+    if wifi.get("level") is not None:
+        parts.append(f"الواي فاي {wifi['interface']} {wifi['level']} dBm "
+                     f"(link {wifi['link']}، discarded misc {wifi['misc']})")
+    elif wifi.get("unavailable"):
+        parts.append(f"الواي فاي: {wifi['unavailable']}")
+    if facts.get("arp"):
+        # The state, never the address: this line is written to be pasted into a public issue, and
+        # the customer's internal addressing stays in field-report/ on the laptop.
+        parts.append(f"ARP الجهاز: {facts['arp']}")
+    ping = facts.get("ping") or {}
+    if "loss_percent" in ping:
+        spread = ping.get("rtt_ms") or {}
+        parts.append(f"ping {ping['loss_percent']}% loss، {ping['duplicates']} مكرر"
+                     + (f"، {spread['min']}-{spread['max']} ms" if spread else ""))
+    elif ping.get("unavailable"):
+        parts.append(f"ping: {ping['unavailable']}")
+    return "، ".join(parts) if parts else "مفيش أرقام عن شبكة اللابتوب ده"
 
 
 def usb_files(out_dir: Path, user: str | None = None) -> list[Path]:
@@ -444,6 +557,68 @@ def _md(value: str) -> str:
     return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("|", "\\|")
 
 
+DOTTED = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
+SERIAL_HIDDEN = "<device-serial>"
+# Below this a serial is indistinguishable from ordinary text, and substituting it would
+# rewrite unrelated cells of the report. `config.SERIAL` accepts a single character.
+SERIAL_MINIMUM = 4
+# The customer's own name, which the report does not carry for the same reason it carries no
+# serial: step 11 says to paste the results sheet into a public issue. It stays on the console,
+# in the visit's folder and in the local copy of the report the operator keeps.
+CUSTOMER_ROW = "الشركة / الفرع"
+ADDRESS_HIDDEN = "<device-ip>"
+PATH_HIDDEN = "<path>"
+# Rooted only, and never after a word character, `:` or `/`, so `https://host/x` and
+# `field-report/captures` and `8081/tcp` are left alone. One directory at minimum, so the
+# `/` in `الشركة / الفرع` -- which is followed by a space -- cannot match. `ISAPI` and `iclock` are
+# the terminals' own request namespaces, which `sources` puts into its error text and which a
+# device-compatibility report exists to carry: redacting those read as "something private was here".
+ROOTED_PATH = re.compile(r"(?<![\w:/])/(?!(?:ISAPI|iclock)/)(?:[^\s/]+/)+([^\s/]*)")
+
+
+def _no_address(value: str) -> str:
+    """One seam for the whole report: no line of it names an address on the customer's network.
+
+    The report exists to be pasted into a public issue, and a terminal's own error text names the
+    address it could not reach -- so redacting at each call site would hold only until the next
+    finding was written. The console still shows the operator which address it was, and the address
+    stays in field-report/ on the laptop.
+
+    Every address, not only the private ones. A terminal reachable from outside its branch has a
+    public address, and that is the one address class that identifies a customer outright -- so
+    exempting it to keep a four-part firmware version readable had the rule backwards."""
+    def one(match):
+        try:
+            ipaddress.IPv4Address(match.group(0))
+        except ValueError:
+            return match.group(0)
+        return ADDRESS_HIDDEN
+    return DOTTED.sub(one, value)
+
+
+def _no_path(value: str) -> str:
+    """The same seam again, for a path the operator typed on a customer's site.
+
+    `usb_flow` asks the operator where the export is and quotes the answer back when it is not
+    there. On a real visit that answer is a path under their home directory, in a folder named
+    after the customer, holding a file named after the terminal -- so one mistyped character put
+    the operator's name, the customer's name and a serial into the artefact step 11 says to paste
+    into a public issue. The file name is kept, because that is what the operator has to recognise;
+    the directories are what identify anybody.
+
+    At the seam rather than at the call site, for the reason `_no_address` gives: an exception's own
+    text carries paths too, and redacting per finding holds only until the next finding is written.
+    The console still shows the whole path, and it stays in field-report/ on the laptop."""
+    def one(found):
+        # An exception quotes the path it could not open, and the quote is not part of it.
+        last = found.group(1).rstrip("'\"»)]},;:.")
+        closing = found.group(1)[len(last):]
+        # A last component with no `.` in it is a directory, not a file -- `/home/karim` would
+        # otherwise publish a username, and a typed folder would publish the customer.
+        return (f"{PATH_HIDDEN}/{last}" if "." in last else PATH_HIDDEN) + closing
+    return ROOTED_PATH.sub(one, value)
+
+
 def _ltr(value: str) -> str:
     """A report cell GitHub would draw backwards in a right-to-left table: one with no Arabic."""
     value = _md(value)
@@ -456,7 +631,7 @@ class Visit:
                  settle_seconds: float = 15, pause_seconds: float = 600, quiet_seconds: float = 25,
                  sleep=time.sleep, clock=time.monotonic,
                  now=datetime.now, utc_now=lambda: datetime.now(timezone.utc), networks=probe.lan_networks,
-                 scan=probe.scan):
+                 scan=probe.scan, laptop_network=probe.laptop_network):
         self.console = console or Console()
         self.lab = lab or Lab()
         self.out = Path(out_dir or AGENT_DIR / "field-report")
@@ -464,8 +639,9 @@ class Visit:
         self.wait_seconds, self.settle_seconds, self.pause_seconds = wait_seconds, settle_seconds, pause_seconds
         self.quiet_seconds = quiet_seconds
         self.sleep, self.clock, self.now, self.utc_now = sleep, clock, now, utc_now
-        self.networks, self.scan = networks, scan
+        self.networks, self.scan, self.laptop_network = networks, scan, laptop_network
         self.sheet = {row: "لم يُختبر" if row in UNTESTED else "" for row in SHEET_ROWS}
+        self.code_spread: dict[str, dict[int, int]] = {}
         self.findings: list[Finding] = []
         self.serial: str | None = None
         self.allocated: dict[str, str] = {}
@@ -477,6 +653,10 @@ class Visit:
         self.network_ok = True
         self.secrets: list[Path] = []
         self.zk_link: tuple[str, int, int, bool] | None = None
+        # Every serial this visit has *seen*, not the one it settled on. A terminal that pushes
+        # under a different serial than it reports on 4370 is one of the findings this visit
+        # exists to produce, and both of those serials are the credential R-041/R-042 describe.
+        self.serials: set[str] = set()
         self.device_started = False
         self.interrupted = False
         self.restored = False
@@ -652,7 +832,7 @@ class Visit:
         if port is not None:
             kind = self.choose("نوع الجهاز؟", [("zk", "ZKTeco (4370)"), ("hik", "Hikvision"), ("other", "حاجة تانية")])
             return kind, host, port
-        found = probe.probe_host(host)
+        found = probe.probe_host(host, retry_transient=True)
         if not found:
             self.say(f"   مفيش حاجة بترد على {host}.")
             self.note("bad", "مفيش حاجة بترد على العنوان اللي اتكتب",
@@ -715,12 +895,17 @@ class Visit:
             summary = probe.zk_summary(host, port, key, udp, timeout=8)
         if "error" in summary:
             self.note("bad", f"الجهاز مارَدّش: {summary['error']}",
-                      "اتأكد من IP الجهاز (صورة رقم 3) ومن الكابل، واستنى شوية وجرّب تاني (ممكن الجهاز مشغول)")
+                      self.unreachable_path_fix(summary["error"], host)
+                      or "اتأكد من IP الجهاز (صورة رقم 3) ومن الكابل، واستنى شوية وجرّب تاني (ممكن الجهاز مشغول)")
             return None
         serial = str(summary.get("serial") or "")
+        # Recorded before it is judged. `pasteable` removes only the serials `saw_serial` was
+        # told about, and the refusal below quotes the rejected one into a report whose own preamble
+        # promises it carries no serial at all.
+        # It also names every file the visit writes for this terminal, so one the platform refuses
+        # (or one with a path in it) goes no further than here.
+        self.saw_serial(serial)
         if not cfg.SERIAL.match(serial):
-            # The serial names every file the visit writes for this terminal; one the platform
-            # refuses (or one with a path in it) goes no further.
             self.note("bad", f"الجهاز رد بسيريال السيستم مش هيقبله: {serial!r}",
                       "اكتبه في الـ issue مع صورة الستيكر وشاشة Device Info")
             return None
@@ -769,15 +954,62 @@ class Visit:
             count = probe.backup_attendance(host, str(path), port, key, udp)
         except zk.ZkError as exc:
             self.note("bad", f"النسخة الاحتياطية ماتعملتش: {exc}",
-                      "ماتغيّرش أي إعداد على الجهاز من غير نسخة. استنى شوية وشغّل الأمر تاني")
+                      self.unreachable_path_fix(exc)
+                      or "ماتغيّرش أي إعداد على الجهاز من غير نسخة. استنى شوية وشغّل الأمر تاني")
             return False
         self.note("ok", f"النسخة الاحتياطية اتعملت: {count} سجل في field-report/{path.name}")
         return True
 
+    def unreachable_path_fix(self, error, host: str | None = None) -> str | None:
+        """The remedy for a terminal this laptop never reached, with the measured numbers in it.
+
+        EHOSTUNREACH means the kernel could not resolve the address's hardware address and no
+        packet left, so whatever is wrong, the terminal has not answered and cannot be the thing
+        the error describes. That is as far as the errno goes: the same one arrives from a mistyped
+        address, a terminal that is switched off, and a lost ARP exchange on a weak link. The
+        remedy therefore names the path, gives the operator both ends to check, and leaves the
+        numbers beside it to say which end -- rather than clearing the terminal, which would file a
+        real device fault as somebody else's problem."""
+        if unreachable_errno(error) is None:
+            return None
+        target = host or (self.zk_link[0] if self.zk_link else None)
+        facts = self.laptop_network(target, ping_count=5)
+        if not facts.get("interface"):
+            # No interface resolved means nothing here was shown to carry this terminal. The advice
+            # below already refuses to name one; the *numbers* must refuse too, or the row the
+            # runbook tells the operator to paste carries some other link's signal and discard
+            # counters as though they were the terminal's.
+            facts = {**facts, "wifi": None}
+        measured = describe_network(facts)
+        self.sheet["حالة الشبكة وقت المشكلة"] = measured
+        # `interface` first: with no target to route to, `laptop_network` reports the first
+        # wireless interface in /proc/net/wireless -- any interface, not the one that would carry
+        # this terminal -- and advising "move closer to the router" from that is the false remedy
+        # the round-2 finding was about. No resolved interface means no interface-specific advice.
+        wireless = bool(facts.get("interface")) and (facts.get("wifi") or {}).get("level") is not None
+        # Each half says only what was measured. Without `ip` or `ping` -- the Windows build, or a
+        # stripped laptop -- there is no ARP state to assert and no interface to advise about, and
+        # the errno alone can be ENETUNREACH or EHOSTDOWN rather than a failed ARP exchange.
+        opening = ("مفيش ولا حزمة وصلت للجهاز أصلاً (الـ ARP فشل)، "
+                   if facts.get("arp") == "FAILED" else "مفيش ولا حزمة وصلت للجهاز أصلاً، ")
+        if wireless:
+            path = "قرّب اللابتوب من الراوتر أو اتوصّل بكابل"
+        elif facts.get("interface"):
+            path = "اتأكد من الكابل والـ switch وإن الجهاز على نفس الشبكة"
+        else:
+            path = "اتأكد من الكابل أو الواي فاي وإن الجهاز على نفس الشبكة"
+        return (opening + "فالجهاز ماردّش عشان ماتسألش. " + measured
+                + ". اتأكد الأول إن الـ IP ده بتاع الجهاز فعلاً (صورة رقم 3) وإن الجهاز شغال؛ "
+                "لو الاتنين تمام، فالمشكلة في الشبكة: " + path
+                + "، وبعدين جرّب الخطوة دي تاني")
+
     def zk_records(self) -> list[zk.RawAttendance]:
         host, port, key, udp = self.zk_link
         with zk.ZkClient(host, port, 15, key, udp) as client:
-            return client.attendance()
+            records = client.attendance()
+        # Kept for in_out_field: every full read refreshes what the stored log says about the codes.
+        self.code_spread = code_spread(records)
+        return records
 
     def agent_zk(self, summary: dict) -> None:
         self.title("6. قراءة الجهاز عن طريق الـ agent")
@@ -792,7 +1024,7 @@ class Visit:
                                          in_out_field=field or "punch") +
                         f"\n[[devices]]\nserial = {_toml(serial)}\nkind = \"zk\"\nhost = {_toml(host)}\n"
                         f"port = {port}\ncomm_key = {key}\nudp = {'true' if udp else 'false'}\n", encoding="utf-8")
-        self.send_twice(path)
+        self.send_twice(path, self.zk_link[0])
         self.check_the_clock_did_not_move(self.clock_skew(summary))
 
     def find_in_out(self) -> str | None:
@@ -816,14 +1048,26 @@ class Visit:
             out_value, source = int(self.push.out_value), "رقم الخروج في تجربة الـ Push"
         self.say(f"   بصمة الدخول: punch={check_in.punch}، status={check_in.status}")
         self.say(f"   بصمة الخروج: punch={check_out.punch}، status={check_out.status} ({source}: {out_value})")
-        field = in_out_field((check_in.punch, check_in.status), (check_out.punch, check_out.status), out_value)
+        if self.code_spread:
+            self.sheet["توزيع أكواد الدخول/الخروج في سجل الجهاز"] = (
+                f"punch {self.code_spread['punch']}، status {self.code_spread['status']}")
+        field = in_out_field((check_in.punch, check_in.status), (check_out.punch, check_out.status), out_value,
+                             self.code_spread)
         if field is None:
             self.sheet["الـ in_out_field الصح"] = "مش واضح"
             self.note("bad", f"مش واضح أنهي عمود فيه الدخول والخروج: الدخول (punch={check_in.punch}، "
-                             f"status={check_in.status}) والخروج (punch={check_out.punch}، status={check_out.status})",
+                             f"status={check_in.status}) والخروج (punch={check_out.punch}، status={check_out.status})"
+                             + (f"، وفي سجل الجهاز punch {self.code_spread['punch']} و status "
+                                f"{self.code_spread['status']}" if self.code_spread else ""),
                       "اتأكد إن الموظف داس زرار الخروج في البصمة التانية بس، وجرّب تاني؛ "
                       "لو نفس النتيجة اكتب الأرقام دي في الـ issue")
             return None
+        if (check_in.punch, check_in.status) == (check_out.punch, check_out.status):
+            self.note("warn", f"الجهاز سجّل بصمة الخروج بنفس الكودين بتاعين الدخول "
+                              f"(punch={check_out.punch}، status={check_out.status})، "
+                              f"والعمود اتحدد من سجل الجهاز نفسه",
+                      "يا إما الموظف مادسش زرار الخروج، يا إما الفيرموير ده مابيغيّرش الكود: "
+                      "اكتب التوزيع اللي في ورقة النتائج في الـ issue")
         self.sheet["الـ in_out_field الصح"] = field
         index = 0 if field == "punch" else 1
         self.sheet["الدخول"] = str((check_in.punch, check_in.status)[index])
@@ -839,7 +1083,8 @@ class Visit:
             # same second are two records that look identical, and a set would hide the second.
             before = Counter((record.user_id, record.timestamp) for record in self.zk_records())
         except zk.ZkError as exc:
-            self.note("bad", f"مقدرناش نقرأ سجلات الجهاز: {exc}", "استنى شوية وشغّل الأمر تاني")
+            self.note("bad", f"مقدرناش نقرأ سجلات الجهاز: {exc}",
+                      self.unreachable_path_fix(exc) or "استنى شوية وشغّل الأمر تاني")
             return None
         self.mark_push()
         self.enter(instruction)
@@ -858,7 +1103,12 @@ class Visit:
                                    ". أستنى وأقرأ تاني؟"):
                 break
         if not new:
-            self.note("bad", "مالقيناش البصمة على الجهاز", "جرّب تاني، وخلي الموظف يستنى لحد ما الجهاز يقبل البصمة")
+            # The last read's error, not just the retry prompt's: an unreachable terminal after the
+            # punch is a network finding with the ARP and ping numbers behind it, and reporting it as
+            # "the punch was not found" would say the terminal rejected a punch it never saw.
+            self.note("bad", "مالقيناش البصمة على الجهاز" + (f": {error}" if error else ""),
+                      (self.unreachable_path_fix(error) if error else None)
+                      or "جرّب تاني، وخلي الموظف يستنى لحد ما الجهاز يقبل البصمة")
             return None
         if len(new) == 1:
             return new[0]
@@ -889,8 +1139,13 @@ class Visit:
                 f"server_url = {_toml(self.lab.server_url)}\ntoken_file = {_toml(str(self.lab.token_path))}\n"
                 f"spool_path = {_toml(spool)}\ninsecure_skip_tls_verify = true\nin_out_field = {_toml(in_out_field)}\n")
 
-    def send_twice(self, path: Path) -> None:
-        """Runbook 6.4: the first pass sends the log, the second must store nothing."""
+    def send_twice(self, path: Path, host: str) -> None:
+        """Runbook 6.4: the first pass sends the log, the second must store nothing.
+
+        `host` is the terminal this config sends, for the remedy below, and it is **required**: the
+        Hikvision path never sets `zk_link`, so a caller that omits it leaves the remedy with no
+        target to measure. Defaulting it to `None` made that a silent regression which no test could
+        catch without a Hikvision simulator; required, it is a `TypeError` at import-time reach."""
         try:
             config = cfg.load(str(path))
         except cfg.ConfigError as exc:
@@ -906,7 +1161,12 @@ class Visit:
             self.note("bad", "سيستم اللاب رفض التوكن", "scripts/devices-lab.sh seed وبعدين شغّل الأمر تاني")
             return
         if first.error:
-            fix = next((text for needle, text in AGENT_FIXES if needle in first.error), "اكتب الرسالة دي في الـ issue")
+            # Only when the terminal itself was not reached. `reachable` is set after it answered, so
+            # the same errno arriving with it set came from the delivery to the lab server, and
+            # telling the operator to check the terminal's network path would be false.
+            fix = ((self.unreachable_path_fix(first.error, host) if not first.reachable else None)
+                   or next((text for needle, text in AGENT_FIXES if needle in first.error),
+                           "اكتب الرسالة دي في الـ issue"))
             self.note("bad", f"الإرسال فشل: {first.error}", fix)
             return
         self.agent_sent = True
@@ -989,6 +1249,11 @@ class Visit:
             self.note("bad", "الجهاز مابعتش حاجة للابتوب", "راجع الإعدادات والـ firewall (sudo ufw allow 8081/tcp) وجرّب تاني")
             return
         serial = hello.serial
+        # Recorded before it is judged. `pasteable` removes only the serials `saw_serial` was
+        # told about, and the refusal below quotes the rejected one into a report whose own preamble
+        # promises it carries no serial at all.
+        self.saw_serial(serial)
+        self.saw_serial(expected)
         if not cfg.SERIAL.match(serial):
             self.note("bad", f"الجهاز بعت سيريال السيستم مش هيقبله: {serial}", "اكتبه في الـ issue مع صورة الستيكر")
             return
@@ -999,7 +1264,9 @@ class Visit:
                           "اتأكد إن الإعداد اتحط على الجهاز الصح، وشغّل الأمر تاني")
                 return
             self.note("bad", f"الجهاز بيبعت بالـ Push بسيريال {serial} وعلى 4370 بيقول {expected}",
-                      "معلومة مهمة: اكتب الاتنين في الـ issue مع صورة الستيكر")
+                      "معلومة مهمة، بس السيريالين مانزلوش في issue عام: هما في التقرير المحلي "
+                      "وفي field-report. في الـ issue قول إن الجهاز بيبعت بسيريال غير اللي على "
+                      "4370، وسيب الستيكر وصورته في مكان خاص")
         self.sheet["Push / ADMS موجود؟"] = "نعم"
         if expected is None:
             if not self.yes(f"الجهاز بعت السيريال {serial}. نفس اللي على الستيكر؟"):
@@ -1236,6 +1503,10 @@ class Visit:
             self.note("bad", f"الجهاز مارَدّش: {error}", "اتأكد من الـ IP وإن صفحة الجهاز بتفتح في المتصفح")
             return
         serial = str(info["serial"] or "")
+        # Recorded before it is judged. `pasteable` removes only the serials `saw_serial` was
+        # told about, and the refusal below quotes the rejected one into a report whose own preamble
+        # promises it carries no serial at all.
+        self.saw_serial(serial)
         if not cfg.SERIAL.match(serial):
             self.note("bad", f"سيريال الجهاز السيستم مش هيقبله: {serial!r}", "اكتبه في الـ issue مع صورة الستيكر")
             return
@@ -1277,7 +1548,7 @@ class Visit:
                         f"\n[[devices]]\nserial = {_toml(serial)}\nkind = \"hikvision\"\nhost = {_toml(host)}\n"
                         f"port = {device.port}\nhttps = {'true' if device.https else 'false'}\n"
                         f"username = {_toml(username)}\npassword_file = \"hik.pw\"\n", encoding="utf-8")
-        self.send_twice(path)
+        self.send_twice(path, host)
 
     # -- USB (runbook 7) and anything else (runbook 9) ----------------------------------------
 
@@ -1289,7 +1560,13 @@ class Visit:
         choice = self.choose("أنهي ملف؟", [(path, str(path)) for path in files] + [(None, "اكتب مكان الملف بإيدك")])
         path = choice or Path(os.path.expanduser(self.console.ask("👉 مكان الملف:")))
         if not path.is_file():
-            self.note("bad", f"مالقيتش الملف {path}", "اتأكد من الاسم والمكان وشغّل الأمر تاني")
+            # The path itself goes nowhere near the report. `_no_path` is a backstop for paths that
+            # arrive inside an exception's text, and it cannot be exact: a directory name with a
+            # space in it is indistinguishable from prose, so the seam leaves `شركة النور فرع` in
+            # place. Here the program *knows* the whole string is a path, and a public issue needs
+            # none of it -- a file the operator could not point at is not a fact about the terminal.
+            self.say(f"   المكان اللي كتبته: {path}")
+            self.note("bad", "مالقيتش الملف اللي كتبته", "اتأكد من الاسم والمكان وشغّل الأمر تاني")
             return
         if path.resolve().parent != self.out.resolve():
             copy = self.out / path.name
@@ -1444,6 +1721,42 @@ class Visit:
                 path.unlink()
                 self.say("✅ مسحت باسورد الجهاز من اللابتوب.")
 
+    def saw_serial(self, serial: str | None) -> None:
+        """Record a serial so the report cannot publish it.
+
+        Short ones are kept out: `config.SERIAL` accepts a single character, and substituting that
+        would rewrite ordinary cells of the report rather than a serial -- the in/out cells are one
+        digit each.
+
+        **The residual, since the report's preamble claims it carries no serial at all:** a two- or
+        three-character serial is below `SERIAL_MINIMUM` and so is published. `config.SERIAL` accepts
+        one, so an operator can type it at the USB prompt. The floor is kept anyway -- real ZKTeco
+        serials are long, and a narrower rule reintroduces the rewriting of the report's own
+        numbers, which is the worse failure."""
+        text = (serial or "").strip()
+        if len(text) >= SERIAL_MINIMUM and text != "device":
+            self.serials.add(text)
+
+    def pasteable(self, value: str) -> str:
+        """One line of the report, with what identifies this customer taken out.
+
+        Step 11 of the runbook tells the operator to paste the results sheet into a public issue, and
+        a terminal's serial is the only thing that identifies it to the device endpoint: a known
+        serial is punch injection against a claimed device (R-041) or a squat on an unclaimed one
+        (R-042). The console still shows it, the file name still carries it, and the inventory
+        records the terminal under a pseudonym. The boundaries exclude alphanumerics only, so a
+        longer serial cannot be matched by its prefix while `<serial>: message` -- which is how
+        `sources` prefixes every failure -- still is. **Every** serial the visit has seen is removed,
+        not only the one it settled on: a push mismatch is a finding about two of them, and a
+        rejected serial is seen before there is a settled one."""
+        value = value or ""
+        self.saw_serial(self.serial)
+        # Longest first: one serial can be a prefix of another, and the longer match leaves nothing.
+        for serial in sorted(self.serials, key=len, reverse=True):
+            hidden = re.compile(rf"(?<![A-Za-z0-9]){re.escape(serial)}(?![A-Za-z0-9])")
+            value = hidden.sub(SERIAL_HIDDEN, value)
+        return _no_path(_no_address(value))
+
     def write_report(self) -> Path:
         bad = [finding for finding in self.findings if finding.level != "ok"]
         # "مفيش" is a claim that the visit looked and found nothing, so it is only written when
@@ -1453,19 +1766,24 @@ class Visit:
         self.sheet["مشاكل تانية"] = self.sheet["مشاكل تانية"] or "، ".join(
             finding.text for finding in bad if finding.level == "bad") or nothing
         verdict = self.verdict()
-        lines = [f"# تقرير زيارة: جهاز {_md(self.serial or 'مش معروف')}", "", '<div dir="rtl">', "",
+        lines = [f"# تقرير زيارة: جهاز {_md(self.pasteable(self.serial) or 'مش معروف')}", "",
+                 '<div dir="rtl">', "",
                  f"**النتيجة:** {verdict}", "",
                  f"اتعمل بالأمر `workin_devices visit` يوم {_ltr(f'{self.started:%Y-%m-%d %H:%M}')}، "
-                 "في وضع A (سيستم اللاب على اللابتوب). مفيش فيه أكواد موظفين ولا أسامي ولا أرقام كروت.", ""]
+                 "في وضع A (سيستم اللاب على اللابتوب). التقرير ده معمول عشان يتلزق في issue عام: "
+                 "مفيش فيه أكواد موظفين ولا أسامي ولا أرقام كروت، ولا سيريال الجهاز ولا عنوانه على "
+                 "الشبكة، ولا اسم العميل أو الفرع. كل ده على الشاشة وفي فولدر field-report، "
+                 "والجهاز بياخد اسم مستعار في جدول الموديلات.", ""]
         if bad:
             lines += ["## المشاكل والحل", ""]
-            lines += [f"- {MARK[finding.level]} {_md(finding.text)}" +
-                      (f" ← **الحل:** {_md(finding.fix)}" if finding.fix else "") for finding in bad] + [""]
+            lines += [f"- {MARK[finding.level]} {_md(self.pasteable(finding.text))}" +
+                      (f" ← **الحل:** {_md(self.pasteable(finding.fix))}" if finding.fix else "") for finding in bad] + [""]
         done = [finding for finding in self.findings if finding.level == "ok"]
         if done:
-            lines += ["## اللي اشتغل", ""] + [f"- {MARK['ok']} {_md(finding.text)}" for finding in done] + [""]
+            lines += ["## اللي اشتغل", ""] + [f"- {MARK['ok']} {_md(self.pasteable(finding.text))}" for finding in done] + [""]
         lines += ["## ورقة النتائج", "", "| البند | النتيجة |", "|---|---|"]
-        lines += [f"| {row} | {_ltr(self.sheet[row]) or '—'} |" for row in SHEET_ROWS]
+        lines += [f"| {row} | {'(في field-report)' if row == CUSTOMER_ROW and self.sheet[row] else (_ltr(self.pasteable(self.sheet[row])) or '—')} |"
+                  for row in SHEET_ROWS]
         lines += ["", "</div>", ""]
         name = self.serial if self.serial and cfg.SERIAL.match(self.serial) else "device"
         path = self.out / f"visit-{name}-{self.started:%Y%m%d-%H%M}.md"
@@ -1509,4 +1827,5 @@ class Visit:
         if report is not None:
             self.say(f"📄 التقرير: {report}")
             self.say("   حطه في issue بقالب device-compatibility-finding، مع الصور.")
+            self.say("   التقرير مكتوب من غير سيريال الجهاز ولا عنوانه: سيبه كده، الريبو عام.")
             self.say("   لجهاز تاني: شغّل الأمر تاني.")

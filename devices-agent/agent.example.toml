@@ -14,7 +14,7 @@ in_out_field = "punch"
 
 # A ZKTeco terminal read over its 4370 protocol. Read-only: nothing on the terminal changes.
 [[devices]]
-serial = "CGE7203560125"      # exactly as allocated in the dashboard; checked against the terminal
+serial = "SERIAL-FROM-THE-STICKER"  # exactly as allocated in the dashboard; checked against the terminal
 kind = "zk"
 host = "192.168.1.201"
 port = 4370

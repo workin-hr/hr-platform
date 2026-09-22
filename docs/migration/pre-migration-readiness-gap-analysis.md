@@ -209,7 +209,7 @@ customer data, not schema-structure inference.
   `docs/migration/data-quality-analysis.md` and siblings;
   `workin-hr/hr-platform#11`.
 
-### PMR-04: Attendance Device/Hardware Discovery Not Started
+### PMR-04: Attendance Device/Hardware Discovery Executed On One Terminal, Fleet Validation Outstanding
 
 **Update 2026-08-04**: still genuinely blocked for real vendor/hardware
 evidence, but no longer blocks backend architecture or implementation
@@ -226,7 +226,11 @@ material and independent implementations; `vendor-capability-matrix.md` and
 evidence levels marked; ADR-0006 Part B is resolved (D-164, accepted
 2026-09-02) with an explicit hardware checklist as a recorded condition
 (`docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`
-§4.3). What remains is that checklist on a real terminal. The bullets below describe the state before this update.
+§4.3). **Update 2026-09-21:** that checklist has now been executed on a real
+terminal -- one ZKTeco MB20/ID on `Ver 6.60 Oct 12 2021`, recorded as the second
+entry of `docs/devices/attendance-device-model-and-firmware-inventory.md` (D-274).
+What remains is the same checklist on the other models the fleet holds. The
+bullets below describe the state before these updates.
 
 - **Description**: `docs/devices/attendance-device-model-and-firmware-inventory.md`
   and `docs/devices/vendor-capability-matrix.md` remain empty templates
@@ -248,7 +252,8 @@ evidence levels marked; ADR-0006 Part B is resolved (D-164, accepted
   documentation, firmware version inventory, and confirmed integration
   pattern per vendor, per the existing empty templates' own field
   structure, plus execution of the test-scenario checklist in
-  `device-integration-architecture.md`.
+  `device-integration-architecture.md`. **Partly satisfied as of 2026-09-21**
+  for one model, per the Status note above.
 - **Owner**: TBD — requires human assignment, likely with physical
   device or vendor-contact access.
 - **Dependencies**: Access to device vendor documentation, physical
@@ -589,7 +594,7 @@ ADR-0006 with vendor named but protocol/connectivity still open).
 |---|---|---|---|---|---|---|
 | PMR-05 | **Confirmed live 2026-08-04, remediated 2026-08-05**: `DEBUG=true` was in production, live value now changed | Critical → Closed on production | Was a live security incident; code-level defect in `hr-legacy` remains tracked separately | Closed on production | None remaining | `hr-legacy#4` |
 | PMR-07 | Tenant-isolation mechanism unvalidated hands-on | Done | N/A — H2 spike executed, RLS accepted (ADR-0002 Part B) | Done | None | `hr-platform#13` |
-| PMR-04 | Device/hardware Discovery not started | Medium (architecture + vendor now done) / High (final protocol validation) | ADR-0006's final protocol/connectivity direction, final device validation only | Ready for architecture; vendor named (ZKTeco, all versions); Blocked for protocol-specific validation | ZKTeco SDK/integration docs or device access (validation only) | `hr-platform#12` |
+| PMR-04 | Device/hardware Discovery executed on one terminal; the same checklist on the fleet's other models is outstanding | Medium (architecture + vendor now done) / High (final protocol validation) | ADR-0006's final protocol/connectivity direction, final device validation only | Ready for architecture; vendor named (ZKTeco, all versions); Blocked for protocol-specific validation | ZKTeco SDK/integration docs or device access (validation only) | `hr-platform#12` |
 | PMR-10 | No correctness test plan/harness | High | Production cutover | Blocked | Target schema, authorization catalog (ADR-0010) | `hr-platform#16` |
 | PMR-01 | Dashboard Discovery incomplete | Medium-High | Dashboard modules | **Done 2026-08-07** (every file read; `dashboard-discovery-completion.md`) | None | `hr-platform#9` |
 | PMR-02 | Flutter client contract — depth remaining | Medium (was Critical/High) | Full per-endpoint contract confirmation, not the whole migration | Ready | None | `hr-platform#10` |

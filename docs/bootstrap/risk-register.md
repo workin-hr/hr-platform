@@ -74,10 +74,10 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Mitigation | Populate `docs/devices/attendance-device-model-and-firmware-inventory.md` and `docs/devices/vendor-capability-matrix.md` before ADR-0006 moves past Proposed |
 | Trigger | A gateway or integration pattern is chosen for a vendor without a corresponding capability-matrix entry |
 | Contingency | Hold ADR-0006 at Proposed; request vendor-specific discovery before committing to a pattern |
-| Status | Open — documentation-level discovery completed 2026-09-02 (D-164, accepted): the connectivity pattern and protocol are documented and decided; hardware verification on the customers' actual models is the remaining step (`docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md` §4.3). |
+| Status | Open — documentation-level discovery completed 2026-09-02 (D-164, accepted), and **hardware verification has begun**: one ZKTeco MB20/ID on `Ver 6.60 Oct 12 2021` was read on a 2026-09-21 site visit and is the inventory's second entry (D-274). It confirmed the decided pattern for that model (pull over TCP 4370; no ADMS screen on this firmware, so no push) and produced the first measured variability this risk names -- a terminal that records a check-out with the same codes as a check-in. The remaining step is the same checklist on the other models the fleet actually holds (`docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md` §4.3). |
 | Target Date | The first real terminal connected to a development receiver; before Slice A ships. |
-| Evidence | `docs/devices/vendor-capability-matrix.md` and `attendance-device-model-and-firmware-inventory.md` populated from documentation evidence (evidence level marked per field, model/firmware still `Not yet discovered`); D-164. |
-| Last Reviewed | 2026-09-02 |
+| Evidence | `docs/devices/vendor-capability-matrix.md` and `attendance-device-model-and-firmware-inventory.md` populated from documentation evidence (evidence level marked per field); the inventory's second entry is hardware-observed, from the terminal's own answers on 2026-09-21; D-164, D-274. |
+| Last Reviewed | 2026-09-22 |
 
 ## R-005: Governance Weakness
 

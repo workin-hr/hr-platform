@@ -1,4 +1,7 @@
+import contextlib
+import errno
 import http.server
+import io
 import os
 import re
 import shutil
@@ -6,13 +9,16 @@ import subprocess
 import tempfile
 import threading
 import time
+import types
 import urllib.request
 import unittest
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest import mock
 
 from workin_devices import probe, visit
+from workin_devices import __main__ as main
 from workin_devices.sim import adms
 from workin_devices.sim.hikvision import HikTerminal, serve as serve_hik
 from workin_devices.sim.zk4370 import Emulator, Terminal, populate
@@ -306,6 +312,32 @@ class AVisitOfAPushTerminal(unittest.TestCase):
         self.platform.close()
         self.dir.cleanup()
 
+    def test_a_pushed_serial_the_system_rejects_is_kept_out_of_the_report(self):
+        """The refusal quotes the identifier, and nothing had recorded it: both `saw_serial` calls
+        sat below the `return`. `pasteable` removes only what it was told about, so the report
+        published an identifier while its own preamble promises it carries none and step 11 tells
+        the operator to paste it into a public issue. A terminal whose identifier `config.SERIAL`
+        refuses -- a `/`, a space, over 64 characters -- is exactly the visit worth reporting."""
+        rejected = "PUSH/VISIT/2"
+        visited = None
+
+        def the_terminal_says_hello():
+            adms.PushTerminal(f"http://127.0.0.1:{visited.receiver.port}", rejected, timeout=2).handshake()
+            return ""
+
+        console = ScriptedConsole([("لما تحفظ الإعدادات", the_terminal_says_hello)])
+        visited = quick_visit(console, self.lab, self.out)
+        try:
+            visited.push_flow(None, "192.168.1.201")
+            text = visited.write_report().read_text(encoding="utf-8")
+        finally:
+            visited.stop_receiver()
+        self.assertEqual(console.answers, [])
+        self.assertIn("مش هيقبله", text)
+        self.assertNotIn(rejected, text, "the report published a serial the visit refused")
+        self.assertIn("device-serial", text)
+        self.assertIn(rejected, console.text, "the operator still sees it on screen")
+
     def test_the_whole_push_visit_runs_every_check_and_reports_without_an_employee_code(self):
         console = ScriptedConsole([])
         visited = quick_visit(console, self.lab, self.out)
@@ -476,12 +508,12 @@ kind = "zk"
 host = "127.0.0.1"
 port = {self.emulator.port}
 """, encoding="utf-8")
-        visited.send_twice(config)
+        visited.send_twice(config, "127.0.0.1")
         self.assertFalse([f for f in visited.findings if f.level != "ok"], "the first delivery is clean")
 
         config.write_text(config.read_text().replace(first_spool, second_spool), encoding="utf-8")
         visited.findings.clear()
-        visited.send_twice(config)
+        visited.send_twice(config, "127.0.0.1")
         warned = [f for f in visited.findings if f.level == "warn"]
         self.assertTrue(warned, [f.text for f in visited.findings])
         self.assertIn("مفيش ولا سجل جديد اتسجل في السيستم", warned[0].text)
@@ -508,7 +540,7 @@ kind = "zk"
 host = "127.0.0.1"
 port = {self.emulator.port}
 """, encoding="utf-8")
-        visited.send_twice(config)
+        visited.send_twice(config, "127.0.0.1")
         warned = [f for f in visited.findings if f.level == "warn"]
         self.assertTrue(warned, [f.text for f in visited.findings])
         self.assertIn("بصمة جديدة اتعملت في اللحظة دي", warned[0].text)
@@ -582,7 +614,11 @@ class ATerminalThatSaysSomethingOdd(unittest.TestCase):
         visited, code, console = self.visit_terminal(terminal, [("برنامج", "1"), ("كابل أو switch", "1")])
         self.assertEqual(console.answers, [])
         self.assertEqual(code, 1)
-        self.assertIn("مش هيقبله", report_of(self.out))
+        report = report_of(self.out)
+        self.assertIn("مش هيقبله", report)
+        self.assertNotIn("evil", report, "a refused serial is still a serial the report must not publish")
+        self.assertIn("device-serial", report)
+        self.assertIn("evil", console.text, "the operator still sees it on screen")
         self.assertEqual(self.lab.allocations, [])
         self.assertEqual([path.name for path in Path(self.dir.name).rglob("*evil*")], [])
 
@@ -664,6 +700,29 @@ class AVisitOfAHikvisionTerminal(unittest.TestCase):
         now = datetime.now(self.terminal.zone).replace(tzinfo=None)
         self.terminal.add_event(PIN, now, 75, "checkIn")
         return ""
+
+    def test_a_serial_the_system_rejects_is_kept_out_of_the_report(self):
+        """The same hole, and here nothing recorded the identifier at any point: `device()` is the
+        only other writer of `self.serials` and it sits below the `return` too."""
+        rejected = "HIK/VISIT/2"
+        terminal = HikTerminal(serial=rejected, password="s3cret-pass")
+        terminal.populate([PIN], days=1)
+        server = serve_hik(terminal)
+        Path(self.out).mkdir(parents=True, exist_ok=True)
+        try:
+            console = ScriptedConsole([("اسم المستخدم", ""), ("الباسورد", "s3cret-pass")])
+            visited = quick_visit(console, self.lab, self.out)
+            visited.hik_flow("127.0.0.1", server.server_address[1])
+            text = visited.write_report().read_text(encoding="utf-8")
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(console.answers, [])
+        self.assertIn("مش هيقبله", text)
+        self.assertNotIn(rejected, text, "the report published a serial the visit refused")
+        self.assertIn("device-serial", text)
+        self.assertIn(rejected, console.text, "the operator still sees it on screen")
+        self.assertEqual(self.lab.allocations, [], "nothing is claimed under a refused serial")
 
     def test_codes_a_live_punch_and_two_sends_and_the_password_does_not_outlive_the_visit(self):
         answers = VisitStart() + [
@@ -893,6 +952,101 @@ class ThePiecesTheWizardDecidesWith(unittest.TestCase):
                                             "9: eth3    inet 10.3.0.4/24 scope global eth3\n"),
                          [("10.3.0.4", "10.3.0.0/24")])
 
+    def test_the_inventory_claims_no_record_format_the_client_cannot_read(self):
+        """The device inventory is the authority on what a model stores, and this client is what
+        reads it. A model entered there with a layout the client cannot parse is a visit that fails
+        on the wall, so the two are held together here rather than discovered at a customer."""
+        text = (ROOT / "docs" / "devices" / "attendance-device-model-and-firmware-inventory.md").read_text(
+            encoding="utf-8")
+        formats = re.findall(r"^\| Record format \| (\d+)-byte \|$", text, re.M)
+        self.assertTrue(formats, "no model records a format; the drift gate would pass vacuously")
+        for size in formats:
+            self.assertIn(int(size), visit.zk.RECORD_SIZES, f"{size}-byte is claimed but unreadable")
+        columns = re.findall(r"^\| In/out column \| (\w+) \|$", text, re.M)
+        self.assertTrue(columns)
+        for column in columns:
+            self.assertIn(column, ("punch", "status"), "a record has exactly these two codes")
+
+    def test_the_arp_state_is_read_for_the_address_asked_about(self):
+        """The state that decides a visit is FAILED: it answers every connect with EHOSTUNREACH at
+        once, so the wizard reads the same "no route to host" twice seconds apart and blames a
+        terminal that is on the wall and answering."""
+        # Locally-administered MACs: the shape is what this parses, and a captured hardware address
+        # identifies the site it was captured at.
+        table = ("192.168.1.1 dev wlp0s20f3 lladdr 02:00:00:00:00:01 router REACHABLE\n"
+                 "192.168.1.201 dev wlp0s20f3 lladdr 02:00:00:00:00:02 STALE\n")
+        self.assertEqual(probe.arp_state("192.168.1.201", table), "STALE")
+        self.assertEqual(probe.arp_state("192.168.1.1", table), "REACHABLE", "read past `router`")
+        self.assertEqual(probe.arp_state("192.168.1.201", "192.168.1.201 dev wlp0s20f3  FAILED\n"), "FAILED")
+        # An address the table does not carry has no state, and one address is not another's prefix.
+        self.assertIsNone(probe.arp_state("192.168.1.20", table))
+        self.assertIsNone(probe.arp_state("192.168.1.201", ""))
+
+    def test_the_wifi_link_reads_the_column_the_driver_actually_moves(self):
+        """/proc/net/wireless ends with Missed beacon, which stays 0 on this card while `misc`
+        climbs on a marginal link: a reader that takes the last column calls that link healthy."""
+        link = probe.wifi_link(
+            "Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE\n"
+            " face | tus | link level noise |  nwid  crypt   frag  retry   misc | beacon | 22\n"
+            "wlp0s20f3: 0000   42.  -68.  -256        0      0      0      4    403        0\n")
+        self.assertEqual(link["interface"], "wlp0s20f3")
+        self.assertEqual((link["link"], link["level"]), (42, -68))
+        self.assertEqual((link["misc"], link["missed_beacon"]), (403, 0))
+        self.assertIsNone(probe.wifi_link("Inter-| sta-|\n face | tus |\n"), "a laptop with no Wi-Fi")
+
+    def test_ping_counts_duplicates_and_never_invents_a_healthy_result(self):
+        """0% loss is not a healthy network. A repeated or bridged Wi-Fi answers every echo, loses
+        the ARP exchange anyway, and gives itself away by duplicating replies and spreading the
+        round trip over two orders of magnitude."""
+        measured = probe.ping_facts("192.168.1.201", ping_output=(
+            "--- 192.168.1.201 ping statistics ---\n"
+            "120 packets transmitted, 120 received, +9 duplicates, 0% packet loss, time 119193ms\n"
+            "rtt min/avg/max/mdev = 0.890/41.690/441.490/75.562 ms\n"))
+        self.assertEqual((measured["transmitted"], measured["received"], measured["duplicates"],
+                          measured["loss_percent"]), (120, 120, 9, 0.0))
+        self.assertEqual(measured["rtt_ms"]["max"], 441.49)
+        lossy = probe.ping_facts("10.0.0.9", ping_output=(
+            "5 packets transmitted, 3 received, 40% packet loss, time 4050ms\n"
+            "rtt min/avg/max/mdev = 1.000/2.000/3.000/0.500 ms\n"))
+        self.assertEqual((lossy["received"], lossy["duplicates"], lossy["loss_percent"]), (3, 0, 40.0))
+        # Windows counts with -n and prints a different summary. Reporting 0% loss from output this
+        # does not understand would send an operator back to a terminal that is not the problem.
+        self.assertIn("unavailable", probe.ping_facts("10.0.0.9", ping_output="Reply from 10.0.0.9: bytes=32"))
+
+    def test_the_discovery_probe_retries_a_lost_arp_exchange_on_one_address(self):
+        """`_open` runs *before* ZkClient.connect(), so without this a lost ARP exchange makes a
+        terminal that is there vanish from the answer and the client's retry never runs. Off for a
+        scan, which asks this of every port of every address and reads a closed port as normal."""
+        calls = []
+
+        def flaky(address, timeout=None):
+            calls.append(address)
+            raise OSError(errno.EHOSTUNREACH, "No route to host")
+
+        with mock.patch.object(visit.zk, "CONNECT_RETRY_SECONDS", 0), \
+             mock.patch.object(probe.socket, "create_connection", flaky):
+            self.assertFalse(probe._open("192.0.2.1", 4370, 0.1, retry_transient=True))
+            self.assertEqual(len(calls), visit.zk.CONNECT_ATTEMPTS)
+            calls.clear()
+            self.assertFalse(probe._open("192.0.2.1", 4370, 0.1))
+            self.assertEqual(len(calls), 1, "a scan must not pay the retry for every closed port")
+
+        refusals = []
+
+        def refused(address, timeout=None):
+            refusals.append(address)
+            raise OSError(errno.ECONNREFUSED, "Connection refused")
+
+        with mock.patch.object(visit.zk, "CONNECT_RETRY_SECONDS", 0), \
+             mock.patch.object(probe.socket, "create_connection", refused):
+            self.assertFalse(probe._open("192.0.2.1", 4370, 0.1, retry_transient=True))
+        self.assertEqual(len(refusals), 1, "a refusal is the answer, not a blip")
+
+    def test_the_laptop_network_pings_nothing_when_it_was_given_no_address(self):
+        facts = probe.laptop_network()
+        self.assertIn("addresses", facts)
+        self.assertEqual(set(facts) & {"target", "arp", "ping"}, set())
+
     def test_the_push_cross_check_reads_the_serial_the_terminal_pushes_under(self):
         """A terminal that reports one serial on 4370 and pushes under another is a finding of its
         own, and the visit carries on. The in/out cross-check has to follow it to the serial the
@@ -973,6 +1127,55 @@ class ThePiecesTheWizardDecidesWith(unittest.TestCase):
             self.assertTrue(marker.exists(), "a valid allocation does go to the lab database")
             self.assertNotEqual(done.returncode, 0)
 
+
+    def test_code_spread_counts_both_columns_across_the_log(self):
+        def record(punch, status):
+            return visit.zk.RawAttendance("1", datetime(2026, 9, 1, 8, 0), status=status, punch=punch,
+                                          record_size=40)
+        self.assertEqual(visit.code_spread([record(0, 1), record(1, 1), record(0, 1)]),
+                         {"punch": {0: 2, 1: 1}, "status": {1: 3}})
+
+    # TERMINAL-A's own log, counted from the backup the 2026-09-21 visit took: 11 426 records.
+    REAL_SPREAD = {"punch": {0: 5779, 1: 5640, 4: 2, 5: 5}, "status": {1: 11424, 15: 2}}
+
+    def test_the_log_decides_the_in_out_code_when_the_two_punches_cannot(self):
+        """That terminal stored the check-out with the same two codes as the check-in, so the pair
+        answers nothing. Its log does -- but not by either column being constant: `status` is 1 in
+        11 424 records and 15 in two, which is two people identifying themselves differently, not
+        the branch going home. The column that tells an arrival from a departure carries both in
+        numbers, and `punch` splits 5 779 to 5 640."""
+        same = ((5, 1), (5, 1))
+        self.assertIsNone(visit.in_out_field(*same, out_value=1))
+        self.assertEqual(visit.in_out_field(*same, out_value=1, spread=self.REAL_SPREAD), "punch")
+        # A handful of exceptions is not a second value in the sense that matters.
+        self.assertFalse(visit.separates({1: 11424, 15: 2}))
+        self.assertTrue(visit.separates({0: 5779, 1: 5640, 4: 2, 5: 5}))
+        # A balanced column is never enough on its own. Here the real in/out column is one-sided --
+        # a branch where people rarely press the exit key -- while two verification methods are both
+        # common, so electing "the balanced one" would hand back the verification column and
+        # agent_zk would send the whole log under it.
+        self.assertIsNone(visit.in_out_field(*same, out_value=1,
+                                             spread={"punch": {0: 10450, 1: 550},
+                                                     "status": {1: 6600, 2: 4400}}))
+        self.assertTrue(visit.cannot_separate({1: 11424, 15: 2}))
+        self.assertFalse(visit.cannot_separate({0: 10450, 1: 550}), "550 exits is not 'no exits'")
+        # Two balanced columns are ambiguous again, and so is a log too short to carry the argument.
+        self.assertIsNone(visit.in_out_field(*same, out_value=1,
+                                             spread={"punch": {0: 600, 1: 400}, "status": {1: 600, 2: 400}}))
+        self.assertIsNone(visit.in_out_field(*same, out_value=1,
+                                             spread={"punch": {0: 100, 1: 50}, "status": {1: 150}}))
+        # What was watched keeps precedence: `status` changed between these two punches, so it stays
+        # the answer even though the log's `punch` column is the balanced one.
+        self.assertEqual(visit.in_out_field((15, 0), (15, 1), out_value=1, spread=self.REAL_SPREAD), "status")
+
+    def test_only_an_errno_that_means_the_packet_never_left_counts(self):
+        """113 is EHOSTUNREACH: the kernel never resolved the hardware address, so nothing was sent
+        and the terminal said nothing. 111 is the terminal refusing, which is the terminal talking."""
+        self.assertEqual(visit.unreachable_errno(
+            "cannot reach 192.168.1.201:4370 over TCP: [Errno 113] No route to host"), 113)
+        self.assertEqual(visit.unreachable_errno(OSError(113, "No route to host")), 113)
+        self.assertIsNone(visit.unreachable_errno("[Errno 111] Connection refused"))
+        self.assertIsNone(visit.unreachable_errno("the terminal did not answer in time"))
 
 class ABacklogThatIsStillDraining(unittest.TestCase):
     """Runbook 5.4 asks how long a punch takes to arrive and which code carries in/out. A terminal
@@ -1453,6 +1656,621 @@ class WhatTheHeadlineMustNotDeny(unittest.TestCase):
         self.assertIn("⛔ الزيارة اتوقفت قبل ما تخلص", report)
         self.assertNotIn("⚠️ اشتغل", report, "an aborted visit did not work; it stopped")
         self.assertIn("| مشاكل تانية | الزيارة اتوقفت قبل ما تخلص |", report)
+
+
+
+
+class WhenTheLaptopNeverReachedTheTerminal(unittest.TestCase):
+    """EHOSTUNREACH means no packet left this laptop, so the terminal was never asked and has
+    answered nothing. None of it belongs in a device-compatibility finding."""
+
+    # `interface` is always present in the real shape: `probe.laptop_network` sets it to the egress
+    # route or to None. Omitting it here made this fixture unreal, which is how a remedy that names
+    # an unresolved interface's numbers passed its own test.
+    FACTS = {"addresses": [{"ip": "192.168.1.26", "network": "192.168.1.0/24"}],
+             "interface": "wlp0s20f3",
+             "wifi": {"interface": "wlp0s20f3", "link": 42, "level": -68, "misc": 403, "missed_beacon": 0},
+             "target": "192.168.1.201", "arp": "FAILED",
+             "ping": {"transmitted": 5, "received": 5, "duplicates": 3, "loss_percent": 0.0,
+                      "rtt_ms": {"min": 0.89, "avg": 41.6, "max": 441.49, "mdev": 75.5}}}
+
+    def visit_whose_read_fails(self, directory, message):
+        visited = visit.Visit(console=ScriptedConsole([]), out_dir=directory, wait_seconds=1,
+                              laptop_network=lambda ip=None, ping_count=10: dict(self.FACTS))
+        visited.zk_link = ("192.168.1.201", 4370, 0, False)
+
+        def refuse():
+            raise visit.zk.ZkError(message)
+        visited.zk_records = refuse
+        return visited
+
+    def test_the_remedy_names_this_laptops_network_instead_of_the_issue_tracker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_whose_read_fails(
+                directory, "cannot reach 192.168.1.201:4370 over TCP: [Errno 113] No route to host")
+            self.assertIsNone(visited.one_new_punch("خلي الموظف يعمل بصمة"))
+        finding = visited.findings[-1]
+        self.assertIn("[Errno 113]", finding.text)
+        for measured in ("-68 dBm", "FAILED", "3 مكرر", "441.49"):
+            self.assertIn(measured, finding.fix)
+        # It names the path and hands over both ends. The same errno arrives from a mistyped
+        # address and a terminal that is switched off, so clearing the terminal here would file a
+        # real device fault as somebody else's problem.
+        self.assertIn("الـ IP", finding.fix)
+        self.assertIn("الجهاز شغال", finding.fix)
+        self.assertIn("الشبكة", finding.fix)
+        self.assertNotIn("مش في الجهاز", finding.fix)
+        # And the report carries the numbers, so the operator need not remember them.
+        self.assertIn("FAILED", visited.sheet["حالة الشبكة وقت المشكلة"])
+
+    def test_a_terminal_that_refuses_keeps_the_terminals_own_remedy(self):
+        """A refusal is the terminal answering. Rewriting that as a laptop problem would send an
+        operator to move the laptop while the terminal sits there refusing on 4370."""
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_whose_read_fails(
+                directory, "cannot reach 192.168.1.201:4370 over TCP: [Errno 111] Connection refused")
+            self.assertIsNone(visited.one_new_punch("خلي الموظف يعمل بصمة"))
+        self.assertEqual(visited.findings[-1].fix, "استنى شوية وشغّل الأمر تاني")
+        self.assertEqual(visited.sheet["حالة الشبكة وقت المشكلة"], "")
+
+
+class WhatReviewRoundTwoAsked(unittest.TestCase):
+    """Each of these was a way the round-one fix could say something untrue: blame the terminal's
+    network for the lab server, lose the reason a punch was never found, print the wrong laptop
+    interface, publish a customer address, or spend half a minute proving an address is absent."""
+
+    FACTS = dict(WhenTheLaptopNeverReachedTheTerminal.FACTS)
+    UNREACHABLE = "cannot reach 192.168.1.201:4370 over TCP: [Errno 113] No route to host"
+
+    def visit_in(self, directory, answers=()):
+        made = visit.Visit(console=ScriptedConsole(list(answers)), out_dir=directory, wait_seconds=1,
+                           settle_seconds=0, sleep=lambda seconds: None,
+                           laptop_network=lambda ip=None, ping_count=10: dict(self.FACTS))
+        made.zk_link = ("192.168.1.201", 4370, 0, False)
+        made.serial = "ZK-RT2-1"
+        return made
+
+    # -- the reason a punch was never found ------------------------------------------------
+
+    def test_a_link_lost_after_the_punch_keeps_the_network_evidence(self):
+        """The baseline read succeeded, the employee punched, and then the link went away. Reported
+        as "the punch was not found", that says the terminal rejected a punch it never saw."""
+        reads = []
+
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory, [("ودوس Enter", ""), ("أستنى وأقرأ تاني", "2")])
+
+            def read():
+                reads.append(len(reads) + 1)
+                if len(reads) == 1:
+                    return []
+                raise visit.zk.ZkError(self.UNREACHABLE)
+
+            visited.zk_records = read
+            self.assertIsNone(visited.one_new_punch("خلي الموظف يعمل بصمة"))
+        finding = visited.findings[-1]
+        self.assertIn("[Errno 113]", finding.text, "the read's own error was dropped")
+        for measured in ("FAILED", "3 مكرر", "-68 dBm"):
+            self.assertIn(measured, finding.fix)
+        self.assertNotIn("خلي الموظف يستنى", finding.fix, "a network failure was reported as a rejected punch")
+        self.assertIn("FAILED", visited.sheet["حالة الشبكة وقت المشكلة"])
+
+    def test_a_punch_that_simply_did_not_arrive_still_gets_the_plain_remedy(self):
+        """The control: nothing failed, the punch is not there, and the remedy is to try again."""
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory, [("ودوس Enter", ""), ("أستنى وأقرأ تاني", "2")])
+            visited.zk_records = lambda: []
+            self.assertIsNone(visited.one_new_punch("خلي الموظف يعمل بصمة"))
+        self.assertEqual(visited.findings[-1].fix, "جرّب تاني، وخلي الموظف يستنى لحد ما الجهاز يقبل البصمة")
+        self.assertEqual(visited.sheet["حالة الشبكة وقت المشكلة"], "")
+
+    # -- which endpoint was unreachable ----------------------------------------------------
+
+    def send_once(self, directory, **fields):
+        visited = self.visit_in(directory)
+        path = Path(directory) / "zk.toml"
+        token = Path(directory) / "agent.token"
+        token.write_text("lab-token", encoding="utf-8")
+        token.chmod(0o600)
+        path.write_text(visited._agent_toml("spool.sqlite3", "punch").replace(
+                            str(visit.AGENT_DIR / "lab" / "agent.token"), str(token)) +
+                        '\n[[devices]]\nserial = "ZK-RT2-1"\nkind = "zk"\nhost = "192.168.1.201"\nport = 4370\ncomm_key = 0\nudp = false\n',
+                        encoding="utf-8")
+        result = visit.agent.DeviceResult("ZK-RT2-1")
+        for name, value in fields.items():
+            setattr(result, name, value)
+        original = visit.agent.run_once
+        visit.agent.run_once = lambda config: [result]
+        try:
+            visited.send_twice(path, "192.168.1.201")
+        finally:
+            visit.agent.run_once = original
+        return visited
+
+    def test_a_lab_server_that_is_unreachable_is_not_the_terminals_network_path(self):
+        """The terminal answered -- `reachable` says so -- and the delivery to the lab failed. Telling
+        the operator to move the laptop closer to the router would be false, and the remedy for a
+        stopped lab stack is a different one."""
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.send_once(directory, reachable=True,
+                                     error="retry: POST https://localhost/iclock: [Errno 113] No route to host")
+        finding = visited.findings[-1]
+        self.assertIn("سيستم اللاب", finding.fix)
+        self.assertNotIn("ARP", finding.fix)
+        self.assertNotIn("قرّب اللابتوب", finding.fix)
+        self.assertEqual(visited.sheet["حالة الشبكة وقت المشكلة"], "", "the terminal's path was measured for nothing")
+
+    def test_a_terminal_that_was_never_reached_still_gets_the_network_remedy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.send_once(directory, reachable=False, error=self.UNREACHABLE)
+        self.assertIn("FAILED", visited.findings[-1].fix)
+        self.assertIn("FAILED", visited.sheet["حالة الشبكة وقت المشكلة"])
+
+    # -- the same condition, as Windows spells it -------------------------------------------
+
+    def test_the_windows_spelling_of_the_same_condition_counts(self):
+        """This package ships as a Windows executable, where the message reads `[WinError 10065]`
+        for the errno Linux writes as 113. Read only in the Linux spelling, the whole remedy is
+        silently skipped on Windows for the same unreachable terminal."""
+        self.assertEqual(visit.unreachable_errno("[Errno 113] No route to host"), errno.EHOSTUNREACH)
+        self.assertEqual(visit.unreachable_errno(
+            "cannot reach x:4370 over TCP: [WinError 10065] A socket operation was attempted "
+            "to an unreachable host"), errno.EHOSTUNREACH)
+        self.assertEqual(visit.unreachable_errno("[WinError 10051]"), errno.ENETUNREACH)
+        # And a refusal is still the terminal answering, in either spelling.
+        self.assertIsNone(visit.unreachable_errno("[Errno 111] Connection refused"))
+        self.assertIsNone(visit.unreachable_errno("[WinError 10061] Connection refused"))
+
+    def test_the_errno_is_taken_from_the_exception_where_one_survives(self):
+        """Text is the fallback, not the source: `ZkError` chains the `OSError` it was raised from,
+        and that number is the same on every platform."""
+        wrapped = visit.zk.ZkError("cannot reach the terminal")
+        wrapped.__cause__ = OSError(errno.EHOSTUNREACH, "No route to host")
+        self.assertEqual(visit.unreachable_errno(wrapped), errno.EHOSTUNREACH)
+        refused = visit.zk.ZkError("refused")
+        refused.__cause__ = OSError(errno.ECONNREFUSED, "Connection refused")
+        self.assertIsNone(visit.unreachable_errno(refused))
+
+    # -- what the pasteable report may carry ------------------------------------------------
+
+    def test_the_network_line_states_the_arp_state_and_not_the_address(self):
+        line = visit.describe_network(self.FACTS)
+        self.assertIn("FAILED", line)
+        self.assertNotIn("192.168.1.201", line)
+
+    def test_no_line_of_the_report_names_an_address_on_the_customers_network(self):
+        """One seam for the whole report. A terminal's own error text names the address it could not
+        reach, so redacting per finding would hold only until the next finding was written."""
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory)
+            visited.note("bad", f"مقدرناش نقرأ سجلات الجهاز: {self.UNREACHABLE}",
+                         visited.unreachable_path_fix(self.UNREACHABLE))
+            visited.note("ok", "الجهاز على 10.4.4.9 رد")
+            visited.sheet["السيريال"] = "ZK-RT2-1"
+            text = visited.write_report().read_text(encoding="utf-8")
+        for address in ("192.168.1.201", "10.4.4.9", "192.168.1.26"):
+            self.assertNotIn(address, text)
+        self.assertIn("device-ip", text)
+        # The operator still sees it on screen: it is the report that travels.
+        self.assertIn("192.168.1.201", visited.console.text)
+
+    def test_every_address_class_is_redacted_including_a_public_one(self):
+        """A terminal reachable from outside its branch has a public address, and that is the class
+        that identifies a customer outright -- so exempting it to keep a four-part firmware version
+        readable had the rule backwards. The firmware this visit read is three parts."""
+        for address in ("172.20.3.1", "10.0.0.9", "127.0.0.1", "169.254.3.4", "100.64.0.5",
+                        "41.33.7.9", "8.8.8.8"):
+            self.assertEqual(visit._no_address(f"terminal {address}"), "terminal <device-ip>", address)
+        self.assertEqual(visit._no_address("firmware Ver 6.60 Oct 12 2021"), "firmware Ver 6.60 Oct 12 2021")
+
+    def test_only_a_rooted_path_is_redacted_and_a_url_is_not_one(self):
+        """This seam runs over every line of the report, so what it must **not** match matters as
+        much as what it must: the lab's own URL, the `field-report/` paths the runbook tells the
+        operator to open, the firewall rule a remedy prints, and the `/` in the customer row's own
+        label are all text the report exists to carry."""
+        self.assertEqual(visit._no_path("/home/k/عميل/SN-attlog.dat"), "<path>/SN-attlog.dat")
+        self.assertEqual(visit._no_path("مالقيتش الملف /a/b/c.dat خالص"), "مالقيتش الملف <path>/c.dat خالص")
+        # A last component with no suffix is a directory, and neither an exception's closing quote
+        # nor a sentence's full stop is one: each would otherwise publish a username.
+        self.assertEqual(visit._no_path("/media/afaqy/USB/"), "<path>")
+        self.assertEqual(visit._no_path("/home/karim"), "<path>")
+        self.assertEqual(visit._no_path("مش لاقي /home/karim."), "مش لاقي <path>.")
+        self.assertEqual(visit._no_path("ping: '/usr/bin/ping'"), "ping: '<path>'")
+        for kept in ("https://localhost:18443/api", "field-report/captures/x.json", "الشركة / الفرع",
+                     "sudo ufw allow 8081/tcp", "Menu → USB Manager → Download", "/", "2026-09-22",
+                     # The terminals' own request namespaces: `sources` puts them in its error text
+                     # and a device-compatibility report exists to carry them. Redacting them would
+                     # read as "something private was here", which is the opposite of the truth.
+                     "HIK-1: GET /ISAPI/System/deviceInfo answered 401",
+                     "/iclock/cdata?SN=X&table=ATTLOG"):
+            self.assertEqual(visit._no_path(kept), kept, kept)
+        # And what this seam cannot do, asserted rather than assumed: a directory name containing a
+        # space is prose as far as any regex is concerned. That is why the one place that knows it
+        # holds a path does not rely on this, and why a path inside an exception's text is a
+        # backstop rather than a guarantee.
+        self.assertIn("النور", visit._no_path("/home/k/شركة النور/x.dat"))
+
+    def test_the_report_names_no_serial_because_the_runbook_says_to_paste_it_in_public(self):
+        """A serial is the only thing that identifies a terminal to the device endpoint (R-041,
+        R-042), and step 11 tells the operator to paste the results sheet into a public issue. It
+        stays on the console and in the file name."""
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory)
+            visited.serial = "ZK-PASTE-1"
+            visited.sheet["السيريال"] = visited.serial
+            visited.note("bad", f"{visited.serial}: read failed on 192.168.1.201", "جرّب تاني")
+            visited.note("ok", "الجهاز رد")
+            path = visited.write_report()
+            text = path.read_text(encoding="utf-8")
+        self.assertNotIn("ZK-PASTE-1", text)
+        # `_md` escapes the placeholder, which is how GitHub renders it back as one word.
+        self.assertIn("device-serial", text)
+        self.assertNotIn("192.168.1.201", text)
+        self.assertIn("ZK-PASTE-1", path.name, "the file name is local and keeps it")
+        self.assertIn("ZK-PASTE-1", visited.console.text, "the operator still sees it")
+
+    def test_every_serial_the_visit_saw_is_redacted_not_only_the_one_it_settled_on(self):
+        """A terminal that pushes under a different serial than it reports on 4370 is one of the
+        findings this visit exists to produce, and both serials are the credential R-041/R-042
+        describe. A rejected serial is seen before there is a settled one at all."""
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory)
+            visited.serial = "ZK-ON-4370"
+            visited.saw_serial("ZK-PUSHED-9")
+            visited.note("bad", "الجهاز بيبعت بالـ Push بسيريال ZK-PUSHED-9 وعلى 4370 بيقول ZK-ON-4370",
+                         "معلومة مهمة")
+            text = visited.write_report().read_text(encoding="utf-8")
+        self.assertNotIn("ZK-PUSHED-9", text, "the pushed serial was published")
+        self.assertNotIn("ZK-ON-4370", text)
+        # H1, both serials in the finding, and both again in the `مشاكل تانية` row it feeds.
+        self.assertEqual(text.count("device-serial"), 5)
+
+    def test_a_serial_short_enough_to_be_ordinary_text_is_left_alone(self):
+        """`config.SERIAL` accepts a single character, so an operator typo at the USB serial prompt
+        must not rewrite the report's own numbers -- the in/out cells are one digit each."""
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory)
+            visited.serial = "1"
+            visited.sheet["الدخول"] = "1"
+            visited.sheet["الخروج"] = "0"
+            text = visited.write_report().read_text(encoding="utf-8")
+        self.assertNotIn("device-serial", text)
+        self.assertIn("| الدخول | <span dir=\"ltr\">1</span> |", text)
+
+    def test_the_report_does_not_name_the_customer(self):
+        """The last identifier in an artefact whose preamble enumerates what it omits. It stays on
+        the console and in field-report/, which is where step 11 says to keep the folder."""
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory)
+            visited.sheet["الشركة / الفرع"] = "شركة الاختبار / فرع مدينة نصر"
+            text = visited.write_report().read_text(encoding="utf-8")
+        self.assertNotIn("مدينة نصر", text)
+        self.assertNotIn("شركة الاختبار", text)
+        self.assertIn("(في field-report)", text)
+
+    def test_no_path_the_operator_typed_is_published_whatever_shape_it_is(self):
+        """`usb_flow` quoted the path back when the file was not there, and on a real visit that path
+        is under the operator's home, in a folder named after the customer, holding a file named
+        after the terminal. Redacting it at the report's seam fixed only the shape the first version
+        of this test used: a directory name **with a space in it** is indistinguishable from prose,
+        so the seam left `شركة النور فرع المعادي` standing, and typing the folder rather than the
+        file published the customer as the "file name".
+
+        The call site does it now, where the program knows the whole string is a path and a public
+        issue needs none of it -- a file the operator could not point at is not a fact about the
+        terminal. It stays on the console, which is where they read it."""
+        for typed in ("/home/karim/شركة-النور-فرع-المعادي/TERMINAL-A-attlog.dat",
+                      "/home/karim/شركة النور فرع المعادي/TERMINAL-A-attlog.dat",
+                      "/home/karim/Client Files/TERMINAL-A.dat",
+                      "/home/karim/شركة-النور-فرع-المعادي",
+                      "/home/karim",
+                      "عميل-النور/TERMINAL-A-attlog.dat"):
+            with tempfile.TemporaryDirectory() as directory:
+                visited = self.visit_in(directory, [("معاك ملف USB", "2"), ("أنهي ملف", "1"),
+                                                    ("مكان الملف", typed)])
+                # Not the machine's own removable drives: `usb_files` globs `/media/<user>/*`, so a
+                # mounted stick would change the list this test picks from.
+                with mock.patch.object(visit, "usb_files", return_value=[]):
+                    visited.usb_flow(None)
+                text = visited.write_report().read_text(encoding="utf-8")
+            self.assertIn("مالقيتش الملف", text, typed)
+            for secret in ("karim", "النور", "Client", "TERMINAL-A"):
+                self.assertNotIn(secret, text, f"{typed!r} published {secret!r}")
+            self.assertIn(typed, visited.console.text, f"{typed!r} left the operator's screen")
+
+    def test_a_placeholder_serial_takes_no_ordinary_text_with_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory)
+            visited.serial = "device"
+            visited.note("bad", "الجهاز ده مش مدعوم", "اكتبها في الـ issue")
+            text = visited.write_report().read_text(encoding="utf-8")
+        self.assertIn("الجهاز ده مش مدعوم", text)
+        self.assertNotIn("device-serial", text)
+
+    def test_the_remedy_claims_only_what_was_measured(self):
+        """Without `ip` or `ping` -- the Windows build, or a stripped laptop -- there is no ARP state
+        to assert and no interface to advise about. The errno alone can be ENETUNREACH or EHOSTDOWN,
+        neither of which is a failed ARP exchange."""
+        blind = {"addresses": [], "interface": None, "wifi": None,
+                 "target": "192.168.1.201", "arp": None, "ping": {"unavailable": "ping did not run"}}
+        with tempfile.TemporaryDirectory() as directory:
+            visited = visit.Visit(console=ScriptedConsole([]), out_dir=directory, wait_seconds=1,
+                                  laptop_network=lambda ip=None, ping_count=10: dict(blind))
+            visited.zk_link = ("192.168.1.201", 4370, 0, False)
+            fix = visited.unreachable_path_fix(self.UNREACHABLE)
+        self.assertNotIn("الـ ARP فشل", fix, "an ARP failure was asserted without an ARP state")
+        self.assertNotIn("قرّب اللابتوب من الراوتر", fix, "Wi-Fi advice with no interface known")
+        self.assertNotIn("اتأكد من الكابل والـ switch", fix, "cable advice with no interface known")
+        self.assertIn("الكابل أو الواي فاي", fix)
+
+    def test_a_path_with_no_terminal_to_measure_gives_no_interface_advice(self):
+        """`probe.laptop_network(None)` reports the **first** wireless interface in
+        /proc/net/wireless -- any interface, not the one that would carry this terminal -- with no
+        `interface`, no `arp` and no `ping`. Advising "move closer to the router" from that is the
+        false remedy review round 2 raised, on the one path its `egress` fix does not cover: the
+        Hikvision flow never sets `zk_link`, so before this there was no target at all.
+
+        The previous test of this behaviour injected `wifi: None`, which the real no-target call
+        never returns, so it passed while the live path was broken."""
+        no_target = {"addresses": [{"ip": "10.0.0.5", "network": "10.0.0.0/24"}],
+                     "interface": None,
+                     "wifi": {"interface": "wlp0s20f3", "link": 58, "level": -52,
+                              "misc": 7, "missed_beacon": 0},
+                     "target": None, "arp": None, "ping": None}
+        with tempfile.TemporaryDirectory() as directory:
+            visited = visit.Visit(console=ScriptedConsole([]), out_dir=directory, wait_seconds=1,
+                                  laptop_network=lambda ip=None, ping_count=10: dict(no_target))
+            self.assertIsNone(visited.zk_link, "this path is the one with no link to measure")
+            fix = visited.unreachable_path_fix(self.UNREACHABLE)
+        self.assertNotIn("قرّب اللابتوب من الراوتر", fix,
+                         "Wi-Fi advice from an interface that was never shown to carry this terminal")
+        self.assertNotIn("الـ ARP فشل", fix, "an ARP failure asserted without an ARP state")
+        self.assertIn("الكابل أو الواي فاي", fix)
+        # The numbers, not only the advice: naming an interface's signal in the row the runbook
+        # says to paste is the same false claim, made with more authority.
+        self.assertNotIn("wlp0s20f3", fix, "an unrelated interface was named in the remedy")
+        self.assertNotIn("-52", fix, "an unrelated interface's signal was reported")
+        self.assertNotIn("wlp0s20f3", visited.sheet["حالة الشبكة وقت المشكلة"],
+                         "an unrelated interface was named in the results sheet")
+
+    def test_the_hikvision_path_measures_its_own_terminal(self):
+        """`send_twice` is called from the ZKTeco flow, where `zk_link` carries the address, and from
+        `hik_flow`, where it never has. The host travels with the config now, so the remedy measures
+        the terminal the delivery was for."""
+        asked = []
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory)
+            visited.laptop_network = lambda ip=None, ping_count=10: (asked.append(ip), dict(self.FACTS))[1]
+            path = Path(directory) / "hik.toml"
+            token = Path(directory) / "agent.token"
+            token.write_text("lab-token", encoding="utf-8")
+            token.chmod(0o600)
+            path.write_text(
+                visited._agent_toml("spool.sqlite3").replace(
+                    str(visit.AGENT_DIR / "lab" / "agent.token"), str(token))
+                + '\n[[devices]]\nserial = "HIK-1"\nkind = "hikvision"\nhost = "10.4.4.9"\n'
+                  'port = 80\nhttps = false\nusername = "admin"\npassword_file = "hik.pw"\n',
+                encoding="utf-8")
+            secret = Path(directory, "hik.pw")
+            secret.write_text("secret", encoding="utf-8")
+            secret.chmod(0o600)
+            result = visit.agent.DeviceResult("HIK-1")
+            result.reachable = False
+            result.error = "HIK-1: GET /ISAPI/System/deviceInfo failed: <urlopen error [Errno 113] No route to host>"
+            original = visit.agent.run_once
+            visit.agent.run_once = lambda config: [result]
+            try:
+                visited.send_twice(path, "10.4.4.9")
+            finally:
+                visit.agent.run_once = original
+        self.assertIn("10.4.4.9", asked, f"the remedy measured {asked} instead of the terminal")
+
+    def test_a_delivery_cannot_be_sent_without_naming_the_terminal_it_is_for(self):
+        """`host` was optional, so `hik_flow` dropping it again would be *semantically* silent: the
+        in-function fallback produced `None` and `AVisitOfAHikvisionTerminal`, which does drive
+        `hik_flow` end to end against `sim/hikvision.py`, asserts nothing about the resulting remedy.
+        Required, the argument cannot be dropped at all -- and that end-to-end test now fails on the
+        `TypeError` if it is. This pins the signature directly, so neither test relies on the other."""
+        with tempfile.TemporaryDirectory() as directory:
+            visited = self.visit_in(directory)
+            with self.assertRaises(TypeError):
+                visited.send_twice(Path(directory) / "any.toml")
+
+    def test_no_tracked_file_publishes_a_terminal_serial(self):
+        """A serial is the only thing that identifies a terminal to the device endpoint (R-041,
+        R-042) and this repository is public, so a serial read on a visit stays in field-report/ on
+        the laptop. Verified terminals are named by pseudonym.
+
+        **What this does and does not enforce.** It fails on the ZKTeco form -- two to six letters
+        followed by six to fourteen digits -- in any tracked document, agent file, contract or spec.
+        It is a backstop for the mistake that was actually made, not a proof that no identifier can
+        slip through: an all-digit serial is indistinguishable from a record count or a date, and a
+        one-letter or punctuated serial that `config.SERIAL` would accept is not matched. The rule
+        the inventory states is the rule; this catches the shape that broke it."""
+        shaped = re.compile(r"\b[A-Za-z]{2,6}\d{6,14}\b")
+        suffixes = {".md", ".py", ".toml", ".json", ".yml", ".yaml", ".txt"}
+        roots = ("docs", "devices-agent", "contracts", "specs", ".github")
+        # **Tracked**, from git, not a filesystem walk. A visit writes its real serial into
+        # `devices-agent/field-report/<serial>-zk.toml`, which `.gitignore` covers and which the
+        # inventory, the runbook and D-274 all say is where it belongs. A walk found that file and
+        # failed this test on the operator's own laptop, accusing them of publishing the serial they
+        # had correctly kept local -- and the obvious way to go green was to delete the evidence.
+        listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"],
+                                capture_output=True, text=True, check=False)
+        if listed.returncode != 0:
+            # ROOT is not a git repository. A missing `git` *binary* is a different case and is
+            # deliberately not caught: `check=False` suppresses an exit status, not a
+            # `FileNotFoundError`, so that errors rather than quietly passing.
+            #
+            # In CI it is not a skip. `serial-gate.yml` runs this test **alone** and reports the
+            # job's exit status, and a skip exits 0 -- so a tree without `.git`, a future
+            # `sparse-checkout`, or this job reused somewhere else would turn the one gate meant to
+            # stop a serial reaching a public repository into a no-op that reports green.
+            if os.environ.get("CI"):
+                self.fail("the tracked file set is unknown: this gate cannot pass without reading it")
+            self.skipTest("this tree is not a git repository, so the tracked file set is unknown")
+        tracked = [ROOT / name for name in listed.stdout.split("\0") if name]
+        found = []
+        for path in sorted(tracked):
+            # Every tracked `.md` anywhere -- `evidence/`, `deploy/`, `perf/` and the vendored trees
+            # are where a pasted report would most plausibly land -- plus the roots above.
+            wanted = path.suffix == ".md" or (path.suffix in suffixes and path.parts[len(ROOT.parts):][:1]
+                                              and path.relative_to(ROOT).parts[0] in roots)
+            if not wanted or not path.is_file():
+                continue
+            for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").split("\n"), 1):
+                found += [f"{path.relative_to(ROOT)}:{number}: {match.group(0)}"
+                          for match in shaped.finditer(line)]
+        self.assertEqual(found, [], "a terminal serial reached a tracked file")
+        self.assertGreater(len(tracked), 100, "the tracked file list came back too short to be real")
+
+
+class WhatTheProbeMustNotCost(unittest.TestCase):
+
+    def test_an_absent_address_is_retried_once_and_not_once_per_candidate_port(self):
+        """`_open` returns instantly on EHOSTUNREACH, so retrying every port would spend 28 s on an
+        address that is simply not there -- against the four seconds the runbook promises."""
+        attempts = []
+
+        def refuse(ip, port, timeout, retry_transient=False):
+            attempts.append((port, retry_transient))
+            return False
+
+        original = probe._open
+        probe._open = refuse
+        try:
+            self.assertIsNone(probe.probe_host("192.168.44.99", udp_probe=False, retry_transient=True))
+        finally:
+            probe._open = original
+        self.assertEqual([port for port, retried in attempts if retried], [probe.ZK_PORT],
+                         "the retry was paid for on ports this tool does not exist for")
+        self.assertEqual(len(attempts), len(probe.PORTS))
+
+    def test_the_wifi_facts_describe_the_interface_that_reaches_the_terminal(self):
+        """Customer Ethernet plus a phone hotspot: the terminal is reached over the cable, and the
+        hotspot's signal says nothing about the link that failed."""
+        wireless = ("Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE\n"
+                    " face | tus | link level noise |  nwid  crypt   frag  retry   misc | beacon | 22\n"
+                    " wlan0: 0000   42.  -68.  -256        0      0      0      7    403        0\n")
+        self.assertEqual(probe.wifi_link(wireless)["interface"], "wlan0")
+        self.assertEqual(probe.wifi_link(wireless, interface="wlan0")["level"], -68)
+        self.assertIsNone(probe.wifi_link(wireless, interface="enp0s31f6"),
+                          "an Ethernet interface was given a wireless link's numbers")
+
+    def test_the_egress_interface_comes_from_the_kernels_own_route(self):
+        self.assertEqual(probe.egress("192.168.1.201", "192.168.1.201 dev enp0s31f6 src 192.168.1.26 uid 1000"),
+                         "enp0s31f6")
+        self.assertIsNone(probe.egress("192.168.1.201", ""))
+        self.assertIsNone(probe.egress("192.168.1.201", "192.168.1.201 dev"))
+
+    def test_a_terminal_reached_over_a_cable_reports_no_wireless_numbers(self):
+        original_egress, original_wifi, original_addresses = probe.egress, probe.wifi_link, probe.lan_networks
+        probe.egress = lambda ip, route_output=None: "enp0s31f6"
+        probe.wifi_link = lambda proc_wireless=None, interface=None: (
+            None if interface == "enp0s31f6" else {"interface": "wlan0", "level": -80, "link": 20, "misc": 9,
+                                                  "missed_beacon": 0})
+        probe.lan_networks = lambda ip_output=None: [("192.168.1.26", "192.168.1.0/24")]
+        try:
+            facts = probe.laptop_network("192.168.1.201", ping_count=0)
+        finally:
+            probe.egress, probe.wifi_link, probe.lan_networks = original_egress, original_wifi, original_addresses
+        self.assertEqual(facts["interface"], "enp0s31f6")
+        self.assertIn("unavailable", facts["wifi"])
+        line = visit.describe_network(facts)
+        self.assertNotIn("-80", line, "the hotspot's signal was reported for a terminal on the cable")
+        self.assertIn("مش واي فاي", line)
+
+
+class WhatDoctorMustNotLetTheOperatorDo(unittest.TestCase):
+    """Mode B decides `in_out_field` from what `doctor` prints, and the next `once` sends the whole
+    log under it. Read from the last punch alone, that choice inverts every direction on a terminal
+    that stores a check-out with the same codes as a check-in."""
+
+    def log(self, pairs):
+        from workin_devices.spool import Punch
+        return [Punch("1001", "2026-09-21 08:00:00", in_out, verify) for in_out, verify in pairs]
+
+    def real_log(self):
+        """TERMINAL-A's own distribution: `punch` split 5779/5640, `status` 1 in 11 424 and 15 in 2."""
+        return self.log([(0, 1)] * 5779 + [(1, 1)] * 5640 + [(4, 1)] * 2 + [(5, 1)] * 3 + [(5, 15)] * 2)
+
+    def test_it_rules_out_the_column_the_manual_rule_would_have_chosen(self):
+        verdict = main.in_out_verdict("punch", self.real_log())
+        self.assertIn("in_out_field=punch", verdict)
+        self.assertIn("status", verdict)
+
+    def test_it_says_to_switch_back_when_the_configured_column_is_the_constant_one(self):
+        flipped = [type(punch)(punch.pin, punch.local_time, punch.verify, punch.status)
+                   for punch in self.real_log()]
+        verdict = main.in_out_verdict("status", flipped)
+        self.assertIn("غيّر in_out_field لـ punch", verdict)
+
+    def test_a_column_nobody_ever_presses_is_not_evidence_against_itself(self):
+        """A single value across the whole log is exactly what an in/out key nobody presses looks
+        like. Ruling that column out elects the *other* one -- and on a terminal used with both a
+        fingerprint and a card, the other one is verification: every card punch becomes a check-out,
+        and correcting the mapping afterwards resends the whole log."""
+        constant = self.log([(0, 1)] * 7000 + [(0, 4)] * 4426)
+        verdict = main.in_out_verdict("punch", constant)
+        self.assertIn("مش واضح", verdict)
+        self.assertIn("ماتشغّلش once", verdict)
+
+    def test_two_balanced_columns_stay_unclear_rather_than_guessing(self):
+        verdict = main.in_out_verdict("punch", self.log([(0, 1)] * 100 + [(1, 15)] * 100))
+        self.assertIn("مش واضح", verdict)
+        self.assertIn("ماتشغّلش once", verdict)
+
+    def test_a_source_that_sets_only_one_column_is_not_judged_on_the_other(self):
+        """Hikvision and file sources leave `verify` unset and can leave `status` unset too. Counted
+        as values, a `None` cannot be sorted against an int -- which aborts `doctor` before the
+        remaining terminals are read -- and an all-`None` column read as "constant" would tell an
+        operator not to deliver from a terminal that is perfectly healthy."""
+        mixed = self.log([(0, None)] * 120 + [(1, None)] * 100 + [(None, None)] * 30)
+        verdict = main.in_out_verdict("punch", mixed)
+        self.assertIn("مش واضح", verdict, "a column that exists only for zk decided the answer")
+
+    def test_only_a_zk_source_is_judged_at_all(self):
+        """`config.in_out_field` steers that source and no other, so a Hikvision or file source --
+        which has no second column -- must not be told its column is unclear.
+
+        This asserted the guard's **source text** before, which a gate on behaviour must not do: it
+        would have passed on `device.kind == "zk" or True` and failed on any equivalent refactor.
+        It runs `doctor` now and reads what the operator reads."""
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory, "attlog.tsv")
+            # Every punch the same shape, which is what a constant column looks like: if the
+            # verdict ran for this source it would report the column unclear.
+            log.write_text("".join(f"  100\t2026-03-0{1 + i % 9} 09:0{i % 10}:00\t0\t1\n"
+                                   for i in range(250)), encoding="utf-8")
+            config = Path(directory, "agent.toml")
+            token = Path(directory, "agent.token")
+            token.write_text("lab-token", encoding="utf-8")
+            token.chmod(0o600)
+            config.write_text(
+                f'server_url = "https://localhost:18443"\ntoken_file = "{token}"\n'
+                f'spool_path = "{Path(directory, "spool.sqlite3")}"\nin_out_field = "punch"\n'
+                f'\n[[devices]]\nserial = "FILE-1"\nkind = "file"\npath = "{log}"\n',
+                encoding="utf-8")
+            printed = io.StringIO()
+            with contextlib.redirect_stdout(printed):
+                main.cmd_doctor(types.SimpleNamespace(config=str(config), allow_plain_http=False))
+        said = printed.getvalue()
+        self.assertIn("FILE-1", said, said)
+        self.assertNotIn("in_out_field", said,
+                         "a source with no second column was judged on one")
+        self.assertNotIn("مش واضح", said, said)
+
+    def test_in_out_field_itself_refuses_a_constant_column(self):
+        """The `doctor` wrapper is pinned above; this pins the other caller, which is what
+        `agent_zk` writes into the config."""
+        self.assertIsNone(visit.in_out_field((0, 1), (0, 1), 1,
+                                             {"punch": {0: 11426}, "status": {1: 7000, 4: 4426}}))
+        self.assertEqual(visit.in_out_field((5, 1), (5, 1), 1,
+                                            {"punch": {0: 5779, 1: 5640}, "status": {1: 11424, 15: 2}}),
+                         "punch")
+
+    def test_a_log_too_short_to_carry_the_argument_says_nothing(self):
+        self.assertIsNone(main.in_out_verdict("punch", self.log([(0, 1)] * 5)))
 
 
 if __name__ == "__main__":
