@@ -273,7 +273,8 @@ def main(argv=None):
 
     sub = commands.add_parser("web", help="the site visit in a browser, plus every step on its own button")
     sub.add_argument("--host", default="127.0.0.1",
-                     help="loopback only; this page drives terminal reads and holds the lab token")
+                     help="loopback only, and refused otherwise; this page drives terminal reads "
+                          "and holds the lab token")
     sub.add_argument("--port", type=int, default=18100)
     sub.add_argument("--out", help="where the visit's files go (default: devices-agent/field-report)")
     sub.add_argument("--no-open", action="store_true", help="do not open a browser; print the address")

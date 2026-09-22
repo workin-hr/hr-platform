@@ -231,6 +231,19 @@ class APageRunningAVisit(unittest.TestCase):
         self.assertTrue(self.page.post("start")["started"])
         self.assertIn("الزيارة شغالة", self.page.post("tool/zk-info", {"host": "127.0.0.1"})["error"])
 
+    def test_a_standalone_send_reports_through_the_transcript_and_not_twice(self):
+        """`send_twice` writes its findings through the shared console, so they are in the
+        transcript already. Returned in the response as well, the page drew each one a second time
+        and one send read as two."""
+        answer = self.page.post("tool/once", {"host": f"127.0.0.1:{self.emulator.port}",
+                                              "in_out_field": "punch"})
+        self.assertNotIn("error", answer, answer)
+        self.assertEqual(answer["in_out"], "punch")
+        self.assertIsInstance(answer["findings"], int, "the response carried the findings a second time")
+        self.assertGreater(answer["findings"], 0)
+        drawn = [event for event in self.page.poll()["events"] if event["kind"] == "finding"]
+        self.assertEqual(len(drawn), answer["findings"])
+
     def test_an_address_may_carry_its_port_as_the_wizard_accepts_one(self):
         """The simulator, and a terminal on an unusual port, are typed the way the wizard's own
         "type the address" step takes them."""
@@ -262,7 +275,18 @@ class WhatThePageRefuses(unittest.TestCase):
         self.dir.cleanup()
 
     def test_it_listens_on_loopback_only(self):
+        """Not a default the operator can talk past. Bound anywhere else, terminal reads, the
+        report downloads and lab-backed sends are reachable from the customer's LAN over plaintext,
+        with the URL token as the whole defence."""
         self.assertEqual(self.server.server_address[0], "127.0.0.1")
+        for outside in ("0.0.0.0", "::", "192.168.1.7"):
+            with self.assertRaises(ValueError, msg=outside):
+                web.loopback(outside)
+        for inside in ("127.0.0.1", "localhost", "::1", "127.0.0.9"):
+            self.assertEqual(web.loopback(inside), inside)
+        said = []
+        self.assertEqual(web.run(host="0.0.0.0", out=said.append), 2, said)
+        self.assertTrue(any("اللابتوب نفسه" in line for line in said), said)
 
     def test_the_page_itself_loads_without_a_token_and_carries_none(self):
         status, body = call(self.base + "/")
@@ -420,9 +444,16 @@ class WhatTheToolsMustNotAssume(unittest.TestCase):
         report the terminal missing."""
         self.session.seen_networks = [("10.0.0.5", "10.0.0.0/24"), ("192.168.1.7", "192.168.1.0/24")]
         self.session.seen_at = self.session.clock()
-        answer = self.session.tool("scan", {})
+        answer = self.session.tool("scan", {"consent": True})
         self.assertIn("اختار الشبكة", answer["error"])
         self.assertEqual(answer["networks"], ["10.0.0.0/24", "192.168.1.0/24"])
+
+    def test_a_scan_from_a_button_needs_the_customer_permission_the_wizard_asks_for(self):
+        """The runbook requires the customer's permission before an active scan of their network.
+        The wizard asks; a button that skipped the question would be a way around it."""
+        with mock.patch.object(web.probe, "scan", side_effect=AssertionError("scanned without consent")):
+            answer = self.session.tool("scan", {})
+        self.assertIn("إذنه", answer["error"])
 
     def test_a_large_network_is_narrowed_the_way_the_wizard_narrows_it(self):
         self.assertEqual(web.narrow("10.0.0.0/16", [("10.0.3.7", "10.0.0.0/16")]), "10.0.3.0/24")
@@ -435,7 +466,7 @@ class WhatTheToolsMustNotAssume(unittest.TestCase):
         JSON response disappears on a reload and cannot be attached to the visit."""
         self.session._networks = lambda: [("10.0.0.5", "10.0.0.0/24")]
         with mock.patch.object(web.probe, "scan", return_value=[{"ip": "10.0.0.9", "ports": [4370]}]):
-            answer = self.session.tool("scan", {})
+            answer = self.session.tool("scan", {"consent": True})
         self.assertEqual(answer["cidr"], "10.0.0.0/24")
         self.assertEqual(answer["file"], "scan-20260922-103000.json")
         kept = json.loads(Path(self.out, answer["file"]).read_text(encoding="utf-8"))

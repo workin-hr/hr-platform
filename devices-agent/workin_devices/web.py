@@ -20,6 +20,7 @@ import http.server
 import ipaddress
 import json
 import secrets
+import socket
 import threading
 import time
 import webbrowser
@@ -312,6 +313,10 @@ class Session:
 
         A laptop on customer Ethernet *and* Wi-Fi *and* a VPN has several; scanning whichever came
         back first would quietly search the wrong one and report the terminal missing."""
+        # The runbook requires the customer's permission before an active scan of their network,
+        # and the wizard asks for it. A button that skipped the question would be a way around it.
+        if not form.get("consent"):
+            return {"error": "البحث في شبكة العميل لازم يكون بعد إذنه: علّم على \"العميل وافق\" الأول"}
         addresses = self.networks()
         cidr = (form.get("cidr") or "").strip()
         if not cidr:
@@ -367,8 +372,10 @@ class Session:
         visited.serial, visited.zk_link = serial, (host, port, key, udp)
         self.out.mkdir(parents=True, exist_ok=True)
         visited.send_twice(visited.write_zk_agent_config(serial, f"{serial}-zk-tool.sqlite3", field))
-        return {"serial": serial, "in_out": field, "findings": [{"level": f.level, "text": f.text, "fix": f.fix}
-                                               for f in visited.findings]}
+        # The findings are not returned: `send_twice` wrote them through the shared console, so they
+        # are already in the transcript. Returned as well, the page would draw each one twice and
+        # every warning would read as two.
+        return {"serial": serial, "in_out": field, "findings": len(visited.findings)}
 
 
 def make_handler(session: Session, token: str, out: Path):
@@ -475,9 +482,29 @@ def make_handler(session: Session, token: str, out: Path):
     return Handler
 
 
+def loopback(host: str) -> str:
+    """`host`, if every address it resolves to is loopback. Otherwise a refusal.
+
+    The only thing standing between this page and a customer's LAN is where it listens. It reads
+    their terminals, downloads what a visit wrote and sends through the lab's agent token, over
+    plaintext, with a URL token as its whole defence -- so a bind that anyone else can reach is
+    refused here rather than explained in a document."""
+    try:
+        found = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ValueError(f"لا يمكن تحويل {host!r} إلى عنوان: {exc}") from exc
+    addresses = {info[4][0] for info in found}
+    outside = sorted(a for a in addresses if not ipaddress.ip_address(a.partition("%")[0]).is_loopback)
+    if outside or not addresses:
+        raise ValueError(f"الصفحة دي بتشتغل على اللابتوب نفسه بس: {host!r} معناه "
+                         f"{', '.join(outside) or 'مفيش عنوان'}، وده الشبكة تقدر توصله.")
+    return host
+
+
 def serve(session: Session, token: str, host: str = "127.0.0.1", port: int = DEFAULT_PORT):
     """Built and returned, not started: the caller owns the thread, as capture.serve leaves it."""
-    server = http.server.ThreadingHTTPServer((host, port), make_handler(session, token, session.out))
+    server = http.server.ThreadingHTTPServer((loopback(host), port),
+                                             make_handler(session, token, session.out))
     server.daemon_threads = True
     return server
 
@@ -492,7 +519,11 @@ def run(host: str = "127.0.0.1", port: int = DEFAULT_PORT, out_dir: str | None =
         open_browser: bool = True, out=_tell) -> int:
     session = Session(out_dir)
     token = secrets.token_urlsafe(24)
-    server = serve(session, token, host, port)
+    try:
+        server = serve(session, token, host, port)
+    except (ValueError, OSError) as exc:
+        out(f"❌ {exc}")
+        return 2
     address = f"http://{host}:{server.server_address[1]}/?t={token}"
     out(f"صفحة الزيارة: {address}")
     out("سيبها مفتوحة. لما تخلص، اقفل الأمر ده بـ Ctrl-C.")
@@ -591,6 +622,7 @@ PAGE = """<!DOCTYPE html>
           <select id="field"><option value="">—</option><option value="punch">punch</option>
           <option value="status">status</option></select></label>
         <label>الشبكة <select id="cidr"><option value="">—</option></select></label>
+        <label title="البحث في شبكة العميل لازم يكون بعد إذنه"><input id="consent" type="checkbox"> العميل وافق على البحث</label>
         <button data-tool="zk-info">اقرأ الجهاز</button>
         <button data-tool="backup">نسخة احتياطية</button>
         <button data-tool="once">إرسال once</button>
@@ -762,7 +794,7 @@ document.querySelectorAll("[data-tool]").forEach((button) => {
     $("tool").textContent = "…" + button.textContent;
     const answer = await post("tool/" + name, {
       host: $("host").value.trim(), comm_key: $("key").value.trim(), udp: $("udp").checked,
-      in_out_field: $("field").value, cidr: $("cidr").value });
+      in_out_field: $("field").value, cidr: $("cidr").value, consent: $("consent").checked });
     $("tool").textContent = "";
     const block = document.createElement("pre");
     block.style.whiteSpace = "pre-wrap";
@@ -770,7 +802,6 @@ document.querySelectorAll("[data-tool]").forEach((button) => {
     block.dir = "ltr";
     block.textContent = JSON.stringify(answer, null, 1);
     $("tool").appendChild(block);
-    if (answer.findings) answer.findings.forEach((found) => render({ kind: "finding", ...found }));
   };
 });
 poll();
