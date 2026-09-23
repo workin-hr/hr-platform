@@ -66,7 +66,9 @@ import org.junit.jupiter.api.Test;
  * tenant-owned table must take a session on the paths that write it, unless it
  * is named in {@link #DELIBERATELY_CROSS_TENANT} with a reason. That list is
  * self-policing — an entry that stops writing tenant-owned tables, or starts
- * taking a session, fails the test rather than outliving its reason.
+ * taking a session, fails the test rather than outliving its reason. It has
+ * since emptied itself that way, which is what a self-policing list looks like
+ * when it works.
  *
  * <p>Both rules read the source rather than the bytecode, and the vendored
  * schema decides what "tenant-owned" means, exactly as
@@ -88,17 +90,24 @@ class AdminTenantGuardCoverageTest {
 	 * <p>Self-policing: an entry that no longer writes a tenant-owned table, or
 	 * that starts taking a session, fails this test. A list that cannot outlive
 	 * its reason is the only kind worth keeping.
+	 *
+	 * <p><b>Empty, and that is the point.</b> Its one entry was
+	 * {@code BroadcastAdminService}, exempted because a platform broadcast has no
+	 * single owning company to compare a session against. That reason was sound
+	 * for the send and said nothing about the other thing that service does: a
+	 * delete, of one row, named by a posted id, owned by one company. Legacy
+	 * guards precisely that case ({@code pages/notifications/page.php:59-69}) and
+	 * the port had kept only its unscoped arm. Now that the delete takes a
+	 * session, the entry fails the rule below exactly as designed, so it is gone
+	 * and rule one examines that path. The send's justification moved to the
+	 * service's own javadoc, where it is next to the code it describes.
+	 *
+	 * <p>Leaving the field here rather than deleting it is deliberate: the rule
+	 * it feeds is what a future service writing a tenant-owned table without a
+	 * session has to argue with, and an empty allowlist is a stricter starting
+	 * point than a missing one.
 	 */
-	private static final Map<String, String> DELIBERATELY_CROSS_TENANT = Map.of(
-			"BroadcastAdminService",
-			"The platform announcement. It writes a notifications row for every "
-					+ "employee of every company by design -- that is the page, and it is "
-					+ "one of the four capabilities ADR-0016 identified as existing in the "
-					+ "PHP dashboard and nowhere else. Its audience is chosen from a closed "
-					+ "enum (BroadcastAudience), not from a request-supplied company, and "
-					+ "the company-scoped arm validates the company exists before writing. "
-					+ "A DashboardSession would have nothing to say here: there is no single "
-					+ "owning company for the guard to compare against.");
+	private static final Map<String, String> DELIBERATELY_CROSS_TENANT = Map.of();
 
 	/** A call that resolves or enforces the session's company. */
 	private static final Pattern TENANT_GUARD = Pattern.compile(

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.function.Function;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.ui.ExtendedModelMap;
 import org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap;
 
@@ -13,6 +14,11 @@ import com.workin.backend.platformadmin.content.BroadcastAdminService;
 /**
  * The notifications page's writes flash legacy's messages (D-253). No end-to-end test sends a
  * broadcast, so this drives the controller directly, with the service answering as it would.
+ *
+ * <p>The delete case also pins that the controller builds the session it hands the service, rather
+ * than the service inventing one: the scoped check lives there, and a controller that passed no
+ * session could not compile. What that check then does is
+ * {@code AdminNotificationDeleteScopeTest}'s subject, against a real database.
  */
 class AdminNotificationsFlashTest {
 
@@ -70,7 +76,7 @@ class AdminNotificationsFlashTest {
 		RedirectAttributesModelMap redirect = new RedirectAttributesModelMap();
 
 		String view = controller(new BroadcastAdminService.Result(true, 0, null))
-				.delete(ADMIN, 9L, model(), redirect);
+				.delete(ADMIN, 9L, new MockHttpServletRequest(), model(), redirect);
 
 		assertThat(view).isEqualTo(REDIRECT);
 		assertThat(redirect.getFlashAttributes().get("flash")).isEqualTo("deleted_ok");
@@ -93,7 +99,7 @@ class AdminNotificationsFlashTest {
 			}
 
 			@Override
-			public Result delete(long adminId, long id) {
+			public Result delete(DashboardSession session, long adminId, long id) {
 				return answer;
 			}
 		});

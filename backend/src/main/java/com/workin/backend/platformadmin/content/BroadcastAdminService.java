@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.workin.backend.platformadmin.PlatformAdminAuditEventType;
 import com.workin.backend.platformadmin.PlatformAdminAuditService;
+import com.workin.backend.platformadmin.web.DashboardSession;
 
 /**
  * Sends platform broadcasts -- {@code dashboard/pages/notifications}'s
@@ -19,6 +20,19 @@ import com.workin.backend.platformadmin.PlatformAdminAuditService;
  * to tick a box and this requires the same. It is not step-up -- a TOTP
  * would not tell them how many people they are about to write to, and the
  * count is the thing that changes the decision.
+ *
+ * <p><b>The send is deliberately cross-tenant; the delete is not.</b> A
+ * broadcast writes a notifications row for every employee of every company by
+ * design -- that is the page, and one of the four capabilities ADR-0016 found
+ * in the PHP dashboard and nowhere else. Its audience comes from a closed enum
+ * ({@link BroadcastAudience}), never from a request-supplied company, so a
+ * {@link DashboardSession} would have nothing to compare against. A delete is
+ * the opposite: one row, named by a posted id, owned by one company. Legacy
+ * guards exactly that case and nothing else
+ * ({@code pages/notifications/page.php:59-69}), so this does too. That
+ * asymmetry is why this service is no longer in
+ * {@code AdminTenantGuardCoverageTest}'s cross-tenant list: the list is
+ * per-service, and one of these two paths does have a company to check.
  */
 @Service
 public class BroadcastAdminService {
@@ -79,11 +93,25 @@ public class BroadcastAdminService {
 	 * broadcast, but it is still a write to another tenant's data from a
 	 * platform session, and ADR-0015 prerequisite 7 is about the surface rather
 	 * than the size of the action.
+	 *
+	 * <p>A session scoped to one company may only delete that company's row,
+	 * which is legacy's {@code if ($isComp)} branch and its {@code error_db}
+	 * flash. Dormant while every session this surface issues is an
+	 * administrator's ({@code AdminViewModelAdvice#session}), and the whole
+	 * check the day the owner and HR logins arrive (ADR-0016, R-044) -- which is
+	 * why it is written now rather than then, when its absence would look like
+	 * the page working.
 	 */
 	@Transactional
-	public Result delete(long adminId, long id) {
+	public Result delete(DashboardSession session, long adminId, long id) {
 		if (!this.actionsEnabled) {
 			return Result.rejected("admin_actions_disabled");
+		}
+		if (session.isScopedToOneCompany()) {
+			Long owner = this.store.companyOf(id);
+			if (owner == null || owner != session.companyId()) {
+				return Result.rejected("error_db");
+			}
 		}
 		if (!this.store.delete(id)) {
 			return Result.rejected("error_not_found");

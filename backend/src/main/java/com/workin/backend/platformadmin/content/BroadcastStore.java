@@ -180,11 +180,25 @@ public class BroadcastStore {
 	}
 
 	/**
+	 * Which company's row this is, for the guard above the delete.
+	 *
+	 * <p>{@code SELECT company_id FROM notifications WHERE id=?} -- the ownership
+	 * lookup legacy does inline on its scoped branch.
+	 *
+	 * @return the owning company, or null when no such row exists
+	 */
+	public Long companyOf(long id) {
+		return this.jdbcTemplate.query(
+				"SELECT company_id FROM notifications WHERE id = ?",
+				rs -> rs.next() ? rs.getObject("company_id", Long.class) : null,
+				id);
+	}
+
+	/**
 	 * Removes one row by id, as {@code dbDelete('notifications', $id)} does.
 	 *
-	 * <p>Unscoped, and that is the platform administrator's case rather than an
-	 * omission: legacy checks the company only on the {@code isCompany()} branch,
-	 * which this surface does not serve.
+	 * <p>By id alone, because the caller has already resolved and checked the
+	 * row's company -- the shape every write on this surface uses (D-176).
 	 *
 	 * @return whether a row existed
 	 */
