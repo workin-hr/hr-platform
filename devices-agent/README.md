@@ -18,7 +18,13 @@ python3 -m unittest discover -s tests -t .      # no packages needed
 python3 -m pip install "pyzk==0.9"               # optional: cross-check the emulator against pyzk
 python3 -m unittest tests.test_zk4370
 python3 -m workin_devices --help
+python3 -m workin_devices web --no-open           # the visit as a page; prints its address
 ```
+
+The page is the visit and every single step, in a browser on this laptop. It listens on loopback
+only and every request carries a token the command invents at startup, because this process reads
+terminals on a customer's LAN and holds the lab's agent token. To try it with no hardware, run
+`python3 -m workin_devices sim-zk --port 14370` beside it and give the page `127.0.0.1:14370`.
 
 pyzk is GPL-2.0 and is never bundled: the agent's 4370 client (`workin_devices/zk4370.py`) is
 its own, read-only by construction, and pyzk only confirms in a test that the emulator speaks
