@@ -103,28 +103,37 @@ public class LegacyDashboardStore {
 	 * Workforce planning rows: a <b>list</b>, not a map, so duplicate department
 	 * names survive here where they collide everywhere else in this response.
 	 *
-	 * <p>The department join is unscoped by company -- only
-	 * {@code wt.company_id} is filtered. An earlier revision of this comment
-	 * called that safe because {@code workforce_planning} rows are themselves
-	 * company-scoped; <b>that reasoning is wrong</b> and is retracted. Scoping
-	 * the row does not scope the join: {@code workforce_planning.department_id}
-	 * carries no foreign key in {@code hr-legacy@d113204}, so a row owned by
-	 * this company may point at another company's department, and then both the
-	 * name and the {@code actual} subquery's headcount are read from that
-	 * tenant.
+	 * <p><b>The join and the headcount subquery are both scoped by company, which
+	 * legacy's are not</b> (D-277, reversing D-131 for this surface). Scoping the
+	 * {@code workforce_planning} row is not enough on its own:
+	 * {@code department_id} carries no foreign key in {@code hr-legacy@d113204},
+	 * so a row owned by this company can point at another company's department,
+	 * and then the name and the {@code actual} headcount are read from that
+	 * tenant. An earlier revision of this comment called the unscoped join safe
+	 * because the rows are company-scoped; that reasoning was wrong and stays
+	 * retracted.
 	 *
-	 * <p>It is reproduced rather than fixed because
-	 * {@code apis/api/dashboard/stats.php:91-99} is character-for-character this
-	 * query (D-058). The disclosure is legacy's, and it is real.
+	 * <p>The write paths now refuse a foreign {@code department_id}
+	 * ({@code LegacyWorkforcePlanningService}), so no new row can point across a
+	 * tenant boundary. The predicates here are what makes a row <em>planted
+	 * before</em> that fix stop disclosing, which a write-side check cannot do --
+	 * so this is not belt-and-braces, it is the half that covers existing data.
+	 * For a clean row the result is unchanged.
+	 *
+	 * <p>This is a deliberate divergence from
+	 * {@code apis/api/dashboard/stats.php:91-99}, which is otherwise
+	 * character-for-character this query (D-058).
 	 */
 	public List<Map<String, Object>> workforcePlanning(long companyId) {
 		return jdbcTemplate.query("""
 				SELECT s.name AS department_name,
 				       wt.planned_count AS planned,
 				       (SELECT COUNT(*) FROM employees e
-				         WHERE e.department_id = s.id AND e.is_active=1) AS actual
+				         WHERE e.department_id = s.id AND e.company_id = wt.company_id
+				           AND e.is_active=1) AS actual
 				FROM workforce_planning wt
 				JOIN departments s ON s.id = wt.department_id
+				                  AND s.company_id = wt.company_id
 				WHERE wt.company_id=?""",
 				(rs, rowNum) -> {
 					Map<String, Object> row = new LinkedHashMap<>();

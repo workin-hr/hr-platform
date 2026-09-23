@@ -150,56 +150,78 @@ class LegacyWorkforcePlanningEndToEndTest {
 	}
 
 	/**
-	 * <h2>Cross-tenant disclosure, demonstrated rather than described</h2>
+	 * <h2>Cross-tenant disclosure, refused rather than reproduced</h2>
 	 *
-	 * <p>{@code save_target.php} performs <b>no</b> ownership validation on
-	 * {@code branch_id}, and {@code list.php}'s {@code LEFT JOIN branches}
-	 * matches on id alone with no tenant predicate. So a company admin can
-	 * write another company's branch id into their own planning row and read
-	 * that branch's <b>name</b> straight back out. Iterating ids enumerates a
-	 * competitor's organizational structure.
+	 * <p><b>This test was inverted, not deleted</b> -- the instruction its earlier
+	 * revision left for whoever closed the gap. It used to assert that
+	 * {@code save_target.php} accepted another company's {@code branch_id} with no
+	 * ownership check and that {@code list.php}'s untenanted
+	 * {@code LEFT JOIN branches} then read that branch's <b>name</b> straight back
+	 * out, so iterating ids enumerated a competitor's organizational structure.
+	 * That was real, and it was reproduced on purpose under D-131's parity answer.
 	 *
-	 * <p>This asserts the <em>vulnerable</em> behaviour on purpose: Phase 1's
-	 * contract is parity (D-058), the defect exists in production today, and
-	 * fixing it in Java alone would be a silent divergence. It is filed
-	 * upstream (hr-legacy) and recorded in D-131. <b>When legacy is fixed, this
-	 * test must be inverted, not deleted.</b>
+	 * <p>The repository owner reversed that answer for this surface on 2026-09-23
+	 * (D-277): a missing authorization check is not imported, which is R-046's rule
+	 * and what D-177 had already applied to the same table on the dashboard. The
+	 * assertion is therefore the opposite of what it was, against the same fixture
+	 * and the same two calls.
 	 */
 	@Test
 	@Order(5)
 	@SuppressWarnings("unchecked")
-	void saveTargetLeaksAnotherCompanysBranchNameThroughTheUntenantedJoin() {
+	void saveTargetRefusesAnotherCompanysBranchInsteadOfDisclosingItsName() {
 		ResponseEntity<Map<String, Object>> saved = send(SAVE_TARGET, HttpMethod.POST,
 				token(ADMIN, "company_admin"),
 				"{\"branch_id\":" + VICTIM_BRANCH + ",\"department_id\":0,"
 						+ "\"job_title_id\":" + JOB_TITLE + ",\"planned_count\":1}");
 		assertThat(saved.getStatusCode().value())
-				.as("accepted with no ownership check, unlike create.php")
-				.isEqualTo(200);
+				.as("save_target validates the three org keys exactly as create.php does")
+				.isEqualTo(404);
+		assertThat(saved.getBody())
+				.as("the same refusal create.php already answered with")
+				.containsEntry("message", "Branch not found");
 
 		List<Map<String, Object>> rows = (List<Map<String, Object>>) data(send(
 				LIST + "?branch_id=" + VICTIM_BRANCH, HttpMethod.GET, token(ADMIN, "company_admin"), null));
 
-		assertThat(rows).hasSize(1);
-		assertThat(rows.get(0))
-				.as("the victim company's branch NAME is disclosed to a different tenant")
-				.containsEntry("branch_name", "Victim HQ");
+		assertThat(rows)
+				.as("nothing was written, so there is no row to read the victim's name through")
+				.isEmpty();
 	}
 
-	/** The same gap is reachable through {@code update.php}'s whitelist. */
+	/**
+	 * The same refusal through {@code update.php}'s whitelist, paired with the edit
+	 * that must still work.
+	 *
+	 * <p>The pairing is the point: a field the body omits is not validated, because
+	 * it is not being written. Without that, hardening {@code update} would have
+	 * refused every edit that changes only {@code planned_count} -- and the
+	 * refusal-only half of this test would still have passed.
+	 */
 	@Test
 	@Order(6)
 	@SuppressWarnings("unchecked")
-	void updateAlsoWritesAForeignBranchIdWithoutValidating() {
-		Map<String, Object> updated = (Map<String, Object>) data(send(UPDATE + "?id=1",
+	void updateRefusesAForeignBranchIdButStillEditsPlannedCountAlone() {
+		ResponseEntity<Map<String, Object>> refused = send(UPDATE + "?id=1",
 				HttpMethod.PUT, token(ADMIN, "company_admin"),
-				"{\"branch_id\":" + VICTIM_BRANCH + "}"));
+				"{\"branch_id\":" + VICTIM_BRANCH + "}");
 
-		assertThat(updated).containsEntry("branch_name", "Victim HQ");
+		assertThat(refused.getStatusCode().value()).isEqualTo(404);
+		assertThat(refused.getBody()).containsEntry("message", "Branch not found");
 
-		// Restore, so the remaining assertions read the intended fixture.
-		data(send(UPDATE + "?id=1", HttpMethod.PUT, token(ADMIN, "company_admin"),
-				"{\"branch_id\":" + BRANCH + "}"));
+		// Untouched, not partially updated: the refusal precedes the write.
+		List<Map<String, Object>> rows = (List<Map<String, Object>>) data(send(
+				LIST, HttpMethod.GET, token(ADMIN, "company_admin"), null));
+		assertThat(rows.get(0))
+				.as("still the caller's own branch")
+				.containsEntry("branch_name", "Main");
+
+		Map<String, Object> updated = (Map<String, Object>) data(send(UPDATE + "?id=1",
+				HttpMethod.PUT, token(ADMIN, "company_admin"), "{\"planned_count\":42}"));
+		assertThat(updated)
+				.as("an edit that names no org key is not asked to prove one")
+				.containsEntry("planned_count", 42);
+		assertThat(updated).containsEntry("branch_name", "Main");
 	}
 
 	@Test

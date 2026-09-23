@@ -89,16 +89,9 @@ public class LegacyWorkforcePlanningService {
 	 */
 	public Map<String, Object> create(long companyId, Map<String, Object> body) {
 		Ids ids = requiredIds(body);
-
-		if (!store.branchBelongsToCompany(ids.branchId(), companyId)) {
-			throw new LegacyApiException(404, "branch_not_found");
-		}
-		if (ids.departmentId() > 0 && !store.departmentBelongsToCompany(ids.departmentId(), companyId)) {
-			throw new LegacyApiException(404, "department_not_found");
-		}
-		if (!store.jobTitleBelongsToCompany(ids.jobTitleId(), companyId)) {
-			throw new LegacyApiException(404, "job_title_not_found");
-		}
+		requireOwnBranch(companyId, ids.branchId());
+		requireOwnDepartment(companyId, ids.departmentId());
+		requireOwnJobTitle(companyId, ids.jobTitleId());
 
 		long id = store.insert(
 				companyId, ids.branchId(), ids.departmentId(), ids.jobTitleId(), ids.planned());
@@ -106,24 +99,45 @@ public class LegacyWorkforcePlanningService {
 	}
 
 	/**
-	 * {@code save_target.php} -- a backward-compatible upsert for older clients,
-	 * with <b>no ownership validation at all</b>.
+	 * {@code save_target.php} -- a backward-compatible upsert for older clients.
 	 *
 	 * <p>Its response is {@code {"saved": true}} rather than the row, so a
 	 * caller cannot tell from the reply whether it created or updated one.
+	 *
+	 * <p>The three org keys are validated exactly as {@code create.php} validates
+	 * them. Legacy validates none of them here, which is the cross-tenant
+	 * disclosure D-131 recorded and this surface no longer reproduces (D-277).
 	 */
 	public void saveTarget(long companyId, Map<String, Object> body) {
 		Ids ids = requiredIds(body);
+		requireOwnBranch(companyId, ids.branchId());
+		requireOwnDepartment(companyId, ids.departmentId());
+		requireOwnJobTitle(companyId, ids.jobTitleId());
 		store.upsert(companyId, ids.branchId(), ids.departmentId(), ids.jobTitleId(), ids.planned());
 	}
 
 	/**
 	 * {@code update.php} -- a four-column whitelist, three of which are foreign
-	 * ids that are written straight through with no ownership check.
+	 * ids.
+	 *
+	 * <p>Each of those three is validated when the body carries it, so an edit
+	 * cannot move a row onto another company's branch, department or job title --
+	 * D-176's rule, which the dashboard port already applied to this same table
+	 * (D-177), now applied here too (D-277). A field the body omits is not
+	 * checked, because it is not being written.
 	 */
 	public Map<String, Object> update(long companyId, long id, Map<String, Object> body) {
 		if (!store.existsForCompany(companyId, id)) {
 			throw new LegacyApiException(404, "not_found");
+		}
+		if (body.containsKey("branch_id")) {
+			requireOwnBranch(companyId, LegacyValues.toPhpLong(body.get("branch_id")));
+		}
+		if (body.containsKey("department_id")) {
+			requireOwnDepartment(companyId, LegacyValues.toPhpLong(body.get("department_id")));
+		}
+		if (body.containsKey("job_title_id")) {
+			requireOwnJobTitle(companyId, LegacyValues.toPhpLong(body.get("job_title_id")));
 		}
 		List<String> assignments = new ArrayList<>();
 		List<Object> values = new ArrayList<>();
@@ -148,6 +162,28 @@ public class LegacyWorkforcePlanningService {
 			throw new LegacyApiException(404, "not_found");
 		}
 		store.delete(companyId, id);
+	}
+
+	private void requireOwnBranch(long companyId, long branchId) {
+		if (!store.branchBelongsToCompany(branchId, companyId)) {
+			throw new LegacyApiException(404, "branch_not_found");
+		}
+	}
+
+	/**
+	 * Zero is "no department", not a foreign key -- the schema's default, and what
+	 * legacy treats it as -- so it is the one value that skips the check.
+	 */
+	private void requireOwnDepartment(long companyId, long departmentId) {
+		if (departmentId > 0 && !store.departmentBelongsToCompany(departmentId, companyId)) {
+			throw new LegacyApiException(404, "department_not_found");
+		}
+	}
+
+	private void requireOwnJobTitle(long companyId, long jobTitleId) {
+		if (!store.jobTitleBelongsToCompany(jobTitleId, companyId)) {
+			throw new LegacyApiException(404, "job_title_not_found");
+		}
 	}
 
 	private record Ids(long branchId, long departmentId, long jobTitleId, long planned) {

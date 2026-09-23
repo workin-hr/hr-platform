@@ -44,6 +44,11 @@ class LegacyDashboardEndToEndTest {
 
 	private static final long COMPANY = 25001L;
 	private static final long EMPTY_COMPANY = 25002L;
+
+	/** The other company's department and employee, for the planted-row case. */
+	private static final long FOREIGN_DEPT = 25099L;
+
+	private static final long FOREIGN_EMPLOYEE = 25098L;
 	private static final long ADMIN = 250011L;
 	private static final long EMPLOYEE = 250012L;
 	private static final long EMPTY_ADMIN = 250021L;
@@ -266,6 +271,54 @@ class LegacyDashboardEndToEndTest {
 		assertThat(rows.get(0).keySet()).containsExactly("department_name", "planned", "actual");
 		assertThat(rows).extracting(row -> row.get("department_name"))
 				.containsExactlyInAnyOrder("Engineering", "Sales");
+	}
+
+	/**
+	 * A planning row pointing at another company's department discloses nothing,
+	 * even though the row itself is this company's.
+	 *
+	 * <p>This is the half the write-side refusal cannot cover.
+	 * {@code LegacyWorkforcePlanningService} now refuses a foreign
+	 * {@code department_id}, so no new row can point across a tenant boundary --
+	 * but rows planted while that check was absent are already in production data,
+	 * and only the query decides what they disclose. Before D-277 this response
+	 * carried the foreign department's <b>name</b> and its active <b>headcount</b>,
+	 * one field more than {@code workforce_planning/list.php} leaks.
+	 *
+	 * <p>The row is inserted directly rather than through the endpoint, because the
+	 * endpoint now correctly refuses to create it. That is the point: this asserts
+	 * the read is safe on data the writes can no longer produce.
+	 */
+	@Test
+	@SuppressWarnings("unchecked")
+	void aPlanningRowPointingAtAnotherCompanysDepartmentDisclosesNothing() {
+		execute("INSERT INTO departments (id, company_id, name, created_at) VALUES"
+				+ " (" + FOREIGN_DEPT + ", " + EMPTY_COMPANY + ", 'Victim R&D', '2019-03-01 10:00:00')");
+		execute("INSERT INTO employees (id, company_id, branch_id, department_id, employee_code,"
+				+ " first_name, last_name, phone, role, is_active, created_at) VALUES"
+				+ " (" + FOREIGN_EMPLOYEE + ", " + EMPTY_COMPANY + ", " + (BRANCH + 2) + ", "
+				+ FOREIGN_DEPT + ", '2599', 'Victim', 'Worker', '+201000250099', 'employee', 1,"
+				+ " '2019-04-01 08:00:00')");
+		// What a pre-D-277 save_target would have written: this company's row,
+		// another company's department.
+		execute("INSERT INTO workforce_planning (id, company_id, branch_id, department_id,"
+				+ " job_title_id, planned_count) VALUES (3, " + COMPANY + ", " + BRANCH + ", "
+				+ FOREIGN_DEPT + ", 0, 7)");
+		try {
+			List<Map<String, Object>> rows =
+					(List<Map<String, Object>>) stats(ADMIN).get("workforce_planning_stats");
+
+			assertThat(rows).extracting(row -> row.get("department_name"))
+					.as("the victim's department name is not in the response")
+					.containsExactlyInAnyOrder("Engineering", "Sales");
+			assertThat(rows)
+					.as("the planted row drops out rather than being rendered nameless")
+					.hasSize(2);
+		} finally {
+			execute("DELETE FROM workforce_planning WHERE id = 3");
+			execute("DELETE FROM employees WHERE id = " + FOREIGN_EMPLOYEE);
+			execute("DELETE FROM departments WHERE id = " + FOREIGN_DEPT);
+		}
 	}
 
 	@Test
