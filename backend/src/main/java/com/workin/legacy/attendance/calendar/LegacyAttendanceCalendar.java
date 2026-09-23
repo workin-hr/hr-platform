@@ -217,6 +217,17 @@ public class LegacyAttendanceCalendar {
 	 * any assignment caches {@code null}, exactly as the query's empty result
 	 * does, so it is not re-asked.
 	 *
+	 * <p><b>The comparison is lexical, and that is only correct because
+	 * {@code effective_from} is a {@code DATE}</b> ({@code date NOT NULL} in the
+	 * frozen schema, which {@code check_legacy_schema_drift.py} holds), and
+	 * {@code LegacyJdbcValues} hands temporal columns back as raw text: an
+	 * {@code ISO} date orders lexically exactly as it orders chronologically.
+	 * Widen the column to {@code DATETIME} and the text becomes
+	 * {@code 2026-03-10 00:00:00}, which compares <em>greater</em> than
+	 * {@code 2026-03-10} -- the walk would then apply an assignment a day late
+	 * while SQL applies it that day. The drift gate is what would catch the
+	 * widening; this sentence is what tells the next reader why it matters.
+	 *
 	 * @param employeeIds the page's employees; at most a page size of them
 	 * @param from        first date to resolve, inclusive
 	 * @param to          last date to resolve, inclusive
@@ -274,7 +285,11 @@ public class LegacyAttendanceCalendar {
 					current = assignments.get(next);
 					next++;
 				}
-				shiftCache.putIfAbsent(employeeId + "|" + text, current);
+				// put, not putIfAbsent: the two can only ever be the same answer,
+				// because nothing writes employee_shift_assignments mid-request --
+				// and putIfAbsent would not have protected a cached absence anyway,
+				// since it replaces a mapping whose value is null.
+				shiftCache.put(employeeId + "|" + text, current);
 			}
 		}
 	}

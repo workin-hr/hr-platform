@@ -43,6 +43,11 @@ class AttendanceHolidayCreditBatchTest extends AbstractLegacyMySqlTest {
 	private static final long ATTENDED_NONE = 997702;
 	private static final long ATTENDED_BOTH = 997703;
 
+	/** Another tenant's employee, to prove an id the caller should not have passed earns nothing. */
+	private static final long FOREIGN_COMPANY = 99771;
+
+	private static final long FOREIGN_EMPLOYEE = 997711;
+
 	private static final String FROM = "2026-03-01";
 	private static final String TO = "2026-03-31";
 
@@ -55,7 +60,7 @@ class AttendanceHolidayCreditBatchTest extends AbstractLegacyMySqlTest {
 				"DELETE FROM employees WHERE id BETWEEN 997700 AND 997799",
 				"DELETE FROM company_official_holidays WHERE company_id = " + COMPANY,
 				"DELETE FROM branches WHERE id BETWEEN 997700 AND 997799",
-				"DELETE FROM companies WHERE id = " + COMPANY,
+				"DELETE FROM companies WHERE id IN (" + COMPANY + ", " + FOREIGN_COMPANY + ")",
 				"INSERT INTO companies (id, company_name, phone, status, created_at) VALUES"
 						+ " (" + COMPANY + ", 'Credit Co', '+201000997700', 'active', '2019-01-15 09:00:00')",
 				"INSERT INTO branches (id, company_id, name, is_active, created_at) VALUES"
@@ -65,7 +70,17 @@ class AttendanceHolidayCreditBatchTest extends AbstractLegacyMySqlTest {
 						+ " VALUES (" + COMPANY + ", '2026-03-09', 'Spring', '2026-01-01 00:00:00'),"
 						+ " (" + COMPANY + ", '2026-03-10', 'Second', '2026-01-01 00:00:00'),"
 						+ " (" + COMPANY + ", '2026-04-05', 'Outside', '2026-01-01 00:00:00')",
+				"INSERT INTO companies (id, company_name, phone, status, created_at) VALUES ("
+						+ FOREIGN_COMPANY + ", 'Other Co', '+201000997710', 'active',"
+						+ " '2019-01-15 09:00:00')",
+				"INSERT INTO branches (id, company_id, name, is_active, created_at) VALUES (997711, "
+						+ FOREIGN_COMPANY + ", 'Other HQ', 1, '2019-03-01 10:00:00')",
 				employee(ATTENDED_ONE), employee(ATTENDED_NONE), employee(ATTENDED_BOTH),
+				"INSERT INTO employees (id, company_id, branch_id, employee_code, first_name,"
+						+ " last_name, phone, role, is_active, created_at) VALUES (" + FOREIGN_EMPLOYEE
+						+ ", " + FOREIGN_COMPANY + ", 997711, '" + FOREIGN_EMPLOYEE + "', 'Other',"
+						+ " 'Worker', '+2010" + FOREIGN_EMPLOYEE + "', 'employee', 1,"
+						+ " '2019-04-01 08:00:00')",
 				// ATTENDED_ONE worked the 9th; ATTENDED_BOTH worked both; and
 				// everyone has a non-holiday punch, so "has attendance at all"
 				// is not what the count keys on.
@@ -131,6 +146,31 @@ class AttendanceHolidayCreditBatchTest extends AbstractLegacyMySqlTest {
 		assertThat(this.store.officialHolidayCreditForEmployees(0L, List.of(ATTENDED_NONE), FROM, TO))
 				.as("no company is no credit, as the single-employee method answers too")
 				.isEmpty();
+	}
+
+	/**
+	 * An id from another tenant earns nothing, rather than this company's count.
+	 *
+	 * <p>The outer query is scoped by {@code emp.company_id} as well as the id
+	 * list, which the single-employee method is not -- it never reads
+	 * {@code employees}, so it answers this company's holiday count for any id at
+	 * all. The two therefore diverge here deliberately, in the safer direction:
+	 * today's only caller takes its ids from the page's own company-scoped query,
+	 * and a future one that forgets to scope gets no number instead of another
+	 * tenant's.
+	 */
+	@Test
+	void anIdFromAnotherTenantEarnsNothingEvenThoughTheOldMethodWouldHaveCounted() {
+		Map<Long, Integer> batched = this.store.officialHolidayCreditForEmployees(
+				COMPANY, List.of(ATTENDED_NONE, FOREIGN_EMPLOYEE), FROM, TO);
+
+		assertThat(batched)
+				.as("only this company's employee comes back")
+				.containsOnlyKeys(ATTENDED_NONE);
+		assertThat(this.store.officialHolidayCreditForEmployee(COMPANY, FOREIGN_EMPLOYEE, FROM, TO))
+				.as("while the per-employee method, which reads no employees row, still counts them "
+						+ "-- the divergence this filter introduces, stated rather than implied")
+				.isEqualTo(2);
 	}
 
 	private static String employee(long id) {

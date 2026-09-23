@@ -58,6 +58,19 @@ class AttendanceAggregateQueryBudgetTest extends AbstractLegacyMySqlTest {
 	/** Every employee the unfiltered page returns: the three plus the late starter. */
 	private static final int ALL_ROWS = EMPLOYEES.length + 1;
 
+	/**
+	 * A second company, so the rest-day measurement below cannot change what the
+	 * two ratchets above count. Its shift takes Friday off, which is this
+	 * market's ordinary configuration and the fixture above deliberately lacks.
+	 */
+	private static final long REST_COMPANY = 99751;
+
+	private static final long REST_BRANCH = 997521;
+
+	private static final long REST_SHIFT = 997522;
+
+	private static final long REST_EMPLOYEE = 997523;
+
 	private final QueryCounter counter = new QueryCounter();
 
 	@BeforeEach
@@ -68,6 +81,7 @@ class AttendanceAggregateQueryBudgetTest extends AbstractLegacyMySqlTest {
 				"DELETE FROM employees WHERE id BETWEEN 997500 AND 997599",
 				"DELETE FROM shifts WHERE id BETWEEN 997500 AND 997599",
 				"DELETE FROM company_official_holidays WHERE company_id = " + COMPANY,
+				"DELETE FROM companies WHERE id = " + REST_COMPANY,
 				"DELETE FROM branches WHERE id BETWEEN 997500 AND 997599",
 				"DELETE FROM companies WHERE id = " + COMPANY,
 				"INSERT INTO companies (id, company_name, phone, status, created_at) VALUES"
@@ -102,6 +116,22 @@ class AttendanceAggregateQueryBudgetTest extends AbstractLegacyMySqlTest {
 				+ " '2019-04-01 08:00:00')");
 		statements.add("INSERT INTO employee_shift_assignments (employee_id, shift_id,"
 				+ " effective_from) VALUES (" + LATE_STARTER + ", " + SHIFT + ", '2026-03-20')");
+
+		statements.addAll(List.of(
+				"INSERT INTO companies (id, company_name, phone, status, created_at) VALUES ("
+						+ REST_COMPANY + ", 'Rest Co', '+201000997501', 'active', '2019-01-15 09:00:00')",
+				"INSERT INTO branches (id, company_id, name, is_active, created_at) VALUES ("
+						+ REST_BRANCH + ", " + REST_COMPANY + ", 'Rest HQ', 1, '2019-03-01 10:00:00')",
+				"INSERT INTO shifts (id, company_id, name, start_time, end_time, days_off, is_active,"
+						+ " created_at) VALUES (" + REST_SHIFT + ", " + REST_COMPANY + ", 'Day',"
+						+ " '09:00:00', '17:00:00', 'friday', 1, '2019-05-01 08:00:00')",
+				"INSERT INTO employees (id, company_id, branch_id, employee_code, first_name,"
+						+ " last_name, phone, role, is_active, expected_daily_hours, created_at) VALUES ("
+						+ REST_EMPLOYEE + ", " + REST_COMPANY + ", " + REST_BRANCH + ", '" + REST_EMPLOYEE
+						+ "', 'Rest', 'Worker', '+2010" + REST_EMPLOYEE + "', 'employee', 1, 8,"
+						+ " '2019-04-01 08:00:00')",
+				"INSERT INTO employee_shift_assignments (employee_id, shift_id, effective_from) VALUES ("
+						+ REST_EMPLOYEE + ", " + REST_SHIFT + ", '2019-05-01')"));
 		seedAsLegacyWould(statements.toArray(String[]::new));
 
 	}
@@ -171,11 +201,15 @@ class AttendanceAggregateQueryBudgetTest extends AbstractLegacyMySqlTest {
 	}
 
 	private int measureForEmployee(long employeeId, String from, String to) {
+		return measureForEmployee(COMPANY, employeeId, from, to);
+	}
+
+	private int measureForEmployee(long companyId, long employeeId, String from, String to) {
 		DashboardListFilters filters = new DashboardListFilters(
-				COMPANY, String.valueOf(employeeId), "all", 0L, 0L, 1, 10, false);
+				companyId, String.valueOf(employeeId), "all", 0L, 0L, 1, 10, false);
 		AttendanceStore store = coldRequest();
 		List<String> issued = this.counter.measure(
-				() -> store.aggregate(filters, from, to, 1, COMPANY, to));
+				() -> store.aggregate(filters, from, to, 1, companyId, to));
 		return issued.size();
 	}
 
@@ -200,6 +234,37 @@ class AttendanceAggregateQueryBudgetTest extends AbstractLegacyMySqlTest {
 		assertThat(hiredMidPeriod)
 				.as("the 19 dates before the assignment are answered from the warm, not re-asked")
 				.isEqualTo(assignedLongAgo);
+	}
+
+	/**
+	 * What a company with a weekly rest day pays, which is <b>not</b> what the
+	 * two ratchets above measure.
+	 *
+	 * <p>The fixture they use has {@code days_off = ''} and no
+	 * {@code WEEKLY_OFF_DAYS}, so it has no rest dates at all -- and the whole
+	 * remaining per-row cost is {@code LegacyWeeklyRestCredit}'s, which asks
+	 * {@code isOnApprovedLeave} once per preceding workday per rest date. With
+	 * Friday off, one row over a month measured <b>34</b> statements against a
+	 * week's <b>16</b>: the count still follows the period here, and this change
+	 * does not fix that -- it removes the shift term only, which is why the
+	 * shift query is absent from all of these.
+	 *
+	 * <p>Asserted rather than printed, so the next reader cannot take 22 for the
+	 * whole truth, and so batching the rest credit has a number to beat.
+	 */
+	@Test
+	void aCompanyWithAWeeklyRestDayStillPaysForEveryRestDateInThePeriod() {
+		int week = measureForEmployee(REST_COMPANY, REST_EMPLOYEE, "2026-03-01", "2026-03-07");
+		int month = measureForEmployee(REST_COMPANY, REST_EMPLOYEE, "2026-03-01", "2026-03-31");
+
+		System.out.println("[budget] rest-day row over 7 days: " + week + " statements");
+		System.out.println("[budget] rest-day row over 31 days: " + month + " statements");
+		assertThat(month)
+				.as("the rest-credit term is what is left, and it grows with the period")
+				.isGreaterThan(week);
+		assertThat(month)
+				.as("a ratchet on the number batching the rest credit has to beat")
+				.isLessThanOrEqualTo(34);
 	}
 
 	/** Kept so a compile error names the type if the row shape moves. */
