@@ -820,6 +820,178 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 			.update("UPDATE platform_admins SET active = true WHERE phone = 'admin'");
 	}
 
+	// --- /admin/companies/save ----------------------------------------------
+
+	/**
+	 * Creating a company provisions its owner's login, and the password must
+	 * reach the database hashed.
+	 *
+	 * <p>This POST had no test at all -- `action` and the delete flow were
+	 * covered, `save` was not -- and it is the one that writes
+	 * {@code companies.password_hash}. Nothing else in the suite would notice if
+	 * a refactor stored the owner's password in the clear: the page would still
+	 * redirect, the row would still appear, and the owner could still sign in.
+	 * So the assertion is on the stored bytes.
+	 */
+	@Test
+	void creatingACompanyStoresTheOwnerPasswordHashedAndNeverInTheClear() {
+		String cookie = signIn();
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		seedLookups(jdbc);
+		String secret = "owner secret phrase";
+		String phone = "01012345678";
+		try {
+			ResponseEntity<String> saved = save(cookie, get("/admin/companies", cookie).csrf(),
+					"add", 0L, "Saved Co", phone, secret, LOGO);
+
+			assertThat(saved.getStatusCode()).isEqualTo(HttpStatus.FOUND);
+			assertThat(saved.getHeaders().getLocation()).asString().endsWith("/admin/companies");
+
+			java.util.Map<String, Object> row = jdbc.queryForMap(
+					"SELECT company_name, phone, password_hash FROM companies WHERE phone = ?", phone);
+			assertThat(row.get("company_name")).isEqualTo("Saved Co");
+			String stored = String.valueOf(row.get("password_hash"));
+			assertThat(stored)
+					.as("the owner's password is not in the database in the clear")
+					.isNotEqualTo(secret)
+					.doesNotContain(secret);
+			assertThat(stored).as("bcrypt, as every other password on this surface").startsWith("$2");
+			assertThat(this.passwordEncoder.matches(secret, stored))
+					.as("and it is the hash of what was posted, not of something else")
+					.isTrue();
+		}
+		finally {
+			jdbc.update("DELETE FROM companies WHERE phone = ?", phone);
+			removeLookups(jdbc);
+		}
+	}
+
+	/**
+	 * An ordinary edit does not touch the owner's login.
+	 *
+	 * <p>{@code update} encodes only when a password is supplied
+	 * ({@code write.password() == null ? null : encode(...)}), so an edit with the
+	 * field left blank must leave the stored hash exactly as it was. If that ever
+	 * became an unconditional encode of an empty string, every edit would lock
+	 * the owner out -- silently, because the page would flash success.
+	 */
+	@Test
+	void editingACompanyWithoutAPasswordLeavesTheOwnerLoginAlone() {
+		String cookie = signIn();
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		seedLookups(jdbc);
+		String secret = "owner secret phrase";
+		String phone = "01512345678";
+		try {
+			save(cookie, get("/admin/companies", cookie).csrf(), "add", 0L, "Before", phone, secret, LOGO);
+			java.util.Map<String, Object> created = jdbc.queryForMap(
+					"SELECT id, password_hash FROM companies WHERE phone = ?", phone);
+			long id = ((Number) created.get("id")).longValue();
+			String before = String.valueOf(created.get("password_hash"));
+
+			ResponseEntity<String> edited = save(cookie, get("/admin/companies", cookie).csrf(),
+					"save_edit", id, "After", phone, "", null);
+
+			assertThat(edited.getStatusCode()).isEqualTo(HttpStatus.FOUND);
+			java.util.Map<String, Object> after = jdbc.queryForMap(
+					"SELECT company_name, password_hash FROM companies WHERE id = ?", id);
+			assertThat(after.get("company_name")).as("the edit landed").isEqualTo("After");
+			assertThat(String.valueOf(after.get("password_hash")))
+					.as("and the owner's login is byte for byte what it was")
+					.isEqualTo(before);
+			assertThat(this.passwordEncoder.matches(secret, String.valueOf(after.get("password_hash"))))
+					.as("so the owner can still sign in with the password they were given")
+					.isTrue();
+		}
+		finally {
+			jdbc.update("DELETE FROM companies WHERE phone = ?", phone);
+			removeLookups(jdbc);
+		}
+	}
+
+	/**
+	 * A create without a logo is refused, and writes nothing.
+	 *
+	 * <p>The logo is required on create and optional on edit, which is how legacy
+	 * stops an edit clearing one. The refusal re-renders the form rather than
+	 * redirecting, so the status is 200 and the reason is in the page -- and the
+	 * company must not be half-created.
+	 */
+	@Test
+	void aCreateWithoutALogoIsRefusedAndWritesNoCompany() {
+		String cookie = signIn();
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		seedLookups(jdbc);
+		String phone = "01112345678";
+		try {
+			Integer before = jdbc.queryForObject("SELECT COUNT(*) FROM companies", Integer.class);
+
+			ResponseEntity<String> refused = save(cookie, get("/admin/companies", cookie).csrf(),
+					"add", 0L, "No Logo Co", phone, "owner secret phrase", null);
+
+			assertThat(refused.getStatusCode())
+					.as("the form comes back with the reason rather than redirecting")
+					.isEqualTo(HttpStatus.OK);
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM companies", Integer.class))
+					.as("and nothing was written")
+					.isEqualTo(before);
+			assertThat(jdbc.queryForObject(
+					"SELECT COUNT(*) FROM companies WHERE phone = ?", Integer.class, phone)).isZero();
+		}
+		finally {
+			jdbc.update("DELETE FROM companies WHERE phone = ?", phone);
+			removeLookups(jdbc);
+		}
+	}
+
+	private static final byte[] LOGO = { (byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10 };
+
+	private static void seedLookups(JdbcTemplate jdbc) {
+		removeLookups(jdbc);
+		jdbc.update("INSERT INTO company_activities (id, name) VALUES (24401, 'Save activity')");
+		jdbc.update("INSERT INTO company_titles (id, name) VALUES (24411, 'Save title')");
+		jdbc.update("INSERT INTO company_sizes (id, name, min_employees, max_employees)"
+				+ " VALUES (24421, 'Save size', 1, 10)");
+	}
+
+	private static void removeLookups(JdbcTemplate jdbc) {
+		jdbc.update("DELETE FROM company_activities WHERE id = 24401");
+		jdbc.update("DELETE FROM company_titles WHERE id = 24411");
+		jdbc.update("DELETE FROM company_sizes WHERE id = 24421");
+	}
+
+	/** The multipart POST the form makes; a null logo omits the part entirely. */
+	private ResponseEntity<String> save(String cookie, Csrf csrf, String action, long id,
+			String companyName, String phone, String password, byte[] logo) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+		headers.add(HttpHeaders.COOKIE, "WORKIN_ADMIN_SESSION=" + cookie);
+		MultiValueMap<String, Object> form = new LinkedMultiValueMap<>();
+		form.add("action", action);
+		form.add("id", String.valueOf(id));
+		form.add("company_name", companyName);
+		form.add("first_name", "Owner");
+		form.add("last_name", "One");
+		form.add("country_code", "+20");
+		form.add("phone", phone);
+		form.add("password", password);
+		form.add("main_branch_address", "1 Test Street");
+		form.add("company_activity_id", "24401");
+		form.add("company_title_id", "24411");
+		form.add("company_size_id", "24421");
+		form.add(csrf.name(), csrf.value());
+		if (logo != null) {
+			form.add("logo", new org.springframework.core.io.ByteArrayResource(logo) {
+				@Override
+				public String getFilename() {
+					return "logo.png";
+				}
+			});
+		}
+		return this.restTemplate.exchange("/admin/companies/save", HttpMethod.POST,
+				new HttpEntity<>(form, headers), String.class);
+	}
+
 	private record Page(ResponseEntity<String> response, String cookie, Csrf csrf) {
 	}
 
