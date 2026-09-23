@@ -550,6 +550,32 @@ class AdminAttendanceEndToEndTest {
 	}
 
 	@Test
+	void addingWithACheckInTheRangeFilterCanNeverMatchWritesNothing() {
+		// A punch with no check-in is worse than a refused one: every read of this page filters
+		// `DATE(a.check_in) BETWEEN ? AND ?`, and NULL matches no range -- so the row would never
+		// show in the list, never count in either heading, and `delete_range` could not remove it.
+		// It redirected on the success path, so the operator was told it was saved. The modal's save
+		// button is disabled until a check-in is set, so only a replayed or hand-rolled POST gets
+		// here, which is exactly why the refusal has to be on the server.
+		for (String checkIn : new String[] {"", "   ", "not-a-date", "2026-13-45 99:99:99"}) {
+			post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+					"action", "add_attendance", "employee_id", String.valueOf(this.employeeA),
+					"check_in", checkIn);
+			assertThat(this.jdbc.queryForObject("SELECT COUNT(*) FROM attendance", Integer.class))
+					.as("check_in=%s was stored", checkIn).isZero();
+		}
+		// And the two shapes a real form sends are both still accepted.
+		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+				"action", "add_attendance", "employee_id", String.valueOf(this.employeeA),
+				"check_in", "2026-03-02T09:00");
+		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+				"action", "add_attendance", "employee_id", String.valueOf(this.employeeA),
+				"check_in", "2026-03-03 09:00:00");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT COUNT(*) FROM attendance WHERE check_in IS NOT NULL", Integer.class)).isEqualTo(2);
+	}
+
+	@Test
 	void addingWithNoEmployeeWritesNothing() {
 		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
 				"action", "add_attendance", "employee_id", "0",
@@ -653,6 +679,27 @@ class AdminAttendanceEndToEndTest {
 	// ------------------------------------------------------------------
 	// Tenant guards (R-046 / R-059)
 	// ------------------------------------------------------------------
+
+	@Test
+	void theSearchNeverReachesAnotherCompanyOrADateOutsideTheRange() {
+		// `searchCondition` builds an OR chain over six columns and is spliced into a WHERE that
+		// already carries the range and the company. `AND` binds tighter than `OR`, so the chain
+		// has to stay parenthesised or the whole filter collapses: dropping the parentheses renders
+		// `(range AND company AND first LIKE ?) OR last LIKE ? OR ...`, and a platform admin
+		// filtered to one company is served another company's punches on any date. The six-positive
+		// search test cannot see that -- it matches inside one company in one range, which is true
+		// either way -- so this asserts the scope the OR chain must not escape.
+		String otherCompanysRow = "<td class=\"bold\">Basma Beta</td>";
+		attendance(this.employeeB, "2026-03-04 09:00:00", "2026-03-04 17:00:00", null);
+		attendance(this.employeeA, "2026-01-09 09:00:00", "2026-01-09 17:00:00", null);
+
+		String scoped = body(PATH + range() + "&company_id=" + this.companyA + "&search=Beta");
+		assertThat(scoped).as("a search cannot cross the company filter").doesNotContain(otherCompanysRow);
+
+		String inRange = body(PATH + range() + "&search=Alpha");
+		assertThat(inRange).as("a search cannot reach a punch outside the range")
+				.doesNotContain("2026-01-09");
+	}
 
 	@Test
 	void onlyActiveExceptionTypesAreOfferedAndNoneWithoutACompany() {

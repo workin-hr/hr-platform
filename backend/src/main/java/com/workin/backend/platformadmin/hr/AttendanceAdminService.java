@@ -148,6 +148,16 @@ public class AttendanceAdminService {
 		if (employeeId <= 0) {
 			throw new RefusedException(Refusal.INVALID);
 		}
+		// A punch with no check-in is worse than a refused one. Every read of this surface filters
+		// `DATE(a.check_in) BETWEEN ? AND ?`, and NULL matches no range: the row would never appear
+		// in the punch list, never count in either heading, and `delete_range` could not remove it
+		// either -- a permanent invisible row, written under a "saved" flash. The browser cannot
+		// send this (the modal's save button is disabled until a check-in is set) but a replayed or
+		// hand-rolled POST can, so the refusal belongs on the server. A Java-only hardening, not a
+		// parity item: legacy stores the blank and leaves the row unreachable.
+		if (!isDateTime(checkIn)) {
+			throw new RefusedException(Refusal.INVALID);
+		}
 		long companyId = resolveAddCompany(session, employeeId);
 		Long owner = this.store.companyOfEmployee(employeeId);
 		if (owner == null || companyId <= 0 || owner != companyId) {
@@ -247,6 +257,26 @@ public class AttendanceAdminService {
 	}
 
 	/** `$_POST['check_out'] ?: null` -- an empty string stores NULL, not ''. */
+	/**
+	 * Does this parse as a datetime the `attendance.check_in` column can be read back through?
+	 *
+	 * `datetime-local` sends `YYYY-MM-DDTHH:MM`, legacy's own form posts `YYYY-MM-DD HH:MM:SS`, and
+	 * both reach the same column, so both are accepted. Anything else is refused rather than stored
+	 * as a value no query on this page can match.
+	 */
+	private static boolean isDateTime(String raw) {
+		if (raw == null || raw.isBlank()) {
+			return false;
+		}
+		String value = raw.trim().replace(' ', 'T');
+		try {
+			java.time.LocalDateTime.parse(value.length() == 16 ? value : value.substring(0, Math.min(19, value.length())));
+			return true;
+		} catch (java.time.format.DateTimeParseException | StringIndexOutOfBoundsException malformed) {
+			return false;
+		}
+	}
+
 	private static String blankToNull(String raw) {
 		return raw == null || raw.isEmpty() ? null : raw;
 	}

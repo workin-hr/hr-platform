@@ -66,6 +66,15 @@ test.beforeEach(async ({ page }) => {
 const picker = (page) => page.locator('[data-emp-picker]');
 const save = (page) => page.locator('#save');
 
+// `crudOpenAdd` calls `form.reset()`, and emp-picker.js answers a reset by scheduling
+// `setTimeout(sync, 0)` -- it cannot read the cleared fields synchronously, because the reset
+// algorithm has not finished when the event fires. A zero timer is not immediate: Chromium was
+// measured deferring it ~40 ms, long enough to land *after* a fill and wipe the one option the next
+// click waits for, which failed this file about one run in five. A zero timer scheduled after the
+// picker's is guaranteed by the timer task queue to run after it, so awaiting one here makes "the
+// picker has resynced" an ordering rather than a hope.
+const opened = (page) => page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
 function pickEmployee(page, search, name) {
 	return page.locator('#employee_id').fill(search)
 		.then(() => picker(page).getByRole('button', { name }).click());
@@ -80,6 +89,7 @@ test('save starts disabled, as the template renders it', async ({ page }) => {
 test('opening the add modal sets check-in to now', async ({ page }) => {
 	const before = Date.now();
 	await page.locator('#opener').click();
+	await opened(page);
 	const value = await page.locator('#check_in').inputValue();
 	expect(value).not.toBe('');
 	// datetime-local's value has no timezone; the page reads the browser's
@@ -91,6 +101,7 @@ test('opening the add modal sets check-in to now', async ({ page }) => {
 
 test('save is disabled until an employee and a check-in are both set', async ({ page }) => {
 	await page.locator('#opener').click();
+	await opened(page);
 	// check-in is already set by the open; only the employee is missing.
 	await expect(save(page)).toBeDisabled();
 
@@ -110,12 +121,14 @@ test('save is disabled until an employee and a check-in are both set', async ({ 
 
 test('reopening resets the picker and sets a fresh check-in', async ({ page }) => {
 	await page.locator('#opener').click();
+	await opened(page);
 	await pickEmployee(page, 'Basma', 'Basma Beta (B100)');
 	await expect(save(page)).toBeEnabled();
 	const firstCheckIn = await page.locator('#check_in').inputValue();
 
 	await page.waitForTimeout(1100);
 	await page.locator('#opener').click();
+	await opened(page);
 	await expect(picker(page).locator('[data-emp-id]'), 'the picker was reset').toHaveValue('');
 	await expect(save(page), 'no employee again: back to disabled').toBeDisabled();
 	const secondCheckIn = await page.locator('#check_in').inputValue();
