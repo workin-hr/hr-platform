@@ -64,8 +64,10 @@ public class AdminNotificationsController {
 	@PostMapping(path = PlatformAdminWebSecurityConfig.NOTIFICATIONS_PATH, params = "action=delete")
 	public String delete(@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
 			@RequestParam long id,
+			HttpServletRequest request,
 			Model model, RedirectAttributes redirect) {
 		BroadcastAdminService.Result result = this.service.delete(
+				DashboardSession.admin(DashboardOrgScope.current(request.getSession(false))),
 				principal.platformAdminId(), id);
 		if (!result.ok()) {
 			return REDIRECT + "?error=" + result.errorKey();
@@ -83,9 +85,11 @@ public class AdminNotificationsController {
 			@RequestParam(required = false) String body,
 			@RequestParam(required = false) Long companyId,
 			@RequestParam(required = false) String confirmBroadcast,
+			HttpServletRequest request,
 			Model model, RedirectAttributes redirect) {
 
 		BroadcastAdminService.Result result = this.service.send(
+				DashboardSession.admin(DashboardOrgScope.current(request.getSession(false))),
 				principal.platformAdminId(), audience, title, body,
 				companyId, confirmBroadcast != null && !confirmBroadcast.isBlank());
 

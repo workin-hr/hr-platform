@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.function.Function;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.ui.ExtendedModelMap;
 import org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap;
 
@@ -13,6 +14,11 @@ import com.workin.backend.platformadmin.content.BroadcastAdminService;
 /**
  * The notifications page's writes flash legacy's messages (D-253). No end-to-end test sends a
  * broadcast, so this drives the controller directly, with the service answering as it would.
+ *
+ * <p>Both cases also pin that the controller builds the session it hands the service, rather than the
+ * service inventing one: the scoped checks live there, and a controller that passed no session could
+ * not compile. What those checks then do is {@code AdminNotificationsTenantScopeTest}'s subject,
+ * against a real database.
  */
 class AdminNotificationsFlashTest {
 
@@ -25,7 +31,7 @@ class AdminNotificationsFlashTest {
 		RedirectAttributesModelMap redirect = new RedirectAttributesModelMap();
 
 		String view = controller(new BroadcastAdminService.Result(true, 7, null))
-				.send(ADMIN, "all_employees", "Title", "Body", null, "1", model(), redirect);
+				.send(ADMIN, "all_employees", "Title", "Body", null, "1", new MockHttpServletRequest(), model(), redirect);
 
 		assertThat(view).as("the count travels in the flash now, not the query").isEqualTo(REDIRECT);
 		assertThat(redirect.getFlashAttributes().get("flash")).isEqualTo("sent_ok — send_all_employees_system (7)");
@@ -37,7 +43,7 @@ class AdminNotificationsFlashTest {
 		RedirectAttributesModelMap redirect = new RedirectAttributesModelMap();
 
 		controller(new BroadcastAdminService.Result(true, 3, null))
-				.send(ADMIN, "company_employees", "Title", "Body", 5L, null, model(), redirect);
+				.send(ADMIN, "company_employees", "Title", "Body", 5L, null, new MockHttpServletRequest(), model(), redirect);
 
 		assertThat(redirect.getFlashAttributes().get("flash")).isEqualTo("sent_ok — send_to_all (3)");
 	}
@@ -48,7 +54,7 @@ class AdminNotificationsFlashTest {
 		RedirectAttributesModelMap redirect = new RedirectAttributesModelMap();
 
 		String view = controller(new BroadcastAdminService.Result(true, 0, null))
-				.send(ADMIN, "all_employees", "Title", "Body", null, "1", model(), redirect);
+				.send(ADMIN, "all_employees", "Title", "Body", null, "1", new MockHttpServletRequest(), model(), redirect);
 
 		assertThat(view).isEqualTo(REDIRECT + "?error=error_required");
 		assertThat(redirect.getFlashAttributes()).isEmpty();
@@ -59,7 +65,7 @@ class AdminNotificationsFlashTest {
 		RedirectAttributesModelMap redirect = new RedirectAttributesModelMap();
 
 		String view = controller(new BroadcastAdminService.Result(false, 0, "confirm_broadcast"))
-				.send(ADMIN, "all_employees", "Title", "Body", null, null, model(), redirect);
+				.send(ADMIN, "all_employees", "Title", "Body", null, null, new MockHttpServletRequest(), model(), redirect);
 
 		assertThat(view).isEqualTo(REDIRECT + "?error=confirm_broadcast");
 		assertThat(redirect.getFlashAttributes()).isEmpty();
@@ -70,7 +76,7 @@ class AdminNotificationsFlashTest {
 		RedirectAttributesModelMap redirect = new RedirectAttributesModelMap();
 
 		String view = controller(new BroadcastAdminService.Result(true, 0, null))
-				.delete(ADMIN, 9L, model(), redirect);
+				.delete(ADMIN, 9L, new MockHttpServletRequest(), model(), redirect);
 
 		assertThat(view).isEqualTo(REDIRECT);
 		assertThat(redirect.getFlashAttributes().get("flash")).isEqualTo("deleted_ok");
@@ -87,13 +93,13 @@ class AdminNotificationsFlashTest {
 	private static AdminNotificationsController controller(BroadcastAdminService.Result answer) {
 		return new AdminNotificationsController(new BroadcastAdminService(null, null, true) {
 			@Override
-			public Result send(long adminId, String audienceValue, String title, String body,
-					Long companyId, boolean confirmed) {
+			public Result send(DashboardSession session, long adminId, String audienceValue,
+					String title, String body, Long companyId, boolean confirmed) {
 				return answer;
 			}
 
 			@Override
-			public Result delete(long adminId, long id) {
+			public Result delete(DashboardSession session, long adminId, long id) {
 				return answer;
 			}
 		});
