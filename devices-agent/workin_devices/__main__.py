@@ -1,7 +1,8 @@
 """workin-devices: the agent, the site-visit kit and the lab simulators, one command each.
 
   agent       run | once | doctor | import-usb
-  site visit  visit (the whole visit, guided) | scan | zk-info | hik-info | capture
+  site visit  web (the visit and every step, in a browser) | visit (the same, in this terminal)
+              scan | zk-info | hik-info | capture
   lab         sim-zk | sim-push | sim-hik | sim-usb
 """
 from __future__ import annotations
@@ -176,6 +177,11 @@ def cmd_visit(args):
     return visit.Visit(out_dir=args.out).run()
 
 
+def cmd_web(args):
+    from . import web
+    return web.run(args.host, args.port, args.out, not args.no_open)
+
+
 def cmd_sim_zk(args):
     from .sim.zk4370 import Emulator, Terminal, populate
     from datetime import timedelta
@@ -298,6 +304,15 @@ def main(argv=None):
     sub = commands.add_parser("visit", help="the whole site visit, step by step, ending in a report (Mode A: the lab)")
     sub.add_argument("--out", help="where the visit's files go (default: devices-agent/field-report)")
     sub.set_defaults(handler=cmd_visit)
+
+    sub = commands.add_parser("web", help="the site visit in a browser, plus every step on its own button")
+    sub.add_argument("--host", default="127.0.0.1",
+                     help="loopback only, and refused otherwise; this page drives terminal reads "
+                          "and holds the lab token")
+    sub.add_argument("--port", type=int, default=18100)
+    sub.add_argument("--out", help="where the visit's files go (default: devices-agent/field-report)")
+    sub.add_argument("--no-open", action="store_true", help="do not open a browser; print the address")
+    sub.set_defaults(handler=cmd_web)
 
     sub = commands.add_parser("sim-zk", help="lab: a pretend ZKTeco terminal on port 4370")
     sub.add_argument("--host", default="127.0.0.1")
