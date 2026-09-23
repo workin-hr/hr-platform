@@ -155,7 +155,8 @@ public class AttendanceAdminService {
 		// send this (the modal's save button is disabled until a check-in is set) but a replayed or
 		// hand-rolled POST can, so the refusal belongs on the server. A Java-only hardening, not a
 		// parity item: legacy stores the blank and leaves the row unreachable.
-		if (!isDateTime(checkIn)) {
+		String storedCheckIn = storableCheckIn(checkIn);
+		if (storedCheckIn == null) {
 			throw new RefusedException(Refusal.INVALID);
 		}
 		long companyId = resolveAddCompany(session, employeeId);
@@ -169,7 +170,7 @@ public class AttendanceAdminService {
 			throw new RefusedException(Refusal.INACTIVE_TYPE);
 		}
 
-		this.store.insert(employeeId, checkIn, blankToNull(checkOut), exceptionTypeId);
+		this.store.insert(employeeId, storedCheckIn, blankToNull(checkOut), exceptionTypeId);
 		audit(adminId, PlatformAdminAuditEventType.ORG_CREATED, employeeId,
 				"attendance added for employee " + employeeId + " in company " + companyId);
 		return companyId;
@@ -182,6 +183,13 @@ public class AttendanceAdminService {
 			throw new RefusedException(Refusal.INVALID);
 		}
 		long owner = assertRowVisible(session, id);
+		// The same refusal as `add`, for the same reason: an edit writes `check_in` too, so it can
+		// turn a visible, deletable row into one no range query on this page can reach. Refused
+		// after the row is known to be visible, so a foreign row still reads as a foreign row.
+		String storedCheckIn = storableCheckIn(checkIn);
+		if (storedCheckIn == null) {
+			throw new RefusedException(Refusal.INVALID);
+		}
 		// The stored row's company, never one the request named -- D-176(b).
 		assertExceptionTypeVisible(exceptionTypeId, owner);
 		// A retired type stays with the rows that already carry it (D-240). The shared
@@ -192,7 +200,7 @@ public class AttendanceAdminService {
 			throw new RefusedException(Refusal.INACTIVE_TYPE);
 		}
 
-		this.store.update(id, checkIn, blankToNull(checkOut), exceptionTypeId);
+		this.store.update(id, storedCheckIn, blankToNull(checkOut), exceptionTypeId);
 		audit(adminId, PlatformAdminAuditEventType.ORG_UPDATED, id,
 				"attendance " + id + " edited in company " + owner);
 		return owner;
@@ -257,28 +265,49 @@ public class AttendanceAdminService {
 	}
 
 	/** `$_POST['check_out'] ?: null` -- an empty string stores NULL, not ''. */
-	/**
-	 * Does this parse as a datetime the `attendance.check_in` column can be read back through?
-	 *
-	 * `datetime-local` sends `YYYY-MM-DDTHH:MM`, legacy's own form posts `YYYY-MM-DD HH:MM:SS`, and
-	 * both reach the same column, so both are accepted. Anything else is refused rather than stored
-	 * as a value no query on this page can match.
-	 */
-	private static boolean isDateTime(String raw) {
-		if (raw == null || raw.isBlank()) {
-			return false;
-		}
-		String value = raw.trim().replace(' ', 'T');
-		try {
-			java.time.LocalDateTime.parse(value.length() == 16 ? value : value.substring(0, Math.min(19, value.length())));
-			return true;
-		} catch (java.time.format.DateTimeParseException | StringIndexOutOfBoundsException malformed) {
-			return false;
-		}
-	}
-
 	private static String blankToNull(String raw) {
 		return raw == null || raw.isEmpty() ? null : raw;
+	}
+
+	/** The two shapes a form posts: `datetime-local`'s, and legacy's own with seconds. */
+	private static final java.time.format.DateTimeFormatter POSTED_CHECK_IN =
+			new java.time.format.DateTimeFormatterBuilder()
+					.appendPattern("uuuu-MM-dd'T'HH:mm")
+					.optionalStart().appendPattern(":ss").optionalEnd()
+					.toFormatter()
+					.withResolverStyle(java.time.format.ResolverStyle.STRICT);
+
+	/** What the `DATETIME` column holds, and what every read of this page compares against. */
+	private static final java.time.format.DateTimeFormatter STORED_CHECK_IN =
+			java.time.format.DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss");
+
+	/**
+	 * The check-in as the column will hold it, or {@code null} when this is not one of the two
+	 * shapes the forms post.
+	 *
+	 * <p>{@code datetime-local} sends {@code YYYY-MM-DDTHH:MM} and legacy's own form posts
+	 * {@code YYYY-MM-DD HH:MM:SS}; both reach the same column, so both are accepted. Only those two
+	 * lengths are, which is also what keeps a signed or expanded year out.
+	 *
+	 * <p>The parsed value is what gets stored, deliberately: validating one string and writing a
+	 * different one is how a value this method approved would still reach MariaDB as a truncation
+	 * error or a zero date. For the two shapes above the canonical form is byte-identical to what
+	 * the column already stored, so nothing about an accepted punch changes.
+	 */
+	private static String storableCheckIn(String raw) {
+		if (raw == null) {
+			return null;
+		}
+		String value = raw.trim();
+		if (value.length() != 16 && value.length() != 19) {
+			return null;
+		}
+		try {
+			return POSTED_CHECK_IN.parse(value.replace(' ', 'T'), java.time.LocalDateTime::from)
+					.format(STORED_CHECK_IN);
+		} catch (java.time.format.DateTimeParseException malformed) {
+			return null;
+		}
 	}
 
 }

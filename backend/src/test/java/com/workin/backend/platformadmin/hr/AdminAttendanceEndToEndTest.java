@@ -557,7 +557,12 @@ class AdminAttendanceEndToEndTest {
 		// It redirected on the success path, so the operator was told it was saved. The modal's save
 		// button is disabled until a check-in is set, so only a replayed or hand-rolled POST gets
 		// here, which is exactly why the refusal has to be on the server.
-		for (String checkIn : new String[] {"", "   ", "not-a-date", "2026-13-45 99:99:99"}) {
+		// The last two are the interesting ones: a guard that parses a *prefix* and then stores the
+		// whole string approves a value the column never sees the same way, and only the two posted
+		// lengths keep a signed year out of the SQL.
+		for (String checkIn : new String[] {
+				"", "   ", "not-a-date", "2026-13-45 99:99:99",
+				"2026-03-02T09:00:00zzzz", "+12026-03-02T09:00"}) {
 			post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
 					"action", "add_attendance", "employee_id", String.valueOf(this.employeeA),
 					"check_in", checkIn);
@@ -571,8 +576,40 @@ class AdminAttendanceEndToEndTest {
 		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
 				"action", "add_attendance", "employee_id", String.valueOf(this.employeeA),
 				"check_in", "2026-03-03 09:00:00");
+		assertThat(this.jdbc.queryForList(
+				"SELECT check_in FROM attendance ORDER BY check_in", String.class))
+				.as("what the guard accepted is what the column holds")
+				.containsExactly("2026-03-02 09:00:00", "2026-03-03 09:00:00");
+	}
+
+	@Test
+	void editingWithACheckInTheRangeFilterCanNeverMatchLeavesTheRowAlone() {
+		// The sibling of the add refusal, found by reading the diff rather than by review: `edit`
+		// writes the same column, so without this an edit turns a visible, deletable row into one
+		// no range query on this page can reach -- the same permanent invisible row, one endpoint
+		// over. Legacy writes `$_POST['check_in']` raw here too, so this is the same Java-only
+		// hardening, recorded with the add one.
+		long id = attendance(this.employeeA, "2026-03-02 09:00:00", "2026-03-02 17:00:00", null);
+		for (String checkIn : new String[] {"", "   ", "not-a-date", "2026-03-02T09:00:00zzzz"}) {
+			post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+					"action", "edit_attendance", "id", String.valueOf(id),
+					"check_in", checkIn, "check_out", "2026-03-02 18:00:00");
+			assertThat(this.jdbc.queryForObject(
+					"SELECT check_in FROM attendance WHERE id = " + id, String.class))
+					.as("check_in=%s was written over a good row", checkIn)
+					.isEqualTo("2026-03-02 09:00:00");
+		}
+		// The whole row is untouched by a refused edit, not just the one column.
 		assertThat(this.jdbc.queryForObject(
-				"SELECT COUNT(*) FROM attendance WHERE check_in IS NOT NULL", Integer.class)).isEqualTo(2);
+				"SELECT check_out FROM attendance WHERE id = " + id, String.class))
+				.isEqualTo("2026-03-02 17:00:00");
+		// And a real edit still goes through, in both posted shapes.
+		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+				"action", "edit_attendance", "id", String.valueOf(id),
+				"check_in", "2026-03-02T11:30", "check_out", "");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT check_in FROM attendance WHERE id = " + id, String.class))
+				.isEqualTo("2026-03-02 11:30:00");
 	}
 
 	@Test
