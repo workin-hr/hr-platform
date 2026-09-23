@@ -246,9 +246,11 @@ public class HomeStore {
 		List<Map<String, Object>> rows = this.jdbcTemplate.queryForList(
 				"SELECT d.name AS label, wt.planned_count AS planned,"
 						+ " (SELECT COUNT(*) FROM employees e"
-						+ "   WHERE e.department_id=d.id AND e.is_active=1) AS actual"
+						+ "   WHERE e.department_id=d.id AND e.company_id=wt.company_id"
+						+ "     AND e.is_active=1) AS actual"
 						+ " FROM workforce_planning wt"
 						+ " JOIN departments d ON d.id=wt.department_id"
+						+ "                   AND d.company_id=wt.company_id"
 						+ " WHERE " + scope("wt", companyId)
 						+ " LIMIT 12",
 				scopeArgs(companyId));

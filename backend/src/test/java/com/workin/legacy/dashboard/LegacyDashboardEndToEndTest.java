@@ -44,6 +44,11 @@ class LegacyDashboardEndToEndTest {
 
 	private static final long COMPANY = 25001L;
 	private static final long EMPTY_COMPANY = 25002L;
+
+	/** The other company's department and employee, for the planted-row case. */
+	private static final long FOREIGN_DEPT = 25099L;
+
+	private static final long FOREIGN_EMPLOYEE = 25098L;
 	private static final long ADMIN = 250011L;
 	private static final long EMPLOYEE = 250012L;
 	private static final long EMPTY_ADMIN = 250021L;
@@ -266,6 +271,96 @@ class LegacyDashboardEndToEndTest {
 		assertThat(rows.get(0).keySet()).containsExactly("department_name", "planned", "actual");
 		assertThat(rows).extracting(row -> row.get("department_name"))
 				.containsExactlyInAnyOrder("Engineering", "Sales");
+	}
+
+	/**
+	 * A planning row pointing at another company's department discloses nothing,
+	 * even though the row itself is this company's.
+	 *
+	 * <p>This is the half the write-side refusal cannot cover.
+	 * {@code LegacyWorkforcePlanningService} now refuses a foreign
+	 * {@code department_id}, so no new row can point across a tenant boundary --
+	 * but rows planted while that check was absent are already in production data,
+	 * and only the query decides what they disclose. Before D-277 this response
+	 * carried the foreign department's <b>name</b> and its active <b>headcount</b>,
+	 * one field more than {@code workforce_planning/list.php} leaks.
+	 *
+	 * <p>The row is inserted directly rather than through the endpoint, because the
+	 * endpoint now correctly refuses to create it. That is the point: this asserts
+	 * the read is safe on data the writes can no longer produce.
+	 */
+	@Test
+	@SuppressWarnings("unchecked")
+	void aPlanningRowPointingAtAnotherCompanysDepartmentDisclosesNothing() {
+		execute("INSERT INTO departments (id, company_id, name, created_at) VALUES"
+				+ " (" + FOREIGN_DEPT + ", " + EMPTY_COMPANY + ", 'Victim R&D', '2019-03-01 10:00:00')");
+		execute("INSERT INTO employees (id, company_id, branch_id, department_id, employee_code,"
+				+ " first_name, last_name, phone, role, is_active, created_at) VALUES"
+				+ " (" + FOREIGN_EMPLOYEE + ", " + EMPTY_COMPANY + ", " + (BRANCH + 2) + ", "
+				+ FOREIGN_DEPT + ", '2599', 'Victim', 'Worker', '+201000250099', 'employee', 1,"
+				+ " '2019-04-01 08:00:00')");
+		// What a pre-D-277 save_target would have written: this company's row,
+		// another company's department.
+		execute("INSERT INTO workforce_planning (id, company_id, branch_id, department_id,"
+				+ " job_title_id, planned_count) VALUES (3, " + COMPANY + ", " + BRANCH + ", "
+				+ FOREIGN_DEPT + ", 0, 7)");
+		try {
+			List<Map<String, Object>> rows =
+					(List<Map<String, Object>>) stats(ADMIN).get("workforce_planning_stats");
+
+			assertThat(rows).extracting(row -> row.get("department_name"))
+					.as("the victim's department name is not in the response")
+					.containsExactlyInAnyOrder("Engineering", "Sales");
+			assertThat(rows)
+					.as("the planted row drops out rather than being rendered nameless")
+					.hasSize(2);
+		} finally {
+			execute("DELETE FROM workforce_planning WHERE id = 3");
+			execute("DELETE FROM employees WHERE id = " + FOREIGN_EMPLOYEE);
+			execute("DELETE FROM departments WHERE id = " + FOREIGN_DEPT);
+		}
+	}
+
+	/**
+	 * The mirror of the planted-row case above, and the one the scoped join
+	 * cannot reach: the planning row is clean, and it is another company's
+	 * <em>employee</em> that points into this company's department and branch.
+	 * {@code employees.department_id} and {@code employees.branch_id} carry no
+	 * foreign key either, so every aggregate that walks from a company-scoped
+	 * {@code departments} or {@code branches} row out to {@code employees} has to
+	 * say whose employees it means.
+	 */
+	@Test
+	void anotherCompanysEmployeeInsideThisCompanysOrgChartChangesNoneOfItsNumbers() {
+		Map<String, Object> before = stats(ADMIN);
+
+		execute("INSERT INTO employees (id, company_id, branch_id, department_id, employee_code,"
+				+ " first_name, last_name, phone, role, is_active, hire_date, created_at) VALUES ("
+				+ FOREIGN_EMPLOYEE + ", " + EMPTY_COMPANY + ", " + BRANCH + ", " + DEPT_A + ", '2598',"
+				+ " 'Victim', 'Worker', '+201000250098', 'employee', 1, '2019-04-01',"
+				+ " '2019-04-01 08:00:00')");
+		execute("INSERT INTO salary_contracts (employee_id, basic_salary, transport_allowance,"
+				+ " food_allowance, risk_allowance, incentives, effective_from) VALUES ("
+				+ FOREIGN_EMPLOYEE + ", 9999, 0, 0, 0, 0, '2019-01-01')");
+		execute("INSERT INTO attendance (employee_id, check_in) VALUES (" + FOREIGN_EMPLOYEE
+				+ ", CONCAT(CURRENT_DATE, ' 09:00:00'))");
+		execute("INSERT INTO penalties (id, employee_id, penalty_type, penalty_days, reason,"
+				+ " penalty_date, applied_to_payroll, created_at) VALUES (2, " + FOREIGN_EMPLOYEE
+				+ ", 'late', 1.0, 'r', '2021-06-10', 0, '2021-06-10 08:00:00')");
+		try {
+			assertThat(stats(ADMIN))
+					.as("headcount by branch and by department, salaries and penalties by department, "
+							+ "the attendance shares and workforce planning's actual count all reach "
+							+ "employees through an org id; every one of them is scoped to the "
+							+ "anchoring row's own company, so this response is byte-for-byte what it "
+							+ "was before the foreign row existed")
+					.isEqualTo(before);
+		} finally {
+			execute("DELETE FROM penalties WHERE id = 2");
+			execute("DELETE FROM attendance WHERE employee_id = " + FOREIGN_EMPLOYEE);
+			execute("DELETE FROM salary_contracts WHERE employee_id = " + FOREIGN_EMPLOYEE);
+			execute("DELETE FROM employees WHERE id = " + FOREIGN_EMPLOYEE);
+		}
 	}
 
 	@Test

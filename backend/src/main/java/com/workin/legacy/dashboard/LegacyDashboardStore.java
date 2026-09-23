@@ -74,7 +74,7 @@ public class LegacyDashboardStore {
 				       SUM(sc.basic_salary + sc.transport_allowance + sc.food_allowance
 				           + sc.risk_allowance + sc.incentives) AS v
 				FROM departments s
-				JOIN employees e ON e.department_id = s.id
+				JOIN employees e ON e.department_id = s.id AND e.company_id = s.company_id
 				JOIN salary_contracts sc ON sc.employee_id = e.id
 				WHERE s.company_id=? AND e.is_active=1
 				GROUP BY s.id""", companyId);
@@ -85,7 +85,8 @@ public class LegacyDashboardStore {
 		return longMap("""
 				SELECT b.name AS k, COUNT(e.id) AS v
 				FROM branches b
-				LEFT JOIN employees e ON e.branch_id = b.id AND e.is_active=1
+				LEFT JOIN employees e ON e.branch_id = b.id AND e.company_id = b.company_id
+				                     AND e.is_active=1
 				WHERE b.company_id=?
 				GROUP BY b.id""", companyId);
 	}
@@ -94,7 +95,8 @@ public class LegacyDashboardStore {
 		return longMap("""
 				SELECT s.name AS k, COUNT(e.id) AS v
 				FROM departments s
-				LEFT JOIN employees e ON e.department_id = s.id AND e.is_active=1
+				LEFT JOIN employees e ON e.department_id = s.id AND e.company_id = s.company_id
+				                     AND e.is_active=1
 				WHERE s.company_id=?
 				GROUP BY s.id""", companyId);
 	}
@@ -103,28 +105,45 @@ public class LegacyDashboardStore {
 	 * Workforce planning rows: a <b>list</b>, not a map, so duplicate department
 	 * names survive here where they collide everywhere else in this response.
 	 *
-	 * <p>The department join is unscoped by company -- only
-	 * {@code wt.company_id} is filtered. An earlier revision of this comment
-	 * called that safe because {@code workforce_planning} rows are themselves
-	 * company-scoped; <b>that reasoning is wrong</b> and is retracted. Scoping
-	 * the row does not scope the join: {@code workforce_planning.department_id}
-	 * carries no foreign key in {@code hr-legacy@d113204}, so a row owned by
-	 * this company may point at another company's department, and then both the
-	 * name and the {@code actual} subquery's headcount are read from that
-	 * tenant.
+	 * <p><b>The join and the headcount subquery are both scoped by company, which
+	 * legacy's are not</b> (D-277, reversing D-131 for this surface). Scoping the
+	 * {@code workforce_planning} row is not enough on its own:
+	 * {@code department_id} carries no foreign key in {@code hr-legacy@d113204},
+	 * so a row owned by this company can point at another company's department,
+	 * and then the name and the {@code actual} headcount are read from that
+	 * tenant. An earlier revision of this comment called the unscoped join safe
+	 * because the rows are company-scoped; that reasoning was wrong and stays
+	 * retracted.
 	 *
-	 * <p>It is reproduced rather than fixed because
-	 * {@code apis/api/dashboard/stats.php:91-99} is character-for-character this
-	 * query (D-058). The disclosure is legacy's, and it is real.
+	 * <p>The write paths now refuse a foreign {@code department_id}
+	 * ({@code LegacyWorkforcePlanningService}), so no new row can point across a
+	 * tenant boundary. The predicates here are what makes a row <em>planted
+	 * before</em> that fix stop disclosing, which a write-side check cannot do --
+	 * so this is not belt-and-braces, it is the half that covers existing data.
+	 *
+	 * <p>A clean row is <b>not</b> always unchanged, which an earlier revision of
+	 * this comment claimed: the subquery's predicate alters {@code actual}
+	 * exactly when another company's employee points at this company's
+	 * department, since {@code employees.department_id} has no foreign key
+	 * either. That is the case it exists for, and it is what
+	 * {@code anotherCompanysEmployeeInsideThisCompanysOrgChartChangesNoneOfItsNumbers}
+	 * pins -- together with the five sibling aggregates in this class that reach
+	 * employees through an org id and needed the same predicate.
+	 *
+	 * <p>This is a deliberate divergence from
+	 * {@code apis/api/dashboard/stats.php:91-99}, which is otherwise
+	 * character-for-character this query (D-058).
 	 */
 	public List<Map<String, Object>> workforcePlanning(long companyId) {
 		return jdbcTemplate.query("""
 				SELECT s.name AS department_name,
 				       wt.planned_count AS planned,
 				       (SELECT COUNT(*) FROM employees e
-				         WHERE e.department_id = s.id AND e.is_active=1) AS actual
+				         WHERE e.department_id = s.id AND e.company_id = wt.company_id
+				           AND e.is_active=1) AS actual
 				FROM workforce_planning wt
 				JOIN departments s ON s.id = wt.department_id
+				                  AND s.company_id = wt.company_id
 				WHERE wt.company_id=?""",
 				(rs, rowNum) -> {
 					Map<String, Object> row = new LinkedHashMap<>();
@@ -162,9 +181,10 @@ public class LegacyDashboardStore {
 				SELECT s.name AS department_name,
 				       COUNT(DISTINCT a.employee_id) AS present,
 				       (SELECT COUNT(*) FROM employees e2
-				         WHERE e2.department_id = s.id AND e2.is_active=1) AS total
+				         WHERE e2.department_id = s.id AND e2.company_id = s.company_id
+				           AND e2.is_active=1) AS total
 				FROM departments s
-				LEFT JOIN employees e ON e.department_id = s.id
+				LEFT JOIN employees e ON e.department_id = s.id AND e.company_id = s.company_id
 				LEFT JOIN attendance a ON a.employee_id = e.id AND DATE(a.check_in) = CURDATE()
 				WHERE s.company_id=?
 				GROUP BY s.id""",
@@ -192,7 +212,7 @@ public class LegacyDashboardStore {
 		return longMap("""
 				SELECT s.name AS k, COUNT(p.id) AS v
 				FROM departments s
-				JOIN employees e ON e.department_id = s.id
+				JOIN employees e ON e.department_id = s.id AND e.company_id = s.company_id
 				JOIN penalties p ON p.employee_id = e.id
 				WHERE s.company_id=?
 				GROUP BY s.id""", companyId);
