@@ -114,6 +114,9 @@ public class LegacyAttendanceCalendar {
 
 	private final JdbcTemplate jdbcTemplate;
 	private final LegacyWeeklyOffDays weeklyOffDays;
+	/** Removed from each warmed row, so the cached map matches {@link #SHIFT_ON_DATE}'s exactly. */
+	private static final String WARM_EMPLOYEE_KEY = "warm_employee_id";
+
 	private final Map<String, Map<String, Object>> shiftCache = new HashMap<>();
 	private final Map<String, Map<String, String>> holidayCache = new HashMap<>();
 
@@ -193,6 +196,102 @@ public class LegacyAttendanceCalendar {
 		Map<String, Object> shift = rows.isEmpty() ? null : rows.get(0);
 		shiftCache.put(key, shift);
 		return shift;
+	}
+
+	/**
+	 * Fills {@link #shiftForEmployeeOnDate}'s cache for a whole page in one
+	 * statement, instead of one per employee per day.
+	 *
+	 * <p>The per-date query is the right shape for one date and the wrong shape
+	 * for a report: the attendance page's aggregate view asks for every employee
+	 * on the page, for every day of the period, so a month over ten rows was
+	 * measured at 300 statements of the 354 that page issued. The cache is
+	 * per-request, so it was 300 on every request, not only the first.
+	 *
+	 * <p>This is a pre-warm and not a second implementation: it selects the same
+	 * columns and resolves the same winner, so a hit here is
+	 * indistinguishable from the query it replaces. The ordering is the
+	 * inverse of {@link #SHIFT_ON_DATE}'s -- ascending, so walking the dates
+	 * forward keeps the last assignment that has taken effect, which is what
+	 * {@code ORDER BY effective_from DESC, id DESC LIMIT 1} picks. A date before
+	 * any assignment caches {@code null}, exactly as the query's empty result
+	 * does, so it is not re-asked.
+	 *
+	 * <p><b>The comparison is lexical, and that is only correct because
+	 * {@code effective_from} is a {@code DATE}</b> ({@code date NOT NULL} in the
+	 * frozen schema, which {@code check_legacy_schema_drift.py} holds), and
+	 * {@code LegacyJdbcValues} hands temporal columns back as raw text: an
+	 * {@code ISO} date orders lexically exactly as it orders chronologically.
+	 * Widen the column to {@code DATETIME} and the text becomes
+	 * {@code 2026-03-10 00:00:00}, which compares <em>greater</em> than
+	 * {@code 2026-03-10} -- the walk would then apply an assignment a day late
+	 * while SQL applies it that day. The drift gate is what would catch the
+	 * widening; this sentence is what tells the next reader why it matters.
+	 *
+	 * @param employeeIds the page's employees; at most a page size of them
+	 * @param from        first date to resolve, inclusive
+	 * @param to          last date to resolve, inclusive
+	 */
+	public void warmShiftsForEmployees(java.util.Collection<Long> employeeIds, String from, String to) {
+		if (employeeIds == null || employeeIds.isEmpty()
+				|| from == null || from.isEmpty() || to == null || to.isEmpty()) {
+			return;
+		}
+		List<Long> ids = employeeIds.stream().filter(id -> id != null && id > 0).distinct().toList();
+		if (ids.isEmpty()) {
+			return;
+		}
+		java.time.LocalDate first;
+		java.time.LocalDate last;
+		try {
+			first = java.time.LocalDate.parse(from);
+			last = java.time.LocalDate.parse(to);
+		} catch (java.time.format.DateTimeParseException unparseable) {
+			return;
+		}
+		if (last.isBefore(first)) {
+			return;
+		}
+
+		String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+		Object[] args = new Object[ids.size() + 1];
+		for (int i = 0; i < ids.size(); i++) {
+			args[i] = ids.get(i);
+		}
+		args[ids.size()] = to;
+		Map<Long, List<Map<String, Object>>> byEmployee = new java.util.LinkedHashMap<>();
+		jdbcTemplate.query(
+				"SELECT esa.employee_id AS " + WARM_EMPLOYEE_KEY + ", esa.shift_id, esa.effective_from, s.*"
+						+ " FROM employee_shift_assignments esa"
+						+ " INNER JOIN shifts s ON s.id = esa.shift_id"
+						+ " WHERE esa.employee_id IN (" + placeholders + ") AND esa.effective_from <= ?"
+						+ " ORDER BY esa.employee_id ASC, esa.effective_from ASC, esa.id ASC",
+				rs -> {
+					Map<String, Object> row = com.workin.legacy.LegacyJdbcValues.rowMapper().mapRow(rs, 0);
+					Object owner = row.remove(WARM_EMPLOYEE_KEY);
+					long employeeId = owner instanceof Number number ? number.longValue()
+							: Long.parseLong(String.valueOf(owner));
+					byEmployee.computeIfAbsent(employeeId, key -> new java.util.ArrayList<>()).add(row);
+				}, args);
+
+		for (Long employeeId : ids) {
+			List<Map<String, Object>> assignments = byEmployee.getOrDefault(employeeId, List.of());
+			int next = 0;
+			Map<String, Object> current = null;
+			for (java.time.LocalDate date = first; !date.isAfter(last); date = date.plusDays(1)) {
+				String text = date.toString();
+				while (next < assignments.size()
+						&& text(assignments.get(next).get("effective_from")).compareTo(text) <= 0) {
+					current = assignments.get(next);
+					next++;
+				}
+				// put, not putIfAbsent: the two can only ever be the same answer,
+				// because nothing writes employee_shift_assignments mid-request --
+				// and putIfAbsent would not have protected a cached absence anyway,
+				// since it replaces a mapping whose value is null.
+				shiftCache.put(employeeId + "|" + text, current);
+			}
+		}
 	}
 
 	/**
