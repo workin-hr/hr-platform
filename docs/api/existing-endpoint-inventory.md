@@ -574,6 +574,15 @@ their own row and read that company's **name** back out. Tracked upstream as
 `hr-legacy#33`; do not treat this module as tenant-safe on the strength of its
 `company_id` filter.
 
+**Closed in the Java port 2026-09-23 (D-277).** The paragraphs above describe
+legacy, which is unchanged, and they describe the Java port only up to that date.
+`save_target.php` and `update.php` now validate the three org keys exactly as
+`create.php` does — `update` validating each key the body actually carries, so an
+edit naming none of them is unaffected — and `dashboard/stats.php`'s join and
+headcount subquery are both company-scoped, which is what stops a row planted
+before the fix from disclosing. The port therefore **diverges from legacy here
+deliberately**; the upstream issue stays open for legacy's own sake.
+
 ## Branches, Company Settings, Notifications (`apis/api/{branches,company_settings,notifications}/`, 18 endpoints)
 
 All 18 endpoints read; no scoping gaps found — consistently company-scoped
@@ -738,7 +747,9 @@ in full**: it is the second surface of the D-131 cross-tenant disclosure. Its
 `department_id` alone while filtering only `wt.company_id`, and
 `workforce_planning.department_id` has no foreign key, so a foreign
 department's name and its active headcount can be read from a single
-authenticated `GET`.
+authenticated `GET`. **The Java port scopes both the join and the subquery as of
+2026-09-23 (D-277)**, so that sentence is legacy's behaviour and no longer the
+port's.
 
 **`configs/get.php` is delivered (Item 13.0, 2026-08-29, D-126)** and remains
 unauthenticated. Clients call it at `/apis/api/configs/get` — the suffixless

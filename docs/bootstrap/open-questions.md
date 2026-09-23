@@ -144,8 +144,23 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
 
 ## Workforce Planning Cross-Tenant Disclosure (D-131 — blocks Wave 13.4b)
 
+**REVERSED 2026-09-23 (D-277): the Java port no longer reproduces it.** Asked
+again, with the leak still live and the desktop client calling the endpoint, the
+owner chose to harden the API surface rather than keep waiting for
+`hr-legacy#33`. All three write paths validate the org keys as `create.php` does,
+and `dashboard/stats.php`'s join and headcount subquery are company-scoped, which
+is the half that covers rows planted while the checks were absent. The two
+regressions that asserted the leak were **inverted, not deleted**, as this
+section's own resolution trigger required, and a third now pins the planted-row
+read. Legacy is unchanged and `hr-legacy#33` stays open for legacy's own sake, so
+the port is deliberately divergent here — the third option this section did not
+list, because in 2026-08 the choice was framed as merge-or-hold while the code was
+still unwritten.
+
 **RESOLVED 2026-08-30 (D-141): parity, on both surfaces, and Item 13 is not
-held.** The text below is the question as it stood while open, kept unedited.
+held.** That answer stood for 24 days and is kept below as the record of what was
+decided and when. The text after it is the question as it stood while open, kept
+unedited.
 
 `workforce_planning`'s `save_target.php` and `update.php` accept unvalidated
 foreign `branch_id`/`department_id`/`job_title_id`, and the three name joins in
