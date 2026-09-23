@@ -120,7 +120,15 @@ public class LegacyDashboardStore {
 	 * tenant boundary. The predicates here are what makes a row <em>planted
 	 * before</em> that fix stop disclosing, which a write-side check cannot do --
 	 * so this is not belt-and-braces, it is the half that covers existing data.
-	 * For a clean row the result is unchanged.
+	 *
+	 * <p>A clean row is <b>not</b> always unchanged, which an earlier revision of
+	 * this comment claimed: the subquery's predicate alters {@code actual}
+	 * exactly when another company's employee points at this company's
+	 * department, since {@code employees.department_id} has no foreign key
+	 * either. That is the case it exists for, and it is what
+	 * {@code anotherCompanysEmployeeInsideThisCompanysOrgChartChangesNoneOfItsNumbers}
+	 * pins -- together with the five sibling aggregates in this class that reach
+	 * employees through an org id and needed the same predicate.
 	 *
 	 * <p>This is a deliberate divergence from
 	 * {@code apis/api/dashboard/stats.php:91-99}, which is otherwise

@@ -15,15 +15,23 @@ import com.workin.legacy.LegacyJdbcValues;
  * {@code workforce_planning} -- planned headcount per
  * (branch, department, job title), with the actual count computed alongside.
  *
- * <h2>The three name joins carry no tenant filter</h2>
- * <p>{@code LEFT JOIN branches b ON b.id = wt.branch_id} and its two siblings
- * match on id alone. That is safe only while every row's
- * {@code branch_id}/{@code department_id}/{@code job_title_id} really does
- * belong to {@code wt.company_id} -- which {@code create.php} enforces and
- * {@code save_target.php} does <b>not</b>. See
- * {@link LegacyWorkforcePlanningService#saveTarget} for what that combination
- * makes possible; it is reproduced deliberately and reported upstream, not
- * quietly repaired here.
+ * <h2>The three name joins relate to the row's own company</h2>
+ * <p>{@code LEFT JOIN branches b ON b.id = wt.branch_id AND b.company_id =
+ * wt.company_id} and its two siblings. Matching on id alone would be safe only
+ * while every row's {@code branch_id}/{@code department_id}/
+ * {@code job_title_id} really does belong to {@code wt.company_id}, and no
+ * foreign key makes that true: {@code save_target.php} wrote whatever it was
+ * given for the whole life of this surface, and legacy still does against the
+ * same database, so rows that cross a tenant boundary can already exist. The
+ * write paths can no longer create one ({@link LegacyWorkforcePlanningService});
+ * these predicates are what covers the ones already written, which a write-side
+ * check cannot reach (D-277).
+ *
+ * <p>They stay {@code LEFT JOIN}s: such a row <b>remains in its owner's list</b>
+ * with the name absent, rather than disappearing, so the tenant keeps sight of
+ * a plan it owns while nobody else's name is read. {@code dashboard/stats.php}
+ * answers the same shape with an inner join and therefore drops the row; that
+ * difference is legacy's, not this port's.
  */
 @Repository
 public class LegacyWorkforcePlanningStore {

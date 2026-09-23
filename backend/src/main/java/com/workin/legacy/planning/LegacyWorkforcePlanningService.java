@@ -14,25 +14,30 @@ import com.workin.legacy.wire.LegacyApiException;
 /**
  * {@code workforce_planning/*.php} -- planned against actual headcount.
  *
- * <h2>Only one of the three write paths validates its foreign ids</h2>
- * <p>{@link #create} checks that the branch, the department (when non-zero) and
- * the job title all belong to the caller's company, answering
- * {@code branch_not_found} / {@code department_not_found} /
- * {@code job_title_not_found} otherwise.
+ * <h2>All three write paths validate their foreign ids</h2>
+ * <p>{@link #create}, {@link #saveTarget} and {@link #update} each check that
+ * the branch, the department (when non-zero) and the job title belong to the
+ * caller's company, answering {@code branch_not_found} /
+ * {@code department_not_found} / {@code job_title_not_found} otherwise.
+ * {@code update} checks each key the body actually carries, because a field it
+ * omits is not being written.
  *
- * <p>{@link #saveTarget} and {@link #update} check <b>none of them</b>. They
- * accept any integer and store it against the caller's own {@code company_id}.
- * Combined with the store's untenanted name joins, that lets a company admin
- * write another company's {@code branch_id} into their own planning row and
- * then read that branch's <b>name</b> back out of {@code list.php} -- and the
- * same for departments and job titles. Iterating ids enumerates a competitor's
- * organizational structure.
+ * <p>Two details decide whether that holds. The id <b>written</b> is the id
+ * that was <b>checked</b>: binding PDO's string instead would let MariaDB round
+ * {@code "28011.9"} to 28012 under this datasource's empty {@code sql_mode},
+ * and 28012 is whatever company owns the next id. And editing asks only
+ * ownership -- {@code create.php}'s extra {@code is_active} rule for job titles
+ * is kept only on {@code create}, so a target planned against a title that was
+ * deactivated afterwards can still be re-saved by the client that owns it.
  *
- * <p><b>This is reproduced deliberately and is not a defect introduced by the
- * port</b> (D-058, D-131). It is filed upstream as a security issue, it is
- * demonstrated by a regression rather than described, and it must be fixed in
- * legacy first so that the two systems stay comparable. Nothing here should be
- * read as an endorsement of the behaviour.
+ * <p><b>This diverges from legacy deliberately</b> (D-277, reversing D-131 for
+ * this surface on the owner's instruction). Until 2026-09-23 {@code saveTarget}
+ * and {@code update} checked none of the three, which let a company admin write
+ * another company's {@code branch_id} into their own planning row and read that
+ * branch's <b>name</b> back out of {@code list.php}; that was reproduced
+ * deliberately under D-058 and filed upstream, where it is still open. Legacy
+ * is unchanged, so the two systems now answer differently for a request no
+ * legitimate client makes.
  */
 @Service
 public class LegacyWorkforcePlanningService {
