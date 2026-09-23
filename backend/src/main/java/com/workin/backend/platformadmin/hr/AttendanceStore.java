@@ -272,6 +272,52 @@ public class AttendanceStore {
 		return credit == null ? 0 : credit;
 	}
 
+	/**
+	 * {@link #officialHolidayCreditForEmployee} for a whole page in one
+	 * statement.
+	 *
+	 * <p>The correlated subquery is character-for-character the single-employee
+	 * one, so a page's credits are the same numbers asked for together rather
+	 * than a second way of counting them. The outer query drives off
+	 * {@code employees} only to give each subquery its id.
+	 *
+	 * @return credit per employee id; an employee with none is absent, and the
+	 *     caller reads it as zero exactly as the single-employee method returns
+	 */
+	public Map<Long, Integer> officialHolidayCreditForEmployees(
+			long companyId, java.util.Collection<Long> employeeIds, String from, String to) {
+		if (companyId <= 0 || employeeIds == null || from == null || from.isEmpty()
+				|| to == null || to.isEmpty()) {
+			return Map.of();
+		}
+		List<Long> ids = employeeIds.stream().filter(id -> id != null && id > 0).distinct().toList();
+		if (ids.isEmpty()) {
+			return Map.of();
+		}
+		String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+		Object[] args = new Object[ids.size() + 3];
+		args[0] = companyId;
+		args[1] = from;
+		args[2] = to;
+		for (int i = 0; i < ids.size(); i++) {
+			args[i + 3] = ids.get(i);
+		}
+		Map<Long, Integer> credits = new java.util.LinkedHashMap<>();
+		this.jdbcTemplate.query(
+				"SELECT emp.id AS employee_id,"
+						+ " (SELECT COUNT(*) FROM company_official_holidays h"
+						+ "   WHERE h.company_id = ? AND h.holiday_date BETWEEN ? AND ?"
+						+ "     AND NOT EXISTS ("
+						+ "         SELECT 1 FROM attendance a"
+						+ "         WHERE a.employee_id = emp.id AND DATE(a.check_in) = h.holiday_date)"
+						+ " ) AS credit"
+						+ " FROM employees emp WHERE emp.id IN (" + placeholders + ")",
+				rs -> {
+					credits.put(rs.getLong("employee_id"), rs.getInt("credit"));
+				}, args);
+		return credits;
+	}
+
 	/** The company an attendance row belongs to, through its employee (R-046). */
 	public Long companyOf(long id) {
 		if (id <= 0) {
@@ -526,9 +572,19 @@ public class AttendanceStore {
 				pageParams.toArray());
 
 		long aggCompanyId = filters.companyId() > 0 ? filters.companyId() : scopedCompanyId;
+		// One statement for every employee's shift on every day of the period,
+		// instead of one per employee per day inside summarise(). The lookback
+		// matches the one summarise() uses for holidays, so a warmed date is
+		// never re-asked. Without it a month over ten rows was 354 statements.
+		List<Long> employeeIds = raw.stream().map(RawAggregate::employeeId).toList();
+		this.calendar.warmShiftsForEmployees(
+				employeeIds, LocalDate.parse(from).minusDays(7).toString(), to);
+		Map<Long, Integer> holidayCredits =
+				officialHolidayCreditForEmployees(aggCompanyId, employeeIds, from, to);
+
 		List<AttendanceRecord.AggregateRow> report = new ArrayList<>(raw.size());
 		for (RawAggregate row : raw) {
-			report.add(summarise(row, aggCompanyId, daysInPeriod, from, to, asOf));
+			report.add(summarise(row, aggCompanyId, daysInPeriod, from, to, asOf, holidayCredits));
 		}
 		return DashboardPage.of(report, total == null ? 0 : total, aggPage, filters.perPage());
 	}
@@ -543,9 +599,10 @@ public class AttendanceStore {
 	 * days are not counted as absence here.
 	 */
 	private AttendanceRecord.AggregateRow summarise(
-			RawAggregate row, long companyId, int daysInPeriod, String from, String to, String asOf) {
+			RawAggregate row, long companyId, int daysInPeriod, String from, String to, String asOf,
+			Map<Long, Integer> holidayCredits) {
 		long employeeId = row.employeeId();
-		int holidayCredit = officialHolidayCreditForEmployee(companyId, employeeId, from, to);
+		int holidayCredit = holidayCredits.getOrDefault(employeeId, 0);
 		int paidLeaveDays = employeeId > 0
 				? this.attendanceFigures.approvedLeaveDays(employeeId, from, to) : 0;
 		double workHoursPerDay = employeeId > 0
