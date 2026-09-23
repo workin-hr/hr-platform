@@ -59,6 +59,13 @@ import org.junit.jupiter.api.Test;
  * same class. All 58 such methods do today; the rule exists so that the
  * fifty-ninth cannot quietly not.
  *
+ * <p><b>The guard has to be used, not just named.</b> Comments and string
+ * literals are stripped before the match, and a guard call whose result is
+ * thrown away ({@code session.companyId();} as a statement of its own) does not
+ * count — it compares nothing and denies nobody. Both shapes used to satisfy
+ * this rule, which means the gate could be laundered by mentioning the thing it
+ * asks for.
+ *
  * <h2>Rule two</h2>
  *
  * Rule one is opt-in by signature, so on its own a write could evade it by not
@@ -252,6 +259,60 @@ class AdminTenantGuardCoverageTest {
 	}
 
 	@Test
+	void theRuleRejectsAGuardWhoseAnswerIsThrownAway() {
+		// Matches TENANT_GUARD exactly, enforces nothing.
+		String source = """
+				class Example {
+					public long delete(DashboardSession session, long id) {
+						session.companyId();
+						this.store.delete(id);
+						return 1L;
+					}
+				}""";
+		assertThat(scan(source).unguarded()).containsExactly("delete");
+	}
+
+	@Test
+	void theRuleRejectsAGuardThatIsOnlyMentionedInAComment() {
+		String source = """
+				class Example {
+					public long delete(DashboardSession session, long id) {
+						// safe: see session.companyId() and canOpenRow(session, id)
+						this.store.delete(id);
+						return 1L;
+					}
+				}""";
+		assertThat(scan(source).unguarded()).containsExactly("delete");
+	}
+
+	@Test
+	void theRuleStillAcceptsAGuardWhoseAnswerIsUsed() {
+		// The three shapes a real guard takes on this surface, so the rule above
+		// cannot be satisfied by refusing everything.
+		String source = """
+				class Example {
+					public long a(DashboardSession session, long id) {
+						long owner = session.companyId();
+						return owner;
+					}
+
+					public long b(DashboardSession session, long id) {
+						if (id != session.companyId()) {
+							throw new IllegalStateException();
+						}
+						return id;
+					}
+
+					public long c(DashboardSession session, long id) {
+						return session.isScopedToOneCompany() ? id : 0L;
+					}
+				}""";
+		Scan scan = scan(source);
+		assertThat(scan.sessionTaking()).isEqualTo(3);
+		assertThat(scan.unguarded()).isEmpty();
+	}
+
+	@Test
 	void theRuleAcceptsAGuardReachedThroughTwoHelpers() {
 		// PayrollAdminService's shape: assertBatchVisible defers to assertVisible,
 		// and only the second one touches the session. A rule that followed one
@@ -310,10 +371,13 @@ class AdminTenantGuardCoverageTest {
 	/** Does this body call one of {@code wanted}, within three levels of helper? */
 	private static boolean reachesCall(
 			String body, Map<String, String> bodies, Set<String> wanted, Set<String> seen, int depth) {
-		Matcher call = Pattern.compile("\\b(\\w+)\\s*\\(").matcher(body);
+		// `name(` and `::name` both reach `name`. Without the second, a write
+		// behind `ids.forEach(this::writeRow)` was invisible to this rule and its
+		// public method was never asked for a session.
+		Matcher call = Pattern.compile("\\b(\\w+)\\s*\\(|::\\s*(\\w+)").matcher(code(body));
 		List<String> callees = new ArrayList<>();
 		while (call.find()) {
-			String callee = call.group(1);
+			String callee = call.group(1) != null ? call.group(1) : call.group(2);
 			if (wanted.contains(callee)) {
 				return true;
 			}
@@ -376,6 +440,25 @@ class AdminTenantGuardCoverageTest {
 		WriteScan scan = scanWrites(source, Set.of("insertRows"));
 		assertThat(scan.writing()).isOne();
 		assertThat(scan.sessionless()).containsExactly("send");
+	}
+
+	@Test
+	void ruleTwoFindsAWriteBehindAMethodReference() {
+		// `name(` is not the only way to reach `name`.
+		String source = """
+				class Example {
+					public Result sendAll(java.util.List<Long> ids) {
+						ids.forEach(this::writeRow);
+						return null;
+					}
+
+					private void writeRow(Long id) {
+						this.store.insertRows(id);
+					}
+				}""";
+		WriteScan scan = scanWrites(source, Set.of("insertRows"));
+		assertThat(scan.writing()).isOne();
+		assertThat(scan.sessionless()).containsExactly("sendAll");
 	}
 
 	@Test
@@ -488,6 +571,38 @@ class AdminTenantGuardCoverageTest {
 	}
 
 	/**
+	 * Comments and string literals, gone, so that naming a guard cannot stand in
+	 * for calling one.
+	 *
+	 * <p>`// see session.companyId() for why this is fine` used to satisfy rule
+	 * one, which is the gate laundering itself with prose.
+	 */
+	private static String code(String body) {
+		return body
+				.replaceAll("(?s)/\\*.*?\\*/", " ")
+				.replaceAll("(?m)//[^\n]*", " ")
+				.replaceAll("\"(?:\\\\.|[^\"\\\\])*\"", "\"\"");
+	}
+
+	/**
+	 * Is this guard match load-bearing, or is its answer thrown away?
+	 *
+	 * <p>{@code session.companyId();} as a statement of its own compares nothing
+	 * and denies nobody, yet it matches {@link #TENANT_GUARD} exactly as
+	 * {@code if (owner != session.companyId())} does. The statement around the
+	 * match decides: a bare call expression is discarded, anything else --
+	 * assigned, compared, returned, passed on -- is used.
+	 */
+	private static boolean used(String code, int start, int end) {
+		int from = Math.max(Math.max(code.lastIndexOf(';', start), code.lastIndexOf('{', start)),
+				code.lastIndexOf('}', start)) + 1;
+		int semicolon = code.indexOf(';', end);
+		String statement = code.substring(from, semicolon < 0 ? code.length() : semicolon).trim();
+		return !statement.matches("(?:[\\w.]*\\.)?(?:companyId|isScopedToOneCompany|canOpenRow)"
+				+ "\\s*\\([^()]*\\)");
+	}
+
+	/**
 	 * The guard may be a helper, and the helper may be a helper: payroll's
 	 * {@code assertBatchVisible} defers to {@code assertVisible}, which is where
 	 * the session comparison actually lives. Three levels is enough for every
@@ -495,8 +610,12 @@ class AdminTenantGuardCoverageTest {
 	 */
 	private static boolean reachesGuard(
 			String body, Map<String, String> bodies, Set<String> seen, int depth) {
-		if (TENANT_GUARD.matcher(body).find()) {
-			return true;
+		String code = code(body);
+		Matcher guard = TENANT_GUARD.matcher(code);
+		while (guard.find()) {
+			if (used(code, guard.start(), guard.end())) {
+				return true;
+			}
 		}
 		if (depth >= 3) {
 			return false;

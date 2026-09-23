@@ -170,18 +170,21 @@ public class BroadcastAdminService {
 		}
 
 		// Legacy's two scoped rules, in legacy's own order: the company first
-		// (`helper.php:328-334`), then the audience's own admin check
-		// (`:336-350`). A refused dispatch is what the page flashes
-		// `error_required` for.
+		// (`helper.php:328-334`), then the audience's own admin check, which
+		// legacy makes inside its switch (`:336-350`). Both refuse with the same
+		// key and neither writes first, so the order is not observable today --
+		// it is legacy's so that it still reads correctly when a third audience
+		// arrives with a rule of its own. A refused dispatch is what the page
+		// flashes `error_required` for.
 		Long target = companyId;
 		if (session.isScopedToOneCompany()) {
-			if (audience == BroadcastAudience.ALL_EMPLOYEES) {
-				return Result.rejected("error_required");
-			}
 			if (target == null || target < 1) {
 				target = session.companyId();
 			}
 			else if (target != session.companyId()) {
+				return Result.rejected("error_required");
+			}
+			if (audience == BroadcastAudience.ALL_EMPLOYEES) {
 				return Result.rejected("error_required");
 			}
 		}
