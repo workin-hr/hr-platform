@@ -307,9 +307,10 @@ class AttendanceAggregateQueryBudgetTest extends AbstractLegacyMySqlTest {
 		System.out.println("[budget] rest-day " + REST_EMPLOYEES.length
 				+ " rows over 31 days: " + allRows + " statements");
 		assertThat(allRows - oneRow)
-				.as("two more rows cost only the four lookups summarise still makes one at a time -- "
+				.as("two more rows cost only the three lookups summarise still makes one at a time -- "
 						+ "approved leave days, the employee's work hours, and the attendance flags "
-						+ "in range; batching those means batched variants inside the payroll "
+						+ "in range. The holiday read used to be a fourth and is now the calendar's "
+						+ "memoized one; batching the rest means batched variants inside the payroll "
 						+ "figures classes, which is its own change")
 				.isLessThanOrEqualTo(8);
 	}
