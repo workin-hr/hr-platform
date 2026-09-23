@@ -245,6 +245,17 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 		Session doomed = logIn(PASSWORD);
 		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
 		assertThat(storedSessions(jdbc, sessionIdOf(doomed))).isOne();
+		// Counted before and after, not asserted by `contains`: two code paths
+		// record LOGOUT -- this one and the login service's own /admin/logout --
+		// and nothing truncates the table between tests. Under today's method
+		// ordering this test runs first, so a `contains` does still fail when this
+		// call site's audit write is deleted (measured, both ways). But that is
+		// JUnit's unspecified ordering doing the work, not the assertion: add a
+		// test, or let the class share a JVM with one that logs someone out, and
+		// the same `contains` passes on a row this code never wrote. A delta does
+		// not depend on which test ran first.
+		int auditBefore = auditEvents(jdbc).size();
+		long logoutsBefore = auditEvents(jdbc).stream().filter("LOGOUT"::equals).count();
 
 		ResponseEntity<String> response = revoke(keep, sessionIdOf(doomed));
 
@@ -261,7 +272,12 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 		assertThat(get("/admin", keep.cookieValue()).getStatusCode())
 				.as("while the session that did the revoking is untouched")
 				.isEqualTo(HttpStatus.OK);
-		assertThat(auditEvents(jdbc)).contains("LOGOUT");
+		assertThat(auditEvents(jdbc).stream().filter("LOGOUT"::equals).count())
+				.as("the revoke recorded its own LOGOUT, over and above whatever was there before")
+				.isEqualTo(logoutsBefore + 1);
+		assertThat(auditEvents(jdbc))
+				.as("and recorded exactly one row, not one per session the admin holds")
+				.hasSize(auditBefore + 1);
 	}
 
 	/**

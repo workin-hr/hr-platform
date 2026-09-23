@@ -21,6 +21,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -46,6 +48,34 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 @TestPropertySource(properties = "app.platform-admin.actions.enabled=true")
 class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
+
+	/**
+	 * A distinct name, not an override of the base's {@code registerProperties}:
+	 * a static method with the same signature would hide it, and Spring collects
+	 * every {@code @DynamicPropertySource} up the hierarchy.
+	 *
+	 * <p>{@code LegacyFileUploads} defaults to the relative path {@code uploads},
+	 * which in a Gradle run resolves under {@code backend/} and leaves a randomly
+	 * named logo in the worktree for every test that posts one. The same
+	 * redirection four other upload-touching test classes already do.
+	 */
+	@DynamicPropertySource
+	static void registerUploadDirectory(DynamicPropertyRegistry registry) {
+		registry.add("app.legacy-uploads.path", () -> UPLOAD_DIR.toString());
+	}
+
+	private static final java.nio.file.Path UPLOAD_DIR = createUploadDir();
+
+	private static java.nio.file.Path createUploadDir() {
+		try {
+			java.nio.file.Path dir = java.nio.file.Files.createTempDirectory("admin-logo-test-");
+			dir.toFile().deleteOnExit();
+			return dir;
+		}
+		catch (java.io.IOException ex) {
+			throw new IllegalStateException(ex);
+		}
+	}
 
 	private static final String PASSWORD = "correct horse battery staple";
 
@@ -859,6 +889,57 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 			assertThat(this.passwordEncoder.matches(secret, stored))
 					.as("and it is the hash of what was posted, not of something else")
 					.isTrue();
+		}
+		finally {
+			jdbc.update("DELETE FROM companies WHERE phone = ?", phone);
+			removeLookups(jdbc);
+		}
+	}
+
+	/**
+	 * The other side of the same ternary: an edit that <em>does</em> supply a
+	 * password replaces the hash, and replaces it with the hash of what was
+	 * posted.
+	 *
+	 * <p>{@code update} encodes only when a password is supplied, so the branch
+	 * above pins the {@code null} half and this one pins the other. Without it,
+	 * an {@code encode(write.companyName())} -- or an edit that stored the new
+	 * password in the clear -- would pass the whole suite, and the owner would be
+	 * locked out of an account whose page had just flashed success.
+	 */
+	@Test
+	void editingACompanyWithANewPasswordReplacesTheOwnerLoginWithThatPassword() {
+		String cookie = signIn();
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		seedLookups(jdbc);
+		String first = "first owner phrase";
+		String second = "second owner phrase";
+		String phone = "01212345678";
+		try {
+			save(cookie, get("/admin/companies", cookie).csrf(), "add", 0L, "Before", phone, first, LOGO);
+			java.util.Map<String, Object> created = jdbc.queryForMap(
+					"SELECT id, password_hash FROM companies WHERE phone = ?", phone);
+			long id = ((Number) created.get("id")).longValue();
+			String before = String.valueOf(created.get("password_hash"));
+
+			ResponseEntity<String> edited = save(cookie, get("/admin/companies", cookie).csrf(),
+					"save_edit", id, "After", phone, second, null);
+
+			assertThat(edited.getStatusCode()).isEqualTo(HttpStatus.FOUND);
+			String after = String.valueOf(jdbc.queryForObject(
+					"SELECT password_hash FROM companies WHERE id = ?", String.class, id));
+			assertThat(after).as("the hash changed").isNotEqualTo(before);
+			assertThat(after)
+					.as("and the new password is not in the database in the clear")
+					.isNotEqualTo(second)
+					.doesNotContain(second);
+			assertThat(after).as("bcrypt, like the create path").startsWith("$2");
+			assertThat(this.passwordEncoder.matches(second, after))
+					.as("it is the hash of the password that was posted, not of another field")
+					.isTrue();
+			assertThat(this.passwordEncoder.matches(first, after))
+					.as("and the one it replaced no longer opens the account")
+					.isFalse();
 		}
 		finally {
 			jdbc.update("DELETE FROM companies WHERE phone = ?", phone);
