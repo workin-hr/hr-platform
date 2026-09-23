@@ -227,6 +227,152 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 		}
 	}
 
+	// --- /admin/sessions/revoke ---------------------------------------------
+
+	/**
+	 * Ending one of your other sessions from this one.
+	 *
+	 * <p>This POST had no test at all: the only thing the suite drove was
+	 * {@code revokeEverything()} at the service, which skips the controller and
+	 * therefore skips the branch that decides whether the caller stays signed
+	 * in. Both branches are asserted here by what the cookies open afterwards,
+	 * not by the redirect alone -- a redirect to the sessions page while the
+	 * revoked cookie still worked would look identical.
+	 */
+	@Test
+	void revokingAnotherOfMyOwnSessionsEndsThatOneAndLeavesMineAlive() {
+		Session keep = logIn(PASSWORD);
+		Session doomed = logIn(PASSWORD);
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		assertThat(storedSessions(jdbc, sessionIdOf(doomed))).isOne();
+		// Counted before and after, not asserted by `contains`: two code paths
+		// record LOGOUT -- this one and the login service's own /admin/logout --
+		// and nothing truncates the table between tests. Under today's method
+		// ordering this test runs first, so a `contains` does still fail when this
+		// call site's audit write is deleted (measured, both ways). But that is
+		// JUnit's unspecified ordering doing the work, not the assertion: add a
+		// test, or let the class share a JVM with one that logs someone out, and
+		// the same `contains` passes on a row this code never wrote. A delta does
+		// not depend on which test ran first.
+		int auditBefore = auditEvents(jdbc).size();
+		long logoutsBefore = auditEvents(jdbc).stream().filter("LOGOUT"::equals).count();
+
+		ResponseEntity<String> response = revoke(keep, sessionIdOf(doomed));
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FOUND);
+		assertThat(response.getHeaders().getLocation()).asString()
+				.as("revoking someone else's tab returns you to the list, not to the login page")
+				.endsWith("/admin/sessions");
+		assertThat(storedSessions(jdbc, sessionIdOf(doomed)))
+				.as("the shared row is gone, so no worker honours that cookie")
+				.isZero();
+		assertThat(get("/admin", doomed.cookieValue()).getStatusCode())
+				.as("and the revoked cookie opens nothing")
+				.isEqualTo(HttpStatus.FOUND);
+		assertThat(get("/admin", keep.cookieValue()).getStatusCode())
+				.as("while the session that did the revoking is untouched")
+				.isEqualTo(HttpStatus.OK);
+		assertThat(auditEvents(jdbc).stream().filter("LOGOUT"::equals).count())
+				.as("the revoke recorded its own LOGOUT, over and above whatever was there before")
+				.isEqualTo(logoutsBefore + 1);
+		assertThat(auditEvents(jdbc))
+				.as("and recorded exactly one row, not one per session the admin holds")
+				.hasSize(auditBefore + 1);
+	}
+
+	/**
+	 * Revoking the session you are using is a logout, and has to be one on the
+	 * <em>next</em> request too.
+	 *
+	 * <p>{@code SecurityContextHolder.clearContext()} only clears the thread
+	 * serving this request; what actually ends the session is the repository
+	 * delete, and the next request reloads its context from that store. So the
+	 * assertion is the next request, with the same cookie.
+	 */
+	@Test
+	void revokingTheSessionIAmUsingLogsMeOutRatherThanLeavingADeadCookie() {
+		Session session = logIn(PASSWORD);
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+
+		ResponseEntity<String> response = revoke(session, sessionIdOf(session));
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FOUND);
+		assertThat(response.getHeaders().getLocation()).asString()
+				.as("your own session is a logout, so it lands on the login page")
+				.contains("/admin/login");
+		assertThat(storedSessions(jdbc, sessionIdOf(session))).isZero();
+		assertThat(get("/admin", session.cookieValue()).getStatusCode())
+				.as("the cookie you were using opens nothing on the next request")
+				.isEqualTo(HttpStatus.FOUND);
+	}
+
+	/**
+	 * A session id the caller does not own is not revoked.
+	 *
+	 * <p>The service re-checks ownership because the form's {@code sessionId} is
+	 * an opaque string that could contain anything. Over HTTP only one branch of
+	 * that check is reachable: this surface's login posts a password and no
+	 * identity, so there is exactly one administrator and therefore no second
+	 * one whose session could be named. The id of a live session that is not in
+	 * the caller's own set is the reachable case, and the genuinely foreign pair
+	 * -- another administrator's id against this session -- is asserted at the
+	 * service, the same way the scoped-session branches elsewhere on this
+	 * surface are.
+	 */
+	@Test
+	void aSessionIdThatIsNotMineIsNotRevoked() {
+		Session session = logIn(PASSWORD);
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		int auditBefore = auditEvents(jdbc).size();
+
+		ResponseEntity<String> response = revoke(session, "not-a-session-id-this-admin-owns");
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FOUND);
+		assertThat(response.getHeaders().getLocation()).asString().endsWith("/admin/sessions");
+		assertThat(get("/admin", session.cookieValue()).getStatusCode())
+				.as("naming a session that is not yours changes nothing about yours")
+				.isEqualTo(HttpStatus.OK);
+		assertThat(auditEvents(jdbc))
+				.as("and nothing is written to the trail for a revocation that did not happen")
+				.hasSize(auditBefore);
+
+		assertThat(this.sessionInventory.revokeBrowserSession(
+				this.platformAdminRepository.findAll().get(0).getId() + 99_999L,
+				sessionIdOf(session)))
+				.as("another administrator's id cannot revoke this session")
+				.isFalse();
+		assertThat(storedSessions(jdbc, sessionIdOf(session)))
+				.as("and the session survives that attempt")
+				.isOne();
+	}
+
+	@Test
+	void revokeWithoutASessionIdIsRefused() {
+		Session session = logIn(PASSWORD);
+
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+		headers.add(HttpHeaders.COOKIE, "WORKIN_ADMIN_SESSION=" + session.cookieValue());
+		MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
+		body.add(session.csrfParameterName(), session.csrfToken());
+
+		assertThat(this.restTemplate.exchange("/admin/sessions/revoke", HttpMethod.POST,
+				new HttpEntity<>(body, headers), String.class).getStatusCode())
+				.as("sessionId is required, so its absence is a bad request rather than a no-op")
+				.isEqualTo(HttpStatus.BAD_REQUEST);
+	}
+
+	private ResponseEntity<String> revoke(Session session, String sessionId) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+		headers.add(HttpHeaders.COOKIE, "WORKIN_ADMIN_SESSION=" + session.cookieValue());
+		MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
+		body.add("sessionId", sessionId);
+		body.add(session.csrfParameterName(), session.csrfToken());
+		return this.restTemplate.exchange("/admin/sessions/revoke", HttpMethod.POST,
+				new HttpEntity<>(body, headers), String.class);
+	}
+
 	private java.util.List<String> auditEvents(JdbcTemplate jdbc) {
 		return jdbc.queryForList("SELECT event_type FROM platform_admin_audit_events", String.class);
 	}
