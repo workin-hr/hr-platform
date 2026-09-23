@@ -74,7 +74,7 @@ public class LegacyDashboardStore {
 				       SUM(sc.basic_salary + sc.transport_allowance + sc.food_allowance
 				           + sc.risk_allowance + sc.incentives) AS v
 				FROM departments s
-				JOIN employees e ON e.department_id = s.id
+				JOIN employees e ON e.department_id = s.id AND e.company_id = s.company_id
 				JOIN salary_contracts sc ON sc.employee_id = e.id
 				WHERE s.company_id=? AND e.is_active=1
 				GROUP BY s.id""", companyId);
@@ -85,7 +85,8 @@ public class LegacyDashboardStore {
 		return longMap("""
 				SELECT b.name AS k, COUNT(e.id) AS v
 				FROM branches b
-				LEFT JOIN employees e ON e.branch_id = b.id AND e.is_active=1
+				LEFT JOIN employees e ON e.branch_id = b.id AND e.company_id = b.company_id
+				                     AND e.is_active=1
 				WHERE b.company_id=?
 				GROUP BY b.id""", companyId);
 	}
@@ -94,7 +95,8 @@ public class LegacyDashboardStore {
 		return longMap("""
 				SELECT s.name AS k, COUNT(e.id) AS v
 				FROM departments s
-				LEFT JOIN employees e ON e.department_id = s.id AND e.is_active=1
+				LEFT JOIN employees e ON e.department_id = s.id AND e.company_id = s.company_id
+				                     AND e.is_active=1
 				WHERE s.company_id=?
 				GROUP BY s.id""", companyId);
 	}
@@ -171,9 +173,10 @@ public class LegacyDashboardStore {
 				SELECT s.name AS department_name,
 				       COUNT(DISTINCT a.employee_id) AS present,
 				       (SELECT COUNT(*) FROM employees e2
-				         WHERE e2.department_id = s.id AND e2.is_active=1) AS total
+				         WHERE e2.department_id = s.id AND e2.company_id = s.company_id
+				           AND e2.is_active=1) AS total
 				FROM departments s
-				LEFT JOIN employees e ON e.department_id = s.id
+				LEFT JOIN employees e ON e.department_id = s.id AND e.company_id = s.company_id
 				LEFT JOIN attendance a ON a.employee_id = e.id AND DATE(a.check_in) = CURDATE()
 				WHERE s.company_id=?
 				GROUP BY s.id""",
@@ -201,7 +204,7 @@ public class LegacyDashboardStore {
 		return longMap("""
 				SELECT s.name AS k, COUNT(p.id) AS v
 				FROM departments s
-				JOIN employees e ON e.department_id = s.id
+				JOIN employees e ON e.department_id = s.id AND e.company_id = s.company_id
 				JOIN penalties p ON p.employee_id = e.id
 				WHERE s.company_id=?
 				GROUP BY s.id""", companyId);

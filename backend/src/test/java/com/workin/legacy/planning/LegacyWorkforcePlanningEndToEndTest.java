@@ -279,6 +279,88 @@ class LegacyWorkforcePlanningEndToEndTest {
 				.getStatusCode().value()).isEqualTo(404);
 	}
 
+	@Test
+	@Order(11)
+	@SuppressWarnings("unchecked")
+	void aFractionalIdIsStoredAsTheIdThatWasCheckedRatherThanTheOneItRoundsTo() {
+		Map<String, Object> updated = (Map<String, Object>) data(send(UPDATE + "?id=1",
+				HttpMethod.PUT, token(ADMIN, "company_admin"),
+				"{\"branch_id\":" + BRANCH + ".9,\"job_title_id\":" + JOB_TITLE + ".9}"));
+
+		assertThat(updated)
+				.as("`(int) 28011.9` is 28011 and owned, so the check passes; binding the PDO string "
+						+ "\"28011.9\" instead would have MariaDB round it to 28012 under this "
+						+ "datasource's empty sql_mode -- another company's branch, and for the job "
+						+ "title this company's own deactivated one")
+				.containsEntry("branch_name", "Main")
+				.containsEntry("job_title_name", "Engineer");
+		assertThat(countRows("SELECT branch_id FROM workforce_planning WHERE id=1")).isEqualTo(BRANCH);
+		assertThat(countRows("SELECT job_title_id FROM workforce_planning WHERE id=1"))
+				.isEqualTo(JOB_TITLE);
+
+		ResponseEntity<Map<String, Object>> refused = send(UPDATE + "?id=1", HttpMethod.PUT,
+				token(ADMIN, "company_admin"), "{\"branch_id\":" + VICTIM_BRANCH + ".2}");
+		assertThat(refused.getStatusCode().value())
+				.as("a fraction is not a way past the check either: 28012.2 is checked as 28012")
+				.isEqualTo(404);
+	}
+
+	@Test
+	@Order(12)
+	@SuppressWarnings("unchecked")
+	void anEditMayNameThisCompanysDeactivatedJobTitleAlthoughCreateStillRefusesIt() {
+		Map<String, Object> updated = (Map<String, Object>) data(send(UPDATE + "?id=1",
+				HttpMethod.PUT, token(ADMIN, "company_admin"),
+				"{\"job_title_id\":" + INACTIVE_JOB_TITLE + "}"));
+		assertThat(updated)
+				.as("a target planned against a title that was later deactivated is still the "
+						+ "tenant's own row; D-277 checks ownership here, not activity, so re-saving "
+						+ "it -- which is what a full-row PUT from an older client does -- still works")
+				.containsEntry("job_title_name", "Retired");
+
+		ResponseEntity<Map<String, Object>> refused = create(
+				"{\"branch_id\":" + BRANCH + ",\"department_id\":" + DEPARTMENT
+						+ ",\"job_title_id\":" + INACTIVE_JOB_TITLE + ",\"planned_count\":1");
+		assertThat(refused.getStatusCode().value())
+				.as("create.php calls job_title_belongs_to_company(), which also requires is_active=1")
+				.isEqualTo(404);
+		assertThat(refused.getBody()).containsEntry("message", "Job title not found");
+
+		send(UPDATE + "?id=1", HttpMethod.PUT, token(ADMIN, "company_admin"),
+				"{\"job_title_id\":" + JOB_TITLE + "}");
+	}
+
+	@Test
+	@Order(13)
+	@SuppressWarnings("unchecked")
+	void aRowPlantedOnAnotherCompanysBranchIsStillListedButNamesNothing() throws Exception {
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			st.execute("INSERT INTO workforce_planning (id, company_id, branch_id, department_id,"
+					+ " job_title_id, planned_count) VALUES (2, " + COMPANY + ", " + VICTIM_BRANCH
+					+ ", 0, " + JOB_TITLE + ", 7)");
+		}
+		try {
+			List<Map<String, Object>> rows = (List<Map<String, Object>>) data(send(
+					LIST + "?branch_id=" + VICTIM_BRANCH, HttpMethod.GET,
+					token(ADMIN, "company_admin"), null));
+
+			assertThat(rows).as("the row is this company's, so it stays in this company's list")
+					.hasSize(1);
+			assertThat(rows.get(0))
+					.containsEntry("planned_count", 7)
+					.containsEntry("job_title_name", "Engineer");
+			assertThat(rows.get(0).get("branch_name"))
+					.as("a LEFT JOIN scoped to the row's own company: the name is absent rather than "
+							+ "the victim's, and the tenant keeps sight of its own plan. The write "
+							+ "paths can no longer create this row; data written before them still can.")
+					.isNull();
+		} finally {
+			try (Connection connection = connect(); Statement st = connection.createStatement()) {
+				st.execute("DELETE FROM workforce_planning WHERE id = 2");
+			}
+		}
+	}
+
 	// ---------------- fixture ----------------
 
 	private static Object data(ResponseEntity<Map<String, Object>> response) {

@@ -321,6 +321,48 @@ class LegacyDashboardEndToEndTest {
 		}
 	}
 
+	/**
+	 * The mirror of the planted-row case above, and the one the scoped join
+	 * cannot reach: the planning row is clean, and it is another company's
+	 * <em>employee</em> that points into this company's department and branch.
+	 * {@code employees.department_id} and {@code employees.branch_id} carry no
+	 * foreign key either, so every aggregate that walks from a company-scoped
+	 * {@code departments} or {@code branches} row out to {@code employees} has to
+	 * say whose employees it means.
+	 */
+	@Test
+	void anotherCompanysEmployeeInsideThisCompanysOrgChartChangesNoneOfItsNumbers() {
+		Map<String, Object> before = stats(ADMIN);
+
+		execute("INSERT INTO employees (id, company_id, branch_id, department_id, employee_code,"
+				+ " first_name, last_name, phone, role, is_active, hire_date, created_at) VALUES ("
+				+ FOREIGN_EMPLOYEE + ", " + EMPTY_COMPANY + ", " + BRANCH + ", " + DEPT_A + ", '2598',"
+				+ " 'Victim', 'Worker', '+201000250098', 'employee', 1, '2019-04-01',"
+				+ " '2019-04-01 08:00:00')");
+		execute("INSERT INTO salary_contracts (employee_id, basic_salary, transport_allowance,"
+				+ " food_allowance, risk_allowance, incentives, effective_from) VALUES ("
+				+ FOREIGN_EMPLOYEE + ", 9999, 0, 0, 0, 0, '2019-01-01')");
+		execute("INSERT INTO attendance (employee_id, check_in) VALUES (" + FOREIGN_EMPLOYEE
+				+ ", CONCAT(CURRENT_DATE, ' 09:00:00'))");
+		execute("INSERT INTO penalties (id, employee_id, penalty_type, penalty_days, reason,"
+				+ " penalty_date, applied_to_payroll, created_at) VALUES (2, " + FOREIGN_EMPLOYEE
+				+ ", 'late', 1.0, 'r', '2021-06-10', 0, '2021-06-10 08:00:00')");
+		try {
+			assertThat(stats(ADMIN))
+					.as("headcount by branch and by department, salaries and penalties by department, "
+							+ "the attendance shares and workforce planning's actual count all reach "
+							+ "employees through an org id; every one of them is scoped to the "
+							+ "anchoring row's own company, so this response is byte-for-byte what it "
+							+ "was before the foreign row existed")
+					.isEqualTo(before);
+		} finally {
+			execute("DELETE FROM penalties WHERE id = 2");
+			execute("DELETE FROM attendance WHERE employee_id = " + FOREIGN_EMPLOYEE);
+			execute("DELETE FROM salary_contracts WHERE employee_id = " + FOREIGN_EMPLOYEE);
+			execute("DELETE FROM employees WHERE id = " + FOREIGN_EMPLOYEE);
+		}
+	}
+
 	@Test
 	@SuppressWarnings("unchecked")
 	void genderAndAgeBucketsUseTheirLiteralUnknownKeys() {

@@ -42,8 +42,11 @@ public class LegacyWorkforcePlanningStore {
 			           AND e.job_title_id = wt.job_title_id) AS actual_count
 			FROM workforce_planning wt
 			LEFT JOIN branches AS b ON b.id = wt.branch_id
+			                       AND b.company_id = wt.company_id
 			LEFT JOIN departments AS s ON s.id = wt.department_id
+			                         AND s.company_id = wt.company_id
 			LEFT JOIN job_titles AS jt ON jt.id = wt.job_title_id
+			                          AND jt.company_id = wt.company_id
 			""";
 
 	private final JdbcTemplate jdbcTemplate;
@@ -59,8 +62,11 @@ public class LegacyWorkforcePlanningStore {
 				SELECT COUNT(*)
 				FROM workforce_planning wt
 				LEFT JOIN branches AS b ON b.id = wt.branch_id
+				                       AND b.company_id = wt.company_id
 				LEFT JOIN departments AS s ON s.id = wt.department_id
+				                          AND s.company_id = wt.company_id
 				LEFT JOIN job_titles AS jt ON jt.id = wt.job_title_id
+				                          AND jt.company_id = wt.company_id
 				""" + " WHERE " + String.join(" AND ", predicates),
 				Long.class, binds.toArray());
 		return total == null ? 0L : total;
@@ -103,6 +109,16 @@ public class LegacyWorkforcePlanningStore {
 	/** {@code job_title_belongs_to_company()}: also requires {@code is_active = 1}. */
 	public boolean jobTitleBelongsToCompany(long jobTitleId, long companyId) {
 		return exists("SELECT COUNT(*) FROM job_titles WHERE id = ? AND company_id = ? AND is_active = 1",
+				jobTitleId, companyId);
+	}
+
+	/**
+	 * The tenant half of the rule above, without the activity half -- for editing
+	 * a row that may already name a title this company has since deactivated
+	 * (D-277).
+	 */
+	public boolean jobTitleOwnedByCompany(long jobTitleId, long companyId) {
+		return exists("SELECT COUNT(*) FROM job_titles WHERE id = ? AND company_id = ?",
 				jobTitleId, companyId);
 	}
 

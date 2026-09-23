@@ -91,7 +91,7 @@ public class LegacyWorkforcePlanningService {
 		Ids ids = requiredIds(body);
 		requireOwnBranch(companyId, ids.branchId());
 		requireOwnDepartment(companyId, ids.departmentId());
-		requireOwnJobTitle(companyId, ids.jobTitleId());
+		requireOwnActiveJobTitle(companyId, ids.jobTitleId());
 
 		long id = store.insert(
 				companyId, ids.branchId(), ids.departmentId(), ids.jobTitleId(), ids.planned());
@@ -130,24 +130,33 @@ public class LegacyWorkforcePlanningService {
 		if (!store.existsForCompany(companyId, id)) {
 			throw new LegacyApiException(404, "not_found");
 		}
-		if (body.containsKey("branch_id")) {
-			requireOwnBranch(companyId, LegacyValues.toPhpLong(body.get("branch_id")));
-		}
-		if (body.containsKey("department_id")) {
-			requireOwnDepartment(companyId, LegacyValues.toPhpLong(body.get("department_id")));
-		}
-		if (body.containsKey("job_title_id")) {
-			requireOwnJobTitle(companyId, LegacyValues.toPhpLong(body.get("job_title_id")));
-		}
 		List<String> assignments = new ArrayList<>();
 		List<Object> values = new ArrayList<>();
 		for (String field : List.of("branch_id", "department_id", "job_title_id", "planned_count")) {
-			if (body.containsKey(field)) {
-				assignments.add("`" + field + "`=?");
+			if (!body.containsKey(field)) {
+				continue;
+			}
+			Object raw = body.get(field);
+			assignments.add("`" + field + "`=?");
+			if (field.equals("planned_count")) {
 				// PDO binds a scalar unchanged and converts an array or object to
 				// the literal "Array"; only that second case needs coercing.
-				values.add(LegacyValues.toPdoBindValue(body.get(field)));
+				values.add(LegacyValues.toPdoBindValue(raw));
+				continue;
 			}
+			// The three org ids are written as the long that was checked, which is
+			// also what create.php's insert binds. Binding PDO's string instead
+			// would let a check and its write disagree: `28011.9` is checked as
+			// `(int) 28011.9` = 28011, but MariaDB rounds the string "28011.9" to
+			// 28012 on an INT column under this datasource's empty sql_mode, and
+			// 28012 is whatever company owns the next id.
+			long checked = LegacyValues.toPhpLong(raw);
+			switch (field) {
+				case "branch_id" -> requireOwnBranch(companyId, checked);
+				case "department_id" -> requireOwnDepartment(companyId, checked);
+				default -> requireOwnJobTitle(companyId, checked);
+			}
+			values.add(checked);
 		}
 		if (assignments.isEmpty()) {
 			throw new LegacyApiException(400, "nothing_to_update");
@@ -180,8 +189,25 @@ public class LegacyWorkforcePlanningService {
 		}
 	}
 
-	private void requireOwnJobTitle(long companyId, long jobTitleId) {
+	/** {@code create.php}'s own rule, which also requires the title to be active. */
+	private void requireOwnActiveJobTitle(long companyId, long jobTitleId) {
 		if (!store.jobTitleBelongsToCompany(jobTitleId, companyId)) {
+			throw new LegacyApiException(404, "job_title_not_found");
+		}
+	}
+
+	/**
+	 * Ownership only, for the two paths that edit a row that already exists.
+	 *
+	 * <p>What D-277 adds to {@code update.php} and {@code save_target.php} is a
+	 * tenant boundary, not {@code create.php}'s activity rule: a target planned
+	 * against a job title that was deactivated afterwards is still this company's
+	 * own row, and an older client re-sending the whole row -- which is what
+	 * {@code save_target.php} exists for -- would otherwise be refused an edit it
+	 * used to be allowed, including an edit of {@code planned_count} alone.
+	 */
+	private void requireOwnJobTitle(long companyId, long jobTitleId) {
+		if (!store.jobTitleOwnedByCompany(jobTitleId, companyId)) {
 			throw new LegacyApiException(404, "job_title_not_found");
 		}
 	}
