@@ -87,8 +87,46 @@ AGENT_FIXES = (
 )
 
 
+# A port, a code, a count, a cursor, a menu choice: every number this package reads off a
+# terminal, a request or an operator is short. Ten digits is past every one of them and well
+# inside CPython's limit below.
+INT_DIGITS = 10
+
+
+def shown(value: str, most: int = 24) -> str:
+    """A value from outside quoted back into something a person reads.
+
+    The page draws refusals and a text box holds far more than fits; a finding is drawn in the
+    transcript **and** written into the report the runbook tells the operator to paste into a
+    public issue. A terminal that sends a five-thousand-character code should not decide how long
+    either of those is.
+    """
+    return value if len(value) <= most else value[:most] + "\u2026"
+
+
+def reads_as_int(value: str, digits: int = INT_DIGITS) -> bool:
+    """Can `int(value)` be called on this without raising?
+
+    Two ways a string that looks like a number is refused by `int()`, and a guard needs both.
+    `str.isdigit()` is true for Numeric_Type=Digit characters -- `\u00b2`, `1\u00b2` -- that `int()` refuses,
+    so it was never the right predicate. `str.isdecimal()` fixes the charset and not the length:
+    since CPython 3.11 an `int()` conversion of more than `sys.get_int_max_str_digits()` digits
+    (4300 by default) raises `ValueError` too, so `"9" * 5000` is `isdecimal()` and still raises.
+
+    Arabic-Indic digits are decimal, so `int("\u0664\u0663\u0667\u0660")` is 4370 and stays accepted -- this
+    tool's operators type them. A leading `-` is **not** accepted: a caller that wants a negative
+    number range-checked strips the sign itself, so its refusal can say which of the two it is.
+    """
+    return value.isdecimal() and len(value) <= digits
+
+
 class Console:
-    """The terminal. A test replaces it with a scripted one."""
+    """The terminal. A test replaces it with a scripted one, and `web.WebConsole` with a page.
+
+    Everything the visit shows and everything it asks goes through here, presentation included, so
+    that nothing in the wizard below knows which of the three it is talking to. A front end that
+    can draw a real button overrides `choose` and gets the index back; one that cannot inherits the
+    numbered list."""
 
     def say(self, text: str = "") -> None:
         print(text, flush=True)
@@ -98,6 +136,29 @@ class Console:
 
     def secret(self, prompt: str) -> str:
         return getpass.getpass(prompt + " ")
+
+    def title(self, text: str) -> None:
+        self.say()
+        self.say(f"━━━━━━━━  {text}  ━━━━━━━━")
+
+    def note(self, level: str, text: str, fix: str = "") -> None:
+        self.say(f"{MARK[level]} {text}" + (f"\n   ← الحل: {fix}" if fix else ""))
+
+    def enter(self, text: str) -> None:
+        self.ask(f"👉 {text}" if "Enter" in text else f"👉 {text}، ودوس Enter")
+
+    def choose(self, question: str, labels: list[str]) -> int:
+        """Which label the operator picked, by index. Enter takes the first."""
+        self.say(f"👉 {question}")
+        for number, label in enumerate(labels, 1):
+            self.say(f"   {number}) {label}")
+        while True:
+            answer = self.ask("   اكتب الرقم (Enter = 1):")
+            if not answer:
+                return 0
+            if reads_as_int(answer) and 1 <= int(answer) <= len(labels):
+                return int(answer) - 1
+            self.say("   الرقم ده مش في القايمة.")
 
 
 class Lab:
@@ -608,7 +669,18 @@ def _no_path(value: str) -> str:
 
     At the seam rather than at the call site, for the reason `_no_address` gives: an exception's own
     text carries paths too, and redacting per finding holds only until the next finding is written.
-    The console still shows the whole path, and it stays in field-report/ on the laptop."""
+    The console still shows the whole path, and it stays in field-report/ on the laptop.
+
+    **Three limits, all deliberate and none silent.** A directory name containing a space is
+    indistinguishable from prose to any regex, so `/home/k/شركة النور/x.dat` keeps the middle word --
+    which is why `usb_flow`, the one place that knows it holds a path, does not rely on this. And the
+    pattern is **POSIX-rooted only**: a Windows path (`C:\\Users\\...`, or `C:/Users/...`, whose
+    leading slash follows a colon exactly as `https://` does) is not matched, so on the Windows
+    executable this backstop protects nothing. And a **leaf directory whose name contains a dot** is
+    kept, because `one()` reads a dotted last component as a file name: `/home/k/AlNoor.2026` keeps
+    its last word, while `/home/k/AlNoor` and `/home/k/AlNoor.2026/` do not. The call-site fix covers
+    every platform and every shape; this covers a path that arrives inside an exception's text, on
+    POSIX, whose leaf is a file."""
     def one(found):
         # An exception quotes the path it could not open, and the quote is not part of it.
         last = found.group(1).rstrip("'\"»)]},;:.")
@@ -653,6 +725,9 @@ class Visit:
         self.network_ok = True
         self.secrets: list[Path] = []
         self.zk_link: tuple[str, int, int, bool] | None = None
+        # Kept, not just written to the sheet: a later step that sends on this terminal's
+        # behalf must use the column this visit proved, never a default.
+        self.in_out: str | None = None
         # Every serial this visit has *seen*, not the one it settled on. A terminal that pushes
         # under a different serial than it reports on 4370 is one of the findings this visit
         # exists to produce, and both of those serials are the credential R-041/R-042 describe.
@@ -668,31 +743,21 @@ class Visit:
         self.console.say(text)
 
     def title(self, text: str) -> None:
-        self.say()
-        self.say(f"━━━━━━━━  {text}  ━━━━━━━━")
+        self.console.title(text)
 
     def note(self, level: str, text: str, fix: str = "") -> None:
         self.findings.append(Finding(level, text, fix))
-        self.say(f"{MARK[level]} {text}" + (f"\n   ← الحل: {fix}" if fix else ""))
+        self.console.note(level, text, fix)
 
     def choose(self, question: str, options: list[tuple[object, str]]):
-        self.say(f"👉 {question}")
-        for number, (_, label) in enumerate(options, 1):
-            self.say(f"   {number}) {label}")
-        while True:
-            answer = self.console.ask("   اكتب الرقم (Enter = 1):")
-            if not answer:
-                return options[0][0]
-            if answer.isdigit() and 1 <= int(answer) <= len(options):
-                return options[int(answer) - 1][0]
-            self.say("   الرقم ده مش في القايمة.")
+        return options[self.console.choose(question, [label for _, label in options])][0]
 
     def yes(self, question: str, default: bool = True) -> bool:
         options = [(True, "أيوه"), (False, "لأ")]
         return self.choose(question, options if default else options[::-1])
 
     def enter(self, text: str) -> None:
-        self.console.ask(f"👉 {text}" if "Enter" in text else f"👉 {text}، ودوس Enter")
+        self.console.enter(text)
 
     # -- the visit -------------------------------------------------------------------------
 
@@ -805,7 +870,7 @@ class Visit:
             address, cidr = networks[0] if len(networks) == 1 else self.choose(
                 "أنهي شبكة فيها الجهاز؟", [((address, network), f"{network} (اللابتوب {address})")
                                           for address, network in networks])
-            if ipaddress.ip_network(cidr).num_addresses > 1024:
+            if ipaddress.ip_network(cidr).num_addresses > probe.SCAN_LIMIT:
                 cidr = str(ipaddress.ip_interface(f"{address}/24").network)
                 self.say(f"   الشبكة كبيرة، هدوّر في {cidr} بس.")
             self.say(f"🔎 بدوّر على الأجهزة في {cidr} (ممكن ياخد دقيقة)...")
@@ -825,10 +890,23 @@ class Visit:
             host, _, port_text = text.partition(":")
             try:
                 ipaddress.ip_address(host)
-                port = int(port_text) if port_text else None
-                break
             except ValueError:
                 self.say("   ده مش IP.")
+                continue
+            # Checked here, not at `connect()`, which raises `OverflowError` for anything outside
+            # 0-65535 -- not a `ZkError`, so `probe.zk_summary` does not catch it and one extra
+            # digit ended the whole visit: no read, no backup, no allocation, and an English
+            # traceback in the report the runbook tells the operator to paste into a public issue.
+            # And the old `except ValueError` blamed the *IP* for a bad port, which sent them round
+            # a loop retyping an address that was never wrong.
+            if port_text and not reads_as_int(port_text):
+                self.say("   البورت لازم يكون رقم بين 1 و 65535.")
+                continue
+            port = int(port_text) if port_text else None
+            if port is not None and not 1 <= port <= 65535:
+                self.say(f"   البورت لازم يكون بين 1 و 65535، مش {port}.")
+                continue
+            break
         if port is not None:
             kind = self.choose("نوع الجهاز؟", [("zk", "ZKTeco (4370)"), ("hik", "Hikvision"), ("other", "حاجة تانية")])
             return kind, host, port
@@ -888,7 +966,7 @@ class Visit:
             if not text:
                 self.note("bad", "الجهاز عليه Comm Key ومقدرناش نقرأه", "اسأل العميل على الـ Comm Key وشغّل الأمر تاني")
                 return None
-            if not text.isdigit():
+            if not reads_as_int(text):
                 self.say("   الـ Comm Key أرقام بس.")
                 continue
             key = int(text)
@@ -1018,12 +1096,8 @@ class Visit:
         if not self.allocate(serial, "zkteco", self._offset(device_time.replace(tzinfo=timezone.utc))):
             return
         field = self.find_in_out()
-        host, port, key, udp = self.zk_link
-        path = self.out / f"{serial}-zk.toml"
-        path.write_text(self._agent_toml(f"{serial}-zk-{self.started:%Y%m%d-%H%M}.sqlite3",
-                                         in_out_field=field or "punch") +
-                        f"\n[[devices]]\nserial = {_toml(serial)}\nkind = \"zk\"\nhost = {_toml(host)}\n"
-                        f"port = {port}\ncomm_key = {key}\nudp = {'true' if udp else 'false'}\n", encoding="utf-8")
+        path = self.write_zk_agent_config(serial, f"{serial}-zk-{self.started:%Y%m%d-%H%M}.sqlite3",
+                                          field or "punch")
         self.send_twice(path, self.zk_link[0])
         self.check_the_clock_did_not_move(self.clock_skew(summary))
 
@@ -1042,10 +1116,15 @@ class Visit:
             return None
         out_value, source = 1, "الرقم المعتاد للخروج"
         pushed = self.pushed_line(check_out)
-        if pushed and pushed.in_out and pushed.in_out.isdigit():
-            out_value, source = int(pushed.in_out), "الرقم اللي الجهاز بعته بالـ Push لنفس البصمة"
-        elif self.push and self.push.out_value and self.push.out_value != self.push.in_value:
-            out_value, source = int(self.push.out_value), "رقم الخروج في تجربة الـ Push"
+        # Both of these are the third tab-separated field of a line the *terminal* uploaded, so the
+        # terminal chooses them and both need the same guard. Guarding only the first sent the
+        # value it rejected straight into the second, which moved the traceback one line down.
+        sent = pushed.in_out if pushed else None
+        tried = self.push.out_value if self.push and self.push.out_value != self.push.in_value else None
+        if sent and reads_as_int(sent):
+            out_value, source = int(sent), "الرقم اللي الجهاز بعته بالـ Push لنفس البصمة"
+        elif tried and reads_as_int(tried):
+            out_value, source = int(tried), "رقم الخروج في تجربة الـ Push"
         self.say(f"   بصمة الدخول: punch={check_in.punch}، status={check_in.status}")
         self.say(f"   بصمة الخروج: punch={check_out.punch}، status={check_out.status} ({source}: {out_value})")
         if self.code_spread:
@@ -1068,7 +1147,7 @@ class Visit:
                               f"والعمود اتحدد من سجل الجهاز نفسه",
                       "يا إما الموظف مادسش زرار الخروج، يا إما الفيرموير ده مابيغيّرش الكود: "
                       "اكتب التوزيع اللي في ورقة النتائج في الـ issue")
-        self.sheet["الـ in_out_field الصح"] = field
+        self.sheet["الـ in_out_field الصح"] = self.in_out = field
         index = 0 if field == "punch" else 1
         self.sheet["الدخول"] = str((check_in.punch, check_in.status)[index])
         self.sheet["الخروج"] = str((check_out.punch, check_out.status)[index])
@@ -1133,6 +1212,22 @@ class Visit:
                                     if arrival.fields and arrival.fields[0] == record.user_id
                                     and arrival.fields[1] == stamp), None),
             self.push_mark, self.wait_seconds / 6)
+
+    def write_zk_agent_config(self, serial: str, spool: str, in_out_field: str = "punch",
+                              name: str | None = None) -> Path:
+        """The config the agent reads for one ZKTeco terminal, and the one place it is written.
+
+        The page's `once` button writes through here too, so both go through the same writer and
+        the same `[[devices]]` shape. It does **not** mean they write the same contents: the button
+        sends whatever address, key and in/out column the operator typed, which is the point of a
+        repeatable single step. `name` is how it keeps its own file -- overwriting the wizard's
+        would leave `field-report/` disagreeing with the report beside it."""
+        host, port, key, udp = self.zk_link
+        path = self.out / (name or f"{serial}-zk.toml")
+        path.write_text(self._agent_toml(spool, in_out_field=in_out_field) +
+                        f"\n[[devices]]\nserial = {_toml(serial)}\nkind = \"zk\"\nhost = {_toml(host)}\n"
+                        f"port = {port}\ncomm_key = {key}\nudp = {'true' if udp else 'false'}\n", encoding="utf-8")
+        return path
 
     def _agent_toml(self, spool: str, in_out_field: str = "punch") -> str:
         return (f"# Written by `workin_devices visit` for the lab (Mode A).\n"
@@ -1514,9 +1609,12 @@ class Visit:
         self.note("ok", f"الجهاز رد: {serial}، {info.get('model')}، {info['events']} حدث في آخر 7 أيام")
         minors = info["events_with_employee_by_minor"]
         self.sheet["Hikvision: أكواد الحضور اللي ظهرت"] = "، ".join(f"{code} ({count})" for code, count in sorted(minors.items()))
-        unexpected = sorted(code for code in minors if not code.isdigit() or int(code) not in HIK_ATTENDANCE)
+        # Same again, and these keys come straight from the terminal's own event log: under
+        # `isdigit()` a code of `²` passed the guard and raised inside the comprehension.
+        unexpected = sorted(code for code in minors
+                            if not reads_as_int(code) or int(code) not in HIK_ATTENDANCE)
         if unexpected:
-            self.note("warn", f"فيه أحداث فيها موظف بأكواد {', '.join(unexpected)} مش بتتحسب حضور",
+            self.note("warn", f"فيه أحداث فيها موظف بأكواد {', '.join(shown(code) for code in unexpected)} مش بتتحسب حضور",
                       "لو دي بصمات حضور فعلاً، اكتب الأكواد في الـ issue (هنضيفها في attendance_minors)")
         source = HikvisionSource(device)
         started = self.now()
@@ -1530,14 +1628,19 @@ class Visit:
         offset = None
         if with_employee:
             event = with_employee[-1]
-            minor = int(event.get("minor", -1))
+            # Same field, same terminal, same JSON as the codes counted above -- and `null` is a
+            # third shape, where `int(None)` is a `TypeError` that no caller on this path catches.
+            raw = str(event.get("minor", -1))
+            body = raw[1:] if raw.startswith("-") else raw   # one sign, not `lstrip`: `--5` is not a number
+            minor = int(raw) if reads_as_int(body) else raw
             status = event.get("attendanceStatus")
             offset = str(event.get("time", ""))[19:] or None
             if minor in HIK_ATTENDANCE:
                 self.note("ok", f"البصمة وصلت بكود {minor}" + (f" و {status}" if status else "") + "، وده بيتحسب حضور")
             else:
-                self.note("bad", f"البصمة جت بكود {minor}، والكود ده مش بيتحسب حضور",
-                          f"اكتب الكود {minor} في الـ issue (هنضيفه في attendance_minors)")
+                code = shown(str(minor))
+                self.note("bad", f"البصمة جت بكود {code}، والكود ده مش بيتحسب حضور",
+                          f"اكتب الكود {code} في الـ issue (هنضيفه في attendance_minors)")
         else:
             self.note("bad", "مالقيتش البصمة في سجل أحداث الجهاز" + (f" ({error})" if error else ""),
                       "جرّب تاني، وبص على صفحة الأحداث في الجهاز")

@@ -57,6 +57,10 @@
     p.selected.hidden = label === '';
     picker.classList.remove('is-invalid');
     p.results.classList.remove('is-open');
+    // A programmatic .value set fires no native event; a page that needs to
+    // react to a choice or a clear (attendance-form.js's submit gate) listens
+    // for this instead of polling.
+    p.id.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
   function render(picker, list) {

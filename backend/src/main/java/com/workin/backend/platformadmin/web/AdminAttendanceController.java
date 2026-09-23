@@ -64,9 +64,16 @@ public class AdminAttendanceController {
 		model.addAttribute("session", current);
 
 		// `$_GET['from'] ?? date('Y-m-01')` and `$_GET['to'] ?? date('Y-m-d')`.
+		// Legacy passes these straight through into the range-delete button's
+		// confirm() text (page.php:187) inside a json_encode() call, which
+		// neutralises anything they hold; the port drops that value into a
+		// single-quoted JS string by concatenation (attendance.jte), so an
+		// unvalidated value could break out of it. Java-only: a malformed
+		// ?from=/?to= falls back to the default range instead, the same way a
+		// blank one already does.
 		LocalDate today = this.clock.today();
-		String from = blankOr(request.getParameter("from"), today.withDayOfMonth(1).toString());
-		String to = blankOr(request.getParameter("to"), today.toString());
+		String from = validDateOr(request.getParameter("from"), today.withDayOfMonth(1).toString());
+		String to = validDateOr(request.getParameter("to"), today.toString());
 		int aggPage = positiveOr(request.getParameter("agg_page"), 1);
 
 		long optionsCompanyId = filters.companyId() > 0
@@ -176,8 +183,16 @@ public class AdminAttendanceController {
 		};
 	}
 
-	private static String blankOr(String raw, String fallback) {
-		return raw == null || raw.isEmpty() ? fallback : raw;
+	/** {@code $_GET['from'] ?? $fallback}, but a value that is not a real {@code YYYY-MM-DD} date is blank too. */
+	private static String validDateOr(String raw, String fallback) {
+		if (raw == null || raw.isEmpty()) {
+			return fallback;
+		}
+		try {
+			return LocalDate.parse(raw).toString();
+		} catch (java.time.format.DateTimeParseException malformed) {
+			return fallback;
+		}
 	}
 
 	/** {@code max(1, (int) ($_GET['agg_page'] ?? 1))}, read with {@link PhpCast#intval}. */
