@@ -139,10 +139,7 @@ public class AttendanceStore {
 			params.add(filters.companyId());
 		}
 		if (!filters.search().isEmpty()) {
-			where.append(" AND (").append(DISPLAY_NAME).append(" LIKE ? OR ")
-					.append(EMP_CODE).append(" LIKE ?)");
-			params.add("%" + filters.search() + "%");
-			params.add("%" + filters.search() + "%");
+			where.append(" AND ").append(searchCondition(params, filters.search()));
 		}
 		if (filters.filterBranch() > 0) {
 			where.append(" AND e.branch_id = ?");
@@ -153,6 +150,25 @@ public class AttendanceStore {
 			params.add(filters.filterDepartment());
 		}
 		return where.toString();
+	}
+
+	/**
+	 * {@code dashboard_employee_search_condition()} (employee_helper.php:79-97): first name, last
+	 * name, the full name, the code, the id as text and the phone -- six columns, in legacy's
+	 * order. The port matched only the full name and the code; a search by id or phone found
+	 * nothing, as {@link EmployeeStore}'s own list search is written (its own copy of the same
+	 * six columns, EmployeeStore.java:120-125).
+	 */
+	private static String searchCondition(List<Object> params, String search) {
+		String like = "%" + search + "%";
+		params.add(like);
+		params.add(like);
+		params.add(like);
+		params.add(like);
+		params.add(like);
+		params.add(like);
+		return "(e.first_name LIKE ? OR e.last_name LIKE ? OR " + DISPLAY_NAME + " LIKE ?"
+				+ " OR e.employee_code LIKE ? OR CAST(e.id AS CHAR) LIKE ? OR e.phone LIKE ?)";
 	}
 
 	/**
@@ -420,10 +436,7 @@ public class AttendanceStore {
 			params.add(scopedCompanyId);
 		}
 		if (!filters.search().isEmpty()) {
-			where.append(" AND (").append(DISPLAY_NAME).append(" LIKE ? OR ")
-					.append(EMP_CODE).append(" LIKE ?)");
-			params.add("%" + filters.search() + "%");
-			params.add("%" + filters.search() + "%");
+			where.append(" AND ").append(searchCondition(params, filters.search()));
 		}
 		if (filters.filterBranch() > 0) {
 			where.append(" AND e.branch_id = ?");
@@ -499,7 +512,12 @@ public class AttendanceStore {
 						+ "   GROUP BY a.employee_id"
 						+ " ) att ON att.employee_id = e.id"
 						+ " WHERE " + scope.where()
-						+ " ORDER BY employee_name ASC, e.id ASC LIMIT ? OFFSET ?",
+						// payroll_list_helper.php:397: dashboard_employee_order_by_sql('e'),
+						// first name then last name, not the concatenated display name. The two
+						// agree unless one first name is a prefix of another -- a compound first
+						// name -- where sorting the joined string compares "Anna Marie Aaa"
+						// against "Anna Zed" at the M, and never compares the first names.
+						+ " ORDER BY e.first_name ASC, e.last_name ASC, e.id ASC LIMIT ? OFFSET ?",
 				(rs, rowNum) -> new RawAggregate(
 						rs.getLong("employee_id"), rs.getString("emp_code"),
 						rs.getString("employee_name"), rs.getString("job_title_name"),

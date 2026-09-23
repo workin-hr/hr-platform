@@ -32,7 +32,7 @@ class Unscripted(BaseException):
     """Not an Exception: the visit catches those, and a test's complaint must reach the test."""
 
 
-class ScriptedConsole:
+class ScriptedConsole(visit.Console):
     """The operator: each answer names a fragment of the question it answers, so a test fails on
     the question the wizard asked rather than on whatever answer happened to come next. An answer
     may be a callable, run when the question is reached -- the terminal doing what the operator
@@ -428,6 +428,58 @@ class AVisitOfA4370Terminal(unittest.TestCase):
             for record in self.terminal.records:
                 handle.write(f"{record.user_id:>9}\t{record.when:%Y-%m-%d %H:%M:%S}\t{record.in_out}\t{record.verify}\t0\t0\n")
 
+    def test_a_port_typed_into_the_wizard_is_checked_before_it_reaches_connect(self):
+        """The page's address box was range-checked a round ago; the wizard's own prompt -- the
+        manual path the runbook sends the operator down when the scan finds nothing -- was not.
+        `connect()` raises `OverflowError` outside 0-65535, which is not a `ZkError`, so
+        `probe.zk_summary` did not catch it: one extra digit ended the whole visit with no read, no
+        backup and no allocation, and put an English traceback in the report step 11 tells the
+        operator to paste into a public issue. A port that is not a number at all was worse -- the
+        `except ValueError` blamed the IP, so they retyped an address that was never wrong."""
+        answers = VisitStart() + [
+            ("أنهي جهاز", "2"), ("اكتب IP", "192.0.2.9:437000"),
+            ("اكتب IP", "192.0.2.9:²"), ("اكتب IP", "192.0.2.9:0"),
+            ("اكتب IP", f"127.0.0.1:{self.emulator.port}"), ("نوع الجهاز", "1"),
+            ("الستيكر", "1"), ("عدد السجلات", "1"), ("Cloud Server Setting", "1"),
+            ("الجهاز متظبط على إيه", "4"), ("بتتظبط لوحدها", "1"),
+            ("بصمة دخول", lambda: self.terminal.add_punch(PIN, in_out=0, verify=15) and ""),
+            ("Check-Out", lambda: self.terminal.add_punch(PIN, in_out=1, verify=15) and ""),
+            ("ملف USB", "1"), ("برنامج", "1"), ("كابل أو switch", "1"),
+        ]
+        console = ScriptedConsole(answers)
+        visited = quick_visit(console, self.lab, self.out)
+        code = visited.run()
+        self.assertEqual(console.answers, [], console.text[-500:])
+        # Three bad ports were each refused and re-asked, and the fourth reached the terminal.
+        self.assertEqual(console.text.count("البورت لازم يكون"), 3, console.text)
+        self.assertNotIn("ده مش IP", console.text, "a bad port must not be blamed on the IP")
+        self.assertNotIn("OverflowError", console.text)
+        report = report_of(self.out)
+        self.assertNotIn("OverflowError", report, "the report is pasted into a public issue")
+        self.assertNotIn("port must be 0-65535", report)
+        # And the visit actually ran, rather than dying at the address prompt.
+        self.assertEqual(visited.sheet["عليه Comm Key؟"], "لا", console.text[-400:])
+        self.assertIn(code, (0, 1), console.text[-300:])
+
+    def test_a_comm_key_that_is_not_a_plain_number_is_refused_and_the_prompt_comes_back(self):
+        """The prompt already refuses a key that is not a number and asks again. `str.isdigit()`
+        let `²` past that refusal and into `int()`, which refuses it -- so the one answer the
+        check exists to catch ended the visit with a traceback instead of asking again."""
+        keyed = Terminal(serial="ZK-VISIT-KEY", comm_key=13579)
+        populate(keyed, [PIN], days=1)
+        emulator = Emulator(keyed, port=0).start()
+        try:
+            console = ScriptedConsole([("Comm Key", "²"), ("Comm Key", "13579")])
+            visited = quick_visit(console, self.lab, self.out)
+            summary = visited.zk_connect("127.0.0.1", emulator.port)
+        finally:
+            emulator.stop()
+        self.assertEqual(console.answers, [], console.text)
+        self.assertIsNotNone(summary, console.text)
+        self.assertIn("الـ Comm Key أرقام بس", console.text)
+        self.assertEqual(visited.sheet["عليه Comm Key؟"], "نعم",
+                         "the key the operator typed second is the one that connected")
+
     def test_backup_in_out_from_a_check_out_punch_two_sends_and_a_usb_export_with_the_same_columns(self):
         answers = VisitStart() + [
             ("أنهي جهاز", "2"),                                  # type the address
@@ -598,6 +650,51 @@ class ATerminalThatSaysSomethingOdd(unittest.TestCase):
         self.platform.close()
         self.dir.cleanup()
 
+    def test_an_in_out_value_the_terminal_sent_that_is_not_a_plain_number_is_ignored_not_raised_on(self):
+        """`pushed.in_out` is the third field of a line the terminal uploaded, so the terminal
+        chooses it. `str.isdigit()` is true for `²` and `int()` refuses it, so the guard passed
+        and the visit ended on a traceback at the step that decides the in/out column -- the
+        headline answer of the whole visit, on input no operator touches.
+
+        The collaborators are replaced because neither is what is under test: what is under test
+        is what `find_in_out` does with a value `int()` cannot read."""
+        console = ScriptedConsole([])
+        visited = quick_visit(console, self.lab, self.out)
+        punches = [types.SimpleNamespace(punch=0, status=15, user_id=PIN, timestamp=datetime.now()),
+                   types.SimpleNamespace(punch=1, status=15, user_id=PIN, timestamp=datetime.now())]
+        visited.one_new_punch = lambda instruction: punches.pop(0)
+        visited.pushed_line = lambda record: visit.Arrival(
+            0.0, [PIN, "2026-09-20 08:00:00", "²", "15", "0", "0", "0"])
+        self.assertEqual(visited.find_in_out(), "punch")
+        # Ignored, and the visit says which number it used instead -- not the terminal's.
+        self.assertIn("الرقم المعتاد للخروج", console.text)
+        self.assertEqual(visited.sheet["الخروج"], "1")
+        # **The combined case.** `self.push.out_value` has the same provenance -- the third field
+        # of a line the terminal uploaded -- so guarding only the branch above handed the value it
+        # had just rejected to the `elif` below it, which parsed it unguarded. With `push` left
+        # unset, as a bare `quick_visit` leaves it, that branch short-circuits and this test is
+        # blind to it. Both shapes here: a rejected `pushed` falling through, and no `pushed` at all.
+        for pushed_line in (visit.Arrival(0.0, [PIN, "2026-09-20 08:00:00", "²", "15", "0", "0", "0"]), None):
+            console = ScriptedConsole([])
+            visited = quick_visit(console, self.lab, self.out)
+            punches = [types.SimpleNamespace(punch=0, status=15, user_id=PIN, timestamp=datetime.now()),
+                       types.SimpleNamespace(punch=1, status=15, user_id=PIN, timestamp=datetime.now())]
+            visited.one_new_punch = lambda instruction: punches.pop(0)
+            visited.pushed_line = lambda record: pushed_line
+            visited.push = visit.Push(serial="PUSH-VISIT-1", in_value="0", out_value="²")
+            self.assertEqual(visited.find_in_out(), "punch", f"pushed={pushed_line}")
+            self.assertEqual(visited.sheet["الخروج"], "1", f"pushed={pushed_line}")
+        # And a plain number the terminal sends is still read from the terminal.
+        console = ScriptedConsole([])
+        visited = quick_visit(console, self.lab, self.out)
+        punches = [types.SimpleNamespace(punch=0, status=15, user_id=PIN, timestamp=datetime.now()),
+                   types.SimpleNamespace(punch=4, status=15, user_id=PIN, timestamp=datetime.now())]
+        visited.one_new_punch = lambda instruction: punches.pop(0)
+        visited.pushed_line = lambda record: visit.Arrival(
+            0.0, [PIN, "2026-09-20 08:00:00", "4", "15", "0", "0", "0"])
+        self.assertEqual(visited.find_in_out(), "punch")
+        self.assertIn("الرقم اللي الجهاز بعته", console.text)
+
     def visit_terminal(self, terminal, answers):
         emulator = Emulator(terminal, port=0).start()
         try:
@@ -723,6 +820,60 @@ class AVisitOfAHikvisionTerminal(unittest.TestCase):
         self.assertIn("device-serial", text)
         self.assertIn(rejected, console.text, "the operator still sees it on screen")
         self.assertEqual(self.lab.allocations, [], "nothing is claimed under a refused serial")
+
+    def test_a_minor_code_that_is_not_a_plain_number_is_listed_not_raised_on(self):
+        """These codes are keys out of the terminal's own event log, so the terminal chooses them
+        and no operator can influence them. `str.isdigit()` is true for Numeric_Type=Digit
+        characters that `int()` refuses -- `²` is one -- so the guard passed, `int()` raised
+        inside the comprehension, and the visit ended on an English traceback."""
+        self.terminal.add_event(PIN, datetime.now(self.terminal.zone).replace(tzinfo=None), "²", "checkIn")
+        console = ScriptedConsole([("اسم المستخدم", ""), ("الباسورد", "s3cret-pass"),
+                                   ("يعمل بصمة على الجهاز", self.punch_now),
+                                   ("الجهاز متظبط على إيه", "4"), ("بتتظبط لوحدها", "1")])
+        visited = quick_visit(console, self.lab, self.out)
+        Path(self.out).mkdir(parents=True, exist_ok=True)
+        visited.hik_flow("127.0.0.1", self.server.server_address[1])
+        self.assertEqual(console.answers, [], console.text)
+        self.assertIn("²", visited.sheet["Hikvision: أكواد الحضور اللي ظهرت"])
+        self.assertTrue(any(f.level == "warn" and "²" in f.text for f in visited.findings),
+                        "a code that is not attendance is reported, whatever shape it is")
+
+    def test_the_live_punchs_own_minor_code_is_reported_whatever_shape_it_is(self):
+        """The codes *counted* for the sheet were guarded; the code of the punch the operator was
+        just asked for, read off the same JSON sixteen lines later, was parsed with a bare
+        `int()`. A terminal sending anything but a plain number there ended the visit on an
+        English traceback -- after the read, before the allocation, so the operator was left with
+        nothing and had to start over in front of the customer."""
+        for minor in ("²", "checkIn", None, "-3", "9" * 5000):
+            def punch(code=minor):
+                now = datetime.now(self.terminal.zone).replace(tzinfo=None)
+                self.terminal.add_event(PIN, now, code, "checkIn")
+                return ""
+
+            console = ScriptedConsole([("اسم المستخدم", ""), ("الباسورد", "s3cret-pass"),
+                                       ("يعمل بصمة على الجهاز", punch),
+                                       ("الجهاز متظبط على إيه", "4"), ("بتتظبط لوحدها", "1")])
+            visited = quick_visit(console, self.lab, self.out)
+            Path(self.out).mkdir(parents=True, exist_ok=True)
+            visited.hik_flow("127.0.0.1", self.server.server_address[1])
+            self.assertEqual(console.answers, [], f"minor={minor!r}: {console.text[-400:]}")
+            # Not attendance, whatever shape it is -- and the code is quoted so the issue can name it.
+            reported = [f for f in visited.findings if f.level == "bad" and "مش بيتحسب حضور" in f.text]
+            self.assertTrue(reported, f"minor={minor!r} was not reported: {[f.text for f in visited.findings]}")
+            # Bounded: the finding is drawn in the transcript **and** written into the report the
+            # runbook tells the operator to paste into a public issue, so a terminal that sends five
+            # thousand characters must not decide how long either of those is. Before this the value
+            # crashed the visit; fixing that without a bound traded a crash for an unbounded echo.
+            for finding in reported:
+                self.assertLess(len(finding.text), 200, f"minor={str(minor)[:12]!r}: {len(finding.text)}")
+                self.assertLess(len(finding.fix or ""), 200, f"minor={str(minor)[:12]!r}")
+        # A plain code still reads as attendance, so the guard did not swallow the ordinary path.
+        console = ScriptedConsole([("اسم المستخدم", ""), ("الباسورد", "s3cret-pass"),
+                                   ("يعمل بصمة على الجهاز", self.punch_now),
+                                   ("الجهاز متظبط على إيه", "4"), ("بتتظبط لوحدها", "1")])
+        visited = quick_visit(console, self.lab, self.out)
+        visited.hik_flow("127.0.0.1", self.server.server_address[1])
+        self.assertIn("وده بيتحسب حضور", console.text)
 
     def test_codes_a_live_punch_and_two_sends_and_the_password_does_not_outlive_the_visit(self):
         answers = VisitStart() + [
@@ -866,6 +1017,27 @@ class ThePiecesTheWizardDecidesWith(unittest.TestCase):
     def exchange(self, body, stamp="9", status=200, content_type="text/plain"):
         return visit.Exchange(0.0, "SN1", "POST", f"/iclock/cdata?SN=SN1&table=ATTLOG&Stamp={stamp}", status,
                               content_type, body.encode(), b"OK")
+
+    def test_a_menu_answer_that_is_not_a_plain_number_is_refused_and_the_menu_comes_back(self):
+        """Every question the wizard asks funnels through here, including the consent one. The
+        guard already means to refuse anything that is not a number in range and ask again, but
+        `str.isdigit()` is true for `²` and `1²` while `int()` refuses them, so those two
+        answers passed the guard and raised -- ending the whole visit on a typo at a menu."""
+        console = ScriptedConsole([("سؤال", "²"), ("سؤال", "1²"),
+                                   ("سؤال", "9"), ("سؤال", "2")])
+        self.assertEqual(console.choose("سؤال؟", ["أول", "تاني"]), 1)
+        self.assertEqual(console.answers, [])
+        self.assertEqual(console.text.count("الرقم ده مش في القايمة"), 3,
+                         "two unreadable answers and one out of range, each refused")
+        # Arabic-Indic digits are ordinary numbers and must still choose.
+        console = ScriptedConsole([("سؤال", "٢")])
+        self.assertEqual(console.choose("سؤال؟", ["أول", "تاني"]), 1)
+        # Length is the second way `int()` refuses a string that is all decimal digits: CPython
+        # caps a conversion at `sys.get_int_max_str_digits()`, 4300 by default. `isdecimal()`
+        # alone says nothing about it, so this answer passed that guard and raised too.
+        console = ScriptedConsole([("سؤال", "9" * 5000), ("سؤال", "1")])
+        self.assertEqual(console.choose("سؤال؟", ["أول", "تاني"]), 0)
+        self.assertIn("الرقم ده مش في القايمة", console.text)
 
     def test_the_results_sheet_is_the_runbooks_appendix_row_for_row(self):
         text = (ROOT / "docs" / "devices" / "field-visit-runbook.md").read_text(encoding="utf-8")
@@ -1428,13 +1600,41 @@ class WhenTheVisitCannotFinish(unittest.TestCase):
             self.device = PushDevice(f"http://127.0.0.1:{visited.receiver.port}")
             return ""
 
+        failed = []
+
         def punch_in_a_charset_nobody_asked_for():
-            # A line the recorder keeps nothing from: the platform still answered 200.
-            body = f"{PIN}\t2026-09-20 08:00:00\t0\t1\t".encode() + bytes([0xB4, 0xF7, 0xC3, 0xFB])
-            request = urllib.request.Request(
-                f"http://127.0.0.1:{visited.receiver.port}/iclock/cdata?SN=PUSH-VISIT-1&table=ATTLOG&Stamp=9",
-                data=body, method="POST", headers={"Content-Type": "application/x-www-form-urlencoded"})
-            urllib.request.urlopen(request, timeout=5).read()
+            """Uploaded **after** the mark, as an ordering rather than as a head start.
+
+            `punch_test` takes its mark *after* the prompt returns, deliberately: an upload
+            already on its way when the operator was asked is the backlog, not the punch. Posted
+            inside the answer, this upload raced that mark, and on the runs where the recorder's
+            thread won it landed first, was invisible, and the visit waited out the whole window
+            and asked a question no script answers -- one run in six under parallel load.
+
+            A sleep only widens that window, and the suite has narrower ones: `PushDevice._loop`
+            polls every 50 ms, so every ordinary punch fixture has a fifth of the margin a sleep
+            here would buy. Hooking `mark` instead makes the order a fact -- the upload starts
+            once the visit has taken the mark it will compare against, which is exactly what the
+            operator's real punch does."""
+            real = visited.receiver.mark
+
+            def mark_then_upload():
+                taken = real()
+                visited.receiver.mark = real          # this fixture answers one prompt only
+                # A line the recorder keeps nothing from: the platform still answered 200.
+                body = f"{PIN}\t2026-09-20 08:00:00\t0\t1\t".encode() + bytes([0xB4, 0xF7, 0xC3, 0xFB])
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{visited.receiver.port}/iclock/cdata?SN=PUSH-VISIT-1&table=ATTLOG&Stamp=9",
+                    data=body, method="POST", headers={"Content-Type": "application/x-www-form-urlencoded"})
+                try:
+                    urllib.request.urlopen(request, timeout=5).read()
+                except Exception as exc:                      # pragma: no cover - reported below
+                    # Swallowed, this reads as "the punch never arrived" and the visit asks an
+                    # unscripted question -- a failure that names neither the upload nor the cause.
+                    failed.append(exc)
+                return taken
+
+            visited.receiver.mark = mark_then_upload
             return ""
 
         console.answers = VisitStart() + [
@@ -1453,6 +1653,7 @@ class WhenTheVisitCannotFinish(unittest.TestCase):
         self.assertIn("البصمة وصلت للسيستم، بس الـ capture مافهمش سطور الرفعة", console.text)
         self.assertNotIn("ماوصلتش", console.text, "the punch did arrive; the line shape is the finding")
         self.assertIn("البصمتين ورا بعض اتسجلوا الاتنين", console.text, "the visit carried on")
+        self.assertEqual(failed, [], "the unreadable upload never reached the receiver")
 
     def test_a_terminal_whose_lines_cannot_be_read_gets_no_latency_for_a_punch_never_made(self):
         """The headline number of the whole visit is "بصمة وصلت خلال". On a terminal whose line
@@ -1889,6 +2090,18 @@ class WhatReviewRoundTwoAsked(unittest.TestCase):
         # holds a path does not rely on this, and why a path inside an exception's text is a
         # backstop rather than a guarantee.
         self.assertIn("النور", visit._no_path("/home/k/شركة النور/x.dat"))
+        # And the other stated limit, asserted so the docstring cannot quietly become false: this
+        # package ships as a Windows executable, and neither Windows form is matched -- a backslash
+        # path has no rooted `/`, and `C:/...`'s leading slash follows a colon exactly as `https://`
+        # does. The call-site fix covers every platform; this backstop is POSIX-only.
+        # The third stated limit: a dotted *leaf directory* reads as a file name and is kept, while
+        # an undotted one and a trailing slash are not. `usb_flow` is why that is tolerable.
+        self.assertEqual(visit._no_path("/home/karim/visits/AlNoor.2026"), "<path>/AlNoor.2026")
+        self.assertEqual(visit._no_path("/home/karim/visits/AlNoor.2026/"), "<path>")
+        self.assertEqual(visit._no_path("/home/karim/visits/AlNoor"), "<path>")
+        for windows in (r"C:\Users\Karim\AlNoor\attlog.dat", "C:/Users/Karim/AlNoor/attlog.dat",
+                        r"\\server\share\Karim\attlog.dat"):
+            self.assertEqual(visit._no_path(windows), windows, windows)
 
     def test_the_report_names_no_serial_because_the_runbook_says_to_paste_it_in_public(self):
         """A serial is the only thing that identifies a terminal to the device endpoint (R-041,

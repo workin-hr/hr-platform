@@ -212,9 +212,248 @@ class AdminAttendanceEndToEndTest {
 	void bothTablesRenderTheFilteredRange() {
 		attendance(this.employeeA, "2026-03-02 09:00:00", "2026-03-02 17:00:00", null);
 		String html = body(PATH + range());
-		assertThat(html).contains("\u0633\u062c\u0644\u0627\u062a \u0627\u0644\u0628\u0635\u0645\u0627\u062a").contains("Aya");
+		assertThat(html).contains("\u0627\u0644\u0628\u0635\u0645\u0627\u062a").contains("Aya");
 		assertThat(html).as("the aggregate table is on the same page")
 				.contains("\u0627\u0644\u062a\u0642\u0631\u064a\u0631 \u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a");
+	}
+
+	/**
+	 * payroll_list_helper.php:397, {@code dashboard_employee_order_by_sql()}: first name, then
+	 * last name -- two columns, not the concatenated {@code employee_name} the port sorted by.
+	 * They agree for almost every pair of names, and diverge exactly when one employee's first
+	 * name is itself a prefix of another's, as a compound Arabic first name can be: "Anna" sorts
+	 * before "Anna Marie" by first name alone, but "Anna Marie Aaa" sorts before "Anna Zed" as one
+	 * concatenated string, because the fifth character compared is "M" against "Z", not "A" against
+	 * "A" -- the two employees' first names never actually get compared against each other.
+	 */
+	@Test
+	void theAggregateReportSortsByFirstNameThenLastNameNotTheFullName() {
+		long shorter = createEmployee(this.companyA, "A300", "Anna", "Zed");
+		long longer = createEmployee(this.companyA, "A301", "Anna Marie", "Aaa");
+		attendance(shorter, "2026-03-02 09:00:00", "2026-03-02 17:00:00", null);
+		attendance(longer, "2026-03-03 09:00:00", "2026-03-03 17:00:00", null);
+
+		String html = body(PATH + range() + "&company_id=" + this.companyA);
+		int report = html.indexOf("<h2 class=\"data-table-title\">"
+				+ "التقرير الإجمالي");
+		String aggregate = html.substring(report);
+		assertThat(aggregate.indexOf("Anna Zed"))
+				.as("Anna, by first name alone, before Anna Marie -- reversed by the full string")
+				.isPositive()
+				.isLessThan(aggregate.indexOf("Anna Marie Aaa"));
+	}
+
+	/**
+	 * page.php:182,236: both headings carry a count, and the detail heading reuses the page
+	 * title's own key -- not {@code att_records} ("Attendance Records"), a heading legacy never
+	 * shows.
+	 */
+	@Test
+	void theTableHeadingsCarryLegacysFingerprintsWordingAndTheirCounts() {
+		attendance(this.employeeA, "2026-03-02 09:00:00", "2026-03-02 17:00:00", null);
+		attendance(this.employeeA, "2026-03-03 09:00:00", "2026-03-03 17:00:00", null);
+
+		String html = body(PATH + range() + "&company_id=" + this.companyA);
+		assertThat(html).as("two punches")
+				.contains("<h2 class=\"data-table-title\">\u0627\u0644\u0628\u0635\u0645\u0627\u062a (2)</h2>");
+		assertThat(html).as("one employee in company A")
+				.contains("<h2 class=\"data-table-title\">"
+						+ "\u0627\u0644\u062a\u0642\u0631\u064a\u0631 \u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a (1)</h2>");
+	}
+
+	/**
+	 * org_option_label() (org_helper.php:485-492), as payroll_list_helper.php:81 calls it for this
+	 * toolbar's branch select: the branch name, then the company, only when the list spans
+	 * companies. The department select never carries the suffix -- payroll_list_helper.php:89
+	 * prints {@code $d['name']} alone -- so it is checked here too, as a control that stays
+	 * unchanged.
+	 */
+	@Test
+	void theBranchFilterNamesTheCompanyOnlyWhenNoCompanyIsChosen() {
+		String unfiltered = body(PATH + range());
+		String branches = selectMarkup(unfiltered, "<select id=\"at_branch\"");
+		assertThat(branches)
+				.contains(">Branch A100 \u2014 Alpha Co<")
+				.contains(">Branch B100 \u2014 Beta Co<");
+		String departments = selectMarkup(unfiltered, "<select id=\"at_dept\"");
+		assertThat(departments).as("legacy's department option never carries a company suffix")
+				.doesNotContain("\u2014");
+
+		String filtered = body(PATH + range() + "&company_id=" + this.companyA);
+		assertThat(selectMarkup(filtered, "<select id=\"at_branch\""))
+				.as("one company chosen: the suffix would be redundant")
+				.contains(">Branch A100<")
+				.doesNotContain("Alpha Co");
+	}
+
+	/**
+	 * dashboard_employee_search_condition() (employee_helper.php:79-97): the id and the phone are
+	 * two of its six matched columns. Before this, the port matched only the full name and the
+	 * code (EMP_CODE, DISPLAY_NAME), so a search by either of these found nothing.
+	 */
+	@Test
+	void searchMatchesTheEmployeesIdAndPhoneAsLegacyDoes() {
+		// Not "Aya" alone: the add form's employee-picker list names every active
+		// employee regardless of the toolbar's search, so only the row cell proves the
+		// *table* matched.
+		String row = "<td class=\"bold\">Aya Alpha</td>";
+		this.jdbc.update("UPDATE employees SET phone = ? WHERE id = ?", "01099998888", this.employeeA);
+		attendance(this.employeeA, "2026-03-02 09:00:00", "2026-03-02 17:00:00", null);
+
+		String byPhone = body(PATH + range() + "&search=9998");
+		assertThat(byPhone).as("a phone substring").contains(row);
+
+		String byId = body(PATH + range() + "&search=" + this.employeeA);
+		assertThat(byId).as("the id as text").contains(row);
+
+		String byNeither = body(PATH + range() + "&search=zzzz-no-match");
+		assertThat(byNeither).doesNotContain(row);
+	}
+
+	/**
+	 * {@code pagerHtml()} replays the raw {@code $_GET} (query.php:241-243), so a page number
+	 * past the last page travels to the other pager as it was asked for. The port clamps
+	 * {@code result.page()} for display while keeping the offset it was given
+	 * ({@code DashboardPage.of}), and carrying that clamped value would quietly rewrite a
+	 * bookmarked {@code page=99} into the last page as soon as the aggregate pager is clicked --
+	 * repopulating a detail table the operator had paged past the end of.
+	 */
+	@Test
+	void theOtherPagerCarriesThePageThatWasAskedForNotTheOneItLandedOn() {
+		createEmployee(this.companyA, "A101", "Amir", "Alpha");
+		for (int i = 0; i < 3; i++) {
+			attendance(this.employeeA, "2026-03-0" + (2 + i) + " 09:00:00", "2026-03-0" + (2 + i) + " 17:00:00", null);
+		}
+
+		String html = body(PATH + range() + "&company_id=" + this.companyA + "&per_page=1&page=99&agg_page=2");
+
+		Matcher aggLink = Pattern.compile("href=\"(/admin/attendance\\?agg_page=1[^\"]*)\"").matcher(html);
+		assertThat(aggLink.find()).as("the aggregate table's first-page link").isTrue();
+		assertThat(HtmlUtils.htmlUnescape(aggLink.group(1)))
+				.as("it carries the detail page that was asked for, as legacy replays it")
+				.contains("&page=99");
+	}
+
+	/**
+	 * query.php's pagerHtml() replays the whole current {@code $_GET} into every link, so paging
+	 * one of this page's two tables leaves the other's {@code page}/{@code agg_page} exactly where
+	 * it was. The port built each pager's link from an explicit, filter-only map that held neither
+	 * -- so paging one table silently reset the other to page 1.
+	 */
+	@Test
+	void pagingOneTableCarriesTheOthersCurrentPageForward() {
+		// A second employee in company A, so the aggregate table also has more than one page
+		// at per_page=1 -- the case worth pinning is two real pagers, not one clamped to page 1.
+		createEmployee(this.companyA, "A101", "Amir", "Alpha");
+		for (int i = 0; i < 3; i++) {
+			attendance(this.employeeA, "2026-03-0" + (2 + i) + " 09:00:00", "2026-03-0" + (2 + i) + " 17:00:00", null);
+		}
+		String html = body(PATH + range() + "&company_id=" + this.companyA + "&per_page=1&page=2&agg_page=2");
+
+		Matcher detailNext = Pattern.compile("href=\"(/admin/attendance\\?page=3[^\"]*)\"").matcher(html);
+		assertThat(detailNext.find()).as("the detail table's next-page link").isTrue();
+		assertThat(detailNext.group(1)).as("it keeps the aggregate table's current page")
+				.contains("agg_page=2");
+
+		Matcher aggNext = Pattern.compile("href=\"(/admin/attendance\\?agg_page=1[^\"]*)\"").matcher(html);
+		assertThat(aggNext.find()).as("the aggregate table's first-page link").isTrue();
+		// "&page=2", not "page=2": the latter is also what "agg_page=2" ends with.
+		assertThat(HtmlUtils.htmlUnescape(aggNext.group(1)))
+				.as("it keeps the detail table's current page").contains("&page=2");
+
+		// pagerHtml() unsets its own page parameter before replaying the rest (query.php:241-243).
+		// Carrying both page numbers in one map and not skipping its own would write the pager's
+		// own parameter twice -- once from the link and once from the map -- which the assertions
+		// above cannot see, because a link holding page=3 and page=2 contains both.
+		assertThat(countParameter(detailNext.group(1), "page"))
+				.as("the detail link names its own page once: %s", detailNext.group(1)).isEqualTo(1);
+		assertThat(countParameter(detailNext.group(1), "agg_page"))
+				.as("and the other table's once").isEqualTo(1);
+		assertThat(countParameter(aggNext.group(1), "agg_page"))
+				.as("the aggregate link names its own page once: %s", aggNext.group(1)).isEqualTo(1);
+		assertThat(countParameter(aggNext.group(1), "page"))
+				.as("and the other table's once").isEqualTo(1);
+
+		// The size form re-submits the same map as hidden inputs, and skips its own there too.
+		assertThat(countOccurrences(html, "name=\"page\""))
+				.as("one hidden page input on the page, the aggregate pager's").isEqualTo(1);
+		assertThat(countOccurrences(html, "name=\"agg_page\""))
+				.as("one hidden agg_page input on the page, the detail pager's").isEqualTo(1);
+	}
+
+	/**
+	 * How many times a URL names one query parameter, without reading {@code per_page} as
+	 * {@code page}. The href is read out of the rendered page, where jte has escaped each
+	 * separator as {@code &amp;}, so it is unescaped first -- matching on {@code [?&]} alone
+	 * counts every parameter after the first as absent.
+	 */
+	private static long countParameter(String url, String name) {
+		return Pattern.compile("[?&]" + Pattern.quote(name) + "=")
+				.matcher(HtmlUtils.htmlUnescape(url)).results().count();
+	}
+
+	private static long countOccurrences(String html, String text) {
+		return Pattern.compile(Pattern.quote(text)).matcher(html).results().count();
+	}
+
+	/**
+	 * page.php:333-345 reuses the add form for the edit modal, so the edit view shows exactly the
+	 * add view's field text: {@code check_in}/{@code check_out}, not the table's
+	 * {@code att_check_in_time}/{@code att_check_out_time} headings, and "(optional)" beside the
+	 * exception type. The dialog's own title is {@code edit_attendance} ("Edit Record"), not the
+	 * row menu's generic {@code edit} ("Edit"). Legacy marks the required field with "*"; D-259's
+	 * correction (#270, second part) already settled that a window built this way marks none.
+	 */
+	@Test
+	void theEditDialogReusesTheAddFormsFieldTextAndItsOwnTitle() {
+		String html = body(PATH + range() + "&company_id=" + this.companyA);
+		assertThat(html).contains("<h2 id=\"attendance-edit-title\">\u062a\u0639\u062f\u064a\u0644 \u0628\u0635\u0645\u0629</h2>")
+				.contains("<label for=\"att_edit_check_in\">\u062f\u062e\u0648\u0644</label>")
+				.contains("<label for=\"att_edit_check_out\">\u062e\u0631\u0648\u062c</label>")
+				.doesNotContain("<label for=\"att_edit_check_in\">\u062f\u062e\u0648\u0644 *</label>");
+	}
+
+	/**
+	 * page.php:269,286-303: {@code novalidate} and "(optional)" on the exception type --
+	 * attendance-form.js gates the submit itself rather than the browser. The button starts
+	 * {@code disabled}, as legacy's {@code data-att-submit disabled} does; attendance-form.spec.js
+	 * (browser project) pins the script that turns it on. Legacy also marks its two required
+	 * fields with "*"; D-259's correction (#270, second part) already settled that a window built
+	 * this way -- novalidate, required, a script gating Save -- marks no field that way, so unlike
+	 * legacy's these carry none.
+	 */
+	@Test
+	void theAddFormIsNovalidateWithNoAsteriskAndADisabledSave() {
+		String html = body(PATH + range());
+		assertThat(html)
+				.contains("<form method=\"POST\" novalidate>")
+				.contains("<label for=\"employee_id\">\u0627\u0633\u0645 \u0627\u0644\u0645\u0648\u0638\u0641</label>")
+				.contains("<label for=\"check_in\">\u062f\u062e\u0648\u0644</label>")
+				.contains("<label for=\"check_out\">\u062e\u0631\u0648\u062c</label>")
+				.contains("(\u0627\u062e\u062a\u064a\u0627\u0631\u064a)")
+				.contains("<button type=\"submit\" class=\"btn btn-blue\" data-att-submit disabled>")
+				.doesNotContain(" *</label>");
+	}
+
+	/**
+	 * payroll_list_helper.php:75-102: branch, department, then the search field labelled
+	 * {@code employee_name} with {@code att_search_placeholder}'s text and a literal "..." legacy
+	 * appends outside the key.
+	 */
+	@Test
+	void theToolbarOrdersItsFieldsAsLegacysSharedHelperDoes() {
+		String html = body(PATH + range());
+		int branch = html.indexOf("id=\"at_branch\"");
+		int department = html.indexOf("id=\"at_dept\"");
+		int search = html.indexOf("id=\"at_search\"");
+		assertThat(branch).isPositive();
+		assertThat(department).isGreaterThan(branch);
+		assertThat(search).isGreaterThan(department);
+		assertThat(html)
+				.contains("<label class=\"filter-field__label\" for=\"at_search\">"
+						+ "\u0627\u0633\u0645 \u0627\u0644\u0645\u0648\u0638\u0641</label>")
+				.contains("placeholder=\"\u0627\u0628\u062d\u062b \u0628\u0627\u0644\u0627\u0633\u0645 "
+						+ "\u0623\u0648 \u0643\u0648\u062f \u0627\u0644\u0645\u0648\u0638\u0641...\"");
 	}
 
 	/**
@@ -231,7 +470,7 @@ class AdminAttendanceEndToEndTest {
 
 		String html = body(PATH + range() + "&company_id=" + this.companyA);
 		int report = html.indexOf("<h2 class=\"data-table-title\">"
-				+ "\u0627\u0644\u062a\u0642\u0631\u064a\u0631 \u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a</h2>");
+				+ "\u0627\u0644\u062a\u0642\u0631\u064a\u0631 \u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a");
 		assertThat(report).as("the aggregate report's heading").isPositive();
 		String punches = html.substring(0, report);
 		String aggregate = html.substring(report);
@@ -308,6 +547,69 @@ class AdminAttendanceEndToEndTest {
 				"check_in", "2026-03-02 09:00:00", "check_out", "");
 		assertThat(this.jdbc.queryForObject(
 				"SELECT COUNT(*) FROM attendance WHERE check_out IS NULL", Integer.class)).isEqualTo(1);
+	}
+
+	@Test
+	void addingWithACheckInTheRangeFilterCanNeverMatchWritesNothing() {
+		// A punch with no check-in is worse than a refused one: every read of this page filters
+		// `DATE(a.check_in) BETWEEN ? AND ?`, and NULL matches no range -- so the row would never
+		// show in the list, never count in either heading, and `delete_range` could not remove it.
+		// It redirected on the success path, so the operator was told it was saved. The modal's save
+		// button is disabled until a check-in is set, so only a replayed or hand-rolled POST gets
+		// here, which is exactly why the refusal has to be on the server.
+		// The last two are the interesting ones: a guard that parses a *prefix* and then stores the
+		// whole string approves a value the column never sees the same way, and only the two posted
+		// lengths keep a signed year out of the SQL.
+		for (String checkIn : new String[] {
+				"", "   ", "not-a-date", "2026-13-45 99:99:99",
+				"2026-03-02T09:00:00zzzz", "+12026-03-02T09:00"}) {
+			post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+					"action", "add_attendance", "employee_id", String.valueOf(this.employeeA),
+					"check_in", checkIn);
+			assertThat(this.jdbc.queryForObject("SELECT COUNT(*) FROM attendance", Integer.class))
+					.as("check_in=%s was stored", checkIn).isZero();
+		}
+		// And the two shapes a real form sends are both still accepted.
+		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+				"action", "add_attendance", "employee_id", String.valueOf(this.employeeA),
+				"check_in", "2026-03-02T09:00");
+		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+				"action", "add_attendance", "employee_id", String.valueOf(this.employeeA),
+				"check_in", "2026-03-03 09:00:00");
+		assertThat(this.jdbc.queryForList(
+				"SELECT check_in FROM attendance ORDER BY check_in", String.class))
+				.as("what the guard accepted is what the column holds")
+				.containsExactly("2026-03-02 09:00:00", "2026-03-03 09:00:00");
+	}
+
+	@Test
+	void editingWithACheckInTheRangeFilterCanNeverMatchLeavesTheRowAlone() {
+		// The sibling of the add refusal, found by reading the diff rather than by review: `edit`
+		// writes the same column, so without this an edit turns a visible, deletable row into one
+		// no range query on this page can reach -- the same permanent invisible row, one endpoint
+		// over. Legacy writes `$_POST['check_in']` raw here too, so this is the same Java-only
+		// hardening, recorded with the add one.
+		long id = attendance(this.employeeA, "2026-03-02 09:00:00", "2026-03-02 17:00:00", null);
+		for (String checkIn : new String[] {"", "   ", "not-a-date", "2026-03-02T09:00:00zzzz"}) {
+			post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+					"action", "edit_attendance", "id", String.valueOf(id),
+					"check_in", checkIn, "check_out", "2026-03-02 18:00:00");
+			assertThat(this.jdbc.queryForObject(
+					"SELECT check_in FROM attendance WHERE id = " + id, String.class))
+					.as("check_in=%s was written over a good row", checkIn)
+					.isEqualTo("2026-03-02 09:00:00");
+		}
+		// The whole row is untouched by a refused edit, not just the one column.
+		assertThat(this.jdbc.queryForObject(
+				"SELECT check_out FROM attendance WHERE id = " + id, String.class))
+				.isEqualTo("2026-03-02 17:00:00");
+		// And a real edit still goes through, in both posted shapes.
+		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+				"action", "edit_attendance", "id", String.valueOf(id),
+				"check_in", "2026-03-02T11:30", "check_out", "");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT check_in FROM attendance WHERE id = " + id, String.class))
+				.isEqualTo("2026-03-02 11:30:00");
 	}
 
 	@Test
@@ -388,9 +690,53 @@ class AdminAttendanceEndToEndTest {
 		assertThat(this.jdbc.queryForObject("SELECT COUNT(*) FROM attendance", Integer.class)).isEqualTo(1);
 	}
 
+	/**
+	 * page.php:187 json_encode()'s the delete-range confirm text; the port drops {@code from}/
+	 * {@code to} into a single-quoted JS string by concatenation instead (attendance.jte), so an
+	 * unvalidated query value could break out of it. Java-only: a value that is not a real
+	 * {@code YYYY-MM-DD} date falls back to the default range, the same as a blank one, rather
+	 * than reaching that string as given.
+	 */
+	@Test
+	void aMalformedDateNeverReachesTheRangeDeleteConfirmText() {
+		String html = body(PATH + "?company_id=" + this.companyA
+				+ "&from=x'-alert(document.cookie)-'&to=2026-03-31");
+		assertThat(html).as("the raw query value never reaches the page")
+				.doesNotContain("alert(document.cookie)");
+		// The template's own literal `\n` (two characters: backslash then n, the JS escape
+		// confirm() reads as a newline), not an actual newline in the HTML source.
+		Matcher confirm = Pattern.compile(
+				"onsubmit=\"return confirm\\('.*\\\\n(\\d{4}-\\d{2}-\\d{2}) . 2026-03-31'\\)\"").matcher(html);
+		assertThat(confirm.find()).as("the confirm text carries a well-formed fallback date").isTrue();
+		Matcher fromField = Pattern.compile("id=\"at_from\" name=\"from\" value=\"(\\d{4}-\\d{2}-\\d{2})\"")
+				.matcher(html);
+		assertThat(fromField.find()).as("the date field itself falls back the same way").isTrue();
+	}
+
 	// ------------------------------------------------------------------
 	// Tenant guards (R-046 / R-059)
 	// ------------------------------------------------------------------
+
+	@Test
+	void theSearchNeverReachesAnotherCompanyOrADateOutsideTheRange() {
+		// `searchCondition` builds an OR chain over six columns and is spliced into a WHERE that
+		// already carries the range and the company. `AND` binds tighter than `OR`, so the chain
+		// has to stay parenthesised or the whole filter collapses: dropping the parentheses renders
+		// `(range AND company AND first LIKE ?) OR last LIKE ? OR ...`, and a platform admin
+		// filtered to one company is served another company's punches on any date. The six-positive
+		// search test cannot see that -- it matches inside one company in one range, which is true
+		// either way -- so this asserts the scope the OR chain must not escape.
+		String otherCompanysRow = "<td class=\"bold\">Basma Beta</td>";
+		attendance(this.employeeB, "2026-03-04 09:00:00", "2026-03-04 17:00:00", null);
+		attendance(this.employeeA, "2026-01-09 09:00:00", "2026-01-09 17:00:00", null);
+
+		String scoped = body(PATH + range() + "&company_id=" + this.companyA + "&search=Beta");
+		assertThat(scoped).as("a search cannot cross the company filter").doesNotContain(otherCompanysRow);
+
+		String inRange = body(PATH + range() + "&search=Alpha");
+		assertThat(inRange).as("a search cannot reach a punch outside the range")
+				.doesNotContain("2026-01-09");
+	}
 
 	@Test
 	void onlyActiveExceptionTypesAreOfferedAndNoneWithoutACompany() {
