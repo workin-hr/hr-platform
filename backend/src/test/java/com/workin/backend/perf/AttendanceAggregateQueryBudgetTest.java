@@ -69,13 +69,24 @@ class AttendanceAggregateQueryBudgetTest extends AbstractLegacyMySqlTest {
 
 	private static final long REST_SHIFT = 997522;
 
-	private static final long REST_EMPLOYEE = 997523;
+	/**
+	 * Three, not one: the rest-credit term was per row <em>and</em> per date, and
+	 * only a fixture with more than one row can tell which axis a ratchet pins.
+	 */
+	private static final long[] REST_EMPLOYEES = { 997523, 997524, 997525 };
+
+	private static final long REST_EMPLOYEE = REST_EMPLOYEES[0];
+
+	/** Whose warm has rows to return, so the batched read is not measured empty. */
+	private static final long REST_LEAVE_TYPE = 997526;
 
 	private final QueryCounter counter = new QueryCounter();
 
 	@BeforeEach
 	void seed() throws Exception {
 		List<String> statements = new java.util.ArrayList<>(List.of(
+				"DELETE FROM requests WHERE employee_id BETWEEN 997500 AND 997599",
+				"DELETE FROM request_types WHERE id BETWEEN 997500 AND 997599",
 				"DELETE FROM attendance WHERE employee_id BETWEEN 997500 AND 997599",
 				"DELETE FROM employee_shift_assignments WHERE employee_id BETWEEN 997500 AND 997599",
 				"DELETE FROM employees WHERE id BETWEEN 997500 AND 997599",
@@ -125,13 +136,23 @@ class AttendanceAggregateQueryBudgetTest extends AbstractLegacyMySqlTest {
 				"INSERT INTO shifts (id, company_id, name, start_time, end_time, days_off, is_active,"
 						+ " created_at) VALUES (" + REST_SHIFT + ", " + REST_COMPANY + ", 'Day',"
 						+ " '09:00:00', '17:00:00', 'friday', 1, '2019-05-01 08:00:00')",
-				"INSERT INTO employees (id, company_id, branch_id, employee_code, first_name,"
-						+ " last_name, phone, role, is_active, expected_daily_hours, created_at) VALUES ("
-						+ REST_EMPLOYEE + ", " + REST_COMPANY + ", " + REST_BRANCH + ", '" + REST_EMPLOYEE
-						+ "', 'Rest', 'Worker', '+2010" + REST_EMPLOYEE + "', 'employee', 1, 8,"
-						+ " '2019-04-01 08:00:00')",
-				"INSERT INTO employee_shift_assignments (employee_id, shift_id, effective_from) VALUES ("
-						+ REST_EMPLOYEE + ", " + REST_SHIFT + ", '2019-05-01')"));
+				"INSERT INTO request_types (id, company_id, name, is_active, counts_as_paid_leave,"
+						+ " created_at) VALUES (" + REST_LEAVE_TYPE + ", " + REST_COMPANY + ", 'Annual',"
+						+ " 1, 1, '2019-05-01 08:00:00')"));
+		for (long employee : REST_EMPLOYEES) {
+			statements.add("INSERT INTO employees (id, company_id, branch_id, employee_code,"
+					+ " first_name, last_name, phone, role, is_active, expected_daily_hours, created_at)"
+					+ " VALUES (" + employee + ", " + REST_COMPANY + ", " + REST_BRANCH + ", '" + employee
+					+ "', 'Rest', 'Worker', '+2010" + employee + "', 'employee', 1, 8,"
+					+ " '2019-04-01 08:00:00')");
+			statements.add("INSERT INTO employee_shift_assignments (employee_id, shift_id,"
+					+ " effective_from) VALUES (" + employee + ", " + REST_SHIFT + ", '2019-05-01')");
+			// An approved paid leave inside the period, so the batched read has
+			// rows to return and the warm is not measured against an empty table.
+			statements.add("INSERT INTO requests (employee_id, request_type_id, from_date, to_date,"
+					+ " status, created_at) VALUES (" + employee + ", " + REST_LEAVE_TYPE + ","
+					+ " '2026-03-11', '2026-03-13', 'approved', '2026-02-01 09:00:00')");
+		}
 		seedAsLegacyWould(statements.toArray(String[]::new));
 
 	}
@@ -178,22 +199,26 @@ class AttendanceAggregateQueryBudgetTest extends AbstractLegacyMySqlTest {
 		System.out.println("[budget] 1 row over 31 days: " + oneRow + " statements");
 		System.out.println("[budget] " + ALL_ROWS + " rows over 31 days: " + allRows + " statements");
 		assertThat(allRows - oneRow)
-				.as("three more rows cost the four per-row lookups summarise still makes one at a "
-						+ "time -- approved leave days, the employee's work hours, the attendance "
-						+ "flags in range, and expectedWorkDays' own holiday read. Batching those "
-						+ "means batched variants inside the payroll figures classes, which is its "
-						+ "own change; what this pins is that the number is per row and not per row "
-						+ "per day")
-				.isLessThanOrEqualTo(12);
+				.as("three more rows cost the three per-row lookups summarise still makes one at a "
+						+ "time -- approved leave days, the employee's work hours, and the attendance "
+						+ "flags in range. expectedWorkDays' own holiday read used to be a fourth and "
+						+ "is now the calendar's memoized one. Batching the rest means batched "
+						+ "variants inside the payroll figures classes, which is its own change; "
+						+ "what this pins is that the number is per row and not per row per day")
+				.isLessThanOrEqualTo(9);
 	}
 
 	private int measure(String from, String to, int expectedRows) {
+		return measure(COMPANY, "", from, to, expectedRows);
+	}
+
+	private int measure(long companyId, String employee, String from, String to, int expectedRows) {
 		DashboardListFilters filters =
-				new DashboardListFilters(COMPANY, "", "all", 0L, 0L, 1, 10, false);
+				new DashboardListFilters(companyId, employee, "all", 0L, 0L, 1, 10, false);
 		AttendanceStore store = coldRequest();
 		java.util.concurrent.atomic.AtomicInteger rows = new java.util.concurrent.atomic.AtomicInteger();
 		List<String> issued = this.counter.measure(() -> {
-			var page = store.aggregate(filters, from, to, 1, COMPANY, to);
+			var page = store.aggregate(filters, from, to, 1, companyId, to);
 			rows.set(page.data().size());
 		});
 		assertThat(rows.get()).as("the page under measurement returned its rows").isEqualTo(expectedRows);
@@ -237,34 +262,56 @@ class AttendanceAggregateQueryBudgetTest extends AbstractLegacyMySqlTest {
 	}
 
 	/**
-	 * What a company with a weekly rest day pays, which is <b>not</b> what the
+	 * What a company with a weekly rest day pays -- which is <b>not</b> what the
 	 * two ratchets above measure.
 	 *
 	 * <p>The fixture they use has {@code days_off = ''} and no
-	 * {@code WEEKLY_OFF_DAYS}, so it has no rest dates at all -- and the whole
-	 * remaining per-row cost is {@code LegacyWeeklyRestCredit}'s, which asks
-	 * {@code isOnApprovedLeave} once per preceding workday per rest date. With
-	 * Friday off, one row over a month measured <b>34</b> statements against a
-	 * week's <b>16</b>: the count still follows the period here, and this change
-	 * does not fix that -- it removes the shift term only, which is why the
-	 * shift query is absent from all of these.
+	 * {@code WEEKLY_OFF_DAYS}, so it has no rest dates at all. This company takes
+	 * Friday off, which is this market's ordinary configuration, and with it the
+	 * page used to ask {@code isOnApprovedLeave} once per preceding workday per
+	 * rest date: one row over a month measured <b>34</b> statements against a
+	 * week's <b>16</b>, and ten rows over a month measured <b>286</b>, of which
+	 * <b>240</b> were that one query. The batched read is what removed that term.
 	 *
-	 * <p>Asserted rather than printed, so the next reader cannot take 22 for the
-	 * whole truth, and so batching the rest credit has a number to beat.
+	 * <p>Asserted on both axes, because either alone can be satisfied by an
+	 * accident.
 	 */
 	@Test
-	void aCompanyWithAWeeklyRestDayStillPaysForEveryRestDateInThePeriod() {
+	void aCompanyWithAWeeklyRestDayNoLongerPaysPerRestDate() {
 		int week = measureForEmployee(REST_COMPANY, REST_EMPLOYEE, "2026-03-01", "2026-03-07");
 		int month = measureForEmployee(REST_COMPANY, REST_EMPLOYEE, "2026-03-01", "2026-03-31");
 
 		System.out.println("[budget] rest-day row over 7 days: " + week + " statements");
 		System.out.println("[budget] rest-day row over 31 days: " + month + " statements");
 		assertThat(month)
-				.as("the rest-credit term is what is left, and it grows with the period")
-				.isGreaterThan(week);
-		assertThat(month)
-				.as("a ratchet on the number batching the rest credit has to beat")
-				.isLessThanOrEqualTo(34);
+				.as("the rest-credit term was the one that still grew with the period; a month is "
+						+ "4.4x the days of a week and must now cost the same")
+				.isEqualTo(week);
+	}
+
+	/**
+	 * The page as an operator actually opens it: a month, a company with a weekly
+	 * rest day, and more than one row.
+	 *
+	 * <p>This is the measurement the one-row fixture could not make. Before the
+	 * batched read, three rows here cost one shift-and-leave walk each; the axis
+	 * that mattered was rows times dates, and a ratchet on one row would have
+	 * held while the page got slower with every employee added.
+	 */
+	@Test
+	void aWeeklyRestCompanyDoesNotMultiplyTheCountByTheNumberOfRows() {
+		int oneRow = measureForEmployee(REST_COMPANY, REST_EMPLOYEE, "2026-03-01", "2026-03-31");
+		int allRows = measure(REST_COMPANY, "", "2026-03-01", "2026-03-31", REST_EMPLOYEES.length);
+
+		System.out.println("[budget] rest-day 1 row over 31 days: " + oneRow + " statements");
+		System.out.println("[budget] rest-day " + REST_EMPLOYEES.length
+				+ " rows over 31 days: " + allRows + " statements");
+		assertThat(allRows - oneRow)
+				.as("two more rows cost only the four lookups summarise still makes one at a time -- "
+						+ "approved leave days, the employee's work hours, and the attendance flags "
+						+ "in range; batching those means batched variants inside the payroll "
+						+ "figures classes, which is its own change")
+				.isLessThanOrEqualTo(8);
 	}
 
 	/** Kept so a compile error names the type if the row shape moves. */

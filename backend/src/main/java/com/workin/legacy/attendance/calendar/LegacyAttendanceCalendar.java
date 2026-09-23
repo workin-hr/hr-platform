@@ -79,6 +79,20 @@ public class LegacyAttendanceCalendar {
 			ORDER BY esa.effective_from DESC, esa.id DESC
 			LIMIT 1""";
 
+	/**
+	 * {@code attendance_is_on_approved_leave()}
+	 * ({@code attendance_calendar_helper.php:669-683}).
+	 */
+	private static final String IS_ON_APPROVED_LEAVE = """
+			SELECT COUNT(*)
+			FROM requests r
+			INNER JOIN request_types t ON t.id = r.request_type_id
+			WHERE r.employee_id = ?
+			  AND r.status = 'approved'
+			  AND t.counts_as_paid_leave = 1
+			  AND r.from_date <= ?
+			  AND r.to_date >= ?""";
+
 	/** {@code official_holidays_by_date_in_range()} ({@code official_holidays_helper.php:61-83}). */
 	private static final String HOLIDAYS_IN_RANGE = """
 			SELECT holiday_date, name
@@ -119,6 +133,21 @@ public class LegacyAttendanceCalendar {
 
 	private final Map<String, Map<String, Object>> shiftCache = new HashMap<>();
 	private final Map<String, Map<String, String>> holidayCache = new HashMap<>();
+
+	/**
+	 * {@code employeeId|date} to the answer {@link #isOnApprovedLeave} would
+	 * have queried. An absent key is not {@code false}: it means the date was
+	 * never warmed, and the query still runs.
+	 */
+	private final Map<String, Boolean> approvedLeaveCache = new HashMap<>();
+
+	/**
+	 * The {@code (ids, from, to)} windows already warmed. Two methods on one
+	 * request ask for the same window -- the absent-day list and the void
+	 * weekly-rest list both cover the period plus its lookback -- and without
+	 * this the second re-issues an identical statement.
+	 */
+	private final java.util.Set<String> approvedLeaveWarmed = new java.util.HashSet<>();
 
 	public LegacyAttendanceCalendar(DataSource legacyDataSource, LegacyWeeklyOffDays weeklyOffDays) {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
@@ -290,6 +319,128 @@ public class LegacyAttendanceCalendar {
 				// and putIfAbsent would not have protected a cached absence anyway,
 				// since it replaces a mapping whose value is null.
 				shiftCache.put(employeeId + "|" + text, current);
+			}
+		}
+	}
+
+	/**
+	 * {@code attendance_is_on_approved_leave()}
+	 * ({@code attendance_calendar_helper.php:669-683}): whether an approved
+	 * request of a paid-leave type covers this date.
+	 *
+	 * <p>Answered from {@link #warmApprovedLeaveForEmployees}'s cache when this
+	 * employee/date was warmed, and by the query otherwise -- a warm that did
+	 * not reach this date changes the cost, never the answer.
+	 */
+	public boolean isOnApprovedLeave(long employeeId, String date) {
+		Boolean warmed = approvedLeaveCache.get(employeeId + "|" + date);
+		if (warmed != null) {
+			return warmed;
+		}
+		Long count = jdbcTemplate.queryForObject(IS_ON_APPROVED_LEAVE, Long.class, employeeId, date, date);
+		return count != null && count > 0;
+	}
+
+	/**
+	 * Fills {@link #isOnApprovedLeave}'s cache for a whole page in one statement,
+	 * instead of one per employee per date.
+	 *
+	 * <p>This is the term {@link #warmShiftsForEmployees} left behind, and it was
+	 * the larger one. The attendance page's aggregate view asks
+	 * {@code isOnApprovedLeave} once per preceding workday per weekly-rest date
+	 * per employee: ten rows over a month, for a company that takes Friday off,
+	 * measured 240 of that page's 286 statements. Against the remote database,
+	 * 106 ms away, that is half a minute of round trips for one page of ten rows.
+	 *
+	 * <p>Like the shift warm this is a pre-warm and not a second implementation.
+	 * One row here covers a range of dates rather than one, so the selection is
+	 * the overlap form -- an interval overlaps {@code [from, to]} exactly when
+	 * {@code from_date <= to AND to_date >= from} -- and each date is then
+	 * decided against the selected intervals with {@link #IS_ON_APPROVED_LEAVE}'s
+	 * own comparison, {@code from_date <= date AND to_date >= date}. The overlap
+	 * form cannot drop an interval the per-date query would have matched for a
+	 * date in range, and the per-date re-check is what keeps it from adding one.
+	 *
+	 * <p><b>The comparison is lexical, and that is only correct because
+	 * {@code requests.from_date} and {@code requests.to_date} are {@code DATE}
+	 * columns</b> ({@code date NOT NULL} in the frozen schema, which
+	 * {@code check_legacy_schema_drift.py} holds) read back as raw text: an
+	 * {@code ISO} date orders lexically exactly as it orders chronologically.
+	 * Widen either to {@code DATETIME} and the stored text becomes
+	 * {@code 2026-03-10 00:00:00}, which compares <em>greater</em> than
+	 * {@code 2026-03-10}: a leave whose {@code to_date} is that day would then
+	 * read here as covering it and in SQL as covering it too, but a
+	 * {@code from_date} of that day would read here as not yet begun while SQL,
+	 * comparing datetime against the coerced midnight, agrees. The equality is
+	 * the fragile case either way, so the drift gate is what protects it.
+	 *
+	 * @param employeeIds the page's employees; at most a page size of them
+	 * @param from        first date to resolve, inclusive
+	 * @param to          last date to resolve, inclusive
+	 */
+	public void warmApprovedLeaveForEmployees(
+			java.util.Collection<Long> employeeIds, String from, String to) {
+		if (employeeIds == null || employeeIds.isEmpty()
+				|| from == null || from.isEmpty() || to == null || to.isEmpty()) {
+			return;
+		}
+		List<Long> ids = employeeIds.stream().filter(id -> id != null && id > 0).distinct().toList();
+		if (ids.isEmpty()) {
+			return;
+		}
+		LocalDate first;
+		LocalDate last;
+		try {
+			first = LocalDate.parse(from);
+			last = LocalDate.parse(to);
+		} catch (java.time.format.DateTimeParseException unparseable) {
+			return;
+		}
+		if (last.isBefore(first)) {
+			return;
+		}
+		if (!approvedLeaveWarmed.add(ids + "|" + from + "|" + to)) {
+			return;
+		}
+
+		String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+		Object[] args = new Object[ids.size() + 2];
+		for (int i = 0; i < ids.size(); i++) {
+			args[i] = ids.get(i);
+		}
+		args[ids.size()] = to;
+		args[ids.size() + 1] = from;
+		Map<Long, List<String[]>> byEmployee = new LinkedHashMap<>();
+		jdbcTemplate.query(
+				"SELECT r.employee_id AS " + WARM_EMPLOYEE_KEY + ", r.from_date, r.to_date"
+						+ " FROM requests r"
+						+ " INNER JOIN request_types t ON t.id = r.request_type_id"
+						+ " WHERE r.employee_id IN (" + placeholders + ")"
+						+ " AND r.status = 'approved' AND t.counts_as_paid_leave = 1"
+						+ " AND r.from_date <= ? AND r.to_date >= ?",
+				rs -> {
+					long employeeId = rs.getLong(WARM_EMPLOYEE_KEY);
+					String fromDate = rs.getString("from_date");
+					String toDate = rs.getString("to_date");
+					if (fromDate == null || toDate == null) {
+						return;
+					}
+					byEmployee.computeIfAbsent(employeeId, key -> new java.util.ArrayList<>())
+							.add(new String[] { fromDate, toDate });
+				}, args);
+
+		for (Long employeeId : ids) {
+			List<String[]> leaves = byEmployee.getOrDefault(employeeId, List.of());
+			for (LocalDate date = first; !date.isAfter(last); date = date.plusDays(1)) {
+				String text = date.toString();
+				boolean covered = false;
+				for (String[] leave : leaves) {
+					if (leave[0].compareTo(text) <= 0 && leave[1].compareTo(text) >= 0) {
+						covered = true;
+						break;
+					}
+				}
+				approvedLeaveCache.put(employeeId + "|" + text, covered);
 			}
 		}
 	}
