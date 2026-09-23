@@ -99,7 +99,28 @@ class AdminTenantGuardCoverageTest {
 	private static final Path ADMIN_ROOT =
 			Path.of("src/main/java/com/workin/backend/platformadmin");
 
+	/** Rule three walks outward from the admin root, so it needs the whole tree. */
+	private static final Path MAIN_ROOT = Path.of("src/main/java/com/workin");
+
 	private static final String VENDORED_SCHEMA = "legacy/mysql_workin.schema.sql";
+
+	/**
+	 * This repository's own tables in the same database, which the vendored
+	 * schema does not contain.
+	 *
+	 * <p>Tenant ownership is a property of the database, not of which file
+	 * created the table. Eight tables here carry {@code company_id} or
+	 * {@code employee_id} -- {@code attendance_devices}, {@code device_agents},
+	 * {@code device_punches}, {@code employee_device_identities},
+	 * {@code device_assignment_history}, {@code device_malformed_punches},
+	 * {@code device_operation_logs} and {@code legacy_refresh_tokens} -- and
+	 * until this was read, no rule below could see a write to any of them. The
+	 * class javadoc's reason for deriving ownership from columns rather than a
+	 * marker ("so a new table cannot opt itself out by omission") is exactly the
+	 * reason this directory has to be read too: those eight had opted out by
+	 * living in the other file.
+	 */
+	private static final Path PHASE1_SCHEMA = Path.of("src/main/resources/db/phase1-mysql");
 
 	/**
 	 * {@code Service::method} entries that write a tenant-owned table without a
@@ -125,6 +146,62 @@ class AdminTenantGuardCoverageTest {
 	 */
 	private static final Map<String, String> DELIBERATELY_CROSS_TENANT = Map.of();
 
+	/**
+	 * Classes that write a tenant-owned table, are reachable from the admin
+	 * surface, and that neither rule above can scan -- with the reason each is
+	 * correct rather than an oversight.
+	 *
+	 * <p><b>Why this list exists.</b> Rule one scans {@code *AdminService.java};
+	 * rule two scans {@code <X>Store.java} only when {@code <X>AdminService.java}
+	 * sits beside it, and both look only under the admin root. So a file could be
+	 * invisible to the whole gate by being named something else, or by living
+	 * somewhere else -- and two were. {@code LegacyPlatformAdminCompanyDirectory}
+	 * writes {@code branches} from inside the admin root under a name matching
+	 * neither pattern; the device stores write seven tables the gate could not
+	 * even call tenant-owned. Neither was a hole. Both were invisible, which is
+	 * the part a gate is supposed to make impossible.
+	 *
+	 * <p>Self-policing in both directions, like {@link #DELIBERATELY_CROSS_TENANT}:
+	 * an entry that stops writing a tenant-owned table, or that becomes
+	 * scannable by rule one or rule two, fails this test rather than outliving
+	 * its reason. And a new writer that reaches the admin surface fails until
+	 * someone writes down why -- which is the whole point, because the answer
+	 * for all five below is good and none of them had been written down.
+	 */
+	private static final Map<String, String> ACCOUNTED_FOR_OUTSIDE_THE_RULES = Map.of(
+			"AttendanceDeviceStore",
+			"Every write takes an explicit companyId and scopes by it "
+					+ "(`WHERE company_id = ? AND id = ?`), and the admin-side caller derives that "
+					+ "company from the row rather than the request: DeviceAdministrationService"
+					+ ".setActive reads device.companyId() after requireDevice(deviceId), and "
+					+ ".allocate reads branchCompanyId(branchId). That is D-176's invariant, "
+					+ "satisfied one layer above the store.",
+
+			"DeviceAssignmentHistoryStore",
+			"Append-only history. Its single write takes the companyId its caller already "
+					+ "resolved from the device row, so it records an ownership decision rather "
+					+ "than making one.",
+
+			"LegacyCompanyDelete",
+			"The platform administrator deleting a whole company: every statement is "
+					+ "`WHERE company_id = ?` for the company being deleted, and there is no "
+					+ "session company to compare it against, because the operation's subject IS "
+					+ "the company. ADR-0015's typed-name confirmation and its audit row are the "
+					+ "controls here, not a tenant predicate.",
+
+			"LegacyPayrollBatchStore",
+			"Reached only through PayrollAdminService, every public method of which takes a "
+					+ "DashboardSession -- so rule one already enforces the guard, one layer "
+					+ "above. The store sits outside the admin root because payroll's arithmetic "
+					+ "is shared with the legacy API, not because it is unguarded.",
+
+			"LegacyPlatformAdminCompanyDirectory",
+			"create() makes a company and its first branch, so there is no prior owner to "
+					+ "compare a session against. update()'s `UPDATE branches ... WHERE id = ?` "
+					+ "is by row id and safe for the reason the class javadoc gives: the "
+					+ "preceding `SELECT id FROM branches WHERE company_id = ? ORDER BY id ASC "
+					+ "LIMIT 1` resolved that id inside the company being edited.");
+
 	/** A call that resolves or enforces the session's company. */
 	private static final Pattern TENANT_GUARD = Pattern.compile(
 			"\\bcompanyId\\s*\\(\\s*\\)|\\bisScopedToOneCompany\\s*\\(|\\bcanOpenRow\\s*\\(");
@@ -140,7 +217,25 @@ class AdminTenantGuardCoverageTest {
 	private static final Pattern CREATE_TABLE = Pattern.compile(
 			"CREATE TABLE `(\\w+)` \\((.*?)\\n\\)\\s*ENGINE", Pattern.DOTALL);
 
+	/**
+	 * The Phase 1 files' own shape: unquoted names, an optional
+	 * {@code IF NOT EXISTS}, and a statement that ends at the semicolon rather
+	 * than at {@code ENGINE}.
+	 */
+	private static final Pattern CREATE_TABLE_PHASE1 = Pattern.compile(
+			"CREATE TABLE (?:IF NOT EXISTS )?`?(\\w+)`?\\s*\\((.*?)\\n\\)[^;]*;", Pattern.DOTALL);
+
+	/** A column declaration in the Phase 1 files, which do not backtick names. */
+	private static final Pattern COLUMN_NAME_PHASE1 = Pattern.compile("(?m)^\\s*`?(\\w+)`?\\s+\\w");
+
 	private static final Pattern COLUMN_NAME = Pattern.compile("(?m)^\\s*`(\\w+)`");
+
+	private static final Pattern IMPORTED_CLASS =
+			Pattern.compile("(?m)^import\\s+com\\.workin\\.[\\w.]+\\.(\\w+);");
+
+	/** This repository uses fully-qualified names inline a great deal, so both shapes count. */
+	private static final Pattern QUALIFIED_CLASS =
+			Pattern.compile("\\bcom\\.workin\\.[\\w.]+\\.([A-Z]\\w+)\\b");
 
 	private static final Pattern WRITE_STATEMENT = Pattern.compile(
 			"\\b(?:INSERT\\s+INTO|UPDATE|DELETE\\s+FROM)\\s+`?(\\w+)`?", Pattern.CASE_INSENSITIVE);
@@ -164,6 +259,162 @@ class AdminTenantGuardCoverageTest {
 						+ "tenant-relevant, so it must resolve the row's company and check it "
 						+ "against that session -- directly or through a helper. See D-176.")
 				.isEmpty();
+	}
+
+	/**
+	 * Rule three: nothing the admin surface can reach writes a tenant-owned table
+	 * without one of the rules above seeing it, or an entry saying why not.
+	 *
+	 * <p>Rules one and two are both selective by <em>name and location</em>:
+	 * {@code *AdminService.java} for one, {@code <X>Store.java} beside an
+	 * {@code <X>AdminService.java} for the other, and only under the admin root
+	 * for either. That is a coverage assumption, and it was wrong in two ways at
+	 * once. {@code LegacyPlatformAdminCompanyDirectory} writes {@code branches}
+	 * from inside the admin root under a name matching neither pattern. The device
+	 * stores write {@code attendance_devices} and {@code device_assignment_history}
+	 * from outside it -- and those tables were not even in the gate's vocabulary
+	 * until {@link #PHASE1_SCHEMA} was read, because they are declared in this
+	 * repository's own schema rather than the vendored one.
+	 *
+	 * <p>Neither was a vulnerability: both resolve the row's company before
+	 * writing, which is exactly what D-176 asks. The defect was that the gate
+	 * could not have told anyone either way. This rule closes that by making the
+	 * gate's coverage an enumerated claim instead of an implied one: reachability
+	 * is computed from the admin root outward, and every writer it finds must be
+	 * scanned or listed.
+	 *
+	 * <p><b>Why reachability rather than "every writer in the repository".</b>
+	 * Measured: 120 write methods across 39 files touch a tenant-owned table, and
+	 * most belong to the legacy API, which has its own tenant control
+	 * ({@code TenantFilterCoverageTest}, the tenant filter, {@code
+	 * LegacyTenantContext}). Demanding an entry for each would produce the wall of
+	 * exemptions this class's javadoc already rejected once, for the same reason:
+	 * it would tell nobody anything. Scoped to what the admin surface can reach,
+	 * the answer is five.
+	 */
+	@Test
+	void everyWriterTheAdminSurfaceCanReachIsScannedOrAccountedFor() {
+		Set<String> tenantTables = tenantOwnedTables();
+		Map<String, Path> byName = classesByName();
+		Set<String> scanned = scannedByRuleOneOrTwo();
+
+		List<String> unaccounted = new ArrayList<>();
+		Set<String> entriesStillNeeded = new HashSet<>();
+		int writersFound = 0;
+
+		for (String name : reachableFromAdminSurface(byName)) {
+			Path file = byName.get(name);
+			if (scanned.contains(file.getFileName().toString())) {
+				continue;
+			}
+			if (writtenTenantTables(file, tenantTables).isEmpty()) {
+				continue;
+			}
+			writersFound++;
+			if (ACCOUNTED_FOR_OUTSIDE_THE_RULES.containsKey(name)) {
+				entriesStillNeeded.add(name);
+				continue;
+			}
+			unaccounted.add(name + " writes " + writtenTenantTables(file, tenantTables)
+					+ " and is reachable from the admin surface, but neither rule scans it: "
+					+ "rule one wants *AdminService.java, rule two wants <X>Store.java beside an "
+					+ "<X>AdminService.java, and both look only under " + ADMIN_ROOT);
+		}
+
+		assertThat(writersFound)
+				.as("the rule is worthless if it matched nothing; five such writers exist today")
+				.isGreaterThanOrEqualTo(5);
+		assertThat(unaccounted)
+				.as("a write to a tenant-owned table that no rule can see is the failure mode this "
+						+ "whole class exists to prevent. Either move it where a rule scans it, or "
+						+ "add it to ACCOUNTED_FOR_OUTSIDE_THE_RULES with the reason it is safe.")
+				.isEmpty();
+
+		Set<String> stale = new java.util.TreeSet<>(ACCOUNTED_FOR_OUTSIDE_THE_RULES.keySet());
+		stale.removeAll(entriesStillNeeded);
+		assertThat(stale)
+				.as("an entry here has outlived its reason: the class no longer writes a "
+						+ "tenant-owned table, is no longer reachable from the admin surface, or is "
+						+ "now scanned by rule one or rule two. A list that cannot outlive its "
+						+ "reason is the only kind worth keeping.")
+				.isEmpty();
+	}
+
+	/**
+	 * Reach means a reference in code, not a mention in prose.
+	 *
+	 * <p>Rule three demands a written reason for every writer the admin surface
+	 * can reach, so what counts as reaching decides who has to argue. A
+	 * {@code @link} naming a store in a javadoc is documentation, not a call, and
+	 * treating it as one would demand an entry for a class the admin surface only
+	 * talks about -- and entries that are not really needed are how a list stops
+	 * being read.
+	 *
+	 * <p>Asserted on the helper directly, because the repository as it stands
+	 * cannot show the difference: removing the comment stripping today changes
+	 * nothing, so nothing else here would notice if it went.
+	 */
+	@Test
+	void aClassNamedOnlyInACommentIsNotReached() {
+		Set<String> known = Set.of("LegacyCompanyDelete", "PayrollAdminService", "AdminNav");
+		String source = """
+				package com.workin.backend.platformadmin.web;
+
+				import com.workin.backend.platformadmin.hr.PayrollAdminService;
+
+				/**
+				 * See {@link com.workin.legacy.profile.LegacyCompanyDelete} for the cascade.
+				 */
+				public class Example {
+					// com.workin.backend.platformadmin.web.AdminNav is mentioned here only
+					private final PayrollAdminService payroll = null;
+				}
+				""";
+
+		Set<String> reached = referencedClasses(source, known);
+
+		assertThat(reached)
+				.as("an imported and used collaborator is reached")
+				.contains("PayrollAdminService");
+		assertThat(reached)
+				.as("a javadoc {@link} is prose; treating it as reach would demand an exemption "
+						+ "for a class this one never calls")
+				.doesNotContain("LegacyCompanyDelete");
+		assertThat(reached)
+				.as("and so is a line comment")
+				.doesNotContain("AdminNav");
+	}
+
+	/**
+	 * The eight tables that were invisible, named, so that widening the ground
+	 * truth cannot be quietly reverted.
+	 *
+	 * <p>Without this, deleting the {@link #PHASE1_SCHEMA} read would take rule
+	 * three's five writers down to three and still pass every other assertion
+	 * here -- the two device stores would stop being writers at all, because the
+	 * tables they write would stop counting as tenant-owned.
+	 */
+	@Test
+	void theRepositorysOwnTenantOwnedTablesAreNotMissingFromTheGroundTruth() {
+		Set<String> legacy = legacyTenantOwnedTables();
+		Set<String> phase1 = phase1TenantOwnedTables();
+
+		assertThat(phase1)
+				.as("read from src/main/resources/db/phase1-mysql, by the same column test the "
+						+ "vendored schema gets")
+				.contains("attendance_devices", "device_agents", "device_punches",
+						"employee_device_identities", "device_assignment_history",
+						"device_malformed_punches", "device_operation_logs", "legacy_refresh_tokens");
+		assertThat(legacy)
+				.as("and none of them is in the vendored schema, which is why the gate could not "
+						+ "see a write to any of them before")
+				.doesNotContain("attendance_devices", "device_agents", "device_punches",
+						"employee_device_identities", "device_assignment_history",
+						"device_malformed_punches", "device_operation_logs", "legacy_refresh_tokens");
+		assertThat(tenantOwnedTables())
+				.as("the gate's ground truth is the database, not the half of it this port inherited")
+				.containsAll(legacy)
+				.containsAll(phase1);
 	}
 
 	@Test
@@ -490,6 +741,13 @@ class AdminTenantGuardCoverageTest {
 	// ------------------------------------------------------------------
 
 	private static Set<String> tenantOwnedTables() {
+		Set<String> tenant = new HashSet<>(legacyTenantOwnedTables());
+		tenant.addAll(phase1TenantOwnedTables());
+		return tenant;
+	}
+
+	/** The inherited half of the database. */
+	private static Set<String> legacyTenantOwnedTables() {
 		String schema = readResource(VENDORED_SCHEMA);
 		Set<String> tenant = new HashSet<>();
 		Matcher table = CREATE_TABLE.matcher(schema);
@@ -506,6 +764,45 @@ class AdminTenantGuardCoverageTest {
 			}
 		}
 		return tenant;
+	}
+
+	/**
+	 * This repository's own half, by the same test on the same columns.
+	 *
+	 * <p>{@code upgrade_device_agents_and_delivery.sql} re-declares
+	 * {@code device_agents} with {@code IF NOT EXISTS}; a set absorbs that.
+	 */
+	private static Set<String> phase1TenantOwnedTables() {
+		Set<String> tenant = new HashSet<>();
+		for (Path file : phase1SchemaFiles()) {
+			Matcher table = CREATE_TABLE_PHASE1.matcher(read(file));
+			while (table.find()) {
+				Set<String> columns = new HashSet<>();
+				Matcher column = COLUMN_NAME_PHASE1.matcher(table.group(2));
+				while (column.find()) {
+					columns.add(column.group(1).toLowerCase(java.util.Locale.ROOT));
+				}
+				if (columns.contains("company_id") || columns.contains("employee_id")) {
+					tenant.add(table.group(1));
+				}
+			}
+		}
+		return tenant;
+	}
+
+	private static List<Path> phase1SchemaFiles() {
+		try (Stream<Path> tree = Files.walk(PHASE1_SCHEMA)) {
+			List<Path> files = tree.filter(Files::isRegularFile)
+					.filter(path -> path.getFileName().toString().endsWith(".sql"))
+					.sorted()
+					.toList();
+			assertThat(files).as("the Phase 1 schema is half of this test's ground truth; "
+					+ "an empty read would silently narrow every rule below").isNotEmpty();
+			return files;
+		}
+		catch (IOException ex) {
+			throw new IllegalStateException("could not read " + PHASE1_SCHEMA.toAbsolutePath(), ex);
+		}
 	}
 
 	/**
@@ -675,6 +972,111 @@ class AdminTenantGuardCoverageTest {
 
 	private static String normalise(String parameters) {
 		return String.join(" ", parameters.split("\\s+")).trim();
+	}
+
+	/** Every class under {@code com.workin}, by simple name, for the walk below. */
+	private static Map<String, Path> classesByName() {
+		Map<String, Path> byName = new LinkedHashMap<>();
+		try (Stream<Path> tree = Files.walk(MAIN_ROOT)) {
+			tree.filter(Files::isRegularFile)
+					.filter(path -> path.getFileName().toString().endsWith(".java"))
+					.sorted()
+					.forEach(path -> {
+						String name = path.getFileName().toString().replace(".java", "");
+						byName.putIfAbsent(name, path);
+					});
+		}
+		catch (IOException ex) {
+			throw new IllegalStateException("could not read " + MAIN_ROOT.toAbsolutePath(), ex);
+		}
+		assertThat(byName).as("the main sources must be findable, or rule three passes vacuously")
+				.isNotEmpty();
+		return byName;
+	}
+
+	/**
+	 * What rules one and two actually open, by file name.
+	 *
+	 * <p>Derived from the same calls those rules make rather than restated, so a
+	 * change to either rule's selection changes what rule three considers covered.
+	 * A second copy of that logic here would drift, and it would drift towards
+	 * claiming more coverage than exists.
+	 */
+	private static Set<String> scannedByRuleOneOrTwo() {
+		Set<String> scanned = new HashSet<>();
+		adminServices().forEach(path -> scanned.add(path.getFileName().toString()));
+		for (Path store : files("*Store.java")) {
+			String stem = store.getFileName().toString().replace("Store.java", "");
+			if (serviceFile(stem + "AdminService") != null) {
+				scanned.add(store.getFileName().toString());
+			}
+		}
+		return scanned;
+	}
+
+	/**
+	 * The classes the admin surface can reach, as a transitive closure over
+	 * references from the admin root outward.
+	 *
+	 * <p>Comments are stripped first, so a {@code @link} in a javadoc does not
+	 * invent a call the code never makes -- which would demand an entry for a
+	 * class the admin surface merely talks about. The closure over-approximates
+	 * in the safe direction otherwise: it follows any reference in code, so it can
+	 * only ask for more accounting than strictly necessary, never less.
+	 */
+	private static Set<String> reachableFromAdminSurface(Map<String, Path> byName) {
+		Set<String> seen = new HashSet<>();
+		List<String> frontier = new ArrayList<>();
+		for (Path path : files("*.java")) {
+			String name = path.getFileName().toString().replace(".java", "");
+			if (seen.add(name)) {
+				frontier.add(name);
+			}
+		}
+		while (!frontier.isEmpty()) {
+			List<String> next = new ArrayList<>();
+			for (String name : frontier) {
+				Path file = byName.get(name);
+				if (file == null) {
+					continue;
+				}
+				for (String referenced : referencedClasses(read(file), byName.keySet())) {
+					if (seen.add(referenced)) {
+						next.add(referenced);
+					}
+				}
+			}
+			frontier = next;
+		}
+		return seen;
+	}
+
+	private static Set<String> referencedClasses(String source, Set<String> known) {
+		String code = source.replaceAll("(?s)/\\*.*?\\*/", " ").replaceAll("//[^\n]*", " ");
+		Set<String> referenced = new HashSet<>();
+		Matcher imported = IMPORTED_CLASS.matcher(code);
+		while (imported.find()) {
+			referenced.add(imported.group(1));
+		}
+		Matcher qualified = QUALIFIED_CLASS.matcher(code);
+		while (qualified.find()) {
+			referenced.add(qualified.group(1));
+		}
+		referenced.retainAll(known);
+		return referenced;
+	}
+
+	/** Which tenant-owned tables one file writes, by the same reading rule two uses. */
+	private static Set<String> writtenTenantTables(Path file, Set<String> tenantTables) {
+		String flattened = read(file).replaceAll("\"\\s*\\+\\s*\"", "");
+		Set<String> written = new java.util.TreeSet<>();
+		Matcher write = WRITE_STATEMENT.matcher(flattened);
+		while (write.find()) {
+			if (tenantTables.contains(write.group(1))) {
+				written.add(write.group(1));
+			}
+		}
+		return written;
 	}
 
 	private static List<Path> adminServices() {
