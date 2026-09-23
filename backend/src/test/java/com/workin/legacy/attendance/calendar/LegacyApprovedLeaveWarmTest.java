@@ -1,6 +1,7 @@
 package com.workin.legacy.attendance.calendar;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -229,6 +230,98 @@ class LegacyApprovedLeaveWarmTest extends AbstractLegacyMySqlTest {
 		assertThat(calendar.isOnApprovedLeave(EMPLOYEE, "2026-03-06"))
 				.as("and the cache the first one filled still answers")
 				.isTrue();
+	}
+
+	/**
+	 * Every date of a warmed window is answered without a statement -- including
+	 * the last one.
+	 *
+	 * <p>The tests above assert *answers*, and answers cannot see this: a date the
+	 * warm failed to cache falls back to the per-date query and comes back right.
+	 * So a warm that walked its window with {@code date.isBefore(last)} instead of
+	 * {@code !date.isAfter(last)} would drop the final day of every window,
+	 * silently, and every other test here would still pass -- measured, against
+	 * that exact mutation. Only a statement count can tell, which is why this one
+	 * counts instead of comparing.
+	 */
+	@Test
+	void everyDateOfAWarmedWindowIsAnsweredWithoutAStatement() {
+		QueryCounter counter = new QueryCounter();
+		LegacyAttendanceCalendar calendar = new LegacyAttendanceCalendar(
+				counter.wrap(this.dataSource), new LegacyWeeklyOffDays(this.dataSource));
+		calendar.warmApprovedLeaveForEmployees(
+				List.of(EMPLOYEE, NEVER_ON_LEAVE), "2026-03-01", "2026-03-31");
+
+		List<String> dates = datesIn("2026-03-01", "2026-03-31");
+		List<String> issued = counter.measure(() -> {
+			for (long employee : List.of(EMPLOYEE, NEVER_ON_LEAVE)) {
+				for (String date : dates) {
+					calendar.isOnApprovedLeave(employee, date);
+				}
+			}
+		});
+
+		assertThat(issued)
+				.as("62 lookups over a warmed window, and the warm already ran: the first and last "
+						+ "day of the window are as cached as the middle")
+				.isEmpty();
+		assertThat(dates).as("the sweep has to cover a whole month for that to mean anything")
+				.hasSize(31);
+	}
+
+	/**
+	 * A warm whose query fails leaves the window unwarmed, so a later call in the
+	 * same request can still warm it.
+	 *
+	 * <p>The memo exists to stop a second identical warm costing a second
+	 * statement. Recorded *before* the query, it would also stop a second warm
+	 * after a first one threw -- and then every date in that window falls back to
+	 * the per-date query for the rest of the request. Correct answers, and the
+	 * round trips quietly back.
+	 */
+	@Test
+	void aWarmWhoseQueryFailedIsNotRememberedAsDone() {
+		QueryCounter counter = new QueryCounter();
+		LegacyAttendanceCalendar calendar = new LegacyAttendanceCalendar(
+				counter.wrap(new FailFirstQueryDataSource(this.dataSource)),
+				new LegacyWeeklyOffDays(this.dataSource));
+
+		assertThatThrownBy(() -> calendar.warmApprovedLeaveForEmployees(
+				List.of(EMPLOYEE), "2026-03-01", "2026-03-31"))
+				.as("the first warm's query fails")
+				.isInstanceOf(Exception.class);
+
+		// The second attempt must actually query, not return early on a memo for a
+		// warm that never filled anything.
+		List<String> issued = counter.measure(() -> calendar.warmApprovedLeaveForEmployees(
+				List.of(EMPLOYEE), "2026-03-01", "2026-03-31"));
+
+		assertThat(issued).as("the retry asks, because the first attempt cached nothing").hasSize(1);
+		assertThat(calendar.isOnApprovedLeave(EMPLOYEE, "2026-03-06"))
+				.as("and the retry's cache answers")
+				.isTrue();
+	}
+
+	/** Fails the first prepared statement, then behaves. */
+	private static final class FailFirstQueryDataSource
+			extends org.springframework.jdbc.datasource.DelegatingDataSource {
+
+		private boolean failed;
+
+		FailFirstQueryDataSource(DataSource delegate) {
+			super(delegate);
+		}
+
+		@Override
+		public java.sql.Connection getConnection() throws java.sql.SQLException {
+			java.sql.Connection real = super.getConnection();
+			if (this.failed) {
+				return real;
+			}
+			this.failed = true;
+			real.close();
+			throw new java.sql.SQLException("injected: the warm's query fails");
+		}
 	}
 
 	/** A different window is a different question, and is asked. */

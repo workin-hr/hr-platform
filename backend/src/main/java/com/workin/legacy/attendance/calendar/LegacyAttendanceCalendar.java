@@ -399,7 +399,8 @@ public class LegacyAttendanceCalendar {
 		if (last.isBefore(first)) {
 			return;
 		}
-		if (!approvedLeaveWarmed.add(ids + "|" + from + "|" + to)) {
+		String warmKey = ids + "|" + from + "|" + to;
+		if (approvedLeaveWarmed.contains(warmKey)) {
 			return;
 		}
 
@@ -443,6 +444,12 @@ public class LegacyAttendanceCalendar {
 				approvedLeaveCache.put(employeeId + "|" + text, covered);
 			}
 		}
+		// Recorded only now. Marking the window before the query would leave it
+		// marked with nothing cached if that query threw, and a later call in the
+		// same request would then skip a warm it never got -- correct answers, by
+		// falling back to the per-date query, but the round trips this exists to
+		// remove, silently back.
+		approvedLeaveWarmed.add(warmKey);
 	}
 
 	/**
