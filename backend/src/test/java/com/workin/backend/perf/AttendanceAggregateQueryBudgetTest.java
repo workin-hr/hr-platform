@@ -52,6 +52,12 @@ class AttendanceAggregateQueryBudgetTest extends AbstractLegacyMySqlTest {
 	private static final long SHIFT = 997502;
 	private static final long[] EMPLOYEES = { 997511, 997512, 997513 };
 
+	/** Hired mid-period: every date before this one has no shift at all. */
+	private static final long LATE_STARTER = 997514;
+
+	/** Every employee the unfiltered page returns: the three plus the late starter. */
+	private static final int ALL_ROWS = EMPLOYEES.length + 1;
+
 	private final QueryCounter counter = new QueryCounter();
 
 	@BeforeEach
@@ -89,6 +95,13 @@ class AttendanceAggregateQueryBudgetTest extends AbstractLegacyMySqlTest {
 						+ " '" + day + " 17:00:00')");
 			}
 		}
+		statements.add("INSERT INTO employees (id, company_id, branch_id, employee_code, first_name,"
+				+ " last_name, phone, role, is_active, expected_daily_hours, created_at) VALUES ("
+				+ LATE_STARTER + ", " + COMPANY + ", " + BRANCH + ", '" + LATE_STARTER + "',"
+				+ " 'Late', 'Starter', '+2010" + LATE_STARTER + "', 'employee', 1, 8,"
+				+ " '2019-04-01 08:00:00')");
+		statements.add("INSERT INTO employee_shift_assignments (employee_id, shift_id,"
+				+ " effective_from) VALUES (" + LATE_STARTER + ", " + SHIFT + ", '2026-03-20')");
 		seedAsLegacyWould(statements.toArray(String[]::new));
 
 	}
@@ -117,11 +130,11 @@ class AttendanceAggregateQueryBudgetTest extends AbstractLegacyMySqlTest {
 	 */
 	@Test
 	void theAggregateCostsTheSameWhetherThePeriodIsAWeekOrAMonth() {
-		int week = measure("2026-03-01", "2026-03-07", EMPLOYEES.length);
-		int month = measure("2026-03-01", "2026-03-31", EMPLOYEES.length);
+		int week = measure("2026-03-01", "2026-03-07", ALL_ROWS);
+		int month = measure("2026-03-01", "2026-03-31", ALL_ROWS);
 
-		System.out.println("[budget] 3 rows over 7 days: " + week + " statements");
-		System.out.println("[budget] 3 rows over 31 days: " + month + " statements");
+		System.out.println("[budget] " + ALL_ROWS + " rows over 7 days: " + week + " statements");
+		System.out.println("[budget] " + ALL_ROWS + " rows over 31 days: " + month + " statements");
 		assertThat(month)
 				.as("a month is 4.4x the days of a week; the count must not follow the days")
 				.isEqualTo(week);
@@ -129,19 +142,19 @@ class AttendanceAggregateQueryBudgetTest extends AbstractLegacyMySqlTest {
 
 	@Test
 	void theAggregateDoesNotMultiplyTheCountByTheNumberOfRows() {
-		int oneRow = measureForEmployee("2026-03-01", "2026-03-31");
-		int threeRows = measure("2026-03-01", "2026-03-31", EMPLOYEES.length);
+		int oneRow = measureForEmployee(EMPLOYEES[0], "2026-03-01", "2026-03-31");
+		int allRows = measure("2026-03-01", "2026-03-31", ALL_ROWS);
 
 		System.out.println("[budget] 1 row over 31 days: " + oneRow + " statements");
-		System.out.println("[budget] 3 rows over 31 days: " + threeRows + " statements");
-		assertThat(threeRows - oneRow)
-				.as("two more rows cost the four per-row lookups summarise still makes one at a "
+		System.out.println("[budget] " + ALL_ROWS + " rows over 31 days: " + allRows + " statements");
+		assertThat(allRows - oneRow)
+				.as("three more rows cost the four per-row lookups summarise still makes one at a "
 						+ "time -- approved leave days, the employee's work hours, the attendance "
 						+ "flags in range, and expectedWorkDays' own holiday read. Batching those "
 						+ "means batched variants inside the payroll figures classes, which is its "
 						+ "own change; what this pins is that the number is per row and not per row "
 						+ "per day")
-				.isLessThanOrEqualTo(8);
+				.isLessThanOrEqualTo(12);
 	}
 
 	private int measure(String from, String to, int expectedRows) {
@@ -157,13 +170,36 @@ class AttendanceAggregateQueryBudgetTest extends AbstractLegacyMySqlTest {
 		return issued.size();
 	}
 
-	private int measureForEmployee(String from, String to) {
+	private int measureForEmployee(long employeeId, String from, String to) {
 		DashboardListFilters filters = new DashboardListFilters(
-				COMPANY, String.valueOf(EMPLOYEES[0]), "all", 0L, 0L, 1, 10, false);
+				COMPANY, String.valueOf(employeeId), "all", 0L, 0L, 1, 10, false);
 		AttendanceStore store = coldRequest();
 		List<String> issued = this.counter.measure(
 				() -> store.aggregate(filters, from, to, 1, COMPANY, to));
 		return issued.size();
+	}
+
+	/**
+	 * The pre-warm has to cache the answer "no shift on this date" too.
+	 *
+	 * <p>A date before an employee's first assignment is one the per-date query
+	 * answers with no row at all. If the warm skips those instead of caching the
+	 * {@code null}, every one of them falls back to a query -- correct, and
+	 * quietly back to one statement per employee per day for exactly the rows a
+	 * report most often contains, someone hired part-way through the period. The
+	 * answers are unaffected either way, so only the count can see this: a
+	 * mutant that cached only the non-null shifts passed every other test here.
+	 */
+	@Test
+	void anEmployeeHiredMidPeriodCostsNoMoreThanOneAssignedLongAgo() {
+		int assignedLongAgo = measureForEmployee(EMPLOYEES[0], "2026-03-01", "2026-03-31");
+		int hiredMidPeriod = measureForEmployee(LATE_STARTER, "2026-03-01", "2026-03-31");
+
+		System.out.println("[budget] 1 row assigned in 2019: " + assignedLongAgo + " statements");
+		System.out.println("[budget] 1 row assigned on the 20th: " + hiredMidPeriod + " statements");
+		assertThat(hiredMidPeriod)
+				.as("the 19 dates before the assignment are answered from the warm, not re-asked")
+				.isEqualTo(assignedLongAgo);
 	}
 
 	/** Kept so a compile error names the type if the row shape moves. */
