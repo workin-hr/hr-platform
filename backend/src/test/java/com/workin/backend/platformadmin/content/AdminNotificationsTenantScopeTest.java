@@ -16,27 +16,36 @@ import com.workin.backend.platformadmin.web.DashboardSession;
 import com.workin.legacy.LegacyMariaDb;
 
 /**
- * The notifications delete honours the row's company, against a real MariaDB.
+ * Both of the notifications page's writes honour the session's company, against
+ * a real MariaDB.
  *
- * <p>Legacy guards exactly one case here: a company-scoped session may delete
- * only its own company's row ({@code pages/notifications/page.php:59-69},
- * the {@code if ($isComp)} branch and its {@code error_db} flash). An
- * unscoped administrator deletes by id, which is the platform's own capability.
+ * <p>Legacy has three rules here and this covers all three:
+ *
+ * <ul>
+ * <li>a scoped session may delete only its own company's row
+ * ({@code page.php:59-69}, the {@code if ($isComp)} branch and its
+ * {@code error_db} flash);</li>
+ * <li>a scoped session's broadcast goes to its own company when none is posted,
+ * and a different company posted is <em>refused</em>
+ * ({@code helper.php:328-334});</li>
+ * <li>the all-employees audience is the administrator's alone
+ * ({@code helper.php:336-350}).</li>
+ * </ul>
  *
  * <p>Driven against the service rather than over HTTP, because no HTTP session
  * this surface issues can currently produce a scoped audience --
  * {@code AdminViewModelAdvice#session} returns {@link DashboardSession#admin}
- * unconditionally until the owner and HR logins arrive (ADR-0016, R-044). The
- * check is written now because that is when its absence is visible: after those
+ * unconditionally until the owner and HR logins arrive (ADR-0016, R-044). They
+ * are written now because that is when their absence is visible: after those
  * logins ship, a missing company comparison looks exactly like the page
  * working.
  *
- * <p>The send path stays deliberately cross-tenant -- that is the platform
- * broadcast, and {@code BroadcastStoreTest}'s
- * {@code anAllEmployeesBroadcastCountsEveryActiveEmployee} is what pins it.
+ * <p>An administrator's own broadcast stays cross-tenant, which is the page, and
+ * {@code BroadcastStoreTest.anAllEmployeesBroadcastCountsEveryActiveEmployee}
+ * pins that it reaches every company.
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class AdminNotificationDeleteScopeTest {
+class AdminNotificationsTenantScopeTest {
 
 	/** A database of this class's own, inside the shared container. */
 	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
@@ -75,6 +84,9 @@ class AdminNotificationDeleteScopeTest {
 		this.jdbc = new JdbcTemplate(this.legacyDataSource);
 		this.jdbc.update("DELETE FROM notifications");
 		this.jdbc.update("DELETE FROM platform_admin_audit_events");
+		// Children first: an employees row references its branch.
+		this.jdbc.update("DELETE FROM employees");
+		this.jdbc.update("DELETE FROM branches");
 		this.adminId = this.jdbc.queryForObject(
 				"SELECT id FROM platform_admins WHERE phone = 'admin'", Long.class);
 		this.companyA = createCompany("Alpha Co");
@@ -152,6 +164,101 @@ class AdminNotificationDeleteScopeTest {
 				DashboardSession.company(this.companyA), this.adminId, gone).errorKey())
 				.as("the scoped arm cannot resolve a company for a row that is gone")
 				.isEqualTo("error_db");
+	}
+
+	@Test
+	void aScopedSessionsBroadcastGoesToItsOwnCompanyWhenItNamesNone() {
+		employee(this.companyA, "Alpha", "Worker");
+		employee(this.companyB, "Beta", "Worker");
+
+		BroadcastAdminService.Result result = this.service.send(
+				DashboardSession.company(this.companyA), this.adminId,
+				"company_employees", "Title", "Body", null, true);
+
+		assertThat(result.ok()).isTrue();
+		assertThat(result.recipients()).isEqualTo(1);
+		assertThat(companiesWritten()).containsExactly(this.companyA);
+	}
+
+	@Test
+	void aScopedSessionCannotBroadcastToAnotherCompany() {
+		// Legacy refuses rather than retargeting, and the page cannot even send
+		// this -- it forces the company before the dispatch. The dispatch refuses
+		// anyway, and the dispatch is the authority.
+		employee(this.companyA, "Alpha", "Worker");
+		employee(this.companyB, "Beta", "Worker");
+
+		BroadcastAdminService.Result result = this.service.send(
+				DashboardSession.company(this.companyA), this.adminId,
+				"company_employees", "Title", "Body", this.companyB, true);
+
+		assertThat(result.ok()).isFalse();
+		assertThat(result.errorKey()).isEqualTo("error_required");
+		assertThat(rowCount()).as("nothing was written for either company").isZero();
+	}
+
+	@Test
+	void aScopedSessionCannotBroadcastToEveryCompany() {
+		employee(this.companyA, "Alpha", "Worker");
+		employee(this.companyB, "Beta", "Worker");
+
+		BroadcastAdminService.Result result = this.service.send(
+				DashboardSession.company(this.companyA), this.adminId,
+				"all_employees", "Title", "Body", null, true);
+
+		assertThat(result.ok()).isFalse();
+		assertThat(result.errorKey()).isEqualTo("error_required");
+		assertThat(rowCount()).isZero();
+	}
+
+	/**
+	 * The other half again: an administrator's broadcast is the page, and a guard
+	 * that refused everyone would pass the three cases above.
+	 */
+	@Test
+	void anAdministratorStillBroadcastsToEveryCompanyAndToAChosenOne() {
+		employee(this.companyA, "Alpha", "Worker");
+		employee(this.companyB, "Beta", "Worker");
+		DashboardSession unscoped = DashboardSession.admin(0);
+
+		assertThat(this.service.send(unscoped, this.adminId,
+				"all_employees", "Everyone", "Body", null, true).recipients()).isEqualTo(2);
+		assertThat(this.service.send(unscoped, this.adminId,
+				"company_employees", "Just Beta", "Body", this.companyB, true).recipients())
+				.isEqualTo(1);
+		assertThat(companiesWritten()).containsExactlyInAnyOrder(this.companyA, this.companyB);
+	}
+
+	/** An administrator filtered to one company is not scoped here either. */
+	@Test
+	void anAdministratorFilteredToOneCompanyMayStillBroadcastToAnother() {
+		employee(this.companyB, "Beta", "Worker");
+
+		BroadcastAdminService.Result result = this.service.send(
+				DashboardSession.admin(this.companyA), this.adminId,
+				"company_employees", "Title", "Body", this.companyB, true);
+
+		assertThat(result.ok()).isTrue();
+		assertThat(companiesWritten()).containsExactly(this.companyB);
+	}
+
+	private void employee(long companyId, String first, String last) {
+		this.jdbc.update("INSERT INTO branches (company_id, name, is_active, created_at)"
+				+ " VALUES (?, 'HQ', 1, NOW())", companyId);
+		Long branchId = this.jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+		this.jdbc.update("INSERT INTO employees (company_id, branch_id, first_name, last_name,"
+				+ " phone, password_hash, role, is_active, created_at)"
+				+ " VALUES (?, ?, ?, ?, ?, 'x', 'employee', 1, NOW())",
+				companyId, branchId, first, last, "01" + System.nanoTime() % 1_000_000_000L);
+	}
+
+	private java.util.List<Long> companiesWritten() {
+		return this.jdbc.queryForList(
+				"SELECT DISTINCT company_id FROM notifications ORDER BY company_id", Long.class);
+	}
+
+	private int rowCount() {
+		return this.jdbc.queryForObject("SELECT COUNT(*) FROM notifications", Integer.class);
 	}
 
 	private long notification(long companyId, String title) {

@@ -62,13 +62,24 @@ import org.junit.jupiter.api.Test;
  * <h2>Rule two</h2>
  *
  * Rule one is opt-in by signature, so on its own a write could evade it by not
- * taking a session at all. Rule two closes that: a service whose store writes a
- * tenant-owned table must take a session on the paths that write it, unless it
- * is named in {@link #DELIBERATELY_CROSS_TENANT} with a reason. That list is
- * self-policing — an entry that stops writing tenant-owned tables, or starts
- * taking a session, fails the test rather than outliving its reason. It has
- * since emptied itself that way, which is what a self-policing list looks like
- * when it works.
+ * taking a session at all. Rule two closes that: <b>every public service method
+ * that reaches a store method writing a tenant-owned table must take a
+ * session</b>, unless that method is named in
+ * {@link #DELIBERATELY_CROSS_TENANT} with a reason.
+ *
+ * <p><b>Per method, because per service was launderable.</b> Rule two used to
+ * ask whether the service's source mentioned {@code DashboardSession} anywhere.
+ * One guarded method satisfied that for every unguarded write in the same class
+ * — and that is not hypothetical: it is how {@code BroadcastAdminService}'s
+ * broadcast slipped out of both rules the moment its delete gained a session
+ * (D-276). Rule one skipped the broadcast because its own signature took no
+ * session, and rule two passed the whole class because the delete's did. The
+ * exemption that had documented the gap was, correctly, deleted at the same
+ * time, so nothing was left saying it existed.
+ *
+ * <p>The list is still self-policing: an entry whose method stops writing a
+ * tenant-owned table, or starts taking a session, fails the test rather than
+ * outliving its reason.
  *
  * <p>Both rules read the source rather than the bytecode, and the vendored
  * schema decides what "tenant-owned" means, exactly as
@@ -84,28 +95,26 @@ class AdminTenantGuardCoverageTest {
 	private static final String VENDORED_SCHEMA = "legacy/mysql_workin.schema.sql";
 
 	/**
-	 * Services that write a tenant-owned table without a {@link DashboardSession},
-	 * and why that is correct rather than an oversight.
+	 * {@code Service::method} entries that write a tenant-owned table without a
+	 * {@link DashboardSession}, and why that is correct rather than an oversight.
 	 *
-	 * <p>Self-policing: an entry that no longer writes a tenant-owned table, or
-	 * that starts taking a session, fails this test. A list that cannot outlive
-	 * its reason is the only kind worth keeping.
+	 * <p>Self-policing: an entry whose method no longer writes a tenant-owned
+	 * table, or that starts taking a session, fails this test. A list that cannot
+	 * outlive its reason is the only kind worth keeping.
 	 *
-	 * <p><b>Empty, and that is the point.</b> Its one entry was
-	 * {@code BroadcastAdminService}, exempted because a platform broadcast has no
-	 * single owning company to compare a session against. That reason was sound
-	 * for the send and said nothing about the other thing that service does: a
-	 * delete, of one row, named by a posted id, owned by one company. Legacy
-	 * guards precisely that case ({@code pages/notifications/page.php:59-69}) and
-	 * the port had kept only its unscoped arm. Now that the delete takes a
-	 * session, the entry fails the rule below exactly as designed, so it is gone
-	 * and rule one examines that path. The send's justification moved to the
-	 * service's own javadoc, where it is next to the code it describes.
+	 * <p><b>Empty, and that is the point.</b> Its one entry used to be the whole
+	 * of {@code BroadcastAdminService}, exempted because a platform broadcast has
+	 * no single owning company to compare a session against. That reason covered
+	 * the audience and not the target: the broadcast's company comes from the
+	 * request, and legacy forces a scoped session's own company and refuses a
+	 * different one ({@code pages/notifications/helper.php:328-334}). Both of that
+	 * service's write paths now take a session, so no entry is needed — and
+	 * because the rule is per method, a future service cannot inherit one
+	 * method's guard for another's write.
 	 *
-	 * <p>Leaving the field here rather than deleting it is deliberate: the rule
-	 * it feeds is what a future service writing a tenant-owned table without a
-	 * session has to argue with, and an empty allowlist is a stricter starting
-	 * point than a missing one.
+	 * <p>Leaving the field here rather than deleting it is deliberate: the rule it
+	 * feeds is what the next such method has to argue with, and an empty allowlist
+	 * is a stricter starting point than a missing one.
 	 */
 	private static final Map<String, String> DELIBERATELY_CROSS_TENANT = Map.of();
 
@@ -151,32 +160,43 @@ class AdminTenantGuardCoverageTest {
 	}
 
 	@Test
-	void aServiceWritingTenantOwnedTablesTakesASession() {
+	void everyPublicMethodThatWritesATenantOwnedTableTakesASession() {
 		Set<String> tenantTables = tenantOwnedTables();
 		List<String> offenders = new ArrayList<>();
 		Set<String> exemptionsStillNeeded = new HashSet<>();
+		int checked = 0;
 
-		for (Map.Entry<String, Set<String>> entry : servicesWritingTenantTables(tenantTables).entrySet()) {
+		for (Map.Entry<String, Set<String>> entry
+				: storeWriteMethodsByService(tenantTables).entrySet()) {
 			String service = entry.getKey();
-			boolean takesSession = read(serviceFile(service)).contains("DashboardSession");
-			if (DELIBERATELY_CROSS_TENANT.containsKey(service)) {
-				exemptionsStillNeeded.add(service);
-				if (takesSession) {
-					offenders.add(service + " is listed as deliberately cross-tenant but now "
-							+ "takes a DashboardSession; the exemption has outlived its reason");
+			WriteScan scan = scanWrites(read(serviceFile(service)), entry.getValue());
+			checked += scan.writing();
+			for (String method : scan.sessionless()) {
+				String key = service + "::" + method;
+				if (DELIBERATELY_CROSS_TENANT.containsKey(key)) {
+					exemptionsStillNeeded.add(key);
+					continue;
 				}
-				continue;
+				offenders.add(key + " reaches a store write on a tenant-owned table but takes "
+						+ "no DashboardSession, so rule one never sees it");
 			}
-			if (!takesSession) {
-				offenders.add(service + " writes " + new TreeSet<>(entry.getValue())
-						+ " but takes no DashboardSession, so rule one never sees it");
+			for (String method : scan.guarded()) {
+				String key = service + "::" + method;
+				if (DELIBERATELY_CROSS_TENANT.containsKey(key)) {
+					offenders.add(key + " is listed as deliberately cross-tenant but now takes a "
+							+ "DashboardSession; the exemption has outlived its reason");
+				}
 			}
 		}
 
+		assertThat(checked)
+				.as("the rule is worthless if it matched nothing; 54 write paths exist today, and a "
+						+ "regex that quietly stopped matching would otherwise pass this vacuously")
+				.isGreaterThan(40);
 		assertThat(offenders).isEmpty();
 		assertThat(exemptionsStillNeeded)
-				.as("every declared cross-tenant exemption must still be writing a "
-						+ "tenant-owned table, or it is a stale entry to delete")
+				.as("every declared cross-tenant exemption must still be a sessionless write, "
+						+ "or it is a stale entry to delete")
 				.containsExactlyInAnyOrderElementsOf(DELIBERATELY_CROSS_TENANT.keySet());
 	}
 
@@ -258,6 +278,117 @@ class AdminTenantGuardCoverageTest {
 		assertThat(scan(source).unguarded()).isEmpty();
 	}
 
+	/** What one service source yields for rule two: the write paths, split by whether they guard. */
+	private record WriteScan(int writing, List<String> sessionless, List<String> guarded) {
+	}
+
+	/**
+	 * Rule two over one source, separated for the same reason rule one's scanner
+	 * is: the cases below drive it with sources written to fail.
+	 *
+	 * <p>A public method counts as writing when it reaches one of the named store
+	 * write methods, directly or through a helper on the same class -- the same
+	 * walk rule one uses to find a guard, for the same reason: the write is often
+	 * one level down.
+	 */
+	private static WriteScan scanWrites(String source, Set<String> storeWrites) {
+		Map<String, String> bodies = methodBodies(source);
+		List<String> sessionless = new ArrayList<>();
+		List<String> guarded = new ArrayList<>();
+		int writing = 0;
+		for (Map.Entry<String, String> method : publicMethodBodies(source).entrySet()) {
+			if (!reachesCall(method.getValue(), bodies, storeWrites, new HashSet<>(), 0)) {
+				continue;
+			}
+			writing++;
+			(method.getKey().contains("DashboardSession") ? guarded : sessionless)
+					.add(name(method.getKey()));
+		}
+		return new WriteScan(writing, sessionless, guarded);
+	}
+
+	/** Does this body call one of {@code wanted}, within three levels of helper? */
+	private static boolean reachesCall(
+			String body, Map<String, String> bodies, Set<String> wanted, Set<String> seen, int depth) {
+		Matcher call = Pattern.compile("\\b(\\w+)\\s*\\(").matcher(body);
+		List<String> callees = new ArrayList<>();
+		while (call.find()) {
+			String callee = call.group(1);
+			if (wanted.contains(callee)) {
+				return true;
+			}
+			callees.add(callee);
+		}
+		if (depth >= 3) {
+			return false;
+		}
+		for (String callee : callees) {
+			if (!bodies.containsKey(callee) || !seen.add(callee)) {
+				continue;
+			}
+			if (reachesCall(bodies.get(callee), bodies, wanted, seen, depth + 1)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	@Test
+	void ruleTwoCatchesAnUnguardedWriteBesideAGuardedOneInTheSameClass() {
+		// The D-276 shape, and the reason this rule is per method: the old
+		// whole-file check passed this class because `delete` mentions a session.
+		String source = """
+				class Example {
+					public Result delete(DashboardSession session, long id) {
+						if (session.companyId() > 0) {
+							return null;
+						}
+						this.store.deleteRow(id);
+						return null;
+					}
+
+					public Result send(long adminId, Long companyId) {
+						this.store.insertRows(companyId);
+						return null;
+					}
+				}""";
+		WriteScan scan = scanWrites(source, Set.of("deleteRow", "insertRows"));
+		assertThat(scan.writing()).isEqualTo(2);
+		assertThat(scan.sessionless()).containsExactly("send");
+		assertThat(scan.guarded()).containsExactly("delete");
+	}
+
+	@Test
+	void ruleTwoFindsAWriteOneHelperDown() {
+		// A public method that writes through a private helper is still a write
+		// path; a rule that only read the public body would miss it.
+		String source = """
+				class Example {
+					public Result send(long adminId, Long companyId) {
+						return dispatch(companyId);
+					}
+
+					private Result dispatch(Long companyId) {
+						this.store.insertRows(companyId);
+						return null;
+					}
+				}""";
+		WriteScan scan = scanWrites(source, Set.of("insertRows"));
+		assertThat(scan.writing()).isOne();
+		assertThat(scan.sessionless()).containsExactly("send");
+	}
+
+	@Test
+	void ruleTwoIgnoresAMethodThatOnlyReads() {
+		String source = """
+				class Example {
+					public int reach() {
+						return this.store.countEmployees();
+					}
+				}""";
+		assertThat(scanWrites(source, Set.of("insertRows")).writing()).isZero();
+	}
+
 	@Test
 	void theRuleIgnoresMethodsThatTakeNoSession() {
 		// Platform-wide content has no company to check against; rule two is
@@ -292,6 +423,38 @@ class AdminTenantGuardCoverageTest {
 			}
 		}
 		return tenant;
+	}
+
+	/**
+	 * Service simple name to the names of its store's methods that write a
+	 * tenant-owned table.
+	 *
+	 * <p>Per method rather than per store, because rule two now asks which
+	 * service methods reach a write, and that answer needs the writes named.
+	 */
+	private static Map<String, Set<String>> storeWriteMethodsByService(Set<String> tenantTables) {
+		Map<String, Set<String>> byService = new LinkedHashMap<>();
+		for (Path store : files("*Store.java")) {
+			String stem = store.getFileName().toString().replace("Store.java", "");
+			if (serviceFile(stem + "AdminService") == null) {
+				continue;
+			}
+			Set<String> writes = new TreeSet<>();
+			String source = read(store);
+			for (Map.Entry<String, String> method : methodBodies(source).entrySet()) {
+				String flattened = method.getValue().replaceAll("\"\\s*\\+\\s*\"", "");
+				Matcher write = WRITE_STATEMENT.matcher(flattened);
+				while (write.find()) {
+					if (tenantTables.contains(write.group(1))) {
+						writes.add(method.getKey());
+					}
+				}
+			}
+			if (!writes.isEmpty()) {
+				byService.put(stem + "AdminService", writes);
+			}
+		}
+		return byService;
 	}
 
 	/** Service simple name to the tenant-owned tables its paired store writes. */
