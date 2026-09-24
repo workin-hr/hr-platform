@@ -810,6 +810,22 @@ class AdminTenantGuardCoverageTest {
 			"\\bcompanyId\\s*\\(\\s*\\)|\\bisScopedToOneCompany\\s*\\(|\\bcanOpenRow\\s*\\(");
 
 	/**
+	 * A parameter list, which may itself contain a parenthesis.
+	 *
+	 * <p>{@code \(([^)]*)\)} until the seventeenth round, so
+	 * {@code purge(DashboardSession session, @SuppressWarnings("unused") long id)}
+	 * matched neither method pattern <b>nor the sweep</b>, which had copied the
+	 * group verbatim -- a session-taking method with no guard, invisible to rule
+	 * one, to rule two and to the check that exists to report what the patterns
+	 * cannot see. No admin service method carries an annotated parameter today, but
+	 * four constructors in the same files do
+	 * ({@code @Value("${app.platform-admin.actions.enabled:false}")}), which is one
+	 * position away from live house style -- the same argument the sixteenth round
+	 * accepted for an annotation in return position.
+	 */
+	private static final String PARAMETERS = "\\((([^()]|\\([^()]*\\))*)\\)";
+
+	/**
 	 * The clause between a signature and its body.
 	 *
 	 * <p>Both patterns ended at {@code \)\s*\{} until the fifteenth round, so one
@@ -840,7 +856,7 @@ class AdminTenantGuardCoverageTest {
 	private static final String TYPE_ANNOTATIONS = "(?:@\\w+(?:\\([^)]*\\))?\\s+)*";
 
 	private static final Pattern PUBLIC_METHOD = Pattern.compile(
-			"public\\s+" + TYPE_ANNOTATIONS + "[\\w.<>,?\\[\\]\\s]+?\\s(\\w+)\\s*\\(([^)]*)\\)"
+			"public\\s+" + TYPE_ANNOTATIONS + "[\\w.<>,?\\[\\]\\s]+?\\s(\\w+)\\s*" + PARAMETERS
 					+ THROWS + "\\s*\\{",
 			Pattern.DOTALL);
 
@@ -855,7 +871,7 @@ class AdminTenantGuardCoverageTest {
 	 */
 	private static final Pattern ANY_METHOD = Pattern.compile(
 			"(?:public|private|protected|static)\\s+" + TYPE_ANNOTATIONS
-					+ "[\\w.<>,?\\[\\]\\s]+?\\s(\\w+)\\s*\\(([^)]*)\\)" + THROWS + "\\s*\\{",
+					+ "[\\w.<>,?\\[\\]\\s]+?\\s(\\w+)\\s*" + PARAMETERS + THROWS + "\\s*\\{",
 			Pattern.DOTALL);
 
 	private static final Pattern CREATE_TABLE = Pattern.compile(
@@ -1388,8 +1404,10 @@ class AdminTenantGuardCoverageTest {
 		}
 
 		assertThat(checked)
-				.as("the rule is worthless if it matched nothing; 55 write paths exist today, and a "
-						+ "regex that quietly stopped matching would otherwise pass this vacuously")
+				.as("the rule is worthless if it matched nothing. 59 write paths exist today under "
+						+ "\"every store the service references\"; it was 55 under \"the paired store\", "
+						+ "and this sentence said 55 for one commit after the predicate widened -- which "
+						+ "is why the figure names the predicate it belongs to now")
 				.isGreaterThan(40);
 		assertThat(offenders).isEmpty();
 		assertThat(exemptionsStillNeeded)
@@ -1442,7 +1460,7 @@ class AdminTenantGuardCoverageTest {
 		int compared = 0;
 		int statements = 0;
 
-		for (Path store : pairedStores()) {
+		for (Path store : storesRuleTwoReadsWritesFrom()) {
 			compared++;
 			// Flattened first, and every span measured on the flattened text, so
 			// the offsets below and the write matches are in the same coordinates.
@@ -1466,15 +1484,51 @@ class AdminTenantGuardCoverageTest {
 		}
 
 		assertThat(compared)
-				.as("the paired stores rule two walks; a glob that stopped matching would make "
-						+ "this pass by comparing nothing")
-				.isEqualTo(21);
+				.as("every class rule two takes write names from -- the 21 paired stores and the "
+						+ "one other the sixteenth round's widening reached. A glob that stopped "
+						+ "matching would make this pass by comparing nothing, and a scope that "
+						+ "drifted from the set's would leave a class whose writes rule two wants "
+						+ "but whose hidden writes nothing reports")
+				.isEqualTo(22);
 		assertThat(statements)
-				.as("the write statements checked; 60 exist across the 21 paired stores today, "
-						+ "and a pattern that stopped matching would otherwise make this pass by "
+				.as("the write statements checked; 73 exist across those 22 classes today, and a "
+						+ "pattern that stopped matching would otherwise make this pass by "
 						+ "checking nothing")
 				.isGreaterThan(40);
 		assertThat(hidden).isEmpty();
+	}
+
+	/**
+	 * The classes rule two takes write-method names from.
+	 *
+	 * <p>The 21 paired stores, plus every other class an admin service references
+	 * that writes a tenant-owned table. This is the <b>same</b> set
+	 * {@link #storeWriteMethodsByService} builds from, deliberately: the sixteenth
+	 * round widened that set and left this check scoped to {@code pairedStores()},
+	 * so a write hidden from {@link #ANY_METHOD} in one of the newly spanned classes
+	 * would be silently absent from the set with nothing reporting it. Today the
+	 * difference is one class, {@code LegacyPayrollBatchStore}, whose package holds
+	 * no service -- so the seventeenth round's exploit for it did not compile. The
+	 * point is that the two scopes cannot drift apart again.
+	 */
+	private static List<Path> storesRuleTwoReadsWritesFrom() {
+		Set<String> tenantTables = tenantOwnedTables();
+		Map<String, String> entities = entityTables();
+		Map<String, Path> known = classesByName();
+		Map<Path, Set<String>> siblingsByPackage = classesByPackage(known);
+		Map<Path, Path> byPath = new java.util.LinkedHashMap<>();
+		pairedStores().forEach(store -> byPath.put(store, store));
+		for (Path service : adminServices()) {
+			Set<String> siblings = siblingsByPackage.getOrDefault(service.getParent(), Set.of());
+			for (String referenced : referencedClasses(read(service), known.keySet(), siblings)) {
+				Path file = known.get(referenced);
+				if (file != null && !byPath.containsKey(file)
+						&& !writeMethodsOf(file, tenantTables, entities).isEmpty()) {
+					byPath.put(file, file);
+				}
+			}
+		}
+		return new ArrayList<>(byPath.keySet());
 	}
 
 	/** Whether {@code offset} falls inside any of {@code spans}. */
@@ -1716,10 +1770,18 @@ class AdminTenantGuardCoverageTest {
 	 *
 	 * <p>This is the property both {@link #methodSpans} and {@link #blockAt} rest
 	 * on, and until the thirteenth round neither had it. It is asserted on synthetic
-	 * sources rather than through a mutant on the tree, because the end-to-end
-	 * mutants are defeated by an unrelated detail: a service method calling
-	 * {@code this.store.delete(id)} is followed into the <em>service's own</em>
-	 * {@code delete}, so the guard it inherits has nothing to do with the brace.
+	 * sources rather than through a mutant on the tree, because the shapes it pins
+	 * -- a stray brace inside a literal, an odd quote in a text block -- have no
+	 * instance in this repository to mutate.
+	 *
+	 * <p>This paragraph used to give a different reason: that an end-to-end mutant
+	 * could not discriminate, because a service method calling
+	 * {@code this.store.delete(id)} was followed into the service's own
+	 * {@code delete}. The fifteenth round found that was not a nuisance but the
+	 * worst defect in the sequence, and {@link #OWN_CALL} fixed it --
+	 * {@link #theWriteItselfIsNotAGuardBecauseItSharesAName} now requires exactly
+	 * that shape to be reported unguarded. The sentence outlived its reason by two
+	 * rounds, which is how a maintainer skips a mutant that would work.
 	 *
 	 * <p>The fixtures are built by concatenation rather than as text blocks, because
 	 * a text block containing {@code """} and stray quotes is exactly the thing being
@@ -2283,7 +2345,7 @@ class AdminTenantGuardCoverageTest {
 	private static List<String> declarationsTheRealPatternMisses(String rawSource) {
 		String source = maskNonCode(rawSource).code();
 		Pattern loose = Pattern.compile(
-				"(?:public|private|protected|static)[^;{)=]*?\\s(\\w+)\\s*\\(([^)]*)\\)[^;{)]*\\{",
+				"(?:public|private|protected|static)[^;{)=]*?\\s(\\w+)\\s*" + PARAMETERS + "[^;{]*?\\{",
 				Pattern.DOTALL);
 		Set<String> types = new java.util.HashSet<>();
 		Matcher typeName = Pattern.compile("\\b(?:class|interface|enum|record)\\s+(\\w+)")
@@ -2394,6 +2456,156 @@ class AdminTenantGuardCoverageTest {
 	}
 
 	/**
+	 * Nothing outside the two rules calls a store's write.
+	 *
+	 * <p>The seventeenth round's finding, and the mirror of the sixteenth's. That
+	 * round made the <em>callee</em> set come from the code rather than from a
+	 * filename; the <em>caller</em> set was still exactly
+	 * {@code files("*AdminService.java")}. A class not named that way could call a
+	 * store's write and no rule looked: rule one scans only services, rule two scans
+	 * only services, and rule three skips the caller because its own text holds no
+	 * write statement and skips the store because it is already scanned.
+	 *
+	 * <p>It is one token away from live. <b>Twenty controllers under the admin root
+	 * already inject a store</b> and already call it for reads --
+	 * {@code AdminPenaltiesController} holds {@code PenaltyStore} and calls
+	 * {@code paginate}, {@code employeeOptions} and {@code exportRows} on it -- so
+	 * changing one line of its dispatch from
+	 * {@code this.service.delete(session, adminId, id)} to
+	 * {@code this.store.delete(id)} deletes a penalty by posted id with no tenant
+	 * check. That passed all forty-one tests; the identical call written in the
+	 * service failed rule two. The layer was the only difference.
+	 *
+	 * <p>Matched through the field, not by bare name. A controller calling
+	 * {@code this.service.delete(...)} is the correct shape and shares its name with
+	 * {@code PenaltyStore.delete}, so a name-only check would report every
+	 * well-written controller. The receiver's declared type decides.
+	 */
+	@Test
+	void noClassOutsideTheTwoRulesCallsAStoreWrite() {
+		Set<String> tenantTables = tenantOwnedTables();
+		Map<String, String> entities = entityTables();
+		Map<String, Path> known = classesByName();
+		Set<String> scanned = scannedByRuleOneOrTwo();
+		Map<String, Set<String>> writesByType = new HashMap<>();
+		java.util.function.Function<String, Set<String>> writesOf = type ->
+				writesByType.computeIfAbsent(type,
+						owner -> writeMethodsOf(known.get(owner), tenantTables, entities));
+
+		List<String> offenders = new ArrayList<>();
+		int fieldsChecked = 0;
+		for (Path file : files("*.java")) {
+			if (scanned.contains(file.getFileName().toString())) {
+				continue;
+			}
+			StoreCalls found = storeWriteCallsIn(read(file), writesOf);
+			fieldsChecked += found.fieldsResolved();
+			for (String call : found.calls()) {
+				offenders.add(file.getFileName() + ": " + call + " writes a tenant-owned table, "
+						+ "and this class is scanned by neither rule");
+			}
+		}
+
+		assertThat(offenders)
+				.as("a write reached from outside a service is a write no rule asks for a guard")
+				.isEmpty();
+		assertThat(fieldsChecked)
+				.as("fields whose declared type writes a tenant-owned table, held by a class "
+						+ "neither rule scans; pinned above zero so the rule cannot pass by "
+						+ "resolving no type at all")
+				.isGreaterThan(10);
+
+		// No class outside the rules calls a store write today, so the live half of
+		// this rule has no subject -- the shape the sixteenth round learned needs a
+		// fixture, because tightening it back kills nothing.
+		Set<String> penaltyWrites = Set.of("delete", "insert");
+		java.util.function.Function<String, Set<String>> fixtureWrites = type ->
+				"PenaltyStore".equals(type) ? penaltyWrites : Set.of();
+		String throughTheStore = """
+				class AdminPenaltiesController {
+					private final PenaltyStore store;
+					private final PenaltyAdminService service;
+
+					public String submit(long id) {
+						this.store.delete(id);
+						return "ok";
+					}
+				}""";
+		assertThat(storeWriteCallsIn(throughTheStore, fixtureWrites).calls())
+				.as("one line of a controller's dispatch, and a penalty is deleted by posted id "
+						+ "with no tenant check")
+				.containsExactly("store.delete()");
+
+		String throughTheService = """
+				class AdminPenaltiesController {
+					private final PenaltyStore store;
+					private final PenaltyAdminService service;
+
+					public String submit(DashboardSession session, long adminId, long id) {
+						this.service.delete(session, adminId, id);
+						return "ok";
+					}
+				}""";
+		assertThat(storeWriteCallsIn(throughTheService, fixtureWrites).calls())
+				.as("the control, and the reason this matches through the FIELD and not by name: "
+						+ "`service.delete` shares its name with `PenaltyStore.delete`, so a "
+						+ "name-only check would report every correctly written controller")
+				.isEmpty();
+
+		String readsOnly = """
+				class AdminPenaltiesController {
+					private final PenaltyStore store;
+
+					public String list() {
+						return this.store.paginate(1, 10).toString();
+					}
+				}""";
+		assertThat(storeWriteCallsIn(readsOnly, fixtureWrites).calls())
+				.as("a read through the same field is what twenty controllers already do")
+				.isEmpty();
+	}
+
+	/** What one class's source says about the store writes it calls. */
+	private record StoreCalls(List<String> calls, int fieldsResolved) {
+	}
+
+	/**
+	 * The store writes a class calls through a field it declares.
+	 *
+	 * <p>Through the field, not by bare name: a controller calling
+	 * {@code this.service.delete(...)} is the correct shape and shares its name with
+	 * {@code PenaltyStore.delete}, so a name-only check reports every well-written
+	 * controller. The receiver's declared type decides.
+	 */
+	private static StoreCalls storeWriteCallsIn(
+			String rawSource, java.util.function.Function<String, Set<String>> writesOf) {
+		String source = maskNonCode(rawSource).code();
+		List<String> calls = new ArrayList<>();
+		int fieldsResolved = 0;
+		Matcher field = Pattern.compile(
+				"(?:private|protected|public)\\s+(?:final\\s+)?(\\w+)\\s+(\\w+)\\s*[;=]")
+				.matcher(source);
+		while (field.find()) {
+			String type = field.group(1);
+			String name = field.group(2);
+			Set<String> writes = writesOf.apply(type);
+			if (writes.isEmpty()) {
+				continue;
+			}
+			fieldsResolved++;
+			Matcher call = Pattern.compile(
+					"(?:this\\s*\\.\\s*)?" + Pattern.quote(name) + "\\s*\\.\\s*(\\w+)\\s*\\(")
+					.matcher(source);
+			while (call.find()) {
+				if (writes.contains(call.group(1))) {
+					calls.add(name + "." + call.group(1) + "()");
+				}
+			}
+		}
+		return new StoreCalls(calls, fieldsResolved);
+	}
+
+	/**
 	 * Rule two's wanted set spans every store a service reaches.
 	 *
 	 * <p>The set was built from {@code <X>Store.java} alone until the sixteenth
@@ -2421,6 +2633,36 @@ class AdminTenantGuardCoverageTest {
 		assertThat(wanted)
 				.as("every admin service that reaches a tenant-owned write is a subject")
 				.containsKey("PayrollAdminService");
+		// A store whose public method delegates to a private helper holding the SQL
+		// put the name the service calls outside this set, so rule two asked that
+		// service method for nothing. No live store is written that way, so the
+		// property has no instance and needs a fixture -- the shape the sixteenth
+		// round learned. Extracting a method is not a change of behaviour and must
+		// not be a change of coverage.
+		String delegating = """
+				class PenaltyStore {
+					public int purgeRow(long id) {
+						return runPurge(id);
+					}
+
+					private int runPurge(long id) {
+						return this.jdbcTemplate.update("DELETE FROM penalties WHERE id = ?", id);
+					}
+				}""";
+		assertThat(writeMethodsIn(delegating, tenantOwnedTables(), entityTables()))
+				.as("the name the service calls is `purgeRow`, and it reaches the write")
+				.contains("purgeRow", "runPurge");
+
+		String inlined = """
+				class PenaltyStore {
+					public int purgeRow(long id) {
+						return this.jdbcTemplate.update("DELETE FROM penalties WHERE id = ?", id);
+					}
+				}""";
+		assertThat(writeMethodsIn(inlined, tenantOwnedTables(), entityTables()))
+				.as("the control: the same write one hop shorter")
+				.containsExactly("purgeRow");
+
 		assertThat(wanted.get("PayrollAdminService"))
 				.as("deleteWithPayslips is declared on LegacyPayrollBatchStore, which is not "
 						+ "PayrollAdminService's paired store. Build the set from the paired "
@@ -2469,6 +2711,28 @@ class AdminTenantGuardCoverageTest {
 		assertThat(scan(withArguments).unguarded())
 				.as("an annotation carrying arguments, and more than one of them")
 				.contains("purge");
+
+		// The seventeenth round found the same gap one position further right: the
+		// parameter group was `([^)]*)`, which cannot span a parenthesis, so an
+		// annotated parameter hid the method from both patterns AND from the sweep,
+		// which had copied the group verbatim. Four constructors in these same files
+		// carry @Value("${...}") today.
+		String annotatedParameter = """
+				class Service {
+					public Integer wipe(DashboardSession session, @SuppressWarnings("unused") long id) {
+						this.store.delete(id);
+						return 1;
+					}
+				}""";
+		assertThat(scan(annotatedParameter).sessionTaking())
+				.as("a method whose parameter carries an annotation is still a method")
+				.isEqualTo(1);
+		assertThat(scan(annotatedParameter).unguarded())
+				.as("and it is still asked for a guard")
+				.contains("wipe");
+		assertThat(declarationsTheRealPatternMisses(annotatedParameter))
+				.as("and the sweep agrees the real pattern can see it")
+				.isEmpty();
 	}
 
 	/**
@@ -2900,11 +3164,15 @@ class AdminTenantGuardCoverageTest {
 	/** The methods of one class that write a tenant-owned table, by name. */
 	private static Set<String> writeMethodsOf(
 			Path file, Set<String> tenantTables, Map<String, String> entities) {
+		return file == null ? new TreeSet<>() : writeMethodsIn(read(file), tenantTables, entities);
+	}
+
+	/** The same, over source text, so a fixture can drive it. */
+	private static Set<String> writeMethodsIn(
+			String source, Set<String> tenantTables, Map<String, String> entities) {
 		Set<String> writes = new TreeSet<>();
-		if (file == null) {
-			return writes;
-		}
-		for (Map.Entry<String, List<String>> method : methodBodies(read(file)).entrySet()) {
+		Map<String, List<String>> bodies = methodBodies(source);
+		for (Map.Entry<String, List<String>> method : bodies.entrySet()) {
 			// The same predicate rule three uses, not a second copy of it. Two
 			// copies is how the tenth round's finding happened: one was
 			// normalised for case and the other was not, and the one that was
@@ -2917,7 +3185,42 @@ class AdminTenantGuardCoverageTest {
 				}
 			}
 		}
+		// And every method that REACHES one. The seventeenth round: a store whose
+		// public method delegates to a private helper holding the SQL put the name
+		// the service calls outside this set, so rule two asked that service method
+		// for nothing. `reachesCall` walked the service's call graph and never the
+		// store's; this is that same walk, applied inside the store. Extracting a
+		// method is not a change of behaviour, and it must not be a change of
+		// coverage.
+		for (int pass = 0; pass < 4; pass++) {
+			Set<String> reaching = new TreeSet<>();
+			for (Map.Entry<String, List<String>> method : bodies.entrySet()) {
+				if (writes.contains(method.getKey())) {
+					continue;
+				}
+				for (String overload : method.getValue()) {
+					if (callsAnyOf(overload, writes)) {
+						reaching.add(method.getKey());
+						break;
+					}
+				}
+			}
+			if (!writes.addAll(reaching)) {
+				break;
+			}
+		}
 		return writes;
+	}
+
+	/** Does this body call any of these names on anything? */
+	private static boolean callsAnyOf(String body, Set<String> names) {
+		Matcher call = Pattern.compile("\\b(\\w+)\\s*\\(").matcher(code(body));
+		while (call.find()) {
+			if (names.contains(call.group(1))) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** Service simple name to the tenant-owned tables its paired store writes. */
