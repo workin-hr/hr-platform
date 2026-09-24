@@ -7,6 +7,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
+import com.workin.backend.platformadmin.web.DashboardPage;
+
 /**
  * The queries the join-requests page makes
  * ({@code home_get_join_requests()}, {@code home_accept_join_request()},
@@ -20,8 +22,14 @@ import org.springframework.stereotype.Repository;
 public class JoinRequestStore {
 
 	/**
-	 * Legacy's {@code LIMIT 200} on this page, passed as a literal there and
-	 * kept as one here. The list is unpaginated in both.
+	 * Legacy's {@code LIMIT 200} on this page.
+	 *
+	 * <p>Kept only as the ceiling on one page, not as the size of the list.
+	 * Legacy shows the 200 newest requests and nothing says so; a company with
+	 * more than that has requests it cannot reach from the page at all, and the
+	 * oldest -- the ones waiting longest -- are the ones that fall off, because
+	 * the order is newest first. The owner's decision was to diverge: add a
+	 * pager (D-283).
 	 */
 	public static final int LIMIT = 200;
 
@@ -55,9 +63,43 @@ public class JoinRequestStore {
 	 * column-existence check, and this page renders no photograph. Not carried
 	 * over: a column nothing displays is not parity, it is a wasted read.
 	 */
-	public List<JoinRequest> list(long companyId, String status) {
-		StringBuilder where = new StringBuilder(" WHERE e.role = ?");
+	/**
+	 * One page of the same list, with the total the pager needs.
+	 *
+	 * <p>The count is built from the same {@code WHERE} clause as the read, by
+	 * the same private method, so the two cannot disagree about what a matching
+	 * request is -- a count assembled separately drifts the moment a filter is
+	 * added to one and not the other.
+	 */
+	public DashboardPage<JoinRequest> paginate(long companyId, String status, int page, int perPage) {
 		List<Object> params = new ArrayList<>();
+		String where = where(companyId, status, params);
+
+		Integer total = this.jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM employees e" + where, Integer.class, params.toArray());
+
+		int size = Math.clamp(perPage, 1, LIMIT);
+		List<Object> pageParams = new ArrayList<>(params);
+		pageParams.add(size);
+		pageParams.add(DashboardPage.offsetFor(page, size));
+
+		List<JoinRequest> rows = this.jdbcTemplate.query(
+				"SELECT e.id, e.company_id, " + EmployeeStore.NAME_SQL + " AS name,"
+						+ " e.phone, e.join_request_status, e.created_at"
+						+ " FROM employees e" + where
+						// created_at is not unique -- two requests in the same second
+						// would otherwise be free to swap places between pages, which
+						// on a paged list means a row appearing twice or not at all.
+						+ " ORDER BY e.created_at DESC, e.id DESC"
+						+ " LIMIT ? OFFSET ?",
+				MAPPER, pageParams.toArray());
+
+		return DashboardPage.of(rows, total == null ? 0 : total, page, size);
+	}
+
+	/** The filters, once, for both the count and the read. */
+	private static String where(long companyId, String status, List<Object> params) {
+		StringBuilder where = new StringBuilder(" WHERE e.role = ?");
 		params.add(ROLE);
 		if (companyId > 0) {
 			where.append(" AND e.company_id = ?");
@@ -67,12 +109,7 @@ public class JoinRequestStore {
 			where.append(" AND e.join_request_status = ?");
 			params.add(status);
 		}
-		return this.jdbcTemplate.query(
-				"SELECT e.id, e.company_id, " + EmployeeStore.NAME_SQL + " AS name,"
-						+ " e.phone, e.join_request_status, e.created_at"
-						+ " FROM employees e" + where
-						+ " ORDER BY e.created_at DESC LIMIT " + LIMIT,
-				MAPPER, params.toArray());
+		return where.toString();
 	}
 
 	/**

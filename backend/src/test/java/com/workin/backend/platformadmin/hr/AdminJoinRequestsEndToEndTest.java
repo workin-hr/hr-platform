@@ -22,6 +22,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.util.HtmlUtils;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -423,6 +424,135 @@ class AdminJoinRequestsEndToEndTest {
 
 	private String postTo(String path, String... fields) {
 		return post(path, this.cookie, page(PATH, this.cookie).csrf(), fields).getBody();
+	}
+
+	/**
+	 * The list is a page now, and its heading counts what exists.
+	 *
+	 * <p>Legacy shows the 200 newest requests with nothing saying so, and the
+	 * order is newest first, so the requests that fall off are the ones that have
+	 * been waiting longest -- the opposite of what a queue should hide. The
+	 * owner's decision was to diverge and add a pager (D-283).
+	 */
+	@Test
+	void theListIsOnePageAndTheHeadingCountsEveryRequest() {
+		for (int index = 1; index <= 12; index++) {
+			createJoinRequest(this.companyA, "Waiting" + index, pendingPhone(index), "pending");
+		}
+
+		String html = body(PATH + "?per_page=5");
+
+		assertThat(countOccurrences(html, "Waiting")).as("five of twelve rows").isEqualTo(5);
+		assertThat(html).as("and twelve reported, not five").contains("<b>12</b>");
+		assertThat(HtmlUtils.htmlUnescape(html))
+				.as("twelve at five a page is three pages").contains("?page=3");
+	}
+
+	/** The second page is the next requests, and the numbering continues. */
+	@Test
+	void theSecondPageIsTheNextRequestsAndKeepsCounting() {
+		for (int index = 1; index <= 12; index++) {
+			createJoinRequest(this.companyA, "Waiting" + index, pendingPhone(index), "pending");
+		}
+
+		String first = body(PATH + "?per_page=5");
+		String second = body(PATH + "?per_page=5&page=2");
+
+		assertThat(countOccurrences(second, "Waiting")).isEqualTo(5);
+		for (int index = 1; index <= 12; index++) {
+			String name = ">Waiting" + index + "<";
+			assertThat(first.contains(name) && second.contains(name))
+					.as("Waiting%d is on one page, not both", index).isFalse();
+		}
+		// The row number is the row's place in the whole list. `i + 1` restarts at
+		// 1 on every page, which would number two different requests 1 -- and on a
+		// queue ordered oldest-last that is precisely the number an operator reads
+		// out loud.
+		assertThat(second).as("numbering continues into the second page")
+				.contains("<td>6</td>").doesNotContain("<td>1</td>");
+	}
+
+	/** Turning the page keeps the status tab, because the row actions post it back. */
+	@Test
+	void turningThePageKeepsTheStatusFilter() {
+		for (int index = 1; index <= 12; index++) {
+			createJoinRequest(this.companyA, "Waiting" + index, pendingPhone(index), "accepted");
+		}
+
+		String html = body(PATH + "?per_page=5&status=accepted");
+
+		Matcher next = Pattern.compile("href=\"(/admin/join_requests\\?page=2[^\"]*)\"").matcher(html);
+		assertThat(next.find()).as("a next-page link on an accepted list of twelve").isTrue();
+		assertThat(HtmlUtils.htmlUnescape(next.group(1)))
+				.as("the status tab rides along: %s", next.group(1)).contains("status=accepted");
+		assertThat(countOccurrences(html, "name=\"status\""))
+				.as("and the size form re-submits it").isGreaterThanOrEqualTo(1);
+	}
+
+	/**
+	 * Among requests created in the same second, the newest row wins the tie.
+	 *
+	 * <p>`ORDER BY created_at DESC` alone is not a total order, and a tie split
+	 * across a page boundary is free to show one row twice and another not at
+	 * all. Asserting only that the pages are disjoint does not prove the fix:
+	 * MariaDB returns a filesort's tied rows in scan order, which here is the
+	 * primary key *ascending*, so the tiebreaker is what makes the order the one
+	 * this page claims -- newest first. That is the assertion, because a mutant
+	 * dropping `, e.id DESC` passed a disjointness test.
+	 */
+	@Test
+	void amongRequestsCreatedInTheSameSecondTheNewestComesFirst() {
+		java.util.List<Long> ids = new java.util.ArrayList<>();
+		for (int index = 1; index <= 12; index++) {
+			ids.add(createJoinRequest(this.companyA, "Same" + index, pendingPhone(index), "pending"));
+		}
+		this.jdbc.update("UPDATE employees SET created_at = '2026-09-01 08:00:00'"
+				+ " WHERE role = 'employee'");
+		java.util.List<Long> newestFirst = ids.reversed();
+
+		java.util.List<Long> served = new java.util.ArrayList<>();
+		for (int page = 1; page <= 3; page++) {
+			served.addAll(idsOnPage(body(PATH + "?per_page=5&page=" + page)));
+		}
+
+		assertThat(served).as("newest id first, and every request exactly once")
+				.containsExactlyElementsOf(newestFirst);
+	}
+
+	/** The ids the page rendered, in the order it rendered them. */
+	private static java.util.List<Long> idsOnPage(String html) {
+		Matcher row = Pattern.compile("name=\"id\" value=\"(\\d+)\"").matcher(html);
+		java.util.List<Long> ids = new java.util.ArrayList<>();
+		while (row.find()) {
+			long id = Long.parseLong(row.group(1));
+			if (!ids.contains(id)) {
+				ids.add(id);
+			}
+		}
+		return ids;
+	}
+
+	/** A page number from a query string is read the way every other one is. */
+	@Test
+	void aCraftedPageNumberIsReadLikeEveryOtherPageNumber() {
+		for (int index = 1; index <= 12; index++) {
+			createJoinRequest(this.companyA, "Waiting" + index, pendingPhone(index), "pending");
+		}
+
+		assertThat(countOccurrences(body(PATH + "?per_page=5&page=abc"), "Waiting"))
+				.as("not a number is page one").isEqualTo(5);
+		String past = body(PATH + "?per_page=5&page=99");
+		assertThat(countOccurrences(past, "Waiting")).as("past the last page, no rows").isZero();
+		assertThat(past).as("the total is still the truth").contains("<b>12</b>");
+	}
+
+	/** Distinct and valid: 01 plus nine digits, and 010 is a real Egyptian prefix. */
+	private static String pendingPhone(int index) {
+		return String.format("0100000%04d", index);
+	}
+
+	private static long countOccurrences(String html, String text) {
+		return Pattern.compile(Pattern.quote(text)).matcher(html).results().count();
 	}
 
 	private String body(String path) {
