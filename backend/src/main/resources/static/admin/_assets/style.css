@@ -5,27 +5,37 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/*
+ * Legacy's vocabulary, kept as the name every sheet in here already uses and
+ * re-pointed at app-tokens.css. Nothing below this block changed: a sheet
+ * asking for var(--blue) gets the design system's accent, and the hex
+ * literals that used to live here are now one ramp in one file.
+ *
+ * Do not add a colour here. New rules read --ui-* directly; these twelve exist
+ * because 18 sheets already reference them.
+ */
 :root {
-  --blue:    #185FA5;
-  --blue-lt: #E6F1FB;
-  --green:   #3B6D11;
-  --green-lt:#EAF3DE;
-  --red:     #A32D2D;
-  --red-lt:  #FCEBEB;
-  --yellow:  #854F0B;
-  --yel-lt:  #FAEEDA;
-  --gray:    #5F5E5A;
-  --gray-lt: #F1EFE8;
-  --pink-lt: #FBEAF0;
-  --pink:    #993556;
-  --topbar-h:  60px;
+  --blue:    var(--ui-accent-500);
+  --blue-lt: var(--ui-info-weak);
+  --green:   var(--ui-success);
+  --green-lt:var(--ui-success-weak);
+  --red:     var(--ui-danger);
+  --red-lt:  var(--ui-danger-weak);
+  --yellow:  var(--ui-warning);
+  --yel-lt:  var(--ui-warning-weak);
+  --gray:    var(--ui-neutral-9);
+  --gray-lt: var(--ui-neutral-2);
+  --pink-lt: var(--ui-accent-pink-weak);
+  --pink:    var(--ui-accent-pink);
+  --topbar-h: var(--ui-topbar-h);
 }
 
 body {
-  font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
-  font-size: 14px;
-  background: #f5f4f0;
-  color: #2c2c2a;
+  /* family, size and line-height come from app-tokens.css */
+  font-family: var(--ui-font);
+  font-size: var(--ui-text-base);
+  background: var(--ui-bg);
+  color: var(--ui-text);
   direction: rtl;
 }
 

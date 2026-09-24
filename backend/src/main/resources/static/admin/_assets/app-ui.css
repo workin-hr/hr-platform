@@ -2,21 +2,26 @@
    app-ui.css — روح تصميم تسجيل الدخول على كل التطبيق
    ============================================================ */
 
+/*
+ * The --app-* vocabulary, re-pointed at app-tokens.css for the same reason
+ * style.css's is: it is what this sheet's own 990 lines already ask for.
+ * New rules read --ui-* directly.
+ */
 :root {
-  --app-bg: #f5f7fb;
-  --app-surface: #ffffff;
-  --app-border: #e2e6ef;
-  --app-border-soft: #e8e6e0;
-  --app-text: #1a1d24;
-  --app-text-muted: #6b7280;
-  --app-radius-sm: 8px;
-  --app-radius: 11px;
-  --app-radius-lg: 14px;
-  --app-radius-xl: 18px;
-  --app-shadow-sm: 0 2px 8px rgba(15, 35, 70, .06);
-  --app-shadow: 0 4px 6px rgba(15, 35, 70, .04), 0 12px 28px rgba(15, 35, 70, .07);
-  --app-focus-ring: 0 0 0 4px rgba(24, 95, 165, .12);
-  --app-ease: cubic-bezier(.22, 1, .36, 1);
+  --app-bg: var(--ui-bg);
+  --app-surface: var(--ui-surface);
+  --app-border: var(--ui-border);
+  --app-border-soft: var(--ui-border-soft);
+  --app-text: var(--ui-text);
+  --app-text-muted: var(--ui-text-muted);
+  --app-radius-sm: var(--ui-radius-sm);
+  --app-radius: var(--ui-radius);
+  --app-radius-lg: var(--ui-radius-lg);
+  --app-radius-xl: var(--ui-radius-xl);
+  --app-shadow-sm: var(--ui-shadow-sm);
+  --app-shadow: var(--ui-shadow);
+  --app-focus-ring: var(--ui-focus-ring-soft);
+  --app-ease: var(--ui-ease);
 }
 
 /* —— Layout & shell —— */

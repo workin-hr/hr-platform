@@ -23,6 +23,10 @@
 	<title>${t.apply("login_title")} — ${t.apply("app_name")}</title>
 	<link rel="icon" type="image/png" sizes="32x32" href="/admin/_assets/favicon-32.png">
 	<link rel="apple-touch-icon" sizes="180x180" href="/admin/_assets/apple-touch-icon.png">
+	<%-- Login has its own layout, so it loads the tokens itself; otherwise the
+	     one page a user sees before authenticating is the one page in the old
+	     family. --%>
+	<link rel="stylesheet" href="/admin/_assets/app-tokens.css">
 	<link rel="stylesheet" href="/admin/_assets/login.css">
 </head>
 <body class="login-body${hasAlert ? " login-has-alert" : ""}${errorKey != null ? " login-shake" : ""}">

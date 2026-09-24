@@ -1,0 +1,360 @@
+/*
+ * app-tokens.css -- the one place the admin dashboard's visual language is
+ * defined. Loaded first, before style.css, so every sheet after it can read
+ * these values and the two token blocks that already existed (style.css's
+ * legacy --blue/--green/... and app-ui.css's --app-*) are aliases of these
+ * rather than a second source of truth.
+ *
+ * Why aliases and not a rewrite: 18 sheets and 38 pages already speak those
+ * two vocabularies. Re-pointing the two declarations moves every page at once
+ * and leaves each sheet's own rules untouched, which is a reviewable diff; 186
+ * hand-edited hex literals is not.
+ *
+ * Dark values are defined under :root[data-theme="dark"] and nothing ships a
+ * toggle. That is deliberate: it keeps the palette honest -- a token with no
+ * dark value is a token that will break the day a toggle lands -- without
+ * putting an untested second theme in front of users.
+ *
+ * FONT. 'IBM Plex Sans Arabic', SIL OFL 1.1, self-hosted from fonts/ beside
+ * this file. Licence text is fonts/OFL.txt; it must ship with the binaries.
+ * Nothing here references an external host, and nothing @imports: the
+ * dashboard makes no third-party request, which is the property
+ * theDashboardShipsNoWebFontAndKeepsLegacysSystemStack still enforces.
+ *
+ * Weight/size: 12 subsetted files, 277 KB on disk in total. A browser fetches
+ * only the subsets whose unicode-range it needs, so an Arabic page at one
+ * weight costs 42 KB and a mixed Arabic/Latin page at that weight
+ * 61 KB -- not the full 277 KB. font-display: swap means text paints in
+ * the fallback stack immediately and reflows once, so a cold cache delays no
+ * content.
+ */
+
+@font-face {
+  font-family: 'IBM Plex Sans Arabic';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/ibm-plex-sans-arabic-400-arabic.woff2') format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC, U+102E0-102FB, U+10E60-10E7E, U+10EC2-10EC4, U+10EFC-10EFF, U+1EE00-1EE03, U+1EE05-1EE1F, U+1EE21-1EE22, U+1EE24, U+1EE27, U+1EE29-1EE32, U+1EE34-1EE37, U+1EE39, U+1EE3B, U+1EE42, U+1EE47, U+1EE49, U+1EE4B, U+1EE4D-1EE4F, U+1EE51-1EE52, U+1EE54, U+1EE57, U+1EE59, U+1EE5B, U+1EE5D, U+1EE5F, U+1EE61-1EE62, U+1EE64, U+1EE67-1EE6A, U+1EE6C-1EE72, U+1EE74-1EE77, U+1EE79-1EE7C, U+1EE7E, U+1EE80-1EE89, U+1EE8B-1EE9B, U+1EEA1-1EEA3, U+1EEA5-1EEA9, U+1EEAB-1EEBB, U+1EEF0-1EEF1;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Arabic';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/ibm-plex-sans-arabic-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Arabic';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/ibm-plex-sans-arabic-400-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Arabic';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('fonts/ibm-plex-sans-arabic-500-arabic.woff2') format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC, U+102E0-102FB, U+10E60-10E7E, U+10EC2-10EC4, U+10EFC-10EFF, U+1EE00-1EE03, U+1EE05-1EE1F, U+1EE21-1EE22, U+1EE24, U+1EE27, U+1EE29-1EE32, U+1EE34-1EE37, U+1EE39, U+1EE3B, U+1EE42, U+1EE47, U+1EE49, U+1EE4B, U+1EE4D-1EE4F, U+1EE51-1EE52, U+1EE54, U+1EE57, U+1EE59, U+1EE5B, U+1EE5D, U+1EE5F, U+1EE61-1EE62, U+1EE64, U+1EE67-1EE6A, U+1EE6C-1EE72, U+1EE74-1EE77, U+1EE79-1EE7C, U+1EE7E, U+1EE80-1EE89, U+1EE8B-1EE9B, U+1EEA1-1EEA3, U+1EEA5-1EEA9, U+1EEAB-1EEBB, U+1EEF0-1EEF1;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Arabic';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('fonts/ibm-plex-sans-arabic-500-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Arabic';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('fonts/ibm-plex-sans-arabic-500-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Arabic';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('fonts/ibm-plex-sans-arabic-600-arabic.woff2') format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC, U+102E0-102FB, U+10E60-10E7E, U+10EC2-10EC4, U+10EFC-10EFF, U+1EE00-1EE03, U+1EE05-1EE1F, U+1EE21-1EE22, U+1EE24, U+1EE27, U+1EE29-1EE32, U+1EE34-1EE37, U+1EE39, U+1EE3B, U+1EE42, U+1EE47, U+1EE49, U+1EE4B, U+1EE4D-1EE4F, U+1EE51-1EE52, U+1EE54, U+1EE57, U+1EE59, U+1EE5B, U+1EE5D, U+1EE5F, U+1EE61-1EE62, U+1EE64, U+1EE67-1EE6A, U+1EE6C-1EE72, U+1EE74-1EE77, U+1EE79-1EE7C, U+1EE7E, U+1EE80-1EE89, U+1EE8B-1EE9B, U+1EEA1-1EEA3, U+1EEA5-1EEA9, U+1EEAB-1EEBB, U+1EEF0-1EEF1;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Arabic';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('fonts/ibm-plex-sans-arabic-600-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Arabic';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('fonts/ibm-plex-sans-arabic-600-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Arabic';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('fonts/ibm-plex-sans-arabic-700-arabic.woff2') format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC, U+102E0-102FB, U+10E60-10E7E, U+10EC2-10EC4, U+10EFC-10EFF, U+1EE00-1EE03, U+1EE05-1EE1F, U+1EE21-1EE22, U+1EE24, U+1EE27, U+1EE29-1EE32, U+1EE34-1EE37, U+1EE39, U+1EE3B, U+1EE42, U+1EE47, U+1EE49, U+1EE4B, U+1EE4D-1EE4F, U+1EE51-1EE52, U+1EE54, U+1EE57, U+1EE59, U+1EE5B, U+1EE5D, U+1EE5F, U+1EE61-1EE62, U+1EE64, U+1EE67-1EE6A, U+1EE6C-1EE72, U+1EE74-1EE77, U+1EE79-1EE7C, U+1EE7E, U+1EE80-1EE89, U+1EE8B-1EE9B, U+1EEA1-1EEA3, U+1EEA5-1EEA9, U+1EEAB-1EEBB, U+1EEF0-1EEF1;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Arabic';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('fonts/ibm-plex-sans-arabic-700-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Arabic';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('fonts/ibm-plex-sans-arabic-700-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+  color-scheme: light;
+
+  /* ---- Neutrals. A warm-grey ramp, not pure grey: legacy's surfaces are
+     warm (#F1EFE8, #E8E6E0) and a cold ramp beside them reads as two
+     products. 0 is the page, 12 is the strongest text. ---- */
+  --ui-neutral-0:  #f7f7f5;
+  --ui-neutral-1:  #fcfcfb;
+  --ui-neutral-2:  #f2f1ed;
+  --ui-neutral-3:  #e9e8e2;
+  --ui-neutral-4:  #dedcd4;
+  --ui-neutral-5:  #c9c6bc;
+  --ui-neutral-6:  #a8a49a;
+  --ui-neutral-7:  #86827a;
+  --ui-neutral-8:  #6b6862;
+  --ui-neutral-9:  #56534e;
+  --ui-neutral-10: #3f3d39;
+  --ui-neutral-11: #2a2926;
+  --ui-neutral-12: #1a1917;
+
+  /* ---- Accent. #185FA5 is the product's existing identity and is kept as
+     the mid step, so nothing that already reads as "the blue thing" changes
+     meaning. The ramp around it is new. ---- */
+  --ui-accent-50:  #eef4fb;
+  --ui-accent-100: #dce8f6;
+  --ui-accent-200: #b9d1ed;
+  --ui-accent-300: #8cb3e0;
+  --ui-accent-400: #4d84c2;
+  --ui-accent-500: #185fa5;
+  --ui-accent-600: #14528f;
+  --ui-accent-700: #114576;
+  --ui-accent-800: #0e375e;
+
+  /* ---- Status. Hues carried over from legacy so the *meaning* of a colour
+     is unchanged; only the tint/contrast is rebuilt. ---- */
+  --ui-success:      #3b6d11;
+  --ui-success-weak: #edf4e2;
+  --ui-success-edge: #cfe0b4;
+  --ui-danger:       #a32d2d;
+  --ui-danger-weak:  #fceceb;
+  --ui-danger-edge:  #f0cdcb;
+  --ui-warning:      #854f0b;
+  --ui-warning-weak: #fbf0dc;
+  --ui-warning-edge: #ecd6ab;
+  --ui-info:         #185fa5;
+  --ui-info-weak:    #eaf2fb;
+  --ui-info-edge:    #c6dcf1;
+  --ui-accent-pink:      #993556;
+  --ui-accent-pink-weak: #fbecf1;
+
+  /* ---- Semantic surfaces. Sheets should reach for these, not the ramp. ---- */
+  --ui-bg:            var(--ui-neutral-0);
+  --ui-surface:       #ffffff;
+  --ui-surface-sunk:  var(--ui-neutral-2);
+  --ui-surface-raised:#ffffff;
+  --ui-surface-hover: var(--ui-neutral-2);
+  --ui-border:        var(--ui-neutral-4);
+  --ui-border-soft:   var(--ui-neutral-3);
+  --ui-border-strong: var(--ui-neutral-5);
+  --ui-text:          var(--ui-neutral-12);
+  --ui-text-soft:     var(--ui-neutral-9);
+  --ui-text-muted:    var(--ui-neutral-8);
+  --ui-text-faint:    var(--ui-neutral-7);
+  --ui-text-on-accent:#ffffff;
+  --ui-link:          var(--ui-accent-600);
+
+  /* ---- Type. The family is one token so reversing it is one line, which is
+     the lesson of D-197/D-251: this decision has been taken twice and may be
+     taken again. ---- */
+  --ui-font: 'IBM Plex Sans Arabic', 'Segoe UI', Tahoma, Arial, sans-serif;
+  --ui-font-numeric: var(--ui-font);
+
+  --ui-text-xs:   0.75rem;   /* 12px -- table meta, chips */
+  --ui-text-sm:   0.8125rem; /* 13px -- labels, help text */
+  --ui-text-base: 0.9375rem; /* 15px -- body, table cells */
+  --ui-text-md:   1rem;      /* 16px -- card titles */
+  --ui-text-lg:   1.1875rem; /* 19px -- page title */
+  --ui-text-xl:   1.5rem;    /* 24px -- dashboard figures */
+  --ui-text-2xl:  1.875rem;  /* 30px -- hero figures */
+
+  --ui-leading-tight: 1.25;
+  --ui-leading: 1.55;
+  --ui-leading-loose: 1.7;
+
+  --ui-weight-regular: 400;
+  --ui-weight-medium: 500;
+  --ui-weight-semibold: 600;
+  --ui-weight-bold: 700;
+
+  --ui-tracking-caps: .04em;
+
+  /* ---- Space. A 4px base: every margin and gap in the dashboard should be
+     one of these, which is what stops a page drifting 3px off its neighbour. ---- */
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-5: 20px;
+  --ui-space-6: 24px;
+  --ui-space-8: 32px;
+  --ui-space-10: 40px;
+  --ui-space-12: 48px;
+
+  /* ---- Radius, elevation, focus, motion ---- */
+  --ui-radius-xs: 6px;
+  --ui-radius-sm: 8px;
+  --ui-radius: 11px;
+  --ui-radius-lg: 14px;
+  --ui-radius-xl: 18px;
+  --ui-radius-pill: 999px;
+
+  --ui-shadow-xs: 0 1px 2px rgba(26, 25, 23, .05);
+  --ui-shadow-sm: 0 2px 8px rgba(26, 25, 23, .06);
+  --ui-shadow: 0 4px 6px rgba(26, 25, 23, .04), 0 12px 28px rgba(26, 25, 23, .07);
+  --ui-shadow-lg: 0 18px 48px rgba(26, 25, 23, .16);
+
+  --ui-focus: var(--ui-accent-500);
+  --ui-focus-ring: 0 0 0 3px rgba(24, 95, 165, .30);
+  --ui-focus-ring-soft: 0 0 0 4px rgba(24, 95, 165, .12);
+
+  --ui-ease: cubic-bezier(.22, 1, .36, 1);
+  --ui-duration-fast: 120ms;
+  --ui-duration: 180ms;
+  --ui-duration-slow: 260ms;
+
+  --ui-topbar-h: 60px;
+  --ui-sidebar-w: 248px;
+
+  --ui-z-sticky: 20;
+  --ui-z-topbar: 40;
+  --ui-z-drawer: 60;
+  --ui-z-modal: 80;
+  --ui-z-toast: 100;
+}
+
+/*
+ * Defined, not shipped: no toggle sets data-theme. Every semantic token above
+ * is re-pointed here, so the day a toggle lands the answer is already written
+ * down -- and a semantic token someone forgets to add will be visible as a
+ * light value on a dark surface rather than as a colour nobody chose.
+ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ui-bg:            #17161a;
+  --ui-surface:       #1f1e23;
+  --ui-surface-sunk:  #191819;
+  --ui-surface-raised:#26252b;
+  --ui-surface-hover: #2b2a31;
+  --ui-border:        #38363e;
+  --ui-border-soft:   #2c2b31;
+  --ui-border-strong: #4a4852;
+  --ui-text:          #f3f2ef;
+  --ui-text-soft:     #c8c6c0;
+  --ui-text-muted:    #a09e98;
+  --ui-text-faint:    #837f79;
+  --ui-link:          var(--ui-accent-300);
+  --ui-success-weak:  #1d2a14;
+  --ui-success-edge:  #33491f;
+  --ui-danger-weak:   #2d1716;
+  --ui-danger-edge:   #4d2624;
+  --ui-warning-weak:  #2a1f0d;
+  --ui-warning-edge:  #47351a;
+  --ui-info-weak:     #14243a;
+  --ui-info-edge:     #24405f;
+  --ui-shadow-xs: 0 1px 2px rgba(0, 0, 0, .4);
+  --ui-shadow-sm: 0 2px 8px rgba(0, 0, 0, .45);
+  --ui-shadow: 0 4px 6px rgba(0, 0, 0, .35), 0 12px 28px rgba(0, 0, 0, .5);
+  --ui-shadow-lg: 0 18px 48px rgba(0, 0, 0, .6);
+}
+
+/* ---- Base. Kept to the few element rules a token sheet has to own; every
+   component rule stays in the sheet that owns that component. ---- */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--ui-font);
+  font-size: var(--ui-text-base);
+  line-height: var(--ui-leading);
+  color: var(--ui-text);
+  background: var(--ui-bg);
+}
+
+/* Form controls do not inherit the family on their own, and a select that
+   renders in the platform font beside an input that does not is the single
+   most visible way a dashboard looks unfinished. */
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* Figures line up in a column only if their digits share one advance width.
+   Applied to the elements that hold numbers rather than globally, because
+   tabular digits in running prose are worse, not better. */
+.tbl td,
+.tbl th,
+.num,
+.kpi-value,
+input[type="number"],
+input[type="date"],
+input[type="time"],
+time {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

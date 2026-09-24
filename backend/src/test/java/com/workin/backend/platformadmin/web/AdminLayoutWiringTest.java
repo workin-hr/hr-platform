@@ -119,47 +119,121 @@ class AdminLayoutWiringTest {
 	}
 
 	/**
-	 * Legacy's dashboard renders in the stack its {@code style.css} names on {@code body},
-	 * {@code 'Segoe UI', Tahoma, Arial}, and ships no web font. At the owner's choice the port
-	 * does the same (D-251). A face, a font file, an imported or linked font sheet, or a later
-	 * {@code font-family} would each undo that without any page's own test noticing, in any
-	 * letter case CSS accepts.
+	 * The dashboard renders in one self-hosted family and reaches no third party for it.
+	 *
+	 * <p>This replaces the rule that forbade a web font outright. That rule existed because
+	 * D-251 chose legacy's system stack over D-197's self-hosted IBM Plex Sans Arabic, for
+	 * parity; the owner has since reversed that for the admin dashboard (D-284), so the
+	 * question is no longer <em>whether</em> a face may exist but <em>which</em> one and
+	 * <em>from where</em>. What made the old rule worth having was never the absence of a
+	 * font -- it was that no page could quietly start fetching one from Google, or drift onto
+	 * a second family nobody chose. Both properties are kept, and one is now stronger: every
+	 * {@code url()} in any sheet must resolve to a file in this repository, which the old
+	 * rule never checked because it had no faces to check.
+	 *
+	 * <p>So, exactly: the twelve vendored {@code .woff2} files and nothing else; the faces in
+	 * {@code app-tokens.css} and nowhere else; no {@code @import} in any form or letter case;
+	 * no {@code fonts.googleapis.com} or {@code fonts.gstatic.com}; no absolute,
+	 * protocol-relative or {@code data:} {@code url()} in any sheet; the family named once,
+	 * as {@code --ui-font}, so every sheet reads a token and reversing this decision a third
+	 * time is one line; and the SIL OFL text shipped beside the binaries, which the licence
+	 * requires and which a clean-up commit could silently drop.
 	 */
 	@Test
-	void theDashboardShipsNoWebFontAndKeepsLegacysSystemStack() throws IOException {
-		String stack = "'Segoe UI', Tahoma, Arial, sans-serif";
-		// JTE's own `@import java...` directives are not CSS imports, so an import must name a URL or a
-		// string. CSS needs no space before either: `@import"x.css"` is an import.
-		Pattern webFont = Pattern.compile("(?i)@font-face|@import\\s*(url\\(|[\"'])|fonts\\.(googleapis|gstatic)\\.com");
-		Pattern family = Pattern.compile("(?i)font-family\\s*:\\s*([^;}]+)");
+	void theDashboardShipsOneSelfHostedFamilyAndReachesNoThirdParty() throws IOException {
+		String token = "var(--ui-font)";
+		// The one literal definition of the family, in the token sheet, in this order.
+		String family = "'IBM Plex Sans Arabic', 'Segoe UI', Tahoma, Arial, sans-serif";
+		List<String> vendored = List.of(
+			"fonts/ibm-plex-sans-arabic-400-arabic.woff2",
+			"fonts/ibm-plex-sans-arabic-400-latin.woff2",
+			"fonts/ibm-plex-sans-arabic-400-latin-ext.woff2",
+			"fonts/ibm-plex-sans-arabic-500-arabic.woff2",
+			"fonts/ibm-plex-sans-arabic-500-latin.woff2",
+			"fonts/ibm-plex-sans-arabic-500-latin-ext.woff2",
+			"fonts/ibm-plex-sans-arabic-600-arabic.woff2",
+			"fonts/ibm-plex-sans-arabic-600-latin.woff2",
+			"fonts/ibm-plex-sans-arabic-600-latin-ext.woff2",
+			"fonts/ibm-plex-sans-arabic-700-arabic.woff2",
+			"fonts/ibm-plex-sans-arabic-700-latin.woff2",
+			"fonts/ibm-plex-sans-arabic-700-latin-ext.woff2");
+
+		// JTE's own `@import java...` directives are not CSS imports, so an import must name a
+		// URL or a string. CSS needs no space before either: `@import"x.css"` is an import.
+		Pattern cssImport = Pattern.compile("(?i)@import\\s*(url\\(|[\"'])");
+		Pattern googleFonts = Pattern.compile("(?i)fonts\\.(googleapis|gstatic)\\.com");
+		Pattern face = Pattern.compile("(?i)@font-face");
+		Pattern url = Pattern.compile("(?i)url\\(\\s*[\"']?([^)\"']+)");
+		Pattern familyRule = Pattern.compile("(?i)font-family\\s*:\\s*([^;}]+)");
 		// The shorthand carries the family too: `font: 14px "Cairo", sans-serif`.
 		Pattern shorthand = Pattern.compile("(?i)(?:^|[;{\\s\"'])font\\s*:\\s*([^;}]+)");
-		Set<String> stackSheets = Set.of("style.css", "login.css");
-		// `inherit`, and the emoji stack on the one icon rule in app-content.css.
-		Set<String> otherFamilies = Set.of(
-				"inherit", "\"Apple Color Emoji\", \"Segoe UI Emoji\", \"Noto Color Emoji\", sans-serif");
+		// `inherit`, the token, and the emoji stack on the one icon rule in app-content.css.
+		Set<String> allowedFamilies = Set.of(
+				"inherit", token,
+				"\"Apple Color Emoji\", \"Segoe UI Emoji\", \"Noto Color Emoji\", sans-serif");
 		Set<String> offenders = new LinkedHashSet<>();
+		Set<String> fontFiles = new java.util.TreeSet<>();
+
 		try (var files = Files.walk(ASSETS)) {
 			for (Path file : files.filter(Files::isRegularFile).sorted().toList()) {
 				String name = ASSETS.relativize(file).toString();
 				String lower = name.toLowerCase(java.util.Locale.ROOT);
 				if (lower.matches(".*\\.(woff2?|ttf|otf|eot)")) {
-					offenders.add(name + " is a font file");
+					fontFiles.add(name);
+					if (!vendored.contains(name)) {
+						offenders.add(name + " is a font file nobody declared");
+					}
 				}
 				if (!lower.endsWith(".css")) {
 					continue;
 				}
 				String raw = Files.readString(file, StandardCharsets.UTF_8);
+				boolean isTokenSheet = "app-tokens.css".equals(name);
 				for (String css : List.of(raw, cssTokens(raw))) {
-					if (webFont.matcher(css).find()) {
-						offenders.add(name + " declares or imports a font");
+					if (cssImport.matcher(css).find()) {
+						offenders.add(name + " imports a stylesheet");
 					}
-					Matcher families = family.matcher(css);
+					if (googleFonts.matcher(css).find()) {
+						offenders.add(name + " names a Google font host");
+					}
+					if (!isTokenSheet && face.matcher(css).find()) {
+						offenders.add(name + " declares a face; app-tokens.css owns them");
+					}
+					Matcher urls = url.matcher(css);
+					while (urls.find()) {
+						String target = urls.group(1).trim();
+						// An absolute or protocol-relative URL is a third-party fetch, which is
+						// the property this test exists to keep. A data: URI is not -- it fetches
+						// nothing and reaches nobody, and hr-pages.css and login.css already carry
+						// inline `data:image/svg+xml` icons. The one data: shape that matters here
+						// is an embedded font binary, which would be a face the vendored list below
+						// never sees.
+						String targetLower = target.toLowerCase(java.util.Locale.ROOT);
+						if (target.matches("(?i)^(https?:)?//.*")) {
+							offenders.add(name + " fetches " + target + " from outside the repository");
+						}
+						else if (targetLower.startsWith("data:")
+								&& targetLower.matches("(?i)^data:(font/|application/(x-)?font).*")) {
+							offenders.add(name + " embeds a font binary as a data: URI");
+						}
+						else if (targetLower.matches(".*\\.(woff2?|ttf|otf|eot)")
+								&& !vendored.contains(target)) {
+							offenders.add(name + " points at an undeclared font file " + target);
+						}
+					}
+					Matcher families = familyRule.matcher(css);
 					while (families.find()) {
 						String value = families.group(1).trim();
-						if (!otherFamilies.contains(value) && !(stackSheets.contains(name) && value.equals(stack))) {
-							offenders.add(name + " sets font-family " + value);
+						if (allowedFamilies.contains(value)) {
+							continue;
 						}
+						// The token sheet is the one place the literal stack may appear: once in
+						// --ui-font, and once per face as that face's own family name.
+						if (isTokenSheet
+								&& (value.equals(family) || value.equals("'IBM Plex Sans Arabic'"))) {
+							continue;
+						}
+						offenders.add(name + " sets font-family " + value);
 					}
 					Matcher shorthands = shorthand.matcher(css);
 					while (shorthands.find()) {
@@ -171,6 +245,7 @@ class AdminLayoutWiringTest {
 				}
 			}
 		}
+
 		// Any quoting HTML accepts, because a `rel=stylesheet` without quotes loads just as well.
 		Pattern link = Pattern.compile("(?i)<link\\b[^>]*>");
 		Pattern styles = Pattern.compile("(?i)rel\\s*=\\s*[\"']?[^\"'>]*\\bstylesheet\\b");
@@ -179,8 +254,9 @@ class AdminLayoutWiringTest {
 			for (Path template : templates.filter(file -> file.toString().endsWith(".jte")).sorted().toList()) {
 				String body = Files.readString(template, StandardCharsets.UTF_8);
 				for (String inline : List.of(body, cssTokens(body))) {
-					if (webFont.matcher(inline).find() || family.matcher(inline).find()
-							|| shorthand.matcher(inline).find()) {
+					if (face.matcher(inline).find() || cssImport.matcher(inline).find()
+							|| googleFonts.matcher(inline).find()
+							|| familyRule.matcher(inline).find() || shorthand.matcher(inline).find()) {
 						offenders.add(fileName(template) + " carries a font of its own");
 					}
 				}
@@ -197,10 +273,31 @@ class AdminLayoutWiringTest {
 				}
 			}
 		}
-		assertThat(offenders).as("ways a web font or another body font would come back").isEmpty();
+
+		assertThat(offenders).as("ways a third-party or unnamed font would come back").isEmpty();
+		assertThat(fontFiles)
+				.as("the vendored family, exactly: a thirteenth file is an unreviewed binary, and a "
+						+ "missing one is a subset that silently falls back")
+				.containsExactlyInAnyOrderElementsOf(vendored);
+
+		String tokens = Files.readString(ASSETS.resolve("app-tokens.css"), StandardCharsets.UTF_8);
+		assertThat(tokens)
+				.as("the family is named once, so reversing this decision a third time is one line")
+				.contains("--ui-font: " + family + ";");
+		assertThat(tokens.split("--ui-font\\s*:", -1).length - 1)
+				.as("named once, not twice")
+				.isEqualTo(1);
 		assertThat(Files.readString(ASSETS.resolve("style.css"), StandardCharsets.UTF_8))
-				.as("the copied style.css still names legacy's stack on body")
-				.contains("font-family: " + stack + ";");
+				.as("body reads the token rather than naming a family of its own")
+				.contains("font-family: " + token + ";")
+				.doesNotContain("'Segoe UI', Tahoma, Arial, sans-serif");
+
+		assertThat(ASSETS.resolve("fonts/OFL.txt"))
+				.as("SIL OFL 1.1 requires the licence to ship with the binaries")
+				.exists();
+		assertThat(Files.readString(ASSETS.resolve("fonts/OFL.txt"), StandardCharsets.UTF_8))
+				.contains("SIL OPEN FONT LICENSE")
+				.contains("Reserved Font Name");
 	}
 
 	private static final Pattern CSS_COMMENT = Pattern.compile("(?s)/\\*.*?\\*/");

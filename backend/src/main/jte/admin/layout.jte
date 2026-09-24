@@ -33,6 +33,11 @@
 	<title>${title} — ${t.apply("app_name")}</title>
 	<link rel="icon" type="image/png" sizes="32x32" href="/admin/_assets/favicon-32.png">
 	<link rel="apple-touch-icon" sizes="180x180" href="/admin/_assets/apple-touch-icon.png">
+	<%-- The design system: tokens and the self-hosted family, first so every
+	     sheet after it can read them. style.css and app-ui.css declare their own
+	     legacy vocabularies as aliases of these, which is how 38 pages move
+	     without 18 sheets being rewritten. --%>
+	<link rel="stylesheet" href="/admin/_assets/app-tokens.css">
 	<link rel="stylesheet" href="/admin/_assets/style.css">
 	<link rel="stylesheet" href="/admin/_assets/app-ui.css">
 	<link rel="stylesheet" href="/admin/_assets/sidebar.css">
