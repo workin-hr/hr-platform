@@ -432,12 +432,47 @@ class AdminTenantGuardCoverageTest {
 				.containsExactly("employees");
 
 		assertThat(writtenTenantTables(
+				"-- resolve the row first. Then update it.\n"
+						+ "\t\tDELETE FROM employees WHERE id = ?",
+				tables, noEntities))
+				.as("ROUND 8: the qualifier must not reach across a period and swallow the verb "
+						+ "on the next line")
+				.containsExactly("employees");
+
+		assertThat(writtenTenantTables(
 				"/** The value the dynamic UPDATE binds. The keys were written back. */",
-				Set.of("The"), noEntities))
+				Set.of("binds"), noEntities))
 				.as("the price of the qualifier, stated rather than discovered: a sentence can "
-						+ "parse as a qualified write, which costs an exemption for a file that "
-						+ "writes nothing and never hides one that does")
-				.containsExactly("The");
+						+ "parse as a write, which costs an exemption for a file that writes "
+						+ "nothing -- and stops at the word before the period, so it cannot reach "
+						+ "the statement below")
+				.containsExactly("binds");
+	}
+
+	/**
+	 * No tenant-owned table is named like a statement modifier, because one would
+	 * be invisible.
+	 *
+	 * <p>{@link #STATEMENT_MODIFIERS} accepts the modifier family for all four
+	 * verbs, so {@code UPDATE delayed SET x = 1} reads {@code delayed} as a
+	 * modifier and captures {@code SET} as the table. A name that merely
+	 * <em>begins</em> with a modifier is fine -- {@code ignored_signals} is
+	 * asserted above -- but a name that <em>is</em> one cannot be told apart by any
+	 * regex, because in that statement SQL cannot tell them apart either.
+	 *
+	 * <p>So the bound is checked rather than described. No table in either schema
+	 * half is named that way today, and a schema that added one would fail here
+	 * instead of quietly leaving its writes unseen. Raised by the eighth review
+	 * round as the other half of a sentence claiming this widening could only ever
+	 * over-approximate.
+	 */
+	@Test
+	void noTenantOwnedTableIsNamedLikeAStatementModifier() {
+		assertThat(tenantOwnedTables())
+				.as("a table named exactly like a modifier is read as the modifier, and the word "
+						+ "after it is captured instead -- so the write reads as a write to nothing")
+				.doesNotContainAnyElementsOf(
+						Set.of("low_priority", "high_priority", "delayed", "quick", "ignore"));
 	}
 
 	/**
@@ -729,15 +764,24 @@ class AdminTenantGuardCoverageTest {
 	 *
 	 * <p>It widens what prose can match, because this scan reads whole files
 	 * rather than stripped ones: {@code "the dynamic UPDATE binds. The normalised
-	 * keys"} now parses as {@code UPDATE} of table {@code The}. That is inert
-	 * unless the captured word is itself a tenant-owned table name, and it errs by
-	 * demanding an exemption for a file that writes nothing -- never by hiding a
-	 * file that does. Stripping comments first would be the tighter fix and a
-	 * riskier one: a stripper that mistakes {@code //} inside a string literal for
-	 * a comment deletes real SQL, which fails in the direction this gate exists to
-	 * prevent.
+	 * keys"} parses as {@code UPDATE} of table {@code binds}. That costs an
+	 * exemption for a file that writes nothing, which is the safe direction.
+	 *
+	 * <p><b>The dot takes no whitespace, and that is the whole of why the above is
+	 * safe.</b> Written {@code \\s*\\.\\s*} it also matched a sentence's full stop,
+	 * and {@link Matcher#find()} resumes at the end of the previous match -- so a
+	 * {@code -- comment ending in a period.} directly above a statement swallowed
+	 * that statement's <em>verb</em> as the table name, and the write below it
+	 * became invisible. That is the one direction this scan must never fail in, and
+	 * it was introduced by the commit that added this prefix and caught by the
+	 * eighth review round. A real qualified name never spaces its dot; a spaced one
+	 * is now unrecognised, which costs at most an exemption.
+	 *
+	 * <p>Stripping comments first would be the tighter fix and a riskier one: a
+	 * stripper that mistakes {@code //} inside a string literal for a comment
+	 * deletes real SQL, which fails in the same direction.
 	 */
-	private static final String SCHEMA_PREFIX = "(?:`?\\w+`?\\s*\\.\\s*)?";
+	private static final String SCHEMA_PREFIX = "(?:`?\\w+`?\\.)?";
 
 	/**
 	 * Every write verb this repository actually uses, which is more than the
