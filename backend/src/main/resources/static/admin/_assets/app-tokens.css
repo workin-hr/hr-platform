@@ -217,10 +217,22 @@
   --ui-border:        var(--ui-neutral-4);
   --ui-border-soft:   var(--ui-neutral-3);
   --ui-border-strong: var(--ui-neutral-5);
+  /* Where these four point is decided by contrast, not by taste. Every one of
+     them carries real text -- timestamps, list metadata, input placeholders --
+     so each has to clear 4.5:1 against the darkest surface it can sit on,
+     which is --ui-surface-sunk. Step 7 does not: it measures 3.39:1 there, so
+     the lightest a text step can be is 8, and the four of them are 8, 9, 10
+     and 12 rather than 7, 8, 9 and 12. Darkening step 7 instead, to make it
+     clear, collapsed it onto step 8: 1.2 L* apart in light and 4.0 in dark,
+     one value with two names, which is the disease this sheet exists to cure.
+     Step 7 stays in the ramp as what it always was, a decorative grey
+     (home.css's avatar), and theFourTextStepsAreFourDistinctGreys holds the
+     four text steps apart.
+     everyTextTokenIsReadableOnEverySurface holds all four. */
   --ui-text:          var(--ui-neutral-12);
-  --ui-text-soft:     var(--ui-neutral-9);
-  --ui-text-muted:    var(--ui-neutral-8);
-  --ui-text-faint:    var(--ui-neutral-7);
+  --ui-text-soft:     var(--ui-neutral-10);
+  --ui-text-muted:    var(--ui-neutral-9);
+  --ui-text-faint:    var(--ui-neutral-8);
   --ui-text-on-accent:#ffffff;
   --ui-link:          var(--ui-accent-600);
 
@@ -308,8 +320,8 @@
   --ui-border-strong: #4a4852;
   --ui-text:          #f3f2ef;
   --ui-text-soft:     #c8c6c0;
-  --ui-text-muted:    #a09e98;
-  --ui-text-faint:    #837f79;
+  --ui-text-muted:    #b0aba4;
+  --ui-text-faint:    #98938c;
   --ui-link:          var(--ui-accent-300);
   --ui-success-weak:  #1d2a14;
   --ui-success-edge:  #33491f;

@@ -98,7 +98,7 @@
 }
 
 .salary-net-box {
-  background: linear-gradient(135deg, var(--ui-info-weak) 0%, var(--ui-info-weak) 100%);
+  background: var(--ui-info-weak);
   border-radius: 10px;
   padding: 20px;
   text-align: center;

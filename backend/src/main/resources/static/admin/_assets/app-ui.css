@@ -120,12 +120,16 @@ body:not(.login-body) {
   transition: transform .2s, box-shadow .2s, background .2s, opacity .2s;
 }
 
-.btn:hover {
-  opacity: 1;
-}
+/* Left deliberately without an opacity reset: style.css no longer fades a
+   button on hover, it darkens the surface, so there is nothing to undo. */
 
+/* Flat, not a gradient. Two of the four here were a solid colour written as a
+   gradient from itself to itself, and the two that really did shade switched to
+   flat under the pointer, because style.css's hover sets background-color and a
+   class-plus-pseudo-class beats a class. A gradient also makes the computed
+   background-color transparent, which is what any contrast tooling reads. */
 .btn-blue {
-  background: linear-gradient(135deg, var(--ui-accent-500) 0%, var(--ui-accent-500) 100%);
+  background: var(--ui-accent-500);
   box-shadow: 0 3px 12px rgba(24, 95, 165, .3);
 }
 .btn-blue:hover {
@@ -137,7 +141,7 @@ body:not(.login-body) {
 }
 
 .btn-green {
-  background: linear-gradient(135deg, var(--ui-success-strong) 0%, var(--ui-success) 100%);
+  background: var(--ui-success);
   box-shadow: 0 3px 10px rgba(74, 124, 28, .25);
 }
 .btn-green:hover {
@@ -145,7 +149,7 @@ body:not(.login-body) {
 }
 
 .btn-red {
-  background: linear-gradient(135deg, var(--ui-danger-strong) 0%, var(--ui-danger) 100%);
+  background: var(--ui-danger);
   box-shadow: 0 3px 10px rgba(163, 45, 45, .25);
 }
 .btn-red:hover {
@@ -153,7 +157,7 @@ body:not(.login-body) {
 }
 
 .btn-yellow {
-  background: linear-gradient(135deg, var(--ui-warning) 0%, var(--ui-warning) 100%);
+  background: var(--ui-warning);
 }
 .btn-yellow:hover {
   transform: translateY(-1px);
@@ -165,11 +169,11 @@ body:not(.login-body) {
 
 .btn-outline {
   background: var(--ui-surface);
-  border: 1.5px solid var(--blue);
-  color: var(--blue);
+  border: 1.5px solid var(--ui-accent-200);
+  color: var(--ui-accent-600);
 }
 .btn-outline:hover {
-  background: var(--blue-lt);
+  background: var(--ui-accent-50);
   transform: translateY(-1px);
 }
 
@@ -522,7 +526,7 @@ a.pager-btn:hover {
 }
 
 .pager-btn.is-current {
-  background: linear-gradient(135deg, var(--ui-accent-500) 0%, var(--ui-accent-500) 100%);
+  background: var(--ui-accent-500);
   border-color: var(--ui-accent-500);
   color: var(--ui-surface);
   font-weight: 700;

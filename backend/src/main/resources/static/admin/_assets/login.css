@@ -5,7 +5,6 @@
 :root {
   --login-blue-deep: var(--ui-accent-800);
   --login-blue: var(--ui-accent-500);
-  --login-blue-bright: var(--ui-accent-500);
   --login-panel-bg: var(--ui-border-soft);
   --login-card-radius: 24px;
 }
@@ -583,7 +582,7 @@ html[dir="rtl"] .login-dial-select {
   padding: 14px 20px;
   border: none;
   border-radius: 12px;
-  background: linear-gradient(135deg, var(--login-blue) 0%, var(--login-blue-bright) 100%);
+  background: var(--login-blue);
   color: var(--ui-surface);
   font-size: 15px;
   font-weight: 600;

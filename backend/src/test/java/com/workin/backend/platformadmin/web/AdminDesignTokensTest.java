@@ -29,8 +29,9 @@ import org.junit.jupiter.api.Test;
  * of that was anybody's decision; it accumulated, because nothing said it could
  * not. That is what this class says.
  *
- * <p>It is four rules, and each exists because the conversion actually tripped
- * over it:
+ * <p>It is seven rules, and each exists because the conversion actually tripped
+ * over it -- the last three because a rendered page measured something a
+ * reviewed palette had agreed with:
  *
  * <ol>
  * <li><b>No literal outside the token sheet.</b> The obvious one, and the only
@@ -47,6 +48,16 @@ import org.junit.jupiter.api.Test;
  * palette without shipping a toggle is what keeps it honest. That sentence is
  * only true if something checks it, or the first token added after this will be
  * the one that breaks the day a toggle lands.</li>
+ * <li><b>Every text token is readable on every surface</b> -- 4.5:1, both
+ * themes, all sixteen pairs. {@code --ui-text-faint} was 3.39:1 on
+ * {@code --ui-surface-sunk} and carrying placeholders, and it had been through a
+ * palette review.</li>
+ * <li><b>The four text steps are four distinct greys.</b> Rule five's fix was to
+ * darken the faint step until it cleared 4.5:1, which landed it 1.2 L* from the
+ * muted step: readable, and the same grey twice. Readable is not sufficient.</li>
+ * <li><b>Every gradient gradates.</b> Five places painted a flat colour as a
+ * gradient from itself to itself, one of them behind two token names that
+ * resolved to the same value.</li>
  * </ol>
  */
 class AdminDesignTokensTest {
@@ -278,6 +289,234 @@ class AdminDesignTokensTest {
 			Map.entry("--ui-nav-danger", "the navigation is dark in either theme"),
 			Map.entry("--ui-hero-bg", "a dark brand surface, dark in either theme"));
 
+	/**
+	 * Every token that carries text clears WCAG AA against every surface it can
+	 * sit on.
+	 *
+	 * <p>A palette is reviewed by eye and drifts by eye. This one shipped
+	 * {@code --ui-text-faint} at {@code #86827a}, which is <b>3.39:1</b> on
+	 * {@code --ui-neutral-2} -- below the 4.5 a 12px label needs, and carrying real
+	 * content: activity timestamps, list metadata, input placeholders. Nobody saw
+	 * it; a rendered page measured it. This is that measurement, moved to where it
+	 * cannot be skipped.
+	 *
+	 * <p>4.5:1 for every pair, not 3:1: these tokens are used at 12 and 13 pixels,
+	 * which is never "large text" under the rule, and a token cannot know the size
+	 * of the thing that will read it.
+	 *
+	 * <p>The dark block is checked the same way against its own surfaces, because a
+	 * dark theme nobody has looked at is exactly where an unreadable pair survives.
+	 */
+	@Test
+	void everyTextTokenIsReadableOnEverySurface() throws IOException {
+		String sheet = Files.readString(ASSETS.resolve(TOKEN_SHEET), StandardCharsets.UTF_8);
+		Matcher darkRule = Pattern.compile(":root\\[data-theme=\"dark\"\\]\\s*\\{").matcher(sheet);
+		assertThat(darkRule.find()).as("the dark block exists").isTrue();
+
+		List<String> tooClose = new ArrayList<>();
+		int pairs = 0;
+		for (String theme : List.of("light", "dark")) {
+			Map<String, String> resolved = resolve(sheet, theme.equals("dark") ? darkRule.start() : -1);
+			for (String text : TEXT_TOKENS) {
+				for (String surface : SURFACE_TOKENS) {
+					String fg = resolved.get(text);
+					String bg = resolved.get(surface);
+					if (fg == null || bg == null) {
+						continue;
+					}
+					pairs++;
+					double contrast = contrast(fg, bg);
+					if (contrast < 4.5) {
+						tooClose.add(String.format(
+								"%s: %s (%s) on %s (%s) is %.2f:1, needs 4.5",
+								theme, text, fg, surface, bg, contrast));
+					}
+				}
+			}
+		}
+		assertThat(pairs)
+				.as("both themes, every text token against every surface; a rename would "
+						+ "otherwise make this pass by comparing nothing")
+				.isEqualTo(TEXT_TOKENS.size() * SURFACE_TOKENS.size() * 2);
+		assertThat(tooClose).isEmpty();
+	}
+
+	/**
+	 * Four names for text have to be four visibly different greys.
+	 *
+	 * <p>This rule exists because the contrast rule above is not it, and I found
+	 * that out the slow way. Pushing {@code --ui-text-faint} down until it cleared
+	 * 4.5:1 landed it on {@code #6f6b62}, one step above {@code --ui-text-muted}'s
+	 * {@code #6b6862} -- <b>1.2 L* apart, the same grey twice</b>. Every contrast
+	 * assertion passed, because both were readable; what was gone was the reason
+	 * to have two tokens. A vocabulary with two words for one value is the disease
+	 * this class exists to cure, so readable is not sufficient.
+	 *
+	 * <p>The separation is measured in L*, not in hex distance: hex distance is
+	 * not perceptual, and at the dark end of a ramp a large hex step is a small
+	 * visible one. Six is below the ramp's own spacing (the four steps sit 8.7,
+	 * 9.6 and 17.0 apart in light, 9.0, 9.7 and 15.6 in dark) and well above the
+	 * collision it is here to catch.
+	 */
+	@Test
+	void theFourTextStepsAreFourDistinctGreys() throws IOException {
+		String sheet = Files.readString(ASSETS.resolve(TOKEN_SHEET), StandardCharsets.UTF_8);
+		Matcher darkRule = Pattern.compile(":root\\[data-theme=\"dark\"\\]\\s*\\{").matcher(sheet);
+		assertThat(darkRule.find()).as("the dark block exists").isTrue();
+
+		List<String> collisions = new ArrayList<>();
+		int comparisons = 0;
+		for (String theme : List.of("light", "dark")) {
+			Map<String, String> resolved = resolve(sheet, theme.equals("dark") ? darkRule.start() : -1);
+			for (int step = 1; step < TEXT_TOKENS.size(); step++) {
+				String lighter = TEXT_TOKENS.get(step);
+				String darker = TEXT_TOKENS.get(step - 1);
+				double gap = Math.abs(lightness(resolved.get(lighter)) - lightness(resolved.get(darker)));
+				comparisons++;
+				if (gap < 6.0) {
+					collisions.add(String.format(
+							"%s: %s (%s) and %s (%s) are %.1f L* apart, needs 6",
+							theme, darker, resolved.get(darker), lighter, resolved.get(lighter), gap));
+				}
+			}
+		}
+		assertThat(comparisons)
+				.as("every consecutive pair in both themes; a rename would otherwise "
+						+ "make this pass by comparing nothing")
+				.isEqualTo((TEXT_TOKENS.size() - 1) * 2);
+		assertThat(collisions).isEmpty();
+	}
+
+	/**
+	 * A gradient has to gradate.
+	 *
+	 * <p>Five places across three sheets painted a flat colour as {@code
+	 * linear-gradient(135deg, X 0%, X 100%)}: two buttons and the current pager
+	 * step in {@code app-ui.css}, the net-pay box in {@code salary-calculator.css},
+	 * and the submit button in {@code login.css}. The last one names two different
+	 * tokens -- {@code --login-blue} and {@code --login-blue-bright} -- which both
+	 * resolved to {@code --ui-accent-500}, and that form is why this is a rule and
+	 * not a grep: it reads as a gradient right up until you resolve it. The first
+	 * draft of this rule could not see it either, because the resolver it borrowed
+	 * followed only {@code --ui-} tokens and skipped any stop it could not reach.
+	 *
+	 * <p>It is not only cosmetic. A gradient background makes the element's
+	 * computed {@code background-color} {@code transparent}, so a flat hover on the
+	 * same element wins and the button switches from shaded to flat under the
+	 * pointer, and any contrast tooling reads the transparency rather than the
+	 * colour a reader sees.
+	 *
+	 * <p>Stops that are transparent or otherwise not a resolvable opaque colour are
+	 * counted and named rather than judged -- a fade to {@code transparent} is a
+	 * real gradient -- and the count is asserted so this cannot quietly become a
+	 * rule about nothing.
+	 */
+	@Test
+	void everyGradientActuallyGradates() throws IOException {
+		Map<String, String> tokens = allTokenDefinitions();
+		List<String> flat = new ArrayList<>();
+		List<String> skipped = new ArrayList<>();
+		int measured = 0;
+		for (Path sheet : sheets()) {
+			String css = Files.readString(sheet, StandardCharsets.UTF_8);
+			for (String gradient : gradientsIn(css)) {
+				List<Double> steps = new ArrayList<>();
+				boolean resolvable = true;
+				for (String stop : colourStops(gradient)) {
+					double value = lightness(follow(stop, tokens, 0));
+					if (value < 0) {
+						resolvable = false;
+						break;
+					}
+					steps.add(value);
+				}
+				if (!resolvable || steps.size() < 2) {
+					skipped.add(sheet.getFileName() + ": " + gradient);
+					continue;
+				}
+				measured++;
+				double spread = steps.stream().mapToDouble(Double::doubleValue).max().orElseThrow()
+						- steps.stream().mapToDouble(Double::doubleValue).min().orElseThrow();
+				if (spread < 3.0) {
+					flat.add(String.format("%s: %.1f L* of spread in %s",
+							sheet.getFileName(), spread, gradient));
+				}
+			}
+		}
+		assertThat(flat).isEmpty();
+		assertThat(measured)
+				.as("gradients whose every stop resolves to an opaque colour -- pinned "
+						+ "exactly, because a rule that silently measures nothing is the "
+						+ "failure mode here, and because moving one out of reach of the "
+						+ "resolver is how a flat gradient would come back")
+				.isEqualTo(6);
+		assertThat(skipped)
+				.as("skipped, because a stop is transparent or the resolver cannot reach "
+						+ "it at build time (a var() fallback, a runtime override)")
+				.hasSize(10);
+	}
+
+	/** The tokens that paint text a reader has to read. */
+	private static final List<String> TEXT_TOKENS =
+			List.of("--ui-text", "--ui-text-soft", "--ui-text-muted", "--ui-text-faint");
+
+	/** The surfaces that text sits on. */
+	private static final List<String> SURFACE_TOKENS =
+			List.of("--ui-surface", "--ui-bg", "--ui-surface-sunk", "--ui-surface-hover");
+
+	/**
+	 * Token to literal colour for one theme, following {@code var()} references.
+	 *
+	 * <p>The dark block redefines only what changes, so it is read as an overlay on
+	 * the light one -- which is how the browser resolves it.
+	 */
+	private static Map<String, String> resolve(String sheet, int darkFrom) {
+		Map<String, String> values = new java.util.LinkedHashMap<>();
+		Matcher definition = Pattern.compile("(?m)^\\s*(--ui-[\\w-]+)\\s*:\\s*([^;]+);").matcher(sheet);
+		while (definition.find()) {
+			if (darkFrom >= 0 || definition.start() < indexOfDark(sheet)) {
+				values.put(definition.group(1), definition.group(2).trim());
+			}
+		}
+		Map<String, String> flat = new java.util.LinkedHashMap<>();
+		values.forEach((token, value) -> flat.put(token, follow(value, values, 0)));
+		return flat;
+	}
+
+	private static int indexOfDark(String sheet) {
+		Matcher darkRule = Pattern.compile(":root\\[data-theme=\"dark\"\\]\\s*\\{").matcher(sheet);
+		return darkRule.find() ? darkRule.start() : sheet.length();
+	}
+
+	private static String follow(String value, Map<String, String> values, int depth) {
+		Matcher reference = Pattern.compile("var\\(\\s*(--[\\w-]+)\\s*\\)").matcher(value);
+		if (depth > 6 || !reference.find()) {
+			return value;
+		}
+		String target = values.get(reference.group(1));
+		return target == null ? value : follow(target, values, depth + 1);
+	}
+
+	private static double contrast(String first, String second) {
+		double a = luminance(first);
+		double b = luminance(second);
+		return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+	}
+
+	private static double luminance(String colour) {
+		Matcher hex = Pattern.compile("#([0-9a-fA-F]{6})").matcher(colour);
+		if (!hex.find()) {
+			return -1;
+		}
+		String value = hex.group(1);
+		double[] channel = new double[3];
+		for (int index = 0; index < 3; index++) {
+			double raw = Integer.parseInt(value.substring(index * 2, index * 2 + 2), 16) / 255.0;
+			channel[index] = raw <= 0.03928 ? raw / 12.92 : Math.pow((raw + 0.055) / 1.055, 2.4);
+		}
+		return 0.2126 * channel[0] + 0.7152 * channel[1] + 0.0722 * channel[2];
+	}
+
 	private static Map<String, String> valuesIn(String block) {
 		Map<String, String> values = new java.util.LinkedHashMap<>();
 		Matcher definition = Pattern.compile("(?m)^\\s*(--ui-[\\w-]+)\\s*:\\s*([^;]+);").matcher(block);
@@ -300,6 +539,83 @@ class AdminDesignTokensTest {
 		try (var files = Files.list(ASSETS)) {
 			return files.filter(path -> path.toString().endsWith(".css")).sorted().toList();
 		}
+	}
+
+	/**
+	 * CIE L* for a colour, or a negative number when it is not a resolvable opaque
+	 * hex.
+	 *
+	 * <p>Perceptual lightness, not luminance: luminance at the dark end of a ramp
+	 * compresses, so two steps that are plainly different to the eye differ by
+	 * almost nothing in it, and two that look identical can differ by a lot.
+	 */
+	private static double lightness(String colour) {
+		double relative = colour == null ? -1 : luminance(colour);
+		if (relative < 0) {
+			return -1;
+		}
+		return relative > 0.008856 ? 116 * Math.cbrt(relative) - 16 : 903.3 * relative;
+	}
+
+	/** Every custom property any sheet defines, light theme, for resolving a stop. */
+	private static Map<String, String> allTokenDefinitions() throws IOException {
+		Map<String, String> tokens = new java.util.LinkedHashMap<>();
+		for (Path sheet : sheets()) {
+			String css = Files.readString(sheet, StandardCharsets.UTF_8);
+			String light = css.substring(0, indexOfDark(css));
+			Matcher definition = Pattern.compile("(?m)^\\s*(--[\\w-]+)\\s*:\\s*([^;]+);").matcher(light);
+			while (definition.find()) {
+				tokens.putIfAbsent(definition.group(1), definition.group(2).trim());
+			}
+		}
+		return tokens;
+	}
+
+	/** The text inside each {@code *-gradient(...)}, parenthesis-balanced. */
+	private static List<String> gradientsIn(String css) {
+		List<String> gradients = new ArrayList<>();
+		Matcher opener = Pattern.compile("(linear|radial|conic)-gradient\\(").matcher(css);
+		while (opener.find()) {
+			int depth = 1;
+			int at = opener.end();
+			while (at < css.length() && depth > 0) {
+				char character = css.charAt(at);
+				depth += character == '(' ? 1 : character == ')' ? -1 : 0;
+				at++;
+			}
+			gradients.add(css.substring(opener.start(), Math.min(at, css.length())));
+		}
+		return gradients;
+	}
+
+	/**
+	 * The colour of each stop, in order.
+	 *
+	 * <p>Arguments are split on commas that are not inside parentheses -- a stop can
+	 * be {@code rgba(0, 0, 0, .3)} or {@code var(--x, var(--y))}, both of which
+	 * carry their own -- and an argument holding no colour at all is the direction
+	 * or shape ({@code 135deg}, {@code to right},
+	 * {@code ellipse 90% 70% at 85% 15%}), so it is dropped rather than parsed.
+	 */
+	private static List<String> colourStops(String gradient) {
+		String inside = gradient.substring(gradient.indexOf('(') + 1,
+				gradient.endsWith(")") ? gradient.length() - 1 : gradient.length());
+		List<String> stops = new ArrayList<>();
+		int depth = 0;
+		int from = 0;
+		for (int at = 0; at <= inside.length(); at++) {
+			char character = at == inside.length() ? ',' : inside.charAt(at);
+			depth += character == '(' ? 1 : character == ')' ? -1 : 0;
+			if (character == ',' && depth == 0) {
+				String argument = inside.substring(from, at).trim();
+				if (Pattern.compile("var\\(|#[0-9a-fA-F]{3,8}|rgba?\\(|hsla?\\(|transparent|currentColor")
+						.matcher(argument).find()) {
+					stops.add(argument);
+				}
+				from = at + 1;
+			}
+		}
+		return stops;
 	}
 
 }
