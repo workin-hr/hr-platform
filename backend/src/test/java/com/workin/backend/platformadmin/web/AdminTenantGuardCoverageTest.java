@@ -66,6 +66,13 @@ import org.junit.jupiter.api.Test;
  * this rule, which means the gate could be laundered by mentioning the thing it
  * asks for.
  *
+ * <p><b>Used is as far as this rule goes.</b> It does not check that the company
+ * the guard resolved is the one the write touches: a {@code session.companyId()}
+ * passed to an audit call counts as used, because this class reads text and not
+ * data flow. {@link #used} is where that approximation lives and says so; it is
+ * named here as well, because a limit stated only beside the helper is a limit
+ * the reader of the rule does not have.
+ *
  * <h2>Rule two</h2>
  *
  * Rule one is opt-in by signature, so on its own a write could evade it by not
@@ -811,10 +818,30 @@ class AdminTenantGuardCoverageTest {
 	 * while rule three still counted its file as scanned. Six methods in two of the
 	 * twenty-one paired stores already carry one.
 	 */
-	private static final String THROWS = "(?:\\s*throws[\\w.,\\s]+?)?";
+	private static final String THROWS = "(?:\\s*throws[\\w.,@\\s]+?)?";
+
+	/**
+	 * Annotations between the modifier and the return type.
+	 *
+	 * <p>The sixteenth round's second finding, and the same shape as {@link #THROWS}
+	 * one position to the left: both patterns spelled the return type
+	 * {@code [\w.<>,?\[\]\s]+?}, which has no {@code @}, so
+	 * {@code public @Nullable Boolean purge(DashboardSession, long)} matched neither
+	 * and rule one never asked it for a guard. It passed all thirty-nine tests; the
+	 * identical method without the annotation failed. The shape is live house style
+	 * in this very package -- {@code AdminAssetCaching:58} declares
+	 * {@code private @Nullable String etag(Resource)}.
+	 *
+	 * <p>A store is protected positionally when a method goes invisible: the write
+	 * then sits in no span and the positional check fires. <b>A service has no such
+	 * backstop</b>, so any head-side gap in {@link #PUBLIC_METHOD} is a straight rule
+	 * one bypass, which is why the sweep below had to be loosened at the head too.
+	 */
+	private static final String TYPE_ANNOTATIONS = "(?:@\\w+(?:\\([^)]*\\))?\\s+)*";
 
 	private static final Pattern PUBLIC_METHOD = Pattern.compile(
-			"public\\s+[\\w.<>,?\\[\\]\\s]+?\\s(\\w+)\\s*\\(([^)]*)\\)" + THROWS + "\\s*\\{",
+			"public\\s+" + TYPE_ANNOTATIONS + "[\\w.<>,?\\[\\]\\s]+?\\s(\\w+)\\s*\\(([^)]*)\\)"
+					+ THROWS + "\\s*\\{",
 			Pattern.DOTALL);
 
 	/**
@@ -827,8 +854,8 @@ class AdminTenantGuardCoverageTest {
 	 * checked -- which is why one character was the whole fix.
 	 */
 	private static final Pattern ANY_METHOD = Pattern.compile(
-			"(?:public|private|protected|static)\\s+[\\w.<>,?\\[\\]\\s]+?\\s(\\w+)\\s*\\(([^)]*)\\)"
-					+ THROWS + "\\s*\\{",
+			"(?:public|private|protected|static)\\s+" + TYPE_ANNOTATIONS
+					+ "[\\w.<>,?\\[\\]\\s]+?\\s(\\w+)\\s*\\(([^)]*)\\)" + THROWS + "\\s*\\{",
 			Pattern.DOTALL);
 
 	private static final Pattern CREATE_TABLE = Pattern.compile(
@@ -1848,6 +1875,31 @@ class AdminTenantGuardCoverageTest {
 				.as("`this.` is the same call written the other way, and this repository writes "
 						+ "it both ways")
 				.isEmpty();
+
+		// OWN_CALL's lookbehind inspects the ONE character before the name, so a
+		// space -- or a dot left at the end of a line -- puts a qualifier out of its
+		// reach and walks straight back into this defect. No instance exists today
+		// and no formatter gate keeps it that way, so the walk normalises the
+		// spacing first and this is what says so.
+		String spacedQualifier = """
+				class Service {
+					public long purge(DashboardSession session, long id) {
+						this.store . delete(id);
+						return id;
+					}
+
+					public long delete(DashboardSession session, long id) {
+						if (id != session.companyId()) {
+							throw new IllegalStateException("other company");
+						}
+						return this.store.delete(id);
+					}
+				}
+				""";
+		assertThat(scan(spacedQualifier).unguarded())
+				.as("a space around the qualifier's dot is the same call on the same object, "
+						+ "and must not make the store's write readable as the service's guard")
+				.contains("purge");
 	}
 
 	/**
@@ -1883,30 +1935,39 @@ class AdminTenantGuardCoverageTest {
 				.as("and it is still asked for a guard")
 				.contains("purge");
 
-		Pattern loose = Pattern.compile(
-				"(?:public|private|protected|static)\\s+[\\w.<>,?\\[\\]\\s]+?\\s(\\w+)\\s*\\(([^)]*)\\)"
-						+ "[^;{)]*\\{",
-				Pattern.DOTALL);
-		List<Path> scanned = new ArrayList<>(adminServices());
-		scanned.addAll(pairedStores());
 		List<String> invisible = new ArrayList<>();
-		for (Path file : scanned) {
-			String source = maskNonCode(read(file)).code();
-			Set<String> seen = new java.util.HashSet<>();
-			Matcher strict = ANY_METHOD.matcher(source);
-			while (strict.find()) {
-				seen.add(strict.group(1) + "@" + strict.start());
-			}
-			Matcher wide = loose.matcher(source);
-			while (wide.find()) {
-				if (!seen.contains(wide.group(1) + "@" + wide.start())) {
-					invisible.add(file.getFileName() + ": " + wide.group(1));
-				}
+		for (Path file : scannedByBothRules()) {
+			for (String name : declarationsTheRealPatternMisses(read(file))) {
+				invisible.add(file.getFileName() + ": " + name);
 			}
 		}
 		assertThat(invisible)
 				.as("a declaration the real pattern cannot see is a method no rule applies to, "
 						+ "and rule three still counts its file as scanned")
+				.isEmpty();
+
+		// The live half has no subject -- every declaration in the 43 files is one
+		// ANY_METHOD sees -- so the sweep is itself a property with no instance,
+		// which this class has learned is the kind that needs a fixture. In
+		// `String @Nullable []` the annotation sits INSIDE the type, where
+		// TYPE_ANNOTATIONS does not reach, so ANY_METHOD cannot see the method.
+		assertThat(declarationsTheRealPatternMisses("""
+				class Store {
+					public String @Nullable [] names() {
+						return null;
+					}
+				}"""))
+				.as("a shape the real pattern cannot see must be one the sweep reports, or the "
+						+ "sweep is loose in no direction that matters")
+				.containsExactly("names");
+		assertThat(declarationsTheRealPatternMisses("""
+				class Store {
+					public String[] names() {
+						return null;
+					}
+				}"""))
+				.as("the control: the same declaration without the type annotation is visible, "
+						+ "so the sweep reports nothing")
 				.isEmpty();
 	}
 
@@ -2198,6 +2259,54 @@ class AdminTenantGuardCoverageTest {
 				.doesNotContain("guide_videos", "faq_items", "banners", "phone_countries");
 	}
 
+	/** The 43 files rules one and two open. */
+	private static List<Path> scannedByBothRules() {
+		List<Path> scanned = new ArrayList<>(adminServices());
+		scanned.addAll(pairedStores());
+		return scanned;
+	}
+
+	/**
+	 * Declarations a deliberately looser pattern finds and {@link #ANY_METHOD} does
+	 * not.
+	 *
+	 * <p>Loose at <b>both</b> ends. It was loosened only in the tail until the
+	 * sixteenth round, so it shared the real pattern's entire head and was blind to
+	 * exactly the head-side gap that round found -- a sweep that cannot discriminate
+	 * in the direction it claims to is the vacuous pass this class keeps finding.
+	 *
+	 * <p>A constructor is excluded by name: it is not a narrowing of
+	 * {@code ANY_METHOD} but a construct {@code ANY_METHOD} deliberately does not
+	 * match, since it requires a return type and a constructor has none, and the
+	 * name is the only thing that separates the two.
+	 */
+	private static List<String> declarationsTheRealPatternMisses(String rawSource) {
+		String source = maskNonCode(rawSource).code();
+		Pattern loose = Pattern.compile(
+				"(?:public|private|protected|static)[^;{)=]*?\\s(\\w+)\\s*\\(([^)]*)\\)[^;{)]*\\{",
+				Pattern.DOTALL);
+		Set<String> types = new java.util.HashSet<>();
+		Matcher typeName = Pattern.compile("\\b(?:class|interface|enum|record)\\s+(\\w+)")
+				.matcher(source);
+		while (typeName.find()) {
+			types.add(typeName.group(1));
+		}
+		Set<String> seen = new java.util.HashSet<>();
+		Matcher strict = ANY_METHOD.matcher(source);
+		while (strict.find()) {
+			seen.add(strict.group(1) + "@" + strict.start());
+		}
+		List<String> missed = new ArrayList<>();
+		Matcher wide = loose.matcher(source);
+		while (wide.find()) {
+			if (!types.contains(wide.group(1))
+					&& !seen.contains(wide.group(1) + "@" + wide.start())) {
+				missed.add(wide.group(1));
+			}
+		}
+		return missed;
+	}
+
 	/** What one service source yields: how many methods were in scope, and which failed. */
 	private record Scan(int sessionTaking, List<String> unguarded) {
 	}
@@ -2250,6 +2359,116 @@ class AdminTenantGuardCoverageTest {
 					}
 				}""";
 		assertThat(scan(source).unguarded()).containsExactly("delete");
+
+		// The form this repository actually writes. `canOpenRow`'s third argument is
+		// a resolved company at every live call site -- `row.companyId()`,
+		// `store.companyOf(id)` -- so an argument matcher that cannot span a call
+		// recognises the discard only in the shape nobody uses. This passed until
+		// the sixteenth round.
+		String nestedArgument = """
+				class Example {
+					public long delete(DashboardSession session, DashboardListFilters filters, long id) {
+						DashboardOrgScope.canOpenRow(session, filters, this.store.companyOf(id));
+						this.store.delete(id);
+						return 1L;
+					}
+				}""";
+		assertThat(scan(nestedArgument).unguarded())
+				.as("the boolean is thrown away, so nothing is enforced, however the third "
+						+ "argument is spelled")
+				.containsExactly("delete");
+
+		String answered = """
+				class Example {
+					public long delete(DashboardSession session, DashboardListFilters filters, long id) {
+						if (!DashboardOrgScope.canOpenRow(session, filters, this.store.companyOf(id))) {
+							throw new IllegalStateException("other company");
+						}
+						this.store.delete(id);
+						return 1L;
+					}
+				}""";
+		assertThat(scan(answered).unguarded())
+				.as("the control: the same call, its answer acted on")
+				.isEmpty();
+	}
+
+	/**
+	 * Rule two's wanted set spans every store a service reaches.
+	 *
+	 * <p>The set was built from {@code <X>Store.java} alone until the sixteenth
+	 * round -- a rule about a filename rather than about the code. A service writing
+	 * through any other store reached no name in it, so rule two never asked for a
+	 * session, rule one skipped the method because it takes none, and rule three
+	 * counted the file as scanned. Reproduced on the shipped tree: a sessionless
+	 * {@code purgeRun(long)} calling
+	 * {@code this.batchStore.deleteWithPayslips(batchId)} passed all thirty-nine
+	 * tests, while the same shape through the paired {@code PayrollStore} failed
+	 * rule two -- the pairing was the only difference.
+	 *
+	 * <p>Pinned against the live tree rather than a fixture, because the defect was
+	 * in which files the set is built from, and a synthetic source cannot have the
+	 * wrong files. {@code PayrollAdminService} is the live instance:
+	 * {@code LegacyPayrollBatchStore} is the store it reaches that is not its own,
+	 * and it is one of the ten entries in {@link #ACCOUNTED_FOR_OUTSIDE_THE_RULES}
+	 * whose reason is the sentence "rule one enforces the guard, one layer above".
+	 * Nothing made that true of a sixth path until this.
+	 */
+	@Test
+	void ruleTwoWantsTheWritesOfEveryStoreAServiceReaches() {
+		Map<String, Set<String>> wanted = storeWriteMethodsByService(tenantOwnedTables());
+
+		assertThat(wanted)
+				.as("every admin service that reaches a tenant-owned write is a subject")
+				.containsKey("PayrollAdminService");
+		assertThat(wanted.get("PayrollAdminService"))
+				.as("deleteWithPayslips is declared on LegacyPayrollBatchStore, which is not "
+						+ "PayrollAdminService's paired store. Build the set from the paired "
+						+ "store alone and this name is absent, which is what let a sessionless "
+						+ "caller of it through")
+				.contains("deleteWithPayslips")
+				.as("and the paired store's writes are still there")
+				.contains("updatePayslipDetail");
+	}
+
+	/**
+	 * An annotation in type position hides a method from no rule.
+	 *
+	 * <p>{@link #TYPE_ANNOTATIONS} exists because of this, and it is
+	 * {@link #THROWS}'s finding one position to the left: both patterns spelled the
+	 * return type without an {@code @}, so
+	 * {@code public @Nullable Boolean purge(DashboardSession, long)} matched neither
+	 * and rule one never asked it for a guard. Reproduced on the shipped tree -- it
+	 * passed all thirty-nine tests, and the identical method without the annotation
+	 * failed -- with the shape already live in this package as
+	 * {@code AdminAssetCaching:58}'s {@code private @Nullable String etag(Resource)}.
+	 */
+	@Test
+	void anAnnotationInTypePositionHidesAMethodFromNoRule() {
+		String annotated = """
+				class Service {
+					public @Nullable Boolean purge(DashboardSession session, long id) {
+						this.store.delete(id);
+						return Boolean.TRUE;
+					}
+				}""";
+		assertThat(scan(annotated).sessionTaking())
+				.as("an annotated return type is still a return type")
+				.isEqualTo(1);
+		assertThat(scan(annotated).unguarded())
+				.as("and the method is still asked for a guard")
+				.contains("purge");
+
+		String withArguments = """
+				class Service {
+					public @SuppressWarnings("unchecked") @Nullable Boolean purge(DashboardSession session, long id) {
+						this.store.delete(id);
+						return Boolean.TRUE;
+					}
+				}""";
+		assertThat(scan(withArguments).unguarded())
+				.as("an annotation carrying arguments, and more than one of them")
+				.contains("purge");
 	}
 
 	/**
@@ -2628,39 +2847,77 @@ class AdminTenantGuardCoverageTest {
 	}
 
 	/**
-	 * Service simple name to the names of its store's methods that write a
-	 * tenant-owned table.
+	 * Service simple name to the names of the store methods it can reach that write
+	 * a tenant-owned table.
 	 *
-	 * <p>Per method rather than per store, because rule two now asks which
-	 * service methods reach a write, and that answer needs the writes named.
+	 * <p>Per method rather than per store, because rule two asks which service
+	 * methods reach a write, and that answer needs the writes named.
+	 *
+	 * <p><b>Across every store the service reaches, not just its own.</b> This was
+	 * built from {@code <X>Store.java} alone until the sixteenth round, which is a
+	 * rule about a filename rather than about the code: a service writing through
+	 * any other store reached no name in the set, so rule two never asked it for a
+	 * session, rule one skipped it because it takes none, and rule three counted the
+	 * file as scanned. It is not a hypothetical wiring -- {@code PayrollAdminService}
+	 * injects {@code LegacyPayrollBatchStore}, whose thirteen write methods cover
+	 * {@code payroll_batches}, {@code payslips}, {@code penalties} and
+	 * {@code advances}, and whose exemption rests on the sentence "its five batch-write
+	 * paths each take a DashboardSession". Nothing made a sixth path do so: a
+	 * sessionless {@code purgeRun(long)} calling
+	 * {@code this.batchStore.deleteWithPayslips(batchId)} passed all thirty-nine
+	 * tests, while the same shape through the paired {@code PayrollStore} failed rule
+	 * two. That is the difference the pairing made, and nothing else.
+	 *
+	 * <p>Widening it can only ask for a session where one was not asked before. A
+	 * method that legitimately needs none says so in
+	 * {@link #DELIBERATELY_CROSS_TENANT} with a reason, which is the direction this
+	 * class chooses everywhere else.
 	 */
 	private static Map<String, Set<String>> storeWriteMethodsByService(Set<String> tenantTables) {
 		Map<String, Set<String>> byService = new LinkedHashMap<>();
-		// Read once: it parses every entity in the repository and does not depend
-		// on the store being walked.
+		// Read once: they parse every entity and every class in the repository and
+		// do not depend on the service being walked.
 		Map<String, String> entities = entityTables();
-		for (Path store : pairedStores()) {
-			String stem = store.getFileName().toString().replace("Store.java", "");
+		Map<String, Path> known = classesByName();
+		Map<Path, Set<String>> siblingsByPackage = classesByPackage(known);
+		Map<String, Set<String>> writesByClass = new HashMap<>();
+		for (Path service : adminServices()) {
+			String simpleName = service.getFileName().toString().replace(".java", "");
+			String source = read(service);
+			Set<String> siblings = siblingsByPackage.getOrDefault(service.getParent(), Set.of());
 			Set<String> writes = new TreeSet<>();
-			String source = read(store);
-			for (Map.Entry<String, List<String>> method : methodBodies(source).entrySet()) {
-				// The same predicate rule three uses, not a second copy of it. Two
-				// copies is how the tenth round's finding happened: one was
-				// normalised for case and the other was not, and the one that was
-				// is unreferenced (#335). Verified behaviour-preserving before
-				// switching -- both forms produce the identical collector today.
-				for (String overload : method.getValue()) {
-					if (!writtenTenantTables(overload, tenantTables, entities).isEmpty()) {
-						writes.add(method.getKey());
-						break;
-					}
-				}
+			for (String referenced : referencedClasses(source, known.keySet(), siblings)) {
+				writes.addAll(writesByClass.computeIfAbsent(referenced,
+						name -> writeMethodsOf(known.get(name), tenantTables, entities)));
 			}
 			if (!writes.isEmpty()) {
-				byService.put(stem + "AdminService", writes);
+				byService.put(simpleName, writes);
 			}
 		}
 		return byService;
+	}
+
+	/** The methods of one class that write a tenant-owned table, by name. */
+	private static Set<String> writeMethodsOf(
+			Path file, Set<String> tenantTables, Map<String, String> entities) {
+		Set<String> writes = new TreeSet<>();
+		if (file == null) {
+			return writes;
+		}
+		for (Map.Entry<String, List<String>> method : methodBodies(read(file)).entrySet()) {
+			// The same predicate rule three uses, not a second copy of it. Two
+			// copies is how the tenth round's finding happened: one was
+			// normalised for case and the other was not, and the one that was
+			// is unreferenced (#335). Verified behaviour-preserving before
+			// switching -- both forms produce the identical collector today.
+			for (String overload : method.getValue()) {
+				if (!writtenTenantTables(overload, tenantTables, entities).isEmpty()) {
+					writes.add(method.getKey());
+					break;
+				}
+			}
+		}
+		return writes;
 	}
 
 	/** Service simple name to the tenant-owned tables its paired store writes. */
@@ -2719,6 +2976,23 @@ class AdminTenantGuardCoverageTest {
 	}
 
 	/**
+	 * An argument list that may itself contain calls, two levels deep.
+	 *
+	 * <p>This was {@code \([^()]*\)} until the sixteenth round, which recognises a
+	 * discarded guard only when its arguments are plain identifiers -- and the
+	 * argument shape this repository actually writes is a call. The real guard is
+	 * {@code DashboardOrgScope.canOpenRow(session, filters, long rowCompanyId)}, and
+	 * every live call site resolves that third argument with
+	 * {@code row.companyId()} or {@code store.companyOf(id)}. So the one form the
+	 * codebase uses was the form that defeated the check: a bare
+	 * {@code canOpenRow(session, filters, this.store.companyOf(id));} -- the boolean
+	 * thrown away, nothing enforced -- read as a load-bearing guard and passed all
+	 * thirty-nine tests.
+	 */
+	private static final String BALANCED_ARGUMENTS =
+			"\\((?:[^()]|\\((?:[^()]|\\([^()]*\\))*\\))*\\)";
+
+	/**
 	 * Is this guard match load-bearing, or is its answer thrown away?
 	 *
 	 * <p>{@code session.companyId();} as a statement of its own compares nothing
@@ -2733,7 +3007,7 @@ class AdminTenantGuardCoverageTest {
 		int semicolon = code.indexOf(';', end);
 		String statement = code.substring(from, semicolon < 0 ? code.length() : semicolon).trim();
 		return !statement.matches("(?:[\\w.]*\\.)?(?:companyId|isScopedToOneCompany|canOpenRow)"
-				+ "\\s*\\([^()]*\\)");
+				+ "\\s*" + BALANCED_ARGUMENTS);
 	}
 
 	/**
@@ -2760,7 +3034,12 @@ class AdminTenantGuardCoverageTest {
 		// assertRowVisible(session, id) upstream" -- satisfied rule one. That is the
 		// laundering this class's own javadoc says it forbids, one level down, and
 		// it is this repository's commenting style.
-		Matcher call = OWN_CALL.matcher(code);
+		// Spacing normalised first: OWN_CALL's lookbehind inspects the one character
+		// before the name, so `this.store . delete(id)` -- or a dot left at the end of
+		// a line -- would walk straight back into the fifteenth round's defect. No
+		// instance exists today and no formatter gate keeps it that way. The walk
+		// uses no offsets, so collapsing the spacing costs it nothing.
+		Matcher call = OWN_CALL.matcher(code.replaceAll("\\s*\\.\\s*", "."));
 		while (call.find()) {
 			String callee = call.group(1);
 			if (!bodies.containsKey(callee) || !seen.add(callee)) {
@@ -3046,7 +3325,11 @@ class AdminTenantGuardCoverageTest {
 	 */
 	private static Set<String> referencedClasses(
 			String source, Set<String> known, Set<String> packageSiblings) {
-		String code = source.replaceAll("(?s)/\\*.*?\\*/", " ").replaceAll("//[^\n]*", " ");
+		// The masker, not a third copy of the stripper the fifteenth round deleted
+		// from code(): this one strips `//` before it knows what a string is too, so
+		// a URL in a literal takes the rest of a line -- and an import or a field
+		// type with it -- out of what this class considers reached.
+		String code = maskNonCode(source).code();
 		Set<String> referenced = new HashSet<>();
 		Matcher imported = IMPORTED_CLASS.matcher(code);
 		while (imported.find()) {
