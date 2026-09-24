@@ -466,10 +466,10 @@ class AdminLeaveBalancesEndToEndTest {
 
 		String html = body("/admin/leave_balances?year=2026&company_id=" + this.companyA);
 		assertThat(row(html, blank))
-				.containsPattern("<td class=\"text-muted\">A200</td>\\s*<td class=\"bold\">—</td>")
+				.containsPattern("<td class=\"nowrap text-muted\">A200</td>\\s*<td class=\"bold\">—</td>")
 				.containsPattern("data-dialog=\"leave-edit\"[^>]*data-dialog-subject=\"—\"");
 		assertThat(row(html, named))
-				.containsPattern("<td class=\"text-muted\">A100</td>\\s*<td class=\"bold\">Aya Alpha</td>")
+				.containsPattern("<td class=\"nowrap text-muted\">A100</td>\\s*<td class=\"bold\">Aya Alpha</td>")
 				.containsPattern("data-dialog=\"leave-edit\"[^>]*data-dialog-subject=\"Aya Alpha\"");
 	}
 

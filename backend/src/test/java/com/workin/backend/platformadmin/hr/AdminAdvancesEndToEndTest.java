@@ -294,12 +294,12 @@ class AdminAdvancesEndToEndTest {
 		long named = seedAdvance(this.employeeA, "1000", "1000", "pending");
 
 		String html = body("/admin/advances?company_id=" + this.companyA);
-		assertThat(row(html, blank)).containsPattern("<td class=\"text-muted\">A200</td>\\s*<td class=\"bold\">—</td>");
+		assertThat(row(html, blank)).containsPattern("<td class=\"nowrap text-muted\">A200</td>\\s*<td class=\"bold\">—</td>");
 		assertThat(menu(html, blank))
 				.containsPattern("data-dialog=\"advance-edit\"[^>]*data-dialog-subject=\"—\"")
 				.contains("data-dialog-employee_label=\"— (A200)\"")
 				.containsPattern("data-dialog=\"advance-reject\"[^>]*data-dialog-subject=\"—\"");
-		assertThat(row(html, named)).containsPattern("<td class=\"text-muted\">A100</td>\\s*<td class=\"bold\">Aya Alpha</td>");
+		assertThat(row(html, named)).containsPattern("<td class=\"nowrap text-muted\">A100</td>\\s*<td class=\"bold\">Aya Alpha</td>");
 		assertThat(menu(html, named))
 				.containsPattern("data-dialog=\"advance-edit\"[^>]*data-dialog-subject=\"Aya Alpha\"")
 				.contains("data-dialog-employee_label=\"Aya Alpha (A100)\"")

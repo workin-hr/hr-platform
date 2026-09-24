@@ -400,13 +400,13 @@ class AdminJoinRequestsEndToEndTest {
 		this.jdbc.update("UPDATE employees SET created_at = '2026-12-31 00:30:00' WHERE id = ?", midnight);
 
 		String english = body(PATH);
-		assertThat(english).as("PHP's M j, Y g:i A").contains("<td>Mar 5, 2026 2:07 PM</td>");
-		assertThat(english).as("midnight is twelve, not zero").contains("<td>Dec 31, 2026 12:30 AM</td>");
+		assertThat(english).as("PHP's M j, Y g:i A").contains("<td class=\"nowrap\">Mar 5, 2026 2:07 PM</td>");
+		assertThat(english).as("midnight is twelve, not zero").contains("<td class=\"nowrap\">Dec 31, 2026 12:30 AM</td>");
 		assertThat(english).doesNotContain("2026-03-05 14:07");
 
 		String arabic = bodyInArabic(PATH);
-		assertThat(arabic).contains("<td>5 مارس 2026 2:07 م</td>");
-		assertThat(arabic).contains("<td>31 ديسمبر 2026 12:30 ص</td>");
+		assertThat(arabic).contains("<td class=\"nowrap\">5 مارس 2026 2:07 م</td>");
+		assertThat(arabic).contains("<td class=\"nowrap\">31 ديسمبر 2026 12:30 ص</td>");
 	}
 
 	/** The page in Arabic; {@link #body} asks every other request for English. */

@@ -1275,7 +1275,8 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 	private static String employeeRow(int number, String code, String name, String phone, String branch,
 			String hired, boolean active, long employeeId) {
 		return "<td>" + number + "</td><td class=\"text-muted\">" + code + "</td><td class=\"bold\">" + name
-				+ "</td><td>" + phone + "</td><td>" + branch + "</td><td>" + hired + "</td><td><span class=\"badge "
+				+ "</td><td>" + phone + "</td><td>" + branch + "</td><td class=\"nowrap\">" + hired
+				+ "</td><td><span class=\"badge "
 				+ (active ? "badge-green\">" + arabic("admin-messages", "yes") : "badge-gray\">" + arabic("admin-messages", "no"))
 				+ "</span></td><td><a href=\"/admin/employee_detail?id=" + employeeId + "\" class=\"btn btn-blue btn-sm\">"
 				+ arabic("admin-messages", "details") + "</a></td>";

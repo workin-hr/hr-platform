@@ -507,7 +507,7 @@ class AdminAttendanceEndToEndTest {
 		String html = body(PATH + range());
 		assertThat(html).contains("<div class=\"content payroll-page hr-page\">");
 		assertThat(html).as("2 March 2026, a Monday, 09:00 to 18:15")
-				.contains("<td>2 \u0645\u0627\u0631\u0633 2026</td>")
+				.contains("<td class=\"nowrap\">2 \u0645\u0627\u0631\u0633 2026</td>")
 				.contains("<td>\u0627\u0644\u0627\u062b\u0646\u064a\u0646</td>")
 				.contains("<td dir=\"ltr\">09:00</td>")
 				.contains("<td dir=\"ltr\">18:15</td>")

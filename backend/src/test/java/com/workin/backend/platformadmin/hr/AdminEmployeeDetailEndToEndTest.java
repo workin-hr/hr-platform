@@ -323,9 +323,9 @@ class AdminEmployeeDetailEndToEndTest {
 		assertThat(html).as("detail.php:95: the request's status as legacy's badge")
 				.containsPattern("<td>Sick leave</td><td>2026-03-01</td><td>2026-03-02</td>\\s*<td>\\s*<span class=\"badge badge-green\">Approved</span>\\s*</td>");
 		assertThat(html).as("detail.php:102: type, red days, date, and yes or no")
-				.containsPattern("<td>late</td>\\s*<td class=\"text-red\">1.5</td>\\s*<td>2026-03-05</td>\\s*"
+				.containsPattern("<td>late</td>\\s*<td class=\"text-red\">1.5</td>\\s*<td class=\"nowrap\">2026-03-05</td>\\s*"
 						+ "<td>\\s*<span class=\"badge badge-green\">Yes</span>\\s*</td>")
-				.containsPattern("<td>absent</td>\\s*<td class=\"text-red\">1.0</td>\\s*<td>2026-03-01</td>\\s*"
+				.containsPattern("<td>absent</td>\\s*<td class=\"text-red\">1.0</td>\\s*<td class=\"nowrap\">2026-03-01</td>\\s*"
 						+ "<td>\\s*<span class=\"badge badge-gray\">No</span>\\s*</td>");
 		assertThat(html).as("detail.php:109: whole pounds, remaining red while owed, and the status badge")
 				.containsPattern("<td>1,500</td>\\s*<td class=\"text-red\">251</td>\\s*"
