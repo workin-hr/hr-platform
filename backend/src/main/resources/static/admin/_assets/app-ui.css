@@ -238,21 +238,32 @@ body:not(.login-body) {
   animation: appFadeUp .55s var(--app-ease) .1s both;
 }
 
+/* 10px, not 14px. Fourteen columns at 14px each side is 392px of padding on a
+   1119px table, and the typeface change (D-284) left the two text columns --
+   company and branch -- squeezed from 93px and 115px down to 76px and 75px,
+   where a branch name wraps to seven lines and a 52px row becomes 117px. The
+   four pixels back per side are 112px returned to the columns that hold words. */
 .tbl th {
-  background: #f8f9fc;
-  color: var(--app-text-muted);
-  font-size: 12px;
-  padding: 0 14px;
+  background: var(--ui-surface-sunk);
+  color: var(--ui-text-soft);
+  font-size: var(--ui-text-xs);
+  letter-spacing: var(--ui-tracking-caps);
+  padding: 0 10px;
   height: 44px;
-  border-bottom: 1px solid var(--app-border);
+  border-bottom: 1px solid var(--ui-border);
   vertical-align: middle;
   text-align: center;
+  position: sticky;
+  top: 0;
+  z-index: var(--ui-z-sticky);
 }
 
 .tbl td {
-  padding: 0 14px;
+  padding: 8px 10px;
+  /* A floor, not a fixed height: a row whose content fits stays at legacy's 52px
+     and one that wraps grows, which is what a table of names has to do. */
   height: 52px;
-  border-bottom: 1px solid #f0f2f6;
+  border-bottom: 1px solid var(--ui-border-soft);
   vertical-align: middle;
   text-align: center;
 }

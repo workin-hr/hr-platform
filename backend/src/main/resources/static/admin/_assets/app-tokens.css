@@ -173,12 +173,15 @@
   /* ---- Status. Hues carried over from legacy so the *meaning* of a colour
      is unchanged; only the tint/contrast is rebuilt. ---- */
   --ui-success:      #3b6d11;
+  --ui-success-strong: #325d0e;
   --ui-success-weak: #edf4e2;
   --ui-success-edge: #cfe0b4;
   --ui-danger:       #a32d2d;
+  --ui-danger-strong: #8c2626;
   --ui-danger-weak:  #fceceb;
   --ui-danger-edge:  #f0cdcb;
   --ui-warning:      #854f0b;
+  --ui-warning-strong: #6f4109;
   --ui-warning-weak: #fbf0dc;
   --ui-warning-edge: #ecd6ab;
   --ui-info:         #185fa5;
@@ -186,6 +189,7 @@
   --ui-info-edge:    #c6dcf1;
   --ui-accent-pink:      #993556;
   --ui-accent-pink-weak: #fbecf1;
+  --ui-accent-pink-edge: #eccdd8;
 
   /* ---- Semantic surfaces. Sheets should reach for these, not the ramp. ---- */
   --ui-bg:            var(--ui-neutral-0);
@@ -211,14 +215,23 @@
 
   --ui-text-xs:   0.75rem;   /* 12px -- table meta, chips */
   --ui-text-sm:   0.8125rem; /* 13px -- labels, help text */
-  --ui-text-base: 0.9375rem; /* 15px -- body, table cells */
+  /* 14px, which is legacy's. Measured rather than chosen: at 15px every label
+     and control grows, the filter bar wraps from two rows to three (176px to
+     274px) and the table's auto layout squeezes the branch column until rows go
+     from 52px to 125px -- six rows on screen where ten fitted. A dashboard earns
+     its quality from spacing, weight, colour and alignment, not from body text
+     one pixel larger. The scale below still carries the hierarchy. */
+  --ui-text-base: 0.875rem;  /* 14px -- body, table cells */
   --ui-text-md:   1rem;      /* 16px -- card titles */
   --ui-text-lg:   1.1875rem; /* 19px -- page title */
   --ui-text-xl:   1.5rem;    /* 24px -- dashboard figures */
   --ui-text-2xl:  1.875rem;  /* 30px -- hero figures */
 
   --ui-leading-tight: 1.25;
-  --ui-leading: 1.55;
+  /* Tables get their own: 1.5 is right for prose and wrong for a cell, where a
+     wrapped branch name turns every extra tenth into another 40px of row. */
+  --ui-leading-table: 1.35;
+  --ui-leading: 1.5;
   --ui-leading-loose: 1.7;
 
   --ui-weight-regular: 400;
@@ -301,6 +314,11 @@
   --ui-warning-edge:  #47351a;
   --ui-info-weak:     #14243a;
   --ui-info-edge:     #24405f;
+  --ui-success-strong: #4d8a1a;
+  --ui-danger-strong: #c24141;
+  --ui-warning-strong: #a8681a;
+  --ui-accent-pink-weak: #2d1620;
+  --ui-accent-pink-edge: #4a2436;
   --ui-shadow-xs: 0 1px 2px rgba(0, 0, 0, .4);
   --ui-shadow-sm: 0 2px 8px rgba(0, 0, 0, .45);
   --ui-shadow: 0 4px 6px rgba(0, 0, 0, .35), 0 12px 28px rgba(0, 0, 0, .5);
