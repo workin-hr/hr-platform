@@ -29,7 +29,17 @@ import com.workin.legacy.LegacyClock;
 @Service
 public class DeviceAdministrationService {
 
-	private static final int LIST_LIMIT = 500;
+	/**
+	 * The largest page any of these lists will serve.
+	 *
+	 * <p>It used to be the whole read: every list took a fixed cap and returned
+	 * the first N rows with nothing saying there were more, so a page that said
+	 * "Devices (500)" was indistinguishable from one that meant it. The cap is
+	 * still here because a page size arrives from a query string and a boundary
+	 * clamps what it is given, but it is now a clamp on one page rather than a
+	 * silent limit on the truth.
+	 */
+	private static final int PAGE_LIMIT = 500;
 
 	private final DeviceAdministrationStore store;
 	private final AttendanceDeviceStore devices;
@@ -49,25 +59,41 @@ public class DeviceAdministrationService {
 		this.clock = clock;
 	}
 
-	public List<Map<String, Object>> devices(Long companyId) {
-		return store.devices(companyId, LIST_LIMIT);
+	public List<Map<String, Object>> devices(Long companyId, int limit, long offset) {
+		return store.devicePage(companyId, pageSize(limit), offset(offset));
+	}
+
+	public int deviceCount(Long companyId) {
+		return store.deviceCount(companyId);
 	}
 
 	/** Unclaimed serials are nobody's, so the company filter does not apply to them. */
-	public List<Map<String, Object>> sightings() {
-		return store.sightings(200);
+	public List<Map<String, Object>> sightings(int limit, long offset) {
+		return store.sightings(pageSize(limit), offset(offset));
 	}
 
-	public List<Map<String, Object>> punches(Long companyId, Long deviceId, int limit) {
-		return store.punches(companyId, deviceId, Math.max(1, Math.min(limit, 500)));
+	public int sightingCount() {
+		return store.sightingCount();
+	}
+
+	public List<Map<String, Object>> punches(Long companyId, Long deviceId, int limit, long offset) {
+		return store.punches(companyId, deviceId, pageSize(limit), offset(offset));
+	}
+
+	public int punchCount(Long companyId, Long deviceId) {
+		return store.punchCount(companyId, deviceId);
 	}
 
 	public List<Map<String, Object>> punchCounts(long deviceId) {
 		return store.punchCounts(deviceId);
 	}
 
-	public List<Map<String, Object>> malformed(long deviceId) {
-		return store.malformed(deviceId, 100);
+	public List<Map<String, Object>> malformed(long deviceId, int limit, long offset) {
+		return store.malformed(deviceId, pageSize(limit), offset(offset));
+	}
+
+	public int malformedCount(long deviceId) {
+		return store.malformedCount(deviceId);
 	}
 
 	public List<Map<String, Object>> branches(Long companyId) {
@@ -83,8 +109,12 @@ public class DeviceAdministrationService {
 		return devices.findById(id);
 	}
 
-	public List<DeviceAgent> agents(Long companyId) {
-		return agents.list(companyId);
+	public List<DeviceAgent> agents(Long companyId, int limit, long offset) {
+		return agents.list(companyId, pageSize(limit), offset(offset));
+	}
+
+	public int agentCount(Long companyId) {
+		return agents.count(companyId);
 	}
 
 	/** The company is the branch's: the form names a branch, and a branch has exactly one owner. */
@@ -126,6 +156,19 @@ public class DeviceAdministrationService {
 			throw new ApiException(HttpStatus.NOT_FOUND, "devices.agent_not_found");
 		}
 		return agents.find(agentId).orElseThrow();
+	}
+
+	/**
+	 * A page size from a request, clamped. Zero or negative would make a page
+	 * that can never advance, and an unbounded one is what this replaced.
+	 */
+	private static int pageSize(int limit) {
+		return Math.clamp(limit, 1, PAGE_LIMIT);
+	}
+
+	/** A negative offset is a crafted page number, not a page before the first. */
+	private static long offset(long offset) {
+		return Math.max(0L, offset);
 	}
 
 	private AttendanceDevice requireDevice(long deviceId) {

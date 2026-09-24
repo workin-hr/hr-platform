@@ -43,7 +43,40 @@ public class DeviceAdministrationStore {
 		return rows.isEmpty() ? Map.of() : rows.get(0);
 	}
 
+	/**
+	 * How many devices the same filters match, ignoring the page.
+	 *
+	 * <p>Built from the same WHERE clause the read uses, by the same method, so
+	 * the two cannot disagree about what "matching" means -- a count assembled
+	 * separately drifts the moment a filter is added to one and not the other.
+	 */
+	public int deviceCount(Long companyId) {
+		List<Object> args = new ArrayList<>();
+		String where = deviceWhere(companyId, null, args);
+		Integer total = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM attendance_devices d" + where, Integer.class, args.toArray());
+		return total == null ? 0 : total;
+	}
+
+	/** The filters, once, for both the count and the read. */
+	private static String deviceWhere(Long companyId, Long deviceId, List<Object> args) {
+		StringBuilder where = new StringBuilder(" WHERE 1 = 1");
+		if (companyId != null) {
+			where.append(" AND d.company_id = ?");
+			args.add(companyId);
+		}
+		if (deviceId != null) {
+			where.append(" AND d.id = ?");
+			args.add(deviceId);
+		}
+		return where.toString();
+	}
+
 	private List<Map<String, Object>> devices(Long companyId, Long deviceId, int limit) {
+		return devices(companyId, deviceId, limit, 0L);
+	}
+
+	private List<Map<String, Object>> devices(Long companyId, Long deviceId, int limit, long offset) {
 		List<Object> args = new ArrayList<>();
 		StringBuilder sql = new StringBuilder("""
 				SELECT d.id, d.company_id, c.company_name, d.branch_id, b.name AS branch_name, d.vendor,
@@ -53,29 +86,42 @@ public class DeviceAdministrationStore {
 				FROM attendance_devices d
 				LEFT JOIN companies c ON c.id = d.company_id
 				LEFT JOIN branches b ON b.id = d.branch_id""");
-		sql.append(" WHERE 1 = 1");
-		if (companyId != null) {
-			sql.append(" AND d.company_id = ?");
-			args.add(companyId);
-		}
-		if (deviceId != null) {
-			sql.append(" AND d.id = ?");
-			args.add(deviceId);
-		}
-		sql.append(" ORDER BY d.last_seen_at IS NULL, d.last_seen_at DESC, d.id DESC LIMIT ?");
+		sql.append(deviceWhere(companyId, deviceId, args));
+		sql.append(" ORDER BY d.last_seen_at IS NULL, d.last_seen_at DESC, d.id DESC LIMIT ? OFFSET ?");
 		args.add(limit);
+		args.add(offset);
 		return jdbcTemplate.query(sql.toString(), LegacyJdbcValues.rowMapper(), args.toArray());
 	}
 
+	/** One page of devices, with the total the pager needs. */
+	public List<Map<String, Object>> devicePage(Long companyId, int limit, long offset) {
+		return devices(companyId, null, limit, offset);
+	}
+
 	public List<Map<String, Object>> sightings(int limit) {
+		return sightings(limit, 0L);
+	}
+
+	public List<Map<String, Object>> sightings(int limit, long offset) {
 		return jdbcTemplate.query("""
 				SELECT serial_number, first_seen_at, last_seen_at, last_seen_ip, push_version, device_type, hit_count
 				FROM unclaimed_device_sightings
-				ORDER BY last_seen_at DESC LIMIT ?""", LegacyJdbcValues.rowMapper(), limit);
+				ORDER BY last_seen_at DESC LIMIT ? OFFSET ?""",
+				LegacyJdbcValues.rowMapper(), limit, offset);
+	}
+
+	public int sightingCount() {
+		Integer total = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM unclaimed_device_sightings", Integer.class);
+		return total == null ? 0 : total;
 	}
 
 	/** Newest received first. */
 	public List<Map<String, Object>> punches(Long companyId, Long deviceId, int limit) {
+		return punches(companyId, deviceId, limit, 0L);
+	}
+
+	public List<Map<String, Object>> punches(Long companyId, Long deviceId, int limit, long offset) {
 		List<Object> args = new ArrayList<>();
 		StringBuilder sql = new StringBuilder("""
 				SELECT p.id, p.device_id, d.serial_number, d.name AS device_name, p.company_id, c.company_name,
@@ -95,9 +141,26 @@ public class DeviceAdministrationStore {
 			sql.append(" AND p.device_id = ?");
 			args.add(deviceId);
 		}
-		sql.append(" ORDER BY p.id DESC LIMIT ?");
+		sql.append(" ORDER BY p.id DESC LIMIT ? OFFSET ?");
 		args.add(limit);
+		args.add(offset);
 		return jdbcTemplate.query(sql.toString(), LegacyJdbcValues.rowMapper(), args.toArray());
+	}
+
+	public int punchCount(Long companyId, Long deviceId) {
+		List<Object> args = new ArrayList<>();
+		StringBuilder sql = new StringBuilder(
+				"SELECT COUNT(*) FROM device_punches p WHERE 1 = 1");
+		if (companyId != null) {
+			sql.append(" AND p.company_id = ?");
+			args.add(companyId);
+		}
+		if (deviceId != null) {
+			sql.append(" AND p.device_id = ?");
+			args.add(deviceId);
+		}
+		Integer total = jdbcTemplate.queryForObject(sql.toString(), Integer.class, args.toArray());
+		return total == null ? 0 : total;
 	}
 
 	/** Counts by state and by how they arrived, for one device. */
@@ -110,9 +173,21 @@ public class DeviceAdministrationStore {
 	}
 
 	public List<Map<String, Object>> malformed(long deviceId, int limit) {
+		return malformed(deviceId, limit, 0L);
+	}
+
+	public List<Map<String, Object>> malformed(long deviceId, int limit, long offset) {
 		return jdbcTemplate.query("""
 				SELECT id, received_at, raw_line FROM device_malformed_punches
-				WHERE device_id = ? ORDER BY id DESC LIMIT ?""", LegacyJdbcValues.rowMapper(), deviceId, limit);
+				WHERE device_id = ? ORDER BY id DESC LIMIT ? OFFSET ?""",
+				LegacyJdbcValues.rowMapper(), deviceId, limit, offset);
+	}
+
+	public int malformedCount(long deviceId) {
+		Integer total = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM device_malformed_punches WHERE device_id = ?",
+				Integer.class, deviceId);
+		return total == null ? 0 : total;
 	}
 
 	public boolean companyExists(long companyId) {

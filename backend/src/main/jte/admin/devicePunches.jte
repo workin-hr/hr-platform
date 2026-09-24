@@ -1,16 +1,17 @@
-@import java.util.List
 @import java.util.Map
 @import java.util.function.Function
 @import com.workin.backend.platformadmin.web.AdminDeviceView
-@param List<Map<String, Object>> punches
+@import com.workin.backend.platformadmin.web.DashboardPage
+@param DashboardPage<Map<String, Object>> result
 @param String title
+@param Map<String, String> carry
 @param Function<String, String> t
 <%-- The punch table the devices page shows twice: every company's latest, and
      one terminal's. Newest received first, so a scan at the terminal appears at
      the top on the next refresh. --%>
 <div class="data-table-card">
 	<div class="data-table-head">
-		<h2 class="data-table-title">${title} (${punches.size()})</h2>
+		<h2 class="data-table-title">${title} (${result.total()})</h2>
 	</div>
 	<div class="table-wrap">
 	<table class="tbl">
@@ -29,7 +30,7 @@
 			</tr>
 		</thead>
 		<tbody>
-			@for(Map<String, Object> row : punches)
+			@for(Map<String, Object> row : result.data())
 				<tr>
 					<td class="bold">${AdminDeviceView.text(row, "punched_at_local")}</td>
 					<td>${AdminDeviceView.text(row, "serial_number")}</td>
@@ -43,10 +44,12 @@
 					<td class="text-muted">${AdminDeviceView.text(row, "received_at")}</td>
 				</tr>
 			@endfor
-			@if(punches.isEmpty())
+			@if(result.isEmpty())
 				<tr><td colspan="10" class="data-table-empty">${t.apply("no_data")}</td></tr>
 			@endif
 		</tbody>
 	</table>
 	</div>
 </div>
+@template.admin.pager(basePath = "/admin/devices", result = result,
+		carry = carry, t = t, pageParam = "punch_page")

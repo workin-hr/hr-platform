@@ -27,6 +27,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.util.HtmlUtils;
 
 import com.workin.backend.BackendApplication;
 import com.workin.devices.agent.DeviceAgentService;
@@ -224,6 +225,215 @@ class AdminDevicesEndToEndTest {
 		} finally {
 			org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
 		}
+	}
+
+	/**
+	 * Every list on this page is one page of a known total.
+	 *
+	 * <p>All five used to be a fixed cap with nothing saying so -- devices 500,
+	 * unclaimed serials 200, malformed lines 100, punches 50 -- and the agents
+	 * list had no {@code LIMIT} at all, so it grew a row for every agent ever
+	 * issued. Worse than slow: each heading printed {@code rows.size()}, so a
+	 * page reading "(500)" was indistinguishable from a company that owned
+	 * exactly 500 terminals, and the operator had no way to see the rest.
+	 *
+	 * <p>Twelve of each at five per page: five rows rendered, twelve reported,
+	 * and a third page offered. A total taken from the rows in hand would report
+	 * five and offer one page, which is the mutant this pins.
+	 */
+	@Test
+	void everyListReportsItsWholeSizeAndServesOnePageOfIt() {
+		twelveOfEverything();
+
+		String html = body("/admin/devices?per_page=5");
+
+		assertThat(deviceRows(html)).as("five device rows").isEqualTo(5);
+		assertThat(countOccurrences(html, "?serial=PSIG-")).as("five unclaimed serials").isEqualTo(5);
+		assertThat(countOccurrences(html, ">PAgent-")).as("five agents").isEqualTo(5);
+		assertThat(countOccurrences(html, "PPIN")).as("five punches").isEqualTo(5);
+
+		// Four pagers, each summarising rows 1-5 of a real twelve.
+		assertThat(countOccurrences(html, "<b>12</b>"))
+				.as("devices, serials, agents and punches each report twelve: %s", html)
+				.isEqualTo(4);
+		for (String parameter : List.of("dev_page", "sight_page", "agent_page", "punch_page")) {
+			assertThat(HtmlUtils.htmlUnescape(html))
+					.as("twelve rows at five a page is three pages of %s", parameter)
+					.contains("?" + parameter + "=3");
+		}
+	}
+
+	/**
+	 * Five pagers on one screen, so each link carries the other four pages.
+	 *
+	 * <p>{@code pagerHtml()} replays the whole query string and unsets only its
+	 * own page; this page carries the five numbers explicitly instead. The bug
+	 * this pins is the one attendance had with two tables: paging one list
+	 * silently resets the rest to page 1, which on this page would also throw
+	 * away the terminal being watched.
+	 */
+	@Test
+	void pagingOneListCarriesTheOtherFourPagesForward() {
+		twelveOfEverything();
+
+		String html = body("/admin/devices?per_page=5&dev_page=2&sight_page=2&agent_page=2&punch_page=2");
+
+		Matcher devicesNext = Pattern.compile("href=\"(/admin/devices\\?dev_page=3[^\"]*)\"").matcher(html);
+		assertThat(devicesNext.find()).as("the device list's next-page link").isTrue();
+		String link = devicesNext.group(1);
+		assertThat(countParameter(link, "dev_page")).as("its own page once: %s", link).isEqualTo(1);
+		for (String parameter : List.of("sight_page", "agent_page", "punch_page", "mal_page")) {
+			assertThat(countParameter(link, parameter))
+					.as("%s named exactly once in %s", parameter, link).isEqualTo(1);
+		}
+		assertThat(HtmlUtils.htmlUnescape(link))
+				.as("and the others keep the page they were on")
+				.contains("sight_page=2").contains("agent_page=2").contains("punch_page=2");
+
+		Matcher sightingsFirst = Pattern.compile("href=\"(/admin/devices\\?sight_page=1[^\"]*)\"").matcher(html);
+		assertThat(sightingsFirst.find()).as("the unclaimed list's first-page link").isTrue();
+		assertThat(HtmlUtils.htmlUnescape(sightingsFirst.group(1)))
+				.as("it keeps the device list's page").contains("dev_page=2");
+
+		// The size form re-submits the same map, and each pager skips its own
+		// there too -- so `dev_page` appears once per *other* pager that rendered.
+		// Four render here: the malformed list belongs to a terminal's own page
+		// and a pager draws nothing at total 0.
+		assertThat(countOccurrences(html, "name=\"dev_page\""))
+				.as("one hidden dev_page input per other pager that rendered").isEqualTo(3);
+	}
+
+	/** The second page is the next rows, not the first ones again. */
+	@Test
+	void theSecondPageOfEachListIsDisjointFromTheFirst() {
+		twelveOfEverything();
+
+		String first = body("/admin/devices?per_page=5");
+		String second = body("/admin/devices?per_page=5&dev_page=2&sight_page=2&agent_page=2");
+
+		for (int index = 1; index <= 12; index++) {
+			// The name, not the serial: a punch row carries its device's serial.
+			String name = ">Terminal " + index + "<";
+			assertThat(first.contains(name) && second.contains(name))
+					.as("Terminal %d is on one page, not both", index).isFalse();
+		}
+		assertThat(deviceRows(second)).isEqualTo(5);
+		assertThat(countOccurrences(second, "?serial=PSIG-")).isEqualTo(5);
+		assertThat(countOccurrences(second, ">PAgent-")).isEqualTo(5);
+	}
+
+	/**
+	 * A page number arrives from a query string, so it is read the way every
+	 * other dashboard page number is: {@code (int)} PHP-style, floored at one,
+	 * never a 400. And a page past the last returns no rows while still
+	 * reporting the total -- {@code dbPaginate()} takes the offset from the page
+	 * it was asked for and clamps only what it reports, which
+	 * {@code DashboardPage} reproduces deliberately.
+	 */
+	@Test
+	void aCraftedPageNumberIsReadLikeEveryOtherPageNumber() {
+		twelveOfEverything();
+
+		assertThat(deviceRows(body("/admin/devices?per_page=5&dev_page=abc")))
+				.as("not a number is page one, not a 400").isEqualTo(5);
+		assertThat(deviceRows(body("/admin/devices?per_page=5&dev_page=-7")))
+				.as("a negative page is page one").isEqualTo(5);
+		assertThat(body("/admin/devices?per_page=5&dev_page=2e0"))
+				.as("PHP reads an exponent, so 2e0 is page two: rows 6-10")
+				.contains(">Terminal 6<").doesNotContain(">Terminal 1<");
+
+		String past = body("/admin/devices?per_page=5&dev_page=99");
+		assertThat(deviceRows(past)).as("past the last page there are no rows").isZero();
+		assertThat(past).as("the total is still the truth").contains("<b>12</b>");
+	}
+
+	/** The terminal's own half of the page: its punches and its unreadable lines. */
+	@Test
+	void oneTerminalsPunchesAndMalformedLinesArePagedToo() {
+		long deviceId = device("PDEV-SEL", "Selected terminal", 0);
+		for (int index = 1; index <= 7; index++) {
+			punch(deviceId, "SELPIN" + index, index);
+			this.jdbc.update("INSERT INTO device_malformed_punches (device_id, company_id, received_at, raw_line, dedup_key)"
+					+ " VALUES (?, ?, NOW(), ?, ?)",
+					deviceId, this.company, "SELJUNK" + index, "mal-" + deviceId + "-" + index);
+		}
+
+		String html = body("/admin/devices?device=" + deviceId + "&per_page=3");
+
+		assertThat(countOccurrences(html, "SELPIN")).as("three of seven punches").isEqualTo(3);
+		assertThat(countOccurrences(html, "SELJUNK")).as("three of seven unreadable lines").isEqualTo(3);
+		assertThat(countOccurrences(html, "<b>7</b>")).as("both report seven").isEqualTo(2);
+		assertThat(HtmlUtils.htmlUnescape(html))
+				.as("and both pagers keep the terminal being watched")
+				.contains("device=" + deviceId);
+	}
+
+	/**
+	 * Twelve devices, unclaimed serials, agents and punches.
+	 *
+	 * <p>Every punch is on the first terminal, and a device's name is not its
+	 * serial, because the punch table prints the serial of the device each punch
+	 * came from: counting "the serial appears" would otherwise count a punch row
+	 * as a device row, which is how the first version of these tests read 15
+	 * device rows out of a five-row page.
+	 */
+	private void twelveOfEverything() {
+		long first = 0;
+		for (int index = 1; index <= 12; index++) {
+			long deviceId = device("PDEV-" + index, "Terminal " + index, index);
+			first = first == 0 ? deviceId : first;
+			punch(first, "PPIN" + index, index);
+			this.jdbc.update("INSERT INTO unclaimed_device_sightings (serial_number, first_seen_at, last_seen_at,"
+					+ " last_seen_ip, hit_count) VALUES (?, NOW(), NOW() - INTERVAL ? MINUTE, '10.0.0.9', 1)",
+					"PSIG-" + index, index);
+			this.jdbc.update("INSERT INTO device_agents (company_id, name, token_sha256, token_hint, is_active,"
+					+ " created_at, updated_at) VALUES (?, ?, SHA2(?, 256), 'abcd', 1, NOW(), NOW())",
+					this.company, "PAgent-" + index, "token-" + index);
+		}
+	}
+
+	private long device(String serial, String name, int minutesOld) {
+		this.jdbc.update("INSERT INTO attendance_devices (company_id, branch_id, vendor, serial_number, name,"
+				+ " device_time_zone, is_active, last_seen_at, created_at, updated_at)"
+				+ " VALUES (?, ?, 'zkteco', ?, ?, 'Africa/Cairo', 1, NOW() - INTERVAL ? MINUTE, NOW(), NOW())",
+				this.company, this.branch, serial, name, minutesOld);
+		return this.jdbc.queryForObject("SELECT id FROM attendance_devices WHERE serial_number = ?", Long.class, serial);
+	}
+
+	private void punch(long deviceId, String pin, int minutesOld) {
+		this.jdbc.update("INSERT INTO device_punches (device_id, company_id, pin, punched_at_local, received_at,"
+				+ " dedup_key, raw_line, processing_state, delivered_via)"
+				+ " VALUES (?, ?, ?, NOW() - INTERVAL ? MINUTE, NOW(), ?, 'raw', 'UNMATCHED', 'PUSH')",
+				deviceId, this.company, pin, minutesOld, "dedup-" + deviceId + "-" + pin);
+	}
+
+	private String body(String path) {
+		ResponseEntity<String> response = get(path, this.cookie);
+		assertThat(response.getStatusCode().value()).as("GET %s", path).isEqualTo(200);
+		return response.getBody();
+	}
+
+	/**
+	 * How many times a URL names one query parameter, without reading
+	 * {@code per_page} as {@code page}. The href comes out of the rendered page
+	 * with each separator escaped as {@code &amp;}, so it is unescaped first.
+	 */
+	private static long countParameter(String url, String name) {
+		return Pattern.compile("[?&]" + Pattern.quote(name) + "=")
+				.matcher(HtmlUtils.htmlUnescape(url)).results().count();
+	}
+
+	/**
+	 * How many device rows the page rendered, counted by each row's own "open"
+	 * link -- the one marker that appears once per device row and nowhere else
+	 * on this half of the page.
+	 */
+	private static long deviceRows(String html) {
+		return countOccurrences(html, "/admin/devices?device=");
+	}
+
+	private static long countOccurrences(String html, String text) {
+		return Pattern.compile(Pattern.quote(text)).matcher(html).results().count();
 	}
 
 	@Test
