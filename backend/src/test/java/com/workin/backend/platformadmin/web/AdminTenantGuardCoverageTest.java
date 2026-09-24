@@ -1382,7 +1382,7 @@ class AdminTenantGuardCoverageTest {
 			compared++;
 			// Flattened first, and every span measured on the flattened text, so
 			// the offsets below and the write matches are in the same coordinates.
-			String source = read(store).replaceAll("\"\\s*\\+\\s*\"", "");
+			String source = flattened(read(store));
 			List<int[]> methods = methodSpans(source);
 			List<int[]> comments = maskNonCode(source).comments();
 			Matcher write = WRITE_STATEMENT.matcher(source);
@@ -1466,6 +1466,27 @@ class AdminTenantGuardCoverageTest {
 	}
 
 	/**
+	 * Java concatenation collapsed, so a statement split across lines reads as one.
+	 *
+	 * <p><b>It must not touch a text-block delimiter, and the fourteenth round
+	 * showed why with a red control.</b> In {@code "SELECT " + """} the five
+	 * characters this collapses are the closing quote of {@code "SELECT "}, the
+	 * {@code " + "}, and the <em>first</em> quote of the {@code """} opener. What is
+	 * left reads as a string, an empty string, then the block's content as
+	 * <em>code</em> and the block's closing {@code """} as an opener with no close
+	 * -- so {@link #maskNonCode} blanks the rest of the file, every later brace
+	 * disappears, and the enclosing method's span covers the remainder of the class.
+	 * A package-private write below it then reads as covered. The lookarounds keep
+	 * the collapse away from any quote that is part of a longer run.
+	 *
+	 * <p>One method for all three callers. Three copies of one rule is how the tenth
+	 * round's finding happened.
+	 */
+	private static String flattened(String source) {
+		return source.replaceAll("(?<!\")\"\\s*\\+\\s*\"(?!\")", "");
+	}
+
+	/**
 	 * One pass over a Java source: which characters are code, and where the
 	 * comments are.
 	 *
@@ -1487,7 +1508,7 @@ class AdminTenantGuardCoverageTest {
 	 * method, so its span ran to the end of the class and every later write --
 	 * including a package-private one nothing else sees -- read as "inside a
 	 * method". That is the gap the twelfth round's fix had just closed, re-opened
-	 * by the fix itself. Eighty of the 503 classes here contain a brace inside a
+	 * by the fix itself. Eighty of the 502 classes the gate indexes contain a brace inside a
 	 * string literal; one {@code LIKE '%{'} in a paired store would have done it.
 	 *
 	 * <p>Text blocks are handled as text blocks, not as two strings. A
@@ -1524,7 +1545,12 @@ class AdminTenantGuardCoverageTest {
 			}
 			if (source.startsWith("\"\"\"", index)) {
 				int end = source.indexOf("\"\"\"", index + 3);
-				end = end < 0 ? source.length() : end + 3;
+				// An unterminated block ends at its own line rather than at the end
+				// of the file, for the same reason the string branch does: a scanner
+				// that blanks the rest of a class hides writes, and this one is
+				// reached by a desynchronised opener rather than by real source.
+				int line = source.indexOf('\n', index + 3);
+				end = end < 0 ? (line < 0 ? source.length() : line) : end + 3;
 				index = blank(code, index, end);
 				continue;
 			}
@@ -1636,7 +1662,7 @@ class AdminTenantGuardCoverageTest {
 	 * tested and its own escaping made the first version of this test assert
 	 * something other than what it read -- four mutants survived it.
 	 *
-	 * <p>Each case is a real shape here. Eighty of this repository's 503 classes put
+	 * <p>Each case is a real shape here. Eighty of the 502 classes the gate indexes put
 	 * a brace inside a string literal; six of the twenty-one paired stores write
 	 * their SQL in text blocks; and {@code AdminPageAvailability.pageOf} has the
 	 * first shape today, its body over-running its true end by 78 characters -- which
@@ -1707,6 +1733,199 @@ class AdminTenantGuardCoverageTest {
 				.isFalse();
 	}
 
+	/**
+	 * An overload that does not guard cannot borrow its sibling's guard, and an
+	 * overload that does write cannot hide behind a sibling that does not.
+	 *
+	 * <p>The twelfth and thirteenth rounds each found one half of this, and the
+	 * fourteenth found that <b>neither half was pinned</b>: four mutants reverting
+	 * those fixes -- {@code reachesGuard} accepting any overload, {@code
+	 * methodBodies} keeping only the first body, {@code reachesCall} consulting only
+	 * the first -- all passed a green suite. They were invisible because the rule has
+	 * no live subject: no admin service declares an overload at all, and the two
+	 * paired stores that do have none that writes. A property with no instance is
+	 * exactly the one that needs a synthetic fixture.
+	 *
+	 * <p>The two rules want opposite approximations, so both directions are here.
+	 */
+	@Test
+	void anOverloadNeitherBorrowsAGuardNorHidesAWrite() {
+		String borrowedGuard = """
+				class Service {
+					public long remove(DashboardSession session, long id) {
+						return allow(id);
+					}
+
+					private long allow(long id) {
+						return id;
+					}
+
+					private long allow(DashboardSession session, long id) {
+						if (id != session.companyId()) {
+							throw new IllegalStateException("other company");
+						}
+						return id;
+					}
+				}
+				""";
+		assertThat(scan(borrowedGuard).unguarded())
+				.as("`remove` calls `allow(id)`, and the overload that takes no session does "
+						+ "not guard. Let a name inherit any overload's guard and this is empty, "
+						+ "which is a sessionless write reported as guarded")
+				.contains("remove");
+
+		String guardedEverywhere = """
+				class Service {
+					public long remove(DashboardSession session, long id) {
+						return allow(session, id);
+					}
+
+					private long allow(DashboardSession session, long id) {
+						if (id != session.companyId()) {
+							throw new IllegalStateException("other company");
+						}
+						return id;
+					}
+				}
+				""";
+		assertThat(scan(guardedEverywhere).unguarded())
+				.as("the control: one overload, and it guards")
+				.isEmpty();
+
+		// The write is reached THROUGH the overloaded name, not called by it: a call
+		// whose name is already in the wanted set returns before any overload is
+		// consulted, which is why the first version of this fixture pinned nothing.
+		String writeInTheSecondOverload = """
+				class Service {
+					public void publish(long id) {
+						apply(id, "now");
+					}
+
+					private void apply(long id) {
+						read(id);
+					}
+
+					private void apply(long id, String at) {
+						save(id, at);
+					}
+				}
+				""";
+		assertThat(scanWrites(writeInTheSecondOverload, Set.of("save")).sessionless())
+				.as("`publish` reaches the store write only through the SECOND `apply`. Keep one "
+						+ "body per name -- which is what this did until the twelfth round -- or "
+						+ "consult only the first, and rule two never asks `publish` for a session")
+				.contains("publish");
+
+		String declarationInAComment = """
+				class Store {
+					// private void ghost(long id) {
+					public void real(long id) {
+						jdbc.update("DELETE FROM employees WHERE id = ?");
+					}
+				}
+				""";
+		assertThat(methodBodies(declarationInAComment).keySet())
+				.as("a declaration inside a comment is not a method; matched on raw text it is, "
+						+ "and its body becomes the next real block")
+				.containsExactly("real");
+	}
+
+	/**
+	 * {@link #maskNonCode} blanks what is not code, and each branch is pinned.
+	 *
+	 * <p>Four of its branches were covered by nothing: deleting the {@code //}
+	 * handling, the {@code /* *}{@code /} handling, the character-literal branch or
+	 * the newline guard each left the suite green. The comment branches matter in
+	 * both directions -- this file quotes legacy SQL in javadoc constantly, so a
+	 * dropped comment branch turns prose into a write, and a brace inside a comment
+	 * counted as code extends a method span over a later one.
+	 */
+	@Test
+	void theMaskBlanksEveryKindOfNonCode() {
+		String source = """
+				class Store {
+					// DELETE FROM employees WHERE id = ?
+					public void first() {
+						char quote = '"';
+						char open = '{';
+						char slash = '\\\\';
+					}
+
+					/* legacy: INSERT INTO employees (company_id) VALUES (?) { */
+					public void second() {
+						jdbc.update("DELETE FROM penalties WHERE id = ?");
+					}
+				}
+				""";
+		SourceMask mask = maskNonCode(source);
+		assertThat(mask.comments())
+				.as("both comment forms are recorded; a masker that records none satisfies an "
+						+ "emptiness assertion and nothing else")
+				.hasSize(2);
+		assertThat(within(mask.comments(), source.indexOf("DELETE FROM employees")))
+				.as("the line comment's SQL is prose")
+				.isTrue();
+		assertThat(within(mask.comments(), source.indexOf("INSERT INTO employees")))
+				.as("and the block comment's is too")
+				.isTrue();
+		assertThat(mask.code())
+				.as("no SQL survives in the code view, whichever comment carried it")
+				.doesNotContain("DELETE FROM employees")
+				.doesNotContain("INSERT INTO employees")
+				.doesNotContain("DELETE FROM penalties");
+		assertThat(methodSpans(source)).as("two methods").hasSize(2);
+		assertThat(blockAt(source, source.indexOf("public void first")))
+				.as("the first method ends at its own brace. The brace in the block comment and "
+						+ "the one in the character literal are each enough to keep the counter "
+						+ "open, and its body then swallows the second method and the write in it "
+						+ "-- a count of two spans says nothing about that, which is why this "
+						+ "reads the boundary instead")
+				.doesNotContain("DELETE FROM penalties");
+
+		String unterminated = """
+				class Store {
+					public void first() {
+						String broken = "unterminated;
+					}
+
+					public void second() {
+						jdbc.update("DELETE FROM employees WHERE id = ?");
+					}
+				}
+				""";
+		assertThat(methodSpans(unterminated))
+				.as("an unterminated literal ends at its own line. Let it run and it reaches the "
+						+ "next quote two methods down, blanking the second declaration on the "
+						+ "way -- a whole method, and the write in it, gone from the scan")
+				.hasSize(2);
+
+		// The flatten runs BEFORE the mask, so the two have to agree about what a
+		// quote is. An unguarded collapse eats the first quote of a `"""` opener and
+		// the mask then reads the block's content as code and its closing delimiter
+		// as an opener with no close -- blanking the rest of the file.
+		String concatenatedTextBlock = "class Store {\n"
+				+ "\tprivate String joined() {\n"
+				+ "\t\treturn \"SELECT \" + \"\"\"\n"
+				+ "\t\t\t\t1 FROM employees\n"
+				+ "\t\t\t\t\"\"\";\n"
+				+ "\t}\n"
+				+ "\tvoid hidden() {\n"
+				+ "\t\tjdbc.update(\"DELETE FROM employees WHERE id = ?\");\n"
+				+ "\t}\n"
+				+ "}\n";
+		String flat = flattened(concatenatedTextBlock);
+		assertThat(flat.split("\"\"\"", -1).length - 1)
+				.as("both delimiters survive the collapse -- counted, because the closing one "
+						+ "alone satisfies a `contains` while the opener has had its first quote "
+						+ "eaten, which is the whole defect")
+				.isEqualTo(2);
+		assertThat(within(methodSpans(flat), flat.indexOf("DELETE FROM")))
+				.as("and the package-private write below the block is still inside no method "
+						+ "rule two can see -- which is what makes it visible. Collapse the "
+						+ "delimiter and the first method's span covers the rest of the class")
+				.isFalse();
+	}
+
 	@Test
 	void theSchemaDecidesWhatIsTenantOwned() {
 		Set<String> tenantTables = tenantOwnedTables();
@@ -1770,6 +1989,60 @@ class AdminTenantGuardCoverageTest {
 					}
 				}""";
 		assertThat(scan(source).unguarded()).containsExactly("delete");
+	}
+
+	/**
+	 * Naming a guarded <em>helper</em> in a comment does not guard either.
+	 *
+	 * <p>{@link #theRuleRejectsAGuardThatIsOnlyMentionedInAComment} covers a direct
+	 * mention of the guard. One level down it did not: the callee walk in
+	 * {@link #reachesGuard} ran on the raw body while the guard match beside it ran
+	 * on the stripped one, so a comment saying "the row was resolved by
+	 * {@code assertRowVisible(session, id)} upstream" made the rule follow a call
+	 * that is not there and find the guard at the other end. That is this
+	 * repository's commenting style, and it satisfied the primary D-176 rule.
+	 */
+	@Test
+	void theRuleRejectsAGuardedHelperThatIsOnlyNamedInAComment() {
+		String laundered = """
+				class Service {
+					public long remove(DashboardSession session, long id) {
+						// the row was resolved by assertRowVisible(session, id) upstream
+						store.delete(id);
+						return 1L;
+					}
+
+					private long assertRowVisible(DashboardSession session, long id) {
+						if (session.companyId() != id) {
+							throw new IllegalStateException("other company");
+						}
+						return id;
+					}
+				}
+				""";
+		assertThat(scan(laundered).unguarded())
+				.as("`remove` calls nothing that guards; it only mentions one")
+				.contains("remove");
+
+		String called = """
+				class Service {
+					public long remove(DashboardSession session, long id) {
+						assertRowVisible(session, id);
+						store.delete(id);
+						return 1L;
+					}
+
+					private long assertRowVisible(DashboardSession session, long id) {
+						if (session.companyId() != id) {
+							throw new IllegalStateException("other company");
+						}
+						return id;
+					}
+				}
+				""";
+		assertThat(scan(called).unguarded())
+				.as("the control: the same helper, actually called")
+				.isEmpty();
 	}
 
 	@Test
@@ -1888,7 +2161,11 @@ class AdminTenantGuardCoverageTest {
 			return false;
 		}
 		for (String callee : callees) {
-			if (!bodies.containsKey(callee) || !seen.add(callee)) {
+			// Keyed on depth as well: a callee first met at depth 2 is explored one
+			// level further, and memoising the bare name would then skip it when a
+			// shallower sibling reaches it -- missing a write three levels down,
+			// which is the unsafe direction for this rule.
+			if (!bodies.containsKey(callee) || !seen.add(callee + "@" + depth)) {
 				continue;
 			}
 			// Any overload reaching the write is enough: the call site names no
@@ -2137,7 +2414,7 @@ class AdminTenantGuardCoverageTest {
 			Set<String> written = new TreeSet<>();
 			// Java concatenation is collapsed so a statement split across lines
 			// reads as one.
-			String flattened = read(store).replaceAll("\"\\s*\\+\\s*\"", "");
+			String flattened = flattened(read(store));
 			Matcher write = WRITE_STATEMENT.matcher(flattened);
 			while (write.find()) {
 				String table = canonical(write.group(1));
@@ -2206,7 +2483,13 @@ class AdminTenantGuardCoverageTest {
 		if (depth >= 3) {
 			return false;
 		}
-		Matcher call = Pattern.compile("\\b(\\w+)\\s*\\(").matcher(body);
+		// On `code`, not on `body`. The guard match three lines up already strips
+		// comments and string literals; the callee walk did not, so a comment that
+		// merely NAMED a guarded helper -- "the row was resolved by
+		// assertRowVisible(session, id) upstream" -- satisfied rule one. That is the
+		// laundering this class's own javadoc says it forbids, one level down, and
+		// it is this repository's commenting style.
+		Matcher call = Pattern.compile("\\b(\\w+)\\s*\\(").matcher(code);
 		while (call.find()) {
 			String callee = call.group(1);
 			if (!bodies.containsKey(callee) || !seen.add(callee)) {
@@ -2232,7 +2515,12 @@ class AdminTenantGuardCoverageTest {
 
 	private static Map<String, String> publicMethodBodies(String source) {
 		Map<String, String> bodies = new LinkedHashMap<>();
-		Matcher method = PUBLIC_METHOD.matcher(source);
+		// Masked, like methodBodies: a `public T name(...) {` inside a javadoc or a
+		// string is otherwise a phantom method whose body is the next real block,
+		// and because this map is keyed on the signature a phantom can replace a
+		// real one. No drift today -- 350 matches either way across the 43 scanned
+		// files -- and the two collectors reading the same text is the point.
+		Matcher method = PUBLIC_METHOD.matcher(maskNonCode(source).code());
 		while (method.find()) {
 			String signature = method.group(1) + "(" + normalise(method.group(2)) + ")";
 			bodies.put(signature, blockAt(source, method.end() - 1));
@@ -2538,7 +2826,7 @@ class AdminTenantGuardCoverageTest {
 	 */
 	private static Set<String> writtenTenantTables(
 			String source, Set<String> tenantTables, Map<String, String> entityTables) {
-		String flattened = source.replaceAll("\"\\s*\\+\\s*\"", "");
+		String flattened = flattened(source);
 		Set<String> written = new java.util.TreeSet<>();
 		// A repository declared over a tenant-owned entity can write that table
 		// with no statement anywhere in its source -- see JPA_REPOSITORY.
