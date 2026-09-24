@@ -171,19 +171,27 @@ class AdminTenantGuardCoverageTest {
 	private static final Map<String, String> ACCOUNTED_FOR_OUTSIDE_THE_RULES = Map.ofEntries(
 			Map.entry("AttendanceDeviceStore",
 					"Two shapes, and the distinction matters. `claim` and `update` -- the writes the "
-							+ "admin surface reaches -- take an explicit companyId and scope by it "
-							+ "(`WHERE company_id = ? AND id = ?`), and the caller derives that company "
-							+ "from the row rather than the request: DeviceAdministrationService.setActive "
-							+ "reads device.companyId() after requireDevice(deviceId), and .allocate reads "
-							+ "branchCompanyId(branchId). That is D-176's invariant, satisfied one layer "
-							+ "above the store. `touchSeen`, `recordHandshake`, `recordSelfDescription` and "
-							+ "`recordAttlogStamp` are `WHERE id = ?` with no company at all, and they are "
-							+ "NOT admin-session writes: their only callers are DeviceAgentIngestService "
-							+ "and ZkTecoAdmsService, where the terminal has already authenticated by "
-							+ "serial or agent token and that identity resolved the row -- the id is not "
-							+ "independently attacker-chosen. An earlier version of this entry said "
-							+ "'every write takes an explicit companyId', which was false of those four; "
-							+ "the review round caught it."),
+							+ "admin surface reaches -- take an explicit companyId, and the caller "
+							+ "derives it from the row rather than the request: "
+							+ "DeviceAdministrationService.setActive reads device.companyId() after "
+							+ "requireDevice(deviceId), and .allocate reads branchCompanyId(branchId). "
+							+ "What each does with it differs, and the difference is the point: `update` "
+							+ "makes it a predicate (`WHERE company_id = ? AND id = ?`, after the same "
+							+ "predicate under `FOR UPDATE`), so another company's row is unreachable "
+							+ "even with a crafted id, while `claim` is an INSERT -- there is no prior "
+							+ "row to scope, and the company is the value written into the new one. "
+							+ "Either way the company is server-resolved, which is D-176's invariant, "
+							+ "satisfied one layer above the store. `touchSeen`, `recordHandshake`, "
+							+ "`recordSelfDescription` and `recordAttlogStamp` are `WHERE id = ?` with no "
+							+ "company at all, and they are NOT admin-session writes: their only callers "
+							+ "are DeviceAgentIngestService and ZkTecoAdmsService, where the terminal has "
+							+ "already authenticated by serial or agent token and that identity resolved "
+							+ "the row -- the id is not independently attacker-chosen. This entry has now "
+							+ "been corrected twice by review: first for saying 'every write takes an "
+							+ "explicit companyId', false of those four, and then for attributing "
+							+ "`WHERE company_id = ? AND id = ?` to `claim`, which has no WHERE clause. "
+							+ "Both times the error was one sentence generalised across a group of "
+							+ "methods; an exemption's SQL shape has to be read off each method."),
 
 			Map.entry("DeviceAgentStore",
 					"Reached from DeviceAdministrationService.setAgentActive(agentId, active), which "
@@ -209,15 +217,21 @@ class AdminTenantGuardCoverageTest {
 							+ "request supplies."),
 
 			Map.entry("EmployeeDeviceIdentityStore",
-					"`bind(companyId, employeeId, pin, ...)` takes the company explicitly and scopes "
-							+ "every statement by it, including the uniqueness checks it makes before "
-							+ "writing (`WHERE company_id = ? AND pin = ?`). Reached, like DevicePunchStore, "
-							+ "only through an import that began from a resolved device."),
+					"`bind(companyId, employeeId, pin, ...)` takes the company explicitly, and every "
+							+ "statement carries it: the uniqueness check it makes before writing and "
+							+ "the UPDATE are predicated on it (`WHERE company_id = ? AND pin = ?`, "
+							+ "`WHERE company_id = ? AND employee_id = ?`), and the INSERT -- having no "
+							+ "prior row to predicate on -- writes it as the row's company_id. Reached, "
+							+ "like DevicePunchStore, only through an import that began from a resolved "
+							+ "device."),
 
 			Map.entry("LegacyCompanyDelete",
-					"The platform administrator deleting a whole company: every statement is "
-							+ "`WHERE company_id = ?` for the company being deleted, and there is no "
-							+ "session company to compare it against, because the operation's subject IS "
+					"The platform administrator deleting a whole company: every statement is predicated "
+							+ "on the company being deleted -- directly as `WHERE company_id = ?`, or "
+							+ "through the owning parent for a child table that has no company column "
+							+ "(`WHERE e.company_id = ?` and its siblings) -- and the last one is `DELETE "
+							+ "FROM companies WHERE id = ?`, the company row itself. There is no session "
+							+ "company to compare any of it against, because the operation's subject IS "
 							+ "the company. ADR-0015's typed-name confirmation and its audit row are the "
 							+ "controls here, not a tenant predicate."),
 
@@ -231,8 +245,10 @@ class AdminTenantGuardCoverageTest {
 					"Reachable by class, not by write. The admin surface touches "
 							+ "LegacyPayslipService for one method -- enrichRows, a read -- and this "
 							+ "closure follows classes rather than methods, so the service's own write "
-							+ "path comes with it. Those writes (`create`, `update`, `delete`) each take "
-							+ "an explicit companyId and belong to the legacy API, which has its own "
+							+ "path comes with it. Those service writes -- `create`, `update` and "
+							+ "`delete` on LegacyPayslipService, the only way to reach the store's "
+							+ "`insert`/`update`/`delete`, which are by row id -- each take an explicit "
+							+ "companyId and belong to the legacy API, which has its own "
 							+ "tenant control (TenantFilterCoverageTest, the tenant filter, "
 							+ "LegacyTenantContext). No admin-surface path reaches them."),
 
