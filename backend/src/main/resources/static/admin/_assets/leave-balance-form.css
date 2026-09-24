@@ -9,7 +9,7 @@
 .emp-picker__selected {
   margin: 8px 0 0;
   padding: 10px 12px;
-  background: #f4f6f8;
+  background: var(--ui-neutral-2);
   border-radius: 10px;
   font-size: 14px;
 }
@@ -20,9 +20,9 @@
   padding: 0;
   max-height: 200px;
   overflow-y: auto;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--ui-border-soft);
   border-radius: 10px;
-  background: #fff;
+  background: var(--ui-surface);
   display: none;
 }
 
@@ -47,15 +47,15 @@
 
 .emp-picker__results button:hover,
 .emp-picker__results button:focus {
-  background: #f0f4ff;
+  background: var(--ui-info-weak);
 }
 
 .emp-picker__empty {
   padding: 12px;
-  color: #888;
+  color: var(--ui-text-muted);
   font-size: 13px;
 }
 
 .emp-picker.is-invalid .emp-picker__search {
-  border-color: #dc3545;
+  border-color: var(--ui-danger);
 }

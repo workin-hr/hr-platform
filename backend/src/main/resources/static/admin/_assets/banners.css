@@ -26,7 +26,7 @@
   display: block;
   margin-top: 4px;
   font-size: 12px;
-  color: #888;
+  color: var(--ui-text-muted);
 }
 
 .banner-image-preview {
@@ -38,7 +38,7 @@
   max-width: 100%;
   max-height: 140px;
   border-radius: 8px;
-  border: 1px solid #e0ded8;
+  border: 1px solid var(--ui-border-soft);
   object-fit: contain;
 }
 
@@ -60,7 +60,7 @@
   height: 40px;
   object-fit: cover;
   border-radius: 4px;
-  border: 1px solid #e0ded8;
+  border: 1px solid var(--ui-border-soft);
 }
 
 .banner-phone-row {
@@ -75,9 +75,9 @@
   min-width: 120px;
   max-width: 42%;
   padding: 8px 10px;
-  border: 1px solid #e0ded8;
+  border: 1px solid var(--ui-border-soft);
   border-radius: 8px;
-  background: #fff;
+  background: var(--ui-surface);
   font-size: 14px;
 }
 
@@ -85,7 +85,7 @@
   flex: 1 1 auto;
   min-width: 0;
   padding: 8px 10px;
-  border: 1px solid #e0ded8;
+  border: 1px solid var(--ui-border-soft);
   border-radius: 8px;
   font-size: 14px;
 }
@@ -93,7 +93,7 @@
 .banner-phone-row select:focus,
 .banner-phone-row input:focus {
   outline: none;
-  border-color: #4a90d9;
+  border-color: var(--ui-accent-400);
 }
 
 .banners-table__preview {

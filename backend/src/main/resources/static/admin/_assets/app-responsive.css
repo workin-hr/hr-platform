@@ -30,7 +30,7 @@
   padding: 10px 16px;
   border-radius: var(--app-radius-sm);
   background: var(--blue);
-  color: #fff;
+  color: var(--ui-surface);
   font-weight: 600;
   text-decoration: none;
   transform: translateY(-150%);
@@ -147,8 +147,8 @@
    on a table that already fits. */
 .table-wrap {
   background:
-    linear-gradient(to right, var(--app-surface, #fff) 30%, rgba(255, 255, 255, 0)),
-    linear-gradient(to left, var(--app-surface, #fff) 30%, rgba(255, 255, 255, 0)) 100% 0,
+    linear-gradient(to right, var(--app-surface, var(--ui-surface)) 30%, rgba(255, 255, 255, 0)),
+    linear-gradient(to left, var(--app-surface, var(--ui-surface)) 30%, rgba(255, 255, 255, 0)) 100% 0,
     linear-gradient(to right, rgba(15, 35, 70, .10), rgba(255, 255, 255, 0)),
     linear-gradient(to left, rgba(15, 35, 70, .10), rgba(255, 255, 255, 0)) 100% 0;
   background-repeat: no-repeat;

@@ -13,8 +13,8 @@
   height: 40px;
   border-radius: 8px;
   object-fit: cover;
-  border: 1px solid #e8e6e0;
-  background: #f5f5f3;
+  border: 1px solid var(--ui-border-soft);
+  background: var(--ui-neutral-2);
 }
 
 .company-current-logo {
@@ -36,7 +36,7 @@
 .company-add-section legend {
   font-size: 13px;
   font-weight: 700;
-  color: #1e1e1c;
+  color: var(--ui-text);
   margin-bottom: 12px;
   padding: 0;
   width: 100%;
@@ -77,7 +77,7 @@
   display: block;
   margin-top: 4px;
   font-size: 11px;
-  color: #888;
+  color: var(--ui-text-muted);
   font-weight: 400;
 }
 
@@ -95,7 +95,7 @@
 .company-file-upload__label {
   font-size: 12px;
   font-weight: 600;
-  color: #5f5e5a;
+  color: var(--ui-text-soft);
 }
 
 .company-file-upload__box {
@@ -103,16 +103,16 @@
   flex-direction: column;
   gap: 12px;
   padding: 14px;
-  border: 1px dashed #d8d6d0;
+  border: 1px dashed var(--ui-border);
   border-radius: 12px;
-  background: #fafaf8;
+  background: var(--ui-neutral-1);
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .company-file-upload__box:hover,
 .company-file-upload__box:focus-within {
-  border-color: #3b82c4;
-  background: #f4f8fc;
+  border-color: var(--ui-accent-500);
+  background: var(--ui-info-weak);
 }
 
 .company-file-upload__preview {
@@ -121,8 +121,8 @@
   justify-content: center;
   min-height: 96px;
   border-radius: 10px;
-  background: #fff;
-  border: 1px solid #eceae4;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-neutral-3);
   overflow: hidden;
 }
 
@@ -131,7 +131,7 @@
   height: 72px;
   object-fit: cover;
   border-radius: 12px;
-  border: 1px solid #e8e6e0;
+  border: 1px solid var(--ui-border-soft);
 }
 
 .company-file-upload--commercial .company-file-upload__preview img {
@@ -163,21 +163,21 @@
   height: 28px;
   padding: 0 10px;
   border-radius: 8px;
-  background: #eef4fb;
-  color: #2563a8;
+  background: var(--ui-info-weak);
+  color: var(--ui-accent-600);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
 
 .company-file-upload__doc-badge--muted {
-  background: #f0efeb;
-  color: #888;
+  background: var(--ui-neutral-2);
+  color: var(--ui-text-muted);
 }
 
 .company-file-upload__doc-name {
   font-size: 12px;
-  color: #5f5e5a;
+  color: var(--ui-text-soft);
   word-break: break-word;
 }
 
@@ -196,23 +196,23 @@
   font-size: 12px;
   font-weight: 600;
   border-radius: 8px;
-  border: 1px solid #d8d6d0;
-  background: #fff;
-  color: #1e1e1c;
+  border: 1px solid var(--ui-border);
+  background: var(--ui-surface);
+  color: var(--ui-text);
   cursor: pointer;
   transition: border-color 0.15s ease, color 0.15s ease;
 }
 
 .company-file-upload__pick:hover {
-  border-color: #3b82c4;
-  color: #3b82c4;
+  border-color: var(--ui-accent-500);
+  color: var(--ui-accent-500);
 }
 
 .company-file-upload__name {
   flex: 1;
   min-width: 0;
   font-size: 11px;
-  color: #888;
+  color: var(--ui-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -221,7 +221,7 @@
 .company-file-upload__view {
   font-size: 11px;
   font-weight: 600;
-  color: #3b82c4;
+  color: var(--ui-accent-500);
   text-decoration: none;
 }
 

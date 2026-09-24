@@ -190,6 +190,27 @@
   --ui-accent-pink:      #993556;
   --ui-accent-pink-weak: #fbecf1;
   --ui-accent-pink-edge: #eccdd8;
+  --ui-accent-purple:      #7c3aed;
+  --ui-accent-purple-weak: #f3e8ff;
+
+  /* ---- The sidebar is the one dark surface in a light dashboard, so it needs
+     its own ramp rather than borrowing the neutral one inverted. Eleven
+     near-identical darks (#222220 through #3a3a36) collapse to four steps. ---- */
+  --ui-nav-bg:          #242422;
+  --ui-nav-bg-raised:   #2e2e2b;
+  --ui-nav-bg-hover:    #34342f;
+  --ui-nav-border:      #3a3a36;
+  --ui-nav-text:        #f2f1eb;
+  --ui-nav-text-muted:  #a8a6a0;
+  --ui-nav-text-faint:  #8a8880;
+  --ui-nav-accent:      #6eb3ff;
+  --ui-nav-accent-soft: #9ec8f5;
+  --ui-nav-danger:      #e8b4b4;
+
+  /* The home banner: a dark brand surface, not text that happens to be dark.
+     Kept as its own token because a value map cannot tell those apart, and
+     mapping it by value turned the banner near-black. */
+  --ui-hero-bg: #1e293b;
 
   /* ---- Semantic surfaces. Sheets should reach for these, not the ramp. ---- */
   --ui-bg:            var(--ui-neutral-0);
@@ -319,6 +340,7 @@
   --ui-warning-strong: #a8681a;
   --ui-accent-pink-weak: #2d1620;
   --ui-accent-pink-edge: #4a2436;
+  --ui-accent-purple-weak: #2a1a3d;
   --ui-shadow-xs: 0 1px 2px rgba(0, 0, 0, .4);
   --ui-shadow-sm: 0 2px 8px rgba(0, 0, 0, .45);
   --ui-shadow: 0 4px 6px rgba(0, 0, 0, .35), 0 12px 28px rgba(0, 0, 0, .5);
