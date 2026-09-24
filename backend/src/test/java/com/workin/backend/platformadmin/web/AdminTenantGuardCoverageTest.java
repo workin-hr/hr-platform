@@ -774,12 +774,48 @@ class AdminTenantGuardCoverageTest {
 				.as("so a write to one is seen by nothing").isEmpty();
 	}
 
+	/**
+	 * A call on this object, for a walk that is defined as "a helper on the same
+	 * class".
+	 *
+	 * <p>{@link #reachesGuard} walked {@code \b(\w+)\s*\(} until the fifteenth
+	 * round, which matches the <em>method name</em> and never looks at the receiver.
+	 * This surface names a store's write after the service method that calls it --
+	 * {@code delete}, {@code setActive}, {@code approve}, {@code reject},
+	 * {@code markPaid}, {@code reply} -- so {@code this.store.delete(id)} resolved to
+	 * the service's own guarded {@code delete} and <b>the unguarded write was accepted
+	 * as its own guard</b>. Twelve of the twenty-one paired stores have that collision
+	 * live. An unguarded {@code purge(DashboardSession, long)} whose body is
+	 * {@code this.store.delete(id)} passed all thirty-six tests; renaming the store's
+	 * method to {@code removeRow} and changing nothing else failed rule one. That is
+	 * R-046 -- delete by posted row id with no tenant check -- which is the defect the
+	 * port exists not to import.
+	 *
+	 * <p>Only {@code reachesGuard} uses this. {@link #reachesCall} must keep following
+	 * {@code store.delete(...)}, because reaching the store is the whole point of it,
+	 * and it matches {@code wanted} by name before the walk.
+	 */
+	private static final Pattern OWN_CALL =
+			Pattern.compile("(?<![.\\w])(?:this\\s*\\.\\s*)?(\\w+)\\s*\\(");
+
 	/** A call that resolves or enforces the session's company. */
 	private static final Pattern TENANT_GUARD = Pattern.compile(
 			"\\bcompanyId\\s*\\(\\s*\\)|\\bisScopedToOneCompany\\s*\\(|\\bcanOpenRow\\s*\\(");
 
+	/**
+	 * The clause between a signature and its body.
+	 *
+	 * <p>Both patterns ended at {@code \)\s*\{} until the fifteenth round, so one
+	 * conventional keyword took a method out of every rule in this class at once: out
+	 * of rule one's subjects, out of rule two's, and out of both reachability walks,
+	 * while rule three still counted its file as scanned. Six methods in two of the
+	 * twenty-one paired stores already carry one.
+	 */
+	private static final String THROWS = "(?:\\s*throws[\\w.,\\s]+?)?";
+
 	private static final Pattern PUBLIC_METHOD = Pattern.compile(
-			"public\\s+[\\w.<>,?\\[\\]\\s]+?\\s(\\w+)\\s*\\(([^)]*)\\)\\s*\\{", Pattern.DOTALL);
+			"public\\s+[\\w.<>,?\\[\\]\\s]+?\\s(\\w+)\\s*\\(([^)]*)\\)" + THROWS + "\\s*\\{",
+			Pattern.DOTALL);
 
 	/**
 	 * Any method declaration, for following a call into a helper on the same class.
@@ -791,7 +827,8 @@ class AdminTenantGuardCoverageTest {
 	 * checked -- which is why one character was the whole fix.
 	 */
 	private static final Pattern ANY_METHOD = Pattern.compile(
-			"(?:public|private|protected|static)\\s+[\\w.<>,?\\[\\]\\s]+?\\s(\\w+)\\s*\\(([^)]*)\\)\\s*\\{",
+			"(?:public|private|protected|static)\\s+[\\w.<>,?\\[\\]\\s]+?\\s(\\w+)\\s*\\(([^)]*)\\)"
+					+ THROWS + "\\s*\\{",
 			Pattern.DOTALL);
 
 	private static final Pattern CREATE_TABLE = Pattern.compile(
@@ -1734,6 +1771,201 @@ class AdminTenantGuardCoverageTest {
 	}
 
 	/**
+	 * The write cannot be the guard it reaches.
+	 *
+	 * <p>The fifteenth round's first finding, and the worst one in the sequence. The
+	 * callee walk matched {@code \b(\w+)\s*\(}, which reads the method name and never
+	 * the receiver, while the class javadoc defines the walk as "a helper <em>on the
+	 * same class</em>". This surface names a store's write after the service method
+	 * that calls it, so {@code this.store.delete(id)} resolved to the service's own
+	 * guarded {@code delete} -- and rule one accepted the unguarded write as its own
+	 * guard. Twelve of the twenty-one paired stores share a name this way today.
+	 *
+	 * <p>Reproduced on the shipped tree before it was fixed: an unguarded
+	 * {@code purge(DashboardSession, long)} whose whole body was
+	 * {@code this.store.delete(id)} passed all thirty-six tests, and renaming
+	 * {@code PenaltyStore.delete} to {@code removeRow} -- changing nothing else --
+	 * failed rule one. That is R-046 arriving in the port through the gate built to
+	 * keep it out.
+	 */
+	@Test
+	void theWriteItselfIsNotAGuardBecauseItSharesAName() {
+		String throughTheStore = """
+				class Service {
+					public long purge(DashboardSession session, long id) {
+						this.store.delete(id);
+						return id;
+					}
+
+					public long delete(DashboardSession session, long id) {
+						if (id != session.companyId()) {
+							throw new IllegalStateException("other company");
+						}
+						return this.store.delete(id);
+					}
+				}
+				""";
+		assertThat(scan(throughTheStore).unguarded())
+				.as("`purge` calls the STORE's `delete`. Resolve a callee by bare name and it "
+						+ "lands in the service's own guarded `delete`, so the unguarded write "
+						+ "reports as guarded -- which is what shipped until this round")
+				.contains("purge");
+
+		String throughAHelper = """
+				class Service {
+					public long purge(DashboardSession session, long id) {
+						return delete(session, id);
+					}
+
+					public long delete(DashboardSession session, long id) {
+						if (id != session.companyId()) {
+							throw new IllegalStateException("other company");
+						}
+						return id;
+					}
+				}
+				""";
+		assertThat(scan(throughAHelper).unguarded())
+				.as("the control: an unqualified call to a method of the same class is exactly "
+						+ "what the walk is for, and narrowing it must not break that")
+				.isEmpty();
+
+		String throughThis = """
+				class Service {
+					public long purge(DashboardSession session, long id) {
+						return this.delete(session, id);
+					}
+
+					public long delete(DashboardSession session, long id) {
+						if (id != session.companyId()) {
+							throw new IllegalStateException("other company");
+						}
+						return id;
+					}
+				}
+				""";
+		assertThat(scan(throughThis).unguarded())
+				.as("`this.` is the same call written the other way, and this repository writes "
+						+ "it both ways")
+				.isEmpty();
+	}
+
+	/**
+	 * A {@code throws} clause is not a different kind of method.
+	 *
+	 * <p>Both method patterns ended at {@code \)\s*\{} until this round, so one
+	 * conventional keyword removed a method from rule one's subjects, from rule two's,
+	 * and from both reachability walks at once, while rule three went on counting its
+	 * file as scanned. The eleventh round found this shape for a missing modifier and
+	 * wrote it into the javadoc; the {@code throws} variant was never mentioned.
+	 *
+	 * <p>The second half is the part that matters more than the fix. A pattern this
+	 * class cannot see through is not a bug it can enumerate -- it is the shape of the
+	 * next one -- so every declaration a deliberately looser pattern finds in the
+	 * scanned files must also be found by the real one. When this round was opened,
+	 * that assertion failed on six methods in two paired stores, which is the right
+	 * way round: the rule found the gap before a write walked through it.
+	 */
+	@Test
+	void aThrowsClauseHidesAMethodFromNoRule() {
+		String declared = """
+				class Service {
+					public long purge(DashboardSession session, long id) throws java.sql.SQLException {
+						this.store.remove(id);
+						return id;
+					}
+				}
+				""";
+		assertThat(scan(declared).sessionTaking())
+				.as("a method that declares a checked exception is still a method")
+				.isEqualTo(1);
+		assertThat(scan(declared).unguarded())
+				.as("and it is still asked for a guard")
+				.contains("purge");
+
+		Pattern loose = Pattern.compile(
+				"(?:public|private|protected|static)\\s+[\\w.<>,?\\[\\]\\s]+?\\s(\\w+)\\s*\\(([^)]*)\\)"
+						+ "[^;{)]*\\{",
+				Pattern.DOTALL);
+		List<Path> scanned = new ArrayList<>(adminServices());
+		scanned.addAll(pairedStores());
+		List<String> invisible = new ArrayList<>();
+		for (Path file : scanned) {
+			String source = maskNonCode(read(file)).code();
+			Set<String> seen = new java.util.HashSet<>();
+			Matcher strict = ANY_METHOD.matcher(source);
+			while (strict.find()) {
+				seen.add(strict.group(1) + "@" + strict.start());
+			}
+			Matcher wide = loose.matcher(source);
+			while (wide.find()) {
+				if (!seen.contains(wide.group(1) + "@" + wide.start())) {
+					invisible.add(file.getFileName() + ": " + wide.group(1));
+				}
+			}
+		}
+		assertThat(invisible)
+				.as("a declaration the real pattern cannot see is a method no rule applies to, "
+						+ "and rule three still counts its file as scanned")
+				.isEmpty();
+	}
+
+	/**
+	 * A string literal cannot launder a write, or a guard, out of sight.
+	 *
+	 * <p>{@link #code} was three regex passes until this round -- the naive stripper
+	 * this class's own {@code SCHEMA_PREFIX} javadoc had already written down as
+	 * unsafe, and the sibling {@link #maskNonCode} was built to replace. It removed
+	 * {@code //} before it knew what a string was, so a URL in a literal ate that
+	 * literal's closing quote and the next pairing deleted everything up to the
+	 * following string.
+	 *
+	 * <p>Reproduced on the shipped tree: a sessionless {@code scrub(long)} holding a
+	 * {@code "https://..."} above {@code this.store.delete(id)} and any second string
+	 * below it passed all thirty-six tests, while the same method with the slashes
+	 * removed failed rule two. A char literal holding a quote is the other direction:
+	 * it leaves the pairing one quote out of phase, so a string's <em>content</em>
+	 * stands as code and a guard merely named in prose counts as called.
+	 *
+	 * <p>Built by concatenation. A fixture about quotes cannot be written as a text
+	 * block and still say what it appears to say.
+	 */
+	@Test
+	void aStringLiteralLaundersNeitherAWriteNorAGuard() {
+		String namedInAString = "class Service {\n"
+				+ "	public long remove(DashboardSession session, long id) {\n"
+				+ "		char quote = '\"';\n"
+				+ "		String note = \"resolved against session.companyId() upstream\";\n"
+				+ "		this.store.wipe(id);\n"
+				+ "		return id + quote + note.length();\n"
+				+ "	}\n"
+				+ "}\n";
+		assertThat(namedInAString)
+				.as("the fixture really does carry a char literal holding a quote")
+				.contains("char quote = '\"';");
+		assertThat(scan(namedInAString).unguarded())
+				.as("the guard is NAMED in a string, never called. One quote out of phase and "
+						+ "the string's content stands as code, which is the laundering this "
+						+ "class's javadoc says it forbids")
+				.contains("remove");
+
+		String calledForReal = "class Service {\n"
+				+ "	public long remove(DashboardSession session, long id) {\n"
+				+ "		char quote = '\"';\n"
+				+ "		String note = \"a note\";\n"
+				+ "		if (id != session.companyId()) {\n"
+				+ "			throw new IllegalStateException(note);\n"
+				+ "		}\n"
+				+ "		this.store.wipe(id);\n"
+				+ "		return id + quote;\n"
+				+ "	}\n"
+				+ "}\n";
+		assertThat(scan(calledForReal).unguarded())
+				.as("the control: the same shape with the guard actually called")
+				.isEmpty();
+	}
+
+	/**
 	 * An overload that does not guard cannot borrow its sibling's guard, and an
 	 * overload that does write cannot hide behind a sibling that does not.
 	 *
@@ -1921,9 +2153,38 @@ class AdminTenantGuardCoverageTest {
 				.isEqualTo(2);
 		assertThat(within(methodSpans(flat), flat.indexOf("DELETE FROM")))
 				.as("and the package-private write below the block is still inside no method "
-						+ "rule two can see -- which is what makes it visible. Collapse the "
-						+ "delimiter and the first method's span covers the rest of the class")
+						+ "rule two can see, which is what makes it visible to the positional "
+						+ "check. The count above is what pins the collapse: this assertion "
+						+ "stays false under a flatten-only regression too, because the "
+						+ "unterminated-block guard below truncates the desynchronised block at "
+						+ "its own line. The fifteenth round measured that and said so, rather "
+						+ "than leaving the sentence claiming a consequence it cannot see")
 				.isFalse();
+
+		// The guard that assertion just credited, pinned on its own, the way the
+		// unterminated STRING above is. Round 14 added it as a safety net and
+		// nothing checked it: reverting it alone left the whole suite green, which
+		// is this class's own recurring failure -- a fix shipped with a claim no
+		// assertion backs -- in the commit written to close that very shape.
+		String unterminatedBlock = "class Store {\n"
+				+ "\tprivate String broken() {\n"
+				+ "\t\treturn \"\"\"\n"
+				+ "\t}\n"
+				+ "\tprivate void alsoAMethod() {\n"
+				+ "\t\tjdbc.update(\"DELETE FROM penalties WHERE id = ?\");\n"
+				+ "\t}\n"
+				+ "}\n";
+		assertThat(unterminatedBlock.split("\"\"\"", -1).length - 1)
+				.as("the fixture really does open a text block and never close it")
+				.isEqualTo(1);
+		assertThat(methodSpans(unterminatedBlock))
+				.as("an unterminated text block ends at its own line, so the second method is "
+						+ "still a method. Blank to the end of the file instead and this is one "
+						+ "span -- every later brace gone, and with it every write below. Both "
+						+ "declarations carry a modifier on purpose: ANY_METHOD needs one, so a "
+						+ "package-private second method would make this fixture agree with the "
+						+ "broken scanner for a reason that has nothing to do with the guard")
+				.hasSize(2);
 	}
 
 	@Test
@@ -2439,12 +2700,22 @@ class AdminTenantGuardCoverageTest {
 	 *
 	 * <p>`// see session.companyId() for why this is fine` used to satisfy rule
 	 * one, which is the gate laundering itself with prose.
+	 *
+	 * <p>This was three regex passes until the fifteenth round, and it was the
+	 * sibling that kept the defect {@link #maskNonCode} was built to fix. It
+	 * stripped {@code //} before it knew what a string was, so a URL in a literal
+	 * -- {@code "https://wiki/hr#scrub"} -- ate the literal's closing quote and the
+	 * next pairing deleted everything up to the following string, taking a
+	 * {@code store.delete(id)} call with it. {@code SCHEMA_PREFIX}'s own javadoc
+	 * had already written down why that is unsafe. And a char literal holding a
+	 * quote left the pairing one quote out of phase, so a string's content stood
+	 * as code and a guard <em>named</em> in prose counted as called -- the exact
+	 * laundering this method exists to prevent. Twenty string literals containing
+	 * {@code //} and nine {@code '"'} char literals already live in this package
+	 * tree.
 	 */
 	private static String code(String body) {
-		return body
-				.replaceAll("(?s)/\\*.*?\\*/", " ")
-				.replaceAll("(?m)//[^\n]*", " ")
-				.replaceAll("\"(?:\\\\.|[^\"\\\\])*\"", "\"\"");
+		return maskNonCode(body).code();
 	}
 
 	/**
@@ -2489,7 +2760,7 @@ class AdminTenantGuardCoverageTest {
 		// assertRowVisible(session, id) upstream" -- satisfied rule one. That is the
 		// laundering this class's own javadoc says it forbids, one level down, and
 		// it is this repository's commenting style.
-		Matcher call = Pattern.compile("\\b(\\w+)\\s*\\(").matcher(code);
+		Matcher call = OWN_CALL.matcher(code);
 		while (call.find()) {
 			String callee = call.group(1);
 			if (!bodies.containsKey(callee) || !seen.add(callee)) {
