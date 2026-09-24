@@ -63,7 +63,7 @@ html[dir="ltr"] body {
   font-size: var(--ui-text-sm);
 }
 .topbar-util__lang {
-  color: var(--blue);
+  color: var(--ui-link);
   font-weight: var(--ui-weight-semibold);
   text-decoration: none;
   padding: var(--ui-space-1) var(--ui-space-2);

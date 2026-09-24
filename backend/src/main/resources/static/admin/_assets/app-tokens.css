@@ -154,14 +154,12 @@
   --ui-neutral-8:  #6b6862;
   --ui-neutral-9:  #56534e;
   --ui-neutral-10: #3f3d39;
-  --ui-neutral-11: #2a2926;
   --ui-neutral-12: #1a1917;
 
   /* ---- Accent. #185FA5 is the product's existing identity and is kept as
      the mid step, so nothing that already reads as "the blue thing" changes
      meaning. The ramp around it is new. ---- */
   --ui-accent-50:  #eef4fb;
-  --ui-accent-100: #dce8f6;
   --ui-accent-200: #b9d1ed;
   --ui-accent-300: #8cb3e0;
   --ui-accent-400: #4d84c2;
@@ -184,7 +182,6 @@
   --ui-warning-strong: #6f4109;
   --ui-warning-weak: #fbf0dc;
   --ui-warning-edge: #ecd6ab;
-  --ui-info:         #185fa5;
   --ui-info-weak:    #eaf2fb;
   --ui-info-edge:    #c6dcf1;
   --ui-accent-pink:      #993556;
@@ -216,7 +213,6 @@
   --ui-bg:            var(--ui-neutral-0);
   --ui-surface:       #ffffff;
   --ui-surface-sunk:  var(--ui-neutral-2);
-  --ui-surface-raised:#ffffff;
   --ui-surface-hover: var(--ui-neutral-2);
   --ui-border:        var(--ui-neutral-4);
   --ui-border-soft:   var(--ui-neutral-3);
@@ -232,7 +228,6 @@
      the lesson of D-197/D-251: this decision has been taken twice and may be
      taken again. ---- */
   --ui-font: 'IBM Plex Sans Arabic', 'Segoe UI', Tahoma, Arial, sans-serif;
-  --ui-font-numeric: var(--ui-font);
 
   --ui-text-xs:   0.75rem;   /* 12px -- table meta, chips */
   --ui-text-sm:   0.8125rem; /* 13px -- labels, help text */
@@ -246,16 +241,13 @@
   --ui-text-md:   1rem;      /* 16px -- card titles */
   --ui-text-lg:   1.1875rem; /* 19px -- page title */
   --ui-text-xl:   1.5rem;    /* 24px -- dashboard figures */
-  --ui-text-2xl:  1.875rem;  /* 30px -- hero figures */
 
   --ui-leading-tight: 1.25;
   /* Tables get their own: 1.5 is right for prose and wrong for a cell, where a
      wrapped branch name turns every extra tenth into another 40px of row. */
   --ui-leading-table: 1.35;
   --ui-leading: 1.5;
-  --ui-leading-loose: 1.7;
 
-  --ui-weight-regular: 400;
   --ui-weight-medium: 500;
   --ui-weight-semibold: 600;
   --ui-weight-bold: 700;
@@ -272,7 +264,6 @@
   --ui-space-6: 24px;
   --ui-space-8: 32px;
   --ui-space-10: 40px;
-  --ui-space-12: 48px;
 
   /* ---- Radius, elevation, focus, motion ---- */
   --ui-radius-xs: 6px;
@@ -293,17 +284,11 @@
 
   --ui-ease: cubic-bezier(.22, 1, .36, 1);
   --ui-duration-fast: 120ms;
-  --ui-duration: 180ms;
-  --ui-duration-slow: 260ms;
 
   --ui-topbar-h: 60px;
-  --ui-sidebar-w: 248px;
 
   --ui-z-sticky: 20;
   --ui-z-topbar: 40;
-  --ui-z-drawer: 60;
-  --ui-z-modal: 80;
-  --ui-z-toast: 100;
 }
 
 /*
@@ -317,7 +302,6 @@
   --ui-bg:            #17161a;
   --ui-surface:       #1f1e23;
   --ui-surface-sunk:  #191819;
-  --ui-surface-raised:#26252b;
   --ui-surface-hover: #2b2a31;
   --ui-border:        #38363e;
   --ui-border-soft:   #2c2b31;
@@ -335,6 +319,21 @@
   --ui-warning-edge:  #47351a;
   --ui-info-weak:     #14243a;
   --ui-info-edge:     #24405f;
+  /* The foreground hues have to lift, not just their tints: #3b6d11 on #17161a
+     is 1.5:1. These are the same hues at a luminance that reads on a dark
+     surface, which the token gate now requires rather than leaving to whoever
+     first turns a toggle on. */
+  --ui-success:       #8fc95a;
+  --ui-success-strong: #a6db73;
+  --ui-danger:        #f08a86;
+  --ui-danger-strong: #f5a5a1;
+  --ui-warning:       #e0a951;
+  --ui-warning-strong: #ecbd72;
+  --ui-accent-pink:   #e08aa5;
+  --ui-accent-purple: #b98af5;
+  --ui-focus:         var(--ui-accent-300);
+  --ui-focus-ring:      0 0 0 3px rgba(140, 179, 224, .45);
+  --ui-focus-ring-soft: 0 0 0 4px rgba(140, 179, 224, .20);
   --ui-success-strong: #4d8a1a;
   --ui-danger-strong: #c24141;
   --ui-warning-strong: #a8681a;
