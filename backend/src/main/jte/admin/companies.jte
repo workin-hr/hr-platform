@@ -178,7 +178,7 @@
 									<td class="col-center"><span class="badge badge-blue">${row.employeeCount()}</span></td>
 									<td class="col-center"><span class="badge badge-gray">${row.branchCount()}</span></td>
 									<td class="col-center"><span class="badge badge-gray">${row.departmentCount()}</span></td>
-									<td class="text-muted">${row.createdDate()}</td>
+									<td class="nowrap text-muted">${row.createdDate()}</td>
 									<td class="col-actions">
 										@template.admin.companyActions(companyId = row.id(),
 												status = row.status(), actionsEnabled = actionsEnabled,

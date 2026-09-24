@@ -346,6 +346,15 @@ textarea { min-height: 88px; resize: vertical; line-height: var(--ui-leading); }
 /* ===== UTILS ===== */
 .mt-20 { margin-top: var(--ui-space-5); }
 .mb-16 { margin-bottom: var(--ui-space-4); }
+/* An atomic value must not break in the middle of itself. A date splits at its
+   hyphen and a phone number at its space, so a squeezed column renders
+   "2026-09-" above "04". `.tbl th` has said `nowrap` since the copy; `.tbl td`
+   never did, and the cells that hold one indivisible value are the ones that
+   need it -- not every cell, because an address or a branch's meta line is
+   meant to wrap. The table already scrolls sideways when it must, with the
+   shading `.table-wrap` paints, so the cost of a wider table is paid for. */
+.nowrap { white-space: nowrap; }
+
 .text-muted { color: var(--ui-text-muted); font-size: var(--ui-text-xs); }
 .text-red   { color: var(--ui-danger); }
 .text-green { color: var(--ui-success); }

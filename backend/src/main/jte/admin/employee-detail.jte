@@ -151,7 +151,7 @@
 						@for(EmployeeDetail.Penalty row : detail.penalties())
 							<tr><td>${row.penaltyType()}</td>
 								<td class="text-red">${row.penaltyDays() == null ? "" : row.penaltyDays().toPlainString()}</td>
-								<td>${row.penaltyDate()}</td>
+								<td class="nowrap">${row.penaltyDate()}</td>
 								<td>@template.admin.statusBadge(status = row.appliedToPayroll() ? "1" : "0", t = t)</td></tr>
 						@endfor
 						@if(detail.penalties().isEmpty())

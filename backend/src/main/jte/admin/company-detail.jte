@@ -182,7 +182,7 @@
 								<td class="bold">${row.nameLabel()}</td>
 								<td>${row.phone()}</td>
 								<td>${row.branchLabel()}</td>
-								<td>${row.hireDateLabel()}</td>
+								<td class="nowrap">${row.hireDateLabel()}</td>
 								<td>@template.admin.statusBadge(status = row.active() ? "1" : "0", t = t)</td>
 								<td><a href="/admin/employee_detail?id=${row.id()}" class="btn btn-blue btn-sm">${t.apply("details")}</a></td>
 							</tr>

@@ -276,6 +276,83 @@ class AdminTableConventionsTest {
 	}
 
 	/** Legacy closes the table card and only then draws the pager ({@code requests/page.php:137-140}). */
+	/**
+	 * The accessors whose value is one indivisible token.
+	 *
+	 * <p>A closed, declared set rather than a pattern over the rendered text: what this rule is
+	 * about is the shape of the value a cell holds, and the only place that is knowable from the
+	 * template is the call that produces it. Matching a date-looking string instead would read
+	 * {@code "2026-09-04"} out of a notes column and miss a date a formatter spells differently.
+	 */
+	private static final List<String> ATOMIC = List.of(
+			"createdDate()", "penaltyDate()", "requestDate()", "assetDate()", "assetEndDate()",
+			"createdAtDisplay()", "employeeCode()", "phoneLabel()", "hireDateLabel()",
+			"periodFrom()", "periodTo()", "workTenure(", "EmployeeDisplay.date(",
+			"AttendanceDisplay.date(", "HomeDisplay.dateTime(", "createdAt().toString()",
+			"lastAccessedAt().toString()");
+
+	/**
+	 * The cells that hold an atomic value and still wrap, with the reason.
+	 *
+	 * <p>Keyed by template and accessor rather than by line, because a line number is not a fact
+	 * about the cell and goes stale on the next edit above it.
+	 */
+	private static final Map<String, String> WRAPS_ON_PURPOSE = Map.of(
+			"employees.jte:employeeCode()",
+			"the second line of the name cell, whose first line is a name that must be free to wrap");
+
+	/**
+	 * A cell holding one indivisible value says so.
+	 *
+	 * <p>A date breaks at its hyphen and a phone number at its space, so a column squeezed by the
+	 * fourteen the employees list carries renders {@code 2026-09-} above {@code 04}. Legacy's
+	 * {@code .tbl th} has carried {@code nowrap} since the copy and {@code .tbl td} never has, so
+	 * every one of these wrapped, on every list, for as long as the port has existed -- and a
+	 * page's own test cannot see it, because the text is all there.
+	 *
+	 * <p>Not every cell: an address and a branch's meta line are meant to wrap, and forcing the
+	 * whole table would trade one defect for a wider one. The count is pinned so a template that
+	 * stops calling an accessor cannot quietly empty the rule.
+	 */
+	@Test
+	void everyCellHoldingOneIndivisibleValueSaysSo() throws IOException {
+		Pattern cell = Pattern.compile("<td\\b([^>]*)>(.*?)</td>", Pattern.DOTALL);
+		List<String> wrapping = new ArrayList<>();
+		int examined = 0;
+		try (var templates = Files.list(TEMPLATES)) {
+			for (Path template : templates.filter(path -> path.toString().endsWith(".jte")).sorted().toList()) {
+				String source = Files.readString(template, StandardCharsets.UTF_8);
+				Matcher match = cell.matcher(source);
+				while (match.find()) {
+					String attributes = match.group(1);
+					String body = match.group(2);
+					if (attributes.contains("col-actions")) {
+						continue;
+					}
+					String accessor = ATOMIC.stream().filter(body::contains).findFirst().orElse(null);
+					if (accessor == null) {
+						continue;
+					}
+					String key = template.getFileName() + ":" + accessor;
+					if (WRAPS_ON_PURPOSE.containsKey(key)) {
+						continue;
+					}
+					examined++;
+					if (!attributes.contains("nowrap")) {
+						wrapping.add(key + " -- " + body.replaceAll("\\s+", " ").trim());
+					}
+				}
+			}
+		}
+		assertThat(wrapping)
+				.as("a cell whose value cannot be broken in half must carry .nowrap")
+				.isEmpty();
+		assertThat(examined)
+				.as("cells holding an atomic value; pinned so the rule cannot measure nothing, "
+						+ "and so adding a list page is a decision about its columns")
+				.isEqualTo(32);
+	}
+
 	@Test
 	void noPagerSitsInsideItsTableCard() throws IOException {
 		List<String> offenders = new ArrayList<>();

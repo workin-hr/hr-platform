@@ -183,8 +183,8 @@
 								<td>${PayrollDisplay.money(batchTotals.totalEntitlements())}</td>
 								<td>${PayrollDisplay.money(batchTotals.totalDeductions())}</td>
 								<td class="bold">${PayrollDisplay.money(batchTotals.netSalary())}</td>
-								<td>${currentBatch.periodFrom()}</td>
-								<td>${currentBatch.periodTo()}</td>
+								<td class="nowrap">${currentBatch.periodFrom()}</td>
+								<td class="nowrap">${currentBatch.periodTo()}</td>
 								<td>@template.admin.statusBadge(status = currentBatch.status(), t = t)</td>
 							</tr>
 						</tbody>
@@ -414,8 +414,8 @@
 								@endif
 								<td>${row.month()}</td>
 								<td>${row.year()}</td>
-								<td>${row.periodFrom()}</td>
-								<td>${row.periodTo()}</td>
+								<td class="nowrap">${row.periodFrom()}</td>
+								<td class="nowrap">${row.periodTo()}</td>
 								<td>${row.employeeCount()}</td>
 								<td class="bold">${PayrollDisplay.money(row.totalNet())} ج.م</td>
 								<td>@template.admin.statusBadge(status = row.status(), t = t)</td>

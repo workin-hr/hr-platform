@@ -159,7 +159,7 @@
 									@template.admin.statusBadge(status = row.status(), t = t)
 								@endif
 							</td>
-							<td class="text-muted">${row.createdDate()}</td>
+							<td class="nowrap text-muted">${row.createdDate()}</td>
 							<td class="col-actions">
 								@if(canWrite)
 									@template.admin.rowActions(rowId = row.id(), t = t, items = @`

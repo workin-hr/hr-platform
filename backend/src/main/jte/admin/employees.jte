@@ -548,7 +548,7 @@
 								<div class="tbl-sub">${row.employeeCode() == null || row.employeeCode().isBlank()
 									? "—" : row.employeeCode()}</div>
 							</td>
-							<td class="text-muted" dir="ltr">${row.phoneLabel()}</td>
+							<td class="nowrap text-muted" dir="ltr">${row.phoneLabel()}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
@@ -560,9 +560,9 @@
 							</td>
 							<td class="text-muted">${row.shiftLabel()}</td>
 							<td class="col-center" dir="ltr">${EmployeeDisplay.basicSalary(row.basicSalary())}</td>
-							<td class="text-muted">${EmployeeDisplay.date(row.hireDate())}</td>
-							<td class="text-muted">${EmployeeDisplay.date(row.createdAt())}</td>
-							<td class="text-muted">${EmployeeDisplay.workTenure(row.hireDate(), arabic, today)}</td>
+							<td class="nowrap text-muted">${EmployeeDisplay.date(row.hireDate())}</td>
+							<td class="nowrap text-muted">${EmployeeDisplay.date(row.createdAt())}</td>
+							<td class="nowrap text-muted">${EmployeeDisplay.workTenure(row.hireDate(), arabic, today)}</td>
 							<td class="text-muted">${EmployeeDisplay.contractDuration(row.contractDurationMonths(), arabic)}</td>
 							<td>
 								@template.admin.statusBadge(status = row.active() ? "active" : "suspended", t = t)

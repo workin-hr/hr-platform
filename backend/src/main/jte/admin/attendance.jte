@@ -209,7 +209,7 @@
 							<%-- page.php:202-206. Whether a punch fell on a Friday is the
 							     difference between an absence and a weekend; legacy puts it in
 							     its own column rather than leaving the reader to work it out. --%>
-							<td>${AttendanceDisplay.date(row.checkIn(), arabic)}</td>
+							<td class="nowrap">${AttendanceDisplay.date(row.checkIn(), arabic)}</td>
 							<td>${AttendanceDisplay.dayName(row.checkIn(), arabic)}</td>
 							<td dir="ltr">${AttendanceDisplay.time(row.checkIn())}</td>
 							@if(row.checkOut() == null || row.checkOut().isEmpty())

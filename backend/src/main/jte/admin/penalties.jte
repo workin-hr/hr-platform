@@ -139,7 +139,7 @@
 						!{String employeeName = EmployeeDisplay.displayName(row.employeeName(), "—");}
 						<tr>
 							<td>${result.from() + index}</td>
-							<td class="text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
+							<td class="nowrap text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
 							<td class="bold">${employeeName}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
@@ -147,7 +147,7 @@
 							<td>${row.penaltyType()}</td>
 							<td class="text-red bold">${row.daysLabel(t)}</td>
 							<td class="text-muted" title="${row.reason() == null ? "" : row.reason()}">${ListDisplay.notes(row.reason(), 40)}</td>
-							<td>${row.penaltyDate() == null ? "—" : row.penaltyDate()}</td>
+							<td class="nowrap">${row.penaltyDate() == null ? "—" : row.penaltyDate()}</td>
 							<td>
 								@template.admin.statusBadge(status = row.appliedToPayroll() ? "1" : "0", t = t)
 							</td>
