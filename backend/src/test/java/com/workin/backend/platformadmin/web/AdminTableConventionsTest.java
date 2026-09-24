@@ -353,6 +353,43 @@ class AdminTableConventionsTest {
 				.isEqualTo(32);
 	}
 
+	/**
+	 * Every icon a card asks for is one the registry draws.
+	 *
+	 * <p>{@code AdminIcons.of} answers an empty string for a name it does not know, which is the
+	 * right call for a sidebar that must not go down over a glyph -- and it means a typo in a
+	 * template shows a coloured tile with nothing in it, on the first page an administrator sees,
+	 * with nothing in a log. The home grid's nineteen cards name their glyph now rather than
+	 * carrying an emoji, so the silent fallback became reachable the moment they did.
+	 */
+	@Test
+	void everyStatCardNamesAnIconTheRegistryDefines() throws IOException {
+		Pattern named = Pattern.compile("icon\\s*=\\s*\"([^\"]*)\"");
+		List<String> missing = new ArrayList<>();
+		int asked = 0;
+		try (var templates = Files.list(TEMPLATES)) {
+			for (Path template : templates.filter(path -> path.toString().endsWith(".jte")).sorted().toList()) {
+				Matcher match = named.matcher(Files.readString(template, StandardCharsets.UTF_8));
+				while (match.find()) {
+					asked++;
+					if (AdminIcons.of(match.group(1)).isEmpty()) {
+						missing.add(template.getFileName() + ": " + match.group(1));
+					}
+				}
+			}
+		}
+		assertThat(missing).as("an icon name the registry cannot draw renders an empty tile").isEmpty();
+		assertThat(Files.readString(TEMPLATES.resolve("statCard.jte"), StandardCharsets.UTF_8))
+				.as("the card's glyph is not the sidebar's: `nav-icon` carries the copied sidebar's "
+						+ "sizing and leaves the tile's own rule matching nothing, so the SVG falls "
+						+ "back to its 18px attributes and to inline alignment inside a flex tile")
+				.contains("AdminIcons.of(icon, \"stat-icon\")");
+		assertThat(asked)
+				.as("icon arguments across the admin templates; pinned so the rule cannot pass "
+						+ "by finding none")
+				.isEqualTo(19);
+	}
+
 	@Test
 	void noPagerSitsInsideItsTableCard() throws IOException {
 		List<String> offenders = new ArrayList<>();

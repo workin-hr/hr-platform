@@ -461,6 +461,10 @@ html[dir="ltr"] .home-activity-side {
   font-size: 20px;
   font-weight: 700;
   line-height: 1.2;
+  /* The three salary totals are a number and its currency, so a wrap puts
+     "26,133,179" above a lone "ج.م". Same reason the atomic table cells carry
+     .nowrap; the card is wide enough for the longest of them at this weight. */
+  white-space: nowrap;
 }
 .home-stat-card .lbl {
   font-size: 11px;
@@ -468,6 +472,15 @@ html[dir="ltr"] .home-activity-side {
   margin-top: 4px;
   font-weight: 500;
 }
+/* The glyph takes the tile's own colour. That is the whole reason it is an SVG
+   and not an emoji: `.ico--red` already sets `color`, and an emoji ignores it,
+   so a red tile used to hold a full-colour drawing of a speech bubble. */
+.home-stat-card .ico .stat-icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
 .home-stat-card .ico {
   width: 40px;
   height: 40px;

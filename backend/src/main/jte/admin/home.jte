@@ -107,37 +107,37 @@
 			     on is decoration. --%>
 			<div class="home-stats-grid">
 				@template.admin.statCard(href = "/admin/companies", value = String.valueOf(summary.companiesTotal()),
-						label = t.apply("total_companies"), icon = "🏢", tone = "blue")
+						label = t.apply("total_companies"), icon = "companies", tone = "blue")
 				@template.admin.statCard(href = "/admin/companies?filter=active", value = String.valueOf(summary.companiesActive()),
-						label = t.apply("active_companies"), icon = "✓", tone = "green")
+						label = t.apply("active_companies"), icon = "approved", tone = "green")
 				@template.admin.statCard(href = "/admin/companies?filter=pending", value = String.valueOf(summary.companiesPending()),
-						label = t.apply("pending_companies"), icon = "⏳", tone = "yellow")
+						label = t.apply("pending_companies"), icon = "awaiting", tone = "yellow")
 				@template.admin.statCard(href = "/admin/employees", value = String.valueOf(summary.employeesTotal()),
-						label = t.apply("total_employees"), icon = "👥", tone = "violet")
+						label = t.apply("total_employees"), icon = "employees", tone = "violet")
 				@template.admin.statCard(href = "/admin/attendance", value = String.valueOf(summary.checkedInToday()),
-						label = t.apply("checked_in_today"), icon = "📅", tone = "green")
+						label = t.apply("checked_in_today"), icon = "attendance", tone = "green")
 				@template.admin.statCard(href = "/admin/requests?status=pending", value = String.valueOf(summary.pendingRequests()),
-						label = t.apply("pending_requests"), icon = "⏱", tone = "yellow")
+						label = t.apply("pending_requests"), icon = "requests", tone = "yellow")
 				@template.admin.statCard(href = "/admin/complaints", value = String.valueOf(summary.openComplaints()),
-						label = t.apply("open_complaints"), icon = "💬", tone = "red")
+						label = t.apply("open_complaints"), icon = "complaints", tone = "red")
 				@template.admin.statCard(href = "/admin/advances?status=pending", value = String.valueOf(summary.pendingAdvances()),
-						label = t.apply("pending_advances"), icon = "💰", tone = "yellow")
+						label = t.apply("pending_advances"), icon = "advances", tone = "yellow")
 				@template.admin.statCard(href = "/admin/penalties", value = String.valueOf(summary.penaltiesTotal()),
-						label = t.apply("total_penalties"), icon = "⚖", tone = "red")
+						label = t.apply("total_penalties"), icon = "penalties", tone = "red")
 				@template.admin.statCard(href = "/admin/penalties?applied=0", value = String.valueOf(summary.penaltiesUnapplied()),
-						label = t.apply("unapplied_penalties"), icon = "!", tone = "red")
+						label = t.apply("unapplied_penalties"), icon = "alert", tone = "red")
 				@template.admin.statCard(href = "/admin/branches", value = String.valueOf(summary.branchesTotal()),
-						label = t.apply("total_branches"), icon = "🏬", tone = "blue")
+						label = t.apply("total_branches"), icon = "branch", tone = "blue")
 				@template.admin.statCard(href = "/admin/payroll", value = String.valueOf(summary.payrollDraft()),
-						label = t.apply("payroll_draft"), icon = "🧾", tone = "yellow")
+						label = t.apply("payroll_draft"), icon = "payroll", tone = "yellow")
 				@template.admin.statCard(href = null, value = summary.gross() + " " + t.apply("currency_egp"),
-						label = t.apply("total_gross_salaries"), icon = "💵", tone = "yellow")
+						label = t.apply("total_gross_salaries"), icon = "money", tone = "yellow")
 				@template.admin.statCard(href = null, value = summary.basic() + " " + t.apply("currency_egp"),
-						label = t.apply("total_basic_salaries"), icon = "📊", tone = "violet")
+						label = t.apply("total_basic_salaries"), icon = "reports", tone = "violet")
 				@template.admin.statCard(href = "/admin/payroll", value = summary.net() + " " + t.apply("currency_egp"),
-						label = t.apply("monthly_net"), icon = "✅", tone = "green")
+						label = t.apply("monthly_net"), icon = "calculator", tone = "green")
 				@template.admin.statCard(href = "/admin/employees?filter=inactive", value = String.valueOf(summary.resignations()),
-						label = t.apply("resignations_year"), icon = "↩", tone = "gray")
+						label = t.apply("resignations_year"), icon = "logout", tone = "gray")
 			</div>
 
 			<%-- The three rates. Percentages rather than counts, so they sit in
@@ -149,11 +149,11 @@
 				     then the 90-day cohort rate. --%>
 				<div class="home-stats-grid home-stats-grid--rates">
 					@template.admin.statCard(href = null, value = turnover.monthlyDisplay() + "%",
-							label = t.apply("turnover_monthly"), icon = "📈", tone = "blue")
+							label = t.apply("turnover_monthly"), icon = "trend", tone = "blue")
 					@template.admin.statCard(href = null, value = turnover.annualDisplay() + "%",
-							label = t.apply("turnover_annual"), icon = "📊", tone = "violet")
+							label = t.apply("turnover_annual"), icon = "reports", tone = "violet")
 					@template.admin.statCard(href = null, value = turnover.newHiresDisplay() + "%",
-							label = t.apply("turnover_new_3mo"), icon = "👤", tone = "yellow")
+							label = t.apply("turnover_new_3mo"), icon = "profile", tone = "yellow")
 				</div>
 			@endif
 
