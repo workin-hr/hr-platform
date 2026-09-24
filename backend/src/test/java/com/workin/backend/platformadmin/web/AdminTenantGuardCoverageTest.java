@@ -447,6 +447,21 @@ class AdminTenantGuardCoverageTest {
 				.containsExactly("employees");
 
 		assertThat(writtenTenantTables(
+				"-- rows to delete\n\t\tDELETE FROM employees WHERE id = ?",
+				tables, noEntities))
+				.as("DELETE's alias slot does consume the statement's own verb here, and the "
+						+ "capture is still its table -- the invariant is that no match ends at or "
+						+ "past a table, not that no match eats a verb")
+				.containsExactly("employees");
+
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"DELETE FROM Employees WHERE id = ?\");", tables, noEntities))
+				.as("the scanner is case-insensitive and the schema readers canonicalise, so the "
+						+ "two sides must be compared canonically -- a table declared one way and "
+						+ "written another is the same table")
+				.containsExactly("employees");
+
+		assertThat(writtenTenantTables(
 				"-- resolve the row first. Then update it.\n"
 						+ "\t\tDELETE FROM employees WHERE id = ?",
 				tables, noEntities))
@@ -493,11 +508,21 @@ class AdminTenantGuardCoverageTest {
 	 */
 	@Test
 	void noTenantOwnedTableIsNamedLikeAStatementModifier() {
+		Set<String> modifiers = Set.of("low_priority", "high_priority", "delayed", "quick", "ignore");
 		assertThat(tenantOwnedTables())
 				.as("a table named exactly like a modifier is read as the modifier, and the word "
 						+ "after it is captured instead -- so the write reads as a write to nothing")
-				.doesNotContainAnyElementsOf(
-						Set.of("low_priority", "high_priority", "delayed", "quick", "ignore"));
+				.doesNotContainAnyElementsOf(modifiers);
+
+		// A JPQL write names the ENTITY, in the same slot, so an entity called
+		// `Delayed` is lost the same way -- raised by the tenth round, and narrow
+		// rather than theoretical: it needs a `@Modifying` write outside a
+		// repository interface, which this repository does write through
+		// EntityManager elsewhere.
+		assertThat(entityTables().keySet().stream().map(AdminTenantGuardCoverageTest::canonical).toList())
+				.as("nor an entity named like one, because a JPQL write puts the entity name where "
+						+ "the table name goes")
+				.doesNotContainAnyElementsOf(modifiers);
 	}
 
 	/**
@@ -539,9 +564,19 @@ class AdminTenantGuardCoverageTest {
 				.containsEntry("LegacyCompany", "companies")
 				.containsEntry("LegacyRefreshToken", "legacy_refresh_tokens")
 				.containsEntry("PlatformAdminAuditEvent", "platform_admin_audit_events");
-		assertThat(entityTables().values())
-				.as("a table name, never a class name").allSatisfy(
-						table -> assertThat(table).isEqualTo(table.toLowerCase(java.util.Locale.ROOT)));
+		// On the RAW capture, not on the map: entityTables() canonicalises its values,
+		// so asserting the same property there can no longer fail -- which the tenth
+		// round caught, because this commit is what made it unfalsifiable.
+		classesByName().forEach((name, path) -> {
+			String declared = tableNameOf(read(path));
+			if (declared == null) {
+				return;
+			}
+			assertThat(declared)
+					.as("%s declares @Table(name = \"%s\") -- a table name, never a class name",
+							name, declared)
+					.isEqualTo(canonical(declared));
+		});
 	}
 
 	/**
@@ -789,13 +824,21 @@ class AdminTenantGuardCoverageTest {
 	 * was read as a write to nothing -- invisible, not over-approximated.
 	 *
 	 * <p>It accepts whitespace around the dot on purpose, and the reason is
-	 * {@link #WRITE_STATEMENT}'s lookahead rather than anything about SQL: once no
-	 * match can consume what follows it, recognising <em>more</em> shapes can only
-	 * add a name, never lose one. So the question "does MariaDB accept
-	 * {@code workin . employees}?" stops mattering -- if it does, the write is
-	 * seen; if it does not, nothing was written that way to miss. Deciding it the
-	 * other way round is what made the spaced form invisible between the eighth and
-	 * ninth rounds.
+	 * {@link #WRITE_STATEMENT}'s lookahead rather than anything about SQL: a wider
+	 * prefix cannot hide a statement below the match, because no match consumes what
+	 * follows it. So the question "does MariaDB accept {@code workin . employees}?"
+	 * stops mattering -- if it does, the write is seen; if it does not, nothing was
+	 * written that way to miss. Deciding it the other way round is what made the
+	 * spaced form invisible between the eighth and ninth rounds.
+	 *
+	 * <p>Not "additive", which an earlier draft of this paragraph claimed and the
+	 * tenth round corrected: the prefix is greedy and a match has one capture, so a
+	 * wider prefix <em>replaces</em> the captured word rather than adding to it.
+	 * Measured over the whole tree, that changes three captures, all of them prose
+	 * and none of them a tenant-owned table ({@code entirely}&rarr;{@code on},
+	 * {@code binds}&rarr;{@code the}, {@code carried}&rarr;{@code return}). What the
+	 * lookahead guarantees is the part that matters -- a wrong capture cannot cost a
+	 * later statement its own.
 	 *
 	 * <p>Because this scan reads whole files rather than stripped ones, prose can
 	 * still match: {@code "the dynamic UPDATE binds. The normalised keys"} parses as
@@ -853,17 +896,28 @@ class AdminTenantGuardCoverageTest {
 	 * that the separator was never the point. A lookahead ends the match at the
 	 * verb, so a wrong capture is additive and can hide nothing.
 	 *
-	 * <p>That is a claim about the <em>class</em> and not about these two inputs, so
-	 * here is the whole of what a match still consumes: the verb; the enumerated
-	 * words of {@link #STATEMENT_MODIFIERS}; for {@code DELETE}, one optional word
-	 * immediately followed by {@code FROM}; and {@code INTO}/{@code FROM}. None of
-	 * those can be another statement's verb. No modifier is a write verb. The
-	 * {@code DELETE} alias slot only matches when {@code FROM} follows it, which
-	 * makes the statement a real multi-table delete rather than two statements. So
-	 * the token that begins the next statement is always left for the next
-	 * {@code find()}, whatever precedes it -- which is the property the two
-	 * assertions below sample and the reason a third instance of this should not
-	 * exist.
+	 * <p>That is a claim about the <em>class</em> and not about these inputs, so here
+	 * is the invariant rather than a sample: <b>no match can end at or past a
+	 * statement's table</b>, because the table is only ever read in the lookahead.
+	 * Every capture is therefore the table of some statement beginning at or after
+	 * the match's own start, and no statement can be skipped over.
+	 *
+	 * <p>It is stated that way because the obvious stronger claim -- that a match
+	 * never consumes another statement's verb -- is false, and the tenth round caught
+	 * it here. {@code DELETE}'s alias slot takes one word before {@code FROM}, and a
+	 * comment ending in {@code delete} supplies it:
+	 *
+	 * <pre>
+	 * -- rows to delete
+	 * DELETE FROM employees WHERE id = ?      -- one match, consuming BOTH deletes
+	 * </pre>
+	 *
+	 * That match spans the prose verb, the statement's verb and its {@code FROM} --
+	 * and captures {@code employees} anyway, because after the consumed {@code FROM}
+	 * the next token is that statement's own table. Nothing is lost, which is the
+	 * invariant above doing its work; the reasoning that said this could not happen
+	 * was simply wrong, and a reader widening the alias slot later needs the true
+	 * reason rather than the comfortable one.
 	 *
 	 * <p>Two shapes are still invisible <em>and asserted here</em>, the second
 	 * being a limit of what "tenant-owned" means rather than a detection gap.
@@ -1530,12 +1584,15 @@ class AdminTenantGuardCoverageTest {
 			Set<String> columns = new HashSet<>();
 			Matcher column = COLUMN_NAME.matcher(table.group(2));
 			while (column.find()) {
-				columns.add(column.group(1));
+				// Column names are case-insensitive in MySQL unconditionally, unlike
+				// table names -- a re-vendored dump writing `Company_Id` would drop
+				// the whole table out of the ground truth.
+				columns.add(canonical(column.group(1)));
 			}
 			// Directly owned, or owned through the employee -- the two shapes
 			// R-059 had to distinguish. Both make a row somebody's.
 			if (columns.contains("company_id") || columns.contains("employee_id")) {
-				tenant.add(table.group(1).toLowerCase(java.util.Locale.ROOT));
+				tenant.add(canonical(table.group(1)));
 			}
 		}
 		return tenant;
@@ -1555,10 +1612,10 @@ class AdminTenantGuardCoverageTest {
 				Set<String> columns = new HashSet<>();
 				Matcher column = COLUMN_NAME_PHASE1.matcher(table.group(2));
 				while (column.find()) {
-					columns.add(column.group(1).toLowerCase(java.util.Locale.ROOT));
+					columns.add(canonical(column.group(1)));
 				}
 				if (columns.contains("company_id") || columns.contains("employee_id")) {
-					tenant.add(table.group(1).toLowerCase(java.util.Locale.ROOT));
+					tenant.add(canonical(table.group(1)));
 				}
 			}
 		}
@@ -1596,13 +1653,15 @@ class AdminTenantGuardCoverageTest {
 			}
 			Set<String> writes = new TreeSet<>();
 			String source = read(store);
+			Map<String, String> entities = entityTables();
 			for (Map.Entry<String, String> method : methodBodies(source).entrySet()) {
-				String flattened = method.getValue().replaceAll("\"\\s*\\+\\s*\"", "");
-				Matcher write = WRITE_STATEMENT.matcher(flattened);
-				while (write.find()) {
-					if (tenantTables.contains(write.group(1))) {
-						writes.add(method.getKey());
-					}
+				// The same predicate rule three uses, not a second copy of it. Two
+				// copies is how the tenth round's finding happened: one was
+				// normalised for case and the other was not, and the one that was
+				// is unreferenced (#335). Verified behaviour-preserving before
+				// switching -- both forms produce the identical collector today.
+				if (!writtenTenantTables(method.getValue(), tenantTables, entities).isEmpty()) {
+					writes.add(method.getKey());
 				}
 			}
 			if (!writes.isEmpty()) {
@@ -1627,7 +1686,7 @@ class AdminTenantGuardCoverageTest {
 			String flattened = read(store).replaceAll("\"\\s*\\+\\s*\"", "");
 			Matcher write = WRITE_STATEMENT.matcher(flattened);
 			while (write.find()) {
-				String table = write.group(1).toLowerCase(java.util.Locale.ROOT);
+				String table = canonical(write.group(1));
 				if (tenantTables.contains(table)) {
 					written.add(table);
 				}
@@ -1805,6 +1864,27 @@ class AdminTenantGuardCoverageTest {
 				.isEmpty();
 	}
 
+	/**
+	 * One canonical case for every table or column name this rule compares.
+	 *
+	 * <p>{@link #WRITE_STATEMENT} is case-insensitive, so the name it captures
+	 * carries whatever case the source wrote; the schema readers carry whatever case
+	 * the {@code CREATE TABLE} declared. Comparing the two raw means a table
+	 * declared {@code Timesheets} and written {@code timesheets} is not the same
+	 * table, and the write is invisible -- neither <em>found</em> nor
+	 * <em>unaccounted for</em>.
+	 *
+	 * <p>It is a named call rather than an inline {@code toLowerCase} because of how
+	 * the tenth round found the gap: the previous commit normalised the comparisons
+	 * it could see and missed one, and the one it happened to fix was in
+	 * {@code servicesWritingTenantTables} -- the unreferenced twin (#335) -- while
+	 * rule two's live collector went on comparing raw. With one named form, a
+	 * comparison that does not use it is visibly the odd one out.
+	 */
+	private static String canonical(String name) {
+		return name.toLowerCase(java.util.Locale.ROOT);
+	}
+
 	/** Every class under {@code com.workin}, by simple name, for the walk below. */
 	private static Map<String, Path> classesByName() {
 		Map<String, Path> byName = new LinkedHashMap<>();
@@ -1967,7 +2047,7 @@ class AdminTenantGuardCoverageTest {
 			// A JPQL write names the entity; the table it lands in is what the
 			// schema calls tenant-owned. Anything that is not an entity name is
 			// already a table name.
-			String named = write.group(1).toLowerCase(java.util.Locale.ROOT);
+			String named = canonical(write.group(1));
 			String table = entityTables.getOrDefault(write.group(1), named);
 			if (tenantTables.contains(table)) {
 				written.add(table);
@@ -1997,7 +2077,7 @@ class AdminTenantGuardCoverageTest {
 		classesByName().forEach((name, path) -> {
 			Matcher table = ENTITY_TABLE.matcher(read(path));
 			if (table.find()) {
-				tables.put(name, table.group(1).toLowerCase(java.util.Locale.ROOT));
+				tables.put(name, canonical(table.group(1)));
 			}
 		});
 		assertThat(tables).as("the entities must be findable, or a JPQL write reads as no write at all")
