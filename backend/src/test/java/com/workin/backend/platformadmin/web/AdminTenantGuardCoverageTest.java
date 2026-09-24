@@ -270,11 +270,19 @@ class AdminTenantGuardCoverageTest {
 							+ "controls here, not a tenant predicate."),
 
 			Map.entry("LegacyPayrollBatchStore",
-					"Reached only through PayrollAdminService, every public method of which that "
-							+ "reaches a batch write takes a DashboardSession (createRun, calculate, "
-							+ "finalizeRun, reopenRun, deleteRun, editDetail; actionsEnabled and the "
-							+ "static helpers write nothing) -- so rule one already enforces the guard, "
-							+ "one layer "
+					"The admin surface reaches it only through PayrollAdminService, and its five "
+							+ "batch-write paths each take a DashboardSession: createRun, finalizeRun, "
+							+ "reopenRun and deleteRun write through this store directly, and calculate "
+							+ "writes through LegacyPayrollBatchService's connection-scoped copy of it. "
+							+ "Five, not six: `editDetail` writes through PayrollStore, which rule two "
+							+ "scans, and `actionsEnabled` and the static helpers write nothing. The "
+							+ "store's other holders are LegacyPayslipService and "
+							+ "LegacyPayslipWriteCoordinator, which only read it, and "
+							+ "LegacyPayrollBatchService, whose own entry points are the legacy API's "
+							+ "with its own tenant control -- so `reached only through "
+							+ "PayrollAdminService`, which an earlier version of this entry claimed "
+							+ "without qualification, is true of the admin surface and of no wider "
+							+ "scope. Rule one enforces the guard, one layer "
 							+ "above. The store sits outside the admin root because payroll's arithmetic "
 							+ "is shared with the legacy API, not because it is unguarded."),
 
@@ -298,9 +306,11 @@ class AdminTenantGuardCoverageTest {
 							+ "branches): its `SELECT id FROM branches WHERE company_id = ? ORDER BY id "
 							+ "ASC LIMIT 1` resolves the id inside the company being edited, so the "
 							+ "following `UPDATE branches ... WHERE id = ?` cannot reach another "
-							+ "company's row, and when that select finds nothing the else-branch "
-							+ "`INSERT INTO branches (company_id, ...)` writes the same resolved "
-							+ "company as a column."));
+							+ "company's row, and when that select finds nothing the "
+							+ "`INSERT INTO branches (company_id, ...)` beside it writes the same "
+							+ "resolved company as a column. (An earlier version of this sentence "
+							+ "called that INSERT the else-branch; it is the if-branch, and a reader "
+							+ "who checks a claim against the method should find the method.)"));
 
 	/**
 	 * The write detector sees every verb this repository writes with.
@@ -534,6 +544,31 @@ class AdminTenantGuardCoverageTest {
 	 * invisible to rule three, and that is a sentence this gate should say out
 	 * loud rather than leave for the next review round to find.
 	 */
+	/**
+	 * A table owned only through a non-employee parent is not in the ground
+	 * truth, so no rule looks at a write to it.
+	 *
+	 * <p>Asserted rather than left to be found. {@code department_branches} is
+	 * company-owned through {@code departments} and carries neither tenant
+	 * column, so {@code DepartmentStore.syncBranches}'s two statements are
+	 * invisible to this gate -- harmless today, because that store also writes
+	 * {@code departments} and its service takes a session, and a stated bound
+	 * rather than a fifth review round's discovery.
+	 */
+	@Test
+	void aTableOwnedOnlyThroughItsParentIsNotInTheGroundTruth() {
+		Set<String> tables = tenantOwnedTables();
+		assertThat(tables).as("the parent is tenant-owned").contains("departments", "company_settings");
+		assertThat(tables)
+				.as("the link tables are not, because they carry neither tenant column")
+				.doesNotContain("department_branches", "company_setting_values");
+
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"DELETE FROM department_branches WHERE department_id = ?\", id);",
+				tables, entityTables()))
+				.as("so a write to one is seen by nothing").isEmpty();
+	}
+
 	@Test
 	void aTableNameBuiltFromAVariableIsNotSeenAndThatIsRecorded() {
 		assertThat(writtenTenantTables(
@@ -602,9 +637,27 @@ class AdminTenantGuardCoverageTest {
 	 * writes its entity's table with no statement written down at all
 	 * ({@link #JPA_REPOSITORY}).
 	 *
-	 * <p>One shape is still invisible, deliberately and with a test saying so: a
-	 * statement whose table name is a variable
-	 * ({@code "DELETE FROM " + table}) has no table name in its text.
+	 * <p>Two shapes are still invisible, each with a test saying so, and the
+	 * second is not a detection gap but a limit of what "tenant-owned" means
+	 * here.
+	 *
+	 * <p><b>A variable table name</b> ({@code "DELETE FROM " + table}) has no
+	 * table name in its text.
+	 *
+	 * <p><b>A table owned only through a non-employee parent</b> carries neither
+	 * {@code company_id} nor {@code employee_id}, so the ground truth does not
+	 * call it tenant-owned at all and no rule looks at a write to it.
+	 * {@code department_branches} (owned through {@code departments}) and
+	 * {@code company_setting_values} (through {@code company_settings}) are the
+	 * live examples, and {@code DepartmentStore.syncBranches} writes the first
+	 * with no company predicate. Nothing is hidden today -- that store also
+	 * writes {@code departments}, and every {@code DepartmentAdminService} method
+	 * reaching it takes a session, so rule one covers it -- but a future store
+	 * whose <em>only</em> write were to a link table of that shape would be
+	 * invisible to all three rules and to the ratchet. Widening the ground truth
+	 * to follow a foreign key into a tenant-owned parent is a change to what this
+	 * gate covers rather than to how it looks, so it is tracked separately rather
+	 * than folded in here.
 	 */
 	private static final Pattern WRITE_STATEMENT = Pattern.compile(
 			"\\b(?:INSERT\\s+(?:IGNORE\\s+)?INTO|REPLACE\\s+INTO|UPDATE|DELETE\\s+(?:\\w+\\s+)?FROM)"
@@ -692,14 +745,20 @@ class AdminTenantGuardCoverageTest {
 	 * scanned or listed.
 	 *
 	 * <p><b>Why reachability rather than "every writer in the repository".</b>
-	 * Measured with this rule's own predicate at this head: <b>61 files</b>
-	 * contain a write to a tenant-owned table. The number is not asserted
-	 * anywhere, and deliberately: it moves whenever the verb set or the ground
-	 * truth widens, and both widened in the change that added this rule -- the
-	 * sentence it replaced still said "120 write methods across 39 files", which
-	 * had been true of a narrower gate. It is re-derived by printing
-	 * {@code writtenTenantTables} over {@code classesByName()}. Most of the 61
-	 * belong to the legacy API, which has its own tenant control
+	 * Measured with this rule's own predicate at this head: <b>68 files</b>
+	 * contain a write to a tenant-owned table -- <b>59</b> by SQL text alone,
+	 * <b>61</b> once a JPQL {@code @Modifying} write counts, <b>68</b> once a
+	 * repository declared over a tenant-owned entity counts.
+	 *
+	 * <p>Decomposed like that on purpose, because a bare figure here has now been
+	 * wrong twice for the same reason. It said "120 write methods across 39
+	 * files", which had been true of a narrower gate; the correction said 61,
+	 * measured minutes before the same commit taught the rule to count
+	 * repositories, which added seven more. A number that moves when the
+	 * predicate widens should show which predicate it belongs to. It is not
+	 * asserted anywhere -- a ratchet on it would fail on every unrelated store --
+	 * and is re-derived by printing {@code writtenTenantTables} over
+	 * {@code classesByName()}. Most of the 68 belong to the legacy API, which has its own tenant control
 	 * ({@code TenantFilterCoverageTest}, the tenant filter, {@code
 	 * LegacyTenantContext}). Demanding an entry for each would produce the wall of
 	 * exemptions this class's javadoc already rejected once, for the same reason:
