@@ -64,10 +64,6 @@ public class LegacyPayrollAttendanceFigures {
 			WHERE r.employee_id = ? AND r.status = 'approved' AND t.counts_as_paid_leave = 1
 			  AND r.from_date <= ? AND r.to_date >= ?""";
 
-	private static final String HOLIDAY_DATES_IN_RANGE = """
-			SELECT holiday_date FROM company_official_holidays
-			WHERE company_id = ? AND holiday_date BETWEEN ? AND ? ORDER BY holiday_date ASC""";
-
 	private static final String PRESENT_DATES = """
 			SELECT DISTINCT DATE(check_in) AS d FROM attendance
 			WHERE employee_id = ? AND DATE(check_in) BETWEEN ? AND ?""";
@@ -224,7 +220,12 @@ public class LegacyPayrollAttendanceFigures {
 	 */
 	private int officialHolidaysWorkingDaysInRange(long companyId, String from, String to) {
 		List<String> rest = weeklyOffDays.forCompany(companyId);
-		List<String> dates = jdbcTemplate.queryForList(HOLIDAY_DATES_IN_RANGE, String.class, companyId, from, to);
+		// The calendar's memoized read of the same rows, so a page of ten rows
+		// asks once rather than once per row. Its map is date-keyed where this
+		// used to read a row list, and that is the same count only because
+		// `uq_company_holiday_date` makes (company_id, holiday_date) unique --
+		// two rows on one date cannot exist to be collapsed.
+		java.util.Collection<String> dates = calendar.holidaysByDate(companyId, from, to).keySet();
 		int count = 0;
 		for (String date : dates) {
 			if (date == null || date.isEmpty()) {

@@ -165,12 +165,18 @@ public class LegacyAttendanceReportDetails {
 
 		LocalDate start = LocalDate.parse(from);
 		LocalDate end = LocalDate.parse(rangeTo);
+		// One statement for the whole range instead of one per date, for the
+		// isOnApprovedLeave below. The window is the one voidWeeklyRestAbsentDetails
+		// needs, not the narrower one this loop needs, so a report that calls both
+		// warms once.
+		calendar.warmApprovedLeaveForEmployees(
+				java.util.List.of(employeeId), start.minusDays(14).toString(), rangeTo);
 		for (LocalDate day = start; !day.isAfter(end); day = day.plusDays(1)) {
 			String dateStr = day.toString();
 			if (presentDates.contains(dateStr) || holidayByDate.containsKey(dateStr)) {
 				continue;
 			}
-			if (weeklyRestCredit.isOnApprovedLeave(employeeId, dateStr)) {
+			if (calendar.isOnApprovedLeave(employeeId, dateStr)) {
 				continue;
 			}
 			if (calendar.expectedForDay(companyId, employeeId, dateStr, weeklyRestLabel).restDay()) {
@@ -217,6 +223,11 @@ public class LegacyAttendanceReportDetails {
 						companyId, LocalDate.parse(from).minusDays(7).toString(), rangeTo)
 				: holidayByDate;
 
+		// creditStatus asks isOnApprovedLeave once per preceding workday per rest
+		// date, and those workdays reach up to fourteen days behind `from` --
+		// blockStart walks back up to seven and workdaysBeforeBlock seven more.
+		calendar.warmApprovedLeaveForEmployees(
+				java.util.List.of(employeeId), LocalDate.parse(from).minusDays(14).toString(), rangeTo);
 		for (String date : payrollFigures.weeklyRestDatesByStatus(
 				companyId, employeeId, from, rangeTo, LegacyWeeklyRestCredit.VOID, flags, holidays, asOf)) {
 			Map<String, Object> row = new LinkedHashMap<>();

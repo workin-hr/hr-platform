@@ -42,16 +42,6 @@ public class LegacyWeeklyRestCredit {
 			  AND DATE(check_in) >= ?
 			  AND DATE(check_in) <= ?""";
 
-	private static final String IS_ON_APPROVED_LEAVE = """
-			SELECT COUNT(*)
-			FROM requests r
-			INNER JOIN request_types t ON t.id = r.request_type_id
-			WHERE r.employee_id = ?
-			  AND r.status = 'approved'
-			  AND t.counts_as_paid_leave = 1
-			  AND r.from_date <= ?
-			  AND r.to_date >= ?""";
-
 	private final JdbcTemplate jdbcTemplate;
 	private final LegacyAttendanceCalendar calendar;
 
@@ -140,7 +130,7 @@ public class LegacyWeeklyRestCredit {
 			AttendanceFlag day = attendanceByDate.get(dateStr);
 			boolean worked = day != null && day.hasPunch();
 			boolean exceptionCover = day != null && day.isExceptionOnly();
-			boolean onLeave = isOnApprovedLeave(employeeId, dateStr);
+			boolean onLeave = calendar.isOnApprovedLeave(employeeId, dateStr);
 
 			// Official holidays do not count toward the 3-day coverage threshold.
 			if (worked || exceptionCover || onLeave) {
@@ -159,16 +149,6 @@ public class LegacyWeeklyRestCredit {
 		}
 		// Coverage still short but the week is still open -- do not credit yet.
 		return PENDING;
-	}
-
-	/**
-	 * {@code attendance_is_on_approved_leave()}
-	 * ({@code attendance_calendar_helper.php:669-683}).
-	 */
-	public boolean isOnApprovedLeave(long employeeId, String date) {
-		Long count = jdbcTemplate.queryForObject(
-				IS_ON_APPROVED_LEAVE, Long.class, employeeId, date, date);
-		return count != null && count > 0;
 	}
 
 	/**

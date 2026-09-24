@@ -2,6 +2,7 @@ package com.workin.legacy.attendance.calendar;
 
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import javax.sql.DataSource;
@@ -87,6 +88,12 @@ public class LegacyAttendancePeriodStats {
 		String todayStr = today.toString();
 		LocalDate start = LocalDate.parse(from);
 		LocalDate end = LocalDate.parse(to);
+		// One statement for the whole period instead of one per date: the loop
+		// below asks isOnApprovedLeave for every workday with no punch, and
+		// creditStatus asks it again for the workdays before each rest block --
+		// which reach up to fourteen days behind `from`.
+		calendar.warmApprovedLeaveForEmployees(
+				List.of(employeeId), start.minusDays(14).toString(), to);
 
 		int presentDays = 0;
 		int leaveDays = 0;
@@ -138,7 +145,7 @@ public class LegacyAttendancePeriodStats {
 				continue;
 			}
 
-			if (weeklyRestCredit.isOnApprovedLeave(employeeId, dateStr)) {
+			if (calendar.isOnApprovedLeave(employeeId, dateStr)) {
 				leaveDays++;
 			}
 			// else: a scheduled workday with no punch/leave/holiday -- an

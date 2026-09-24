@@ -594,8 +594,13 @@ public class AttendanceStore {
 		// rest date on the period's first day can ask about from-8. Warming a
 		// wider window costs cache entries, not statements.
 		List<Long> employeeIds = raw.stream().map(RawAggregate::employeeId).toList();
-		this.calendar.warmShiftsForEmployees(
-				employeeIds, LocalDate.parse(from).minusDays(14).toString(), to);
+		String warmFrom = LocalDate.parse(from).minusDays(14).toString();
+		this.calendar.warmShiftsForEmployees(employeeIds, warmFrom, to);
+		// The larger of the two terms the per-row derivation used to pay: one
+		// isOnApprovedLeave per preceding workday per rest date. Ten rows over a
+		// month for a Friday-off company was 240 statements of this page's 286.
+		// The same fourteen days of lookback, for the same reason.
+		this.calendar.warmApprovedLeaveForEmployees(employeeIds, warmFrom, to);
 		Map<Long, Integer> holidayCredits =
 				officialHolidayCreditForEmployees(aggCompanyId, employeeIds, from, to);
 
