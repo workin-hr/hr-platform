@@ -333,7 +333,9 @@
 					carry = carry, t = t, pageParam = "agent_page")
 
 			@template.admin.devicePunches(result = punchResult,
-				title = t.apply("device_latest_punches"), carry = carry, t = t)
+				title = t.apply("device_latest_punches"), t = t)
+			@template.admin.pager(basePath = "/admin/devices", result = punchResult,
+					carry = carry, t = t, pageParam = "punch_page")
 		@else
 			<div class="toolbar page-toolbar">
 				<a href="/admin/devices" class="btn btn-gray">${t.apply("back")}</a>
@@ -419,7 +421,9 @@
 			</div>
 
 			@template.admin.devicePunches(result = punchResult,
-				title = t.apply("device_punches"), carry = carry, t = t)
+				title = t.apply("device_punches"), t = t)
+			@template.admin.pager(basePath = "/admin/devices", result = punchResult,
+					carry = carry, t = t, pageParam = "punch_page")
 
 			<div class="data-table-card">
 				<div class="data-table-head">

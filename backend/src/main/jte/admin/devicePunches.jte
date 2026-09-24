@@ -4,7 +4,6 @@
 @import com.workin.backend.platformadmin.web.DashboardPage
 @param DashboardPage<Map<String, Object>> result
 @param String title
-@param Map<String, String> carry
 @param Function<String, String> t
 <%-- The punch table the devices page shows twice: every company's latest, and
      one terminal's. Newest received first, so a scan at the terminal appears at
@@ -51,5 +50,3 @@
 	</table>
 	</div>
 </div>
-@template.admin.pager(basePath = "/admin/devices", result = result,
-		carry = carry, t = t, pageParam = "punch_page")
