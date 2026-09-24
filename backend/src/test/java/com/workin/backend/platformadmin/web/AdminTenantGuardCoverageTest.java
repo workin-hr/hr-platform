@@ -1342,12 +1342,14 @@ class AdminTenantGuardCoverageTest {
 	 * <p>Two ways a write hides from rule two, both live shapes. {@link #ANY_METHOD}
 	 * needs an explicit {@code public}, {@code private}, {@code protected} or
 	 * {@code static}, so a <b>package-private</b> method is not a method as far as it
-	 * is concerned. And {@link #methodBodies} keeps the <b>first</b> declaration of
-	 * each name, so a later <b>overload</b>'s body is in the file and in no map value
-	 * -- {@code EmployeeStore} overloads five names today and {@code JobTitleStore}
-	 * one, so that precondition exists without the write yet doing so. Either way the
-	 * statement is in the file, in no method rule two names, and rule three skips the
-	 * file on rule two's behalf. Three rules, one blind spot.
+	 * is concerned, so the statement is in the file, in no method rule two names, and
+	 * rule three skips the file on rule two's behalf. Three rules, one blind spot.
+	 *
+	 * <p>Method <b>overloads</b> were the second way in, and they are not this test's
+	 * to catch: the overload <em>is</em> inside a method's braces, so an offset check
+	 * passes. {@link #methodBodies} handles that one, and the twelfth round's mutant
+	 * confirms the division -- the overload exploit is killed by rule two itself and
+	 * survives this test. A sentence here once claimed otherwise.
 	 *
 	 * <p><b>Comparing the tables written would not close it, and the twelfth round
 	 * proved that with a working exploit.</b> A file-wide table set minus a
@@ -1382,7 +1384,7 @@ class AdminTenantGuardCoverageTest {
 			// the offsets below and the write matches are in the same coordinates.
 			String source = read(store).replaceAll("\"\\s*\\+\\s*\"", "");
 			List<int[]> methods = methodSpans(source);
-			List<int[]> comments = commentSpans(source);
+			List<int[]> comments = maskNonCode(source).comments();
 			Matcher write = WRITE_STATEMENT.matcher(source);
 			while (write.find()) {
 				String named = canonical(write.group(1));
@@ -1419,98 +1421,176 @@ class AdminTenantGuardCoverageTest {
 	/**
 	 * The braces of every method {@link #ANY_METHOD} finds, as {@code [open, close)}.
 	 *
-	 * <p>Every method, not every distinct name: {@link #methodBodies} keeps the first
-	 * declaration per name and this keeps all of them, which is the whole point of
-	 * measuring by offset.
+	 * <p>Every method, not every distinct name: {@link #methodBodies} keeps one entry
+	 * per name and this keeps all of them, which is the whole point of measuring by
+	 * offset.
+	 *
+	 * <p>Both the declaration match and the brace counting run on
+	 * {@link #maskNonCode}'s output, so a brace or a method-shaped phrase inside a
+	 * string or a comment is neither a span nor an opening one. Counting on the raw
+	 * text is what the thirteenth round defeated with a single {@code "{"}.
 	 */
 	private static List<int[]> methodSpans(String source) {
+		String code = maskNonCode(source).code();
 		List<int[]> spans = new ArrayList<>();
-		Matcher method = ANY_METHOD.matcher(source);
+		Matcher method = ANY_METHOD.matcher(code);
 		while (method.find()) {
-			int open = source.indexOf('{', method.end() - 1);
-			if (open < 0) {
-				continue;
-			}
-			int depth = 0;
-			for (int index = open; index < source.length(); index++) {
-				char character = source.charAt(index);
-				if (character == '{') {
-					depth++;
-				}
-				else if (character == '}' && --depth == 0) {
-					spans.add(new int[] { open, index + 1 });
-					break;
-				}
+			int[] span = braceSpan(code, method.end() - 1);
+			if (span != null) {
+				spans.add(span);
 			}
 		}
 		return spans;
 	}
 
 	/**
-	 * Every {@code //} and {@code /*} comment, as {@code [start, end)}.
-	 *
-	 * <p>String literals are skipped while scanning, so a {@code "//"} or a
-	 * {@code "/*"} inside SQL does not open a comment that swallows the rest of the
-	 * file -- which would hide real writes, the direction this class must never fail
-	 * in. A character literal is skipped for the same reason.
+	 * The braced block opening at or after {@code from}, as {@code [open, close)},
+	 * counted over already-masked code.
 	 */
-	private static List<int[]> commentSpans(String source) {
-		List<int[]> spans = new ArrayList<>();
+	private static int[] braceSpan(String code, int from) {
+		int open = code.indexOf('{', from);
+		if (open < 0) {
+			return null;
+		}
+		int depth = 0;
+		for (int index = open; index < code.length(); index++) {
+			char character = code.charAt(index);
+			if (character == '{') {
+				depth++;
+			}
+			else if (character == '}' && --depth == 0) {
+				return new int[] { open, index + 1 };
+			}
+		}
+		return new int[] { open, code.length() };
+	}
+
+	/**
+	 * One pass over a Java source: which characters are code, and where the
+	 * comments are.
+	 *
+	 * <p>{@code code} is the source with every character of a string literal, a
+	 * character literal, a text block and a comment replaced by a space --
+	 * <b>same length, so every offset still lines up with the real source</b>.
+	 * {@code comments} are the spans of the comments, for the one caller that
+	 * needs to tell prose from code rather than ignore it.
+	 */
+	private record SourceMask(String code, List<int[]> comments) {
+	}
+
+	/**
+	 * Mask the parts of a Java source that are not code.
+	 *
+	 * <p><b>This exists because counting braces on raw text is wrong, and the
+	 * thirteenth round proved it with one line.</b> A {@code String prefix = "{";}
+	 * anywhere in a store left the brace counter one level deep at the end of that
+	 * method, so its span ran to the end of the class and every later write --
+	 * including a package-private one nothing else sees -- read as "inside a
+	 * method". That is the gap the twelfth round's fix had just closed, re-opened
+	 * by the fix itself. Eighty of the 503 classes here contain a brace inside a
+	 * string literal; one {@code LIKE '%{'} in a paired store would have done it.
+	 *
+	 * <p>Text blocks are handled as text blocks, not as two strings. A
+	 * {@code """} opened as {@code ""} plus {@code "} leaves the scanner reading
+	 * the block's <em>content</em> as code, so an unescaped quote inside it
+	 * desynchronises everything after -- and six of the twenty-one paired stores
+	 * write their SQL in text blocks.
+	 *
+	 * <p>Escapes are consumed as a unit, so a literal ending in {@code \\"} does
+	 * not swallow the rest of the file.
+	 */
+	private static SourceMask maskNonCode(String source) {
+		char[] code = source.toCharArray();
+		List<int[]> comments = new ArrayList<>();
 		int index = 0;
 		while (index < source.length()) {
 			char character = source.charAt(index);
-			if (character == '"' || character == '\'') {
-				char quote = character;
-				index++;
-				while (index < source.length() && source.charAt(index) != quote) {
-					index += source.charAt(index) == '\\' ? 2 : 1;
+			if (character == '/' && index + 1 < source.length()) {
+				char next = source.charAt(index + 1);
+				if (next == '/') {
+					int end = source.indexOf('\n', index);
+					end = end < 0 ? source.length() : end;
+					comments.add(new int[] { index, end });
+					index = blank(code, index, end);
+					continue;
 				}
-				index++;
+				if (next == '*') {
+					int end = source.indexOf("*/", index + 2);
+					end = end < 0 ? source.length() : end + 2;
+					comments.add(new int[] { index, end });
+					index = blank(code, index, end);
+					continue;
+				}
 			}
-			else if (character == '/' && index + 1 < source.length()
-					&& source.charAt(index + 1) == '/') {
-				int end = source.indexOf('\n', index);
-				end = end < 0 ? source.length() : end;
-				spans.add(new int[] { index, end });
-				index = end;
+			if (source.startsWith("\"\"\"", index)) {
+				int end = source.indexOf("\"\"\"", index + 3);
+				end = end < 0 ? source.length() : end + 3;
+				index = blank(code, index, end);
+				continue;
 			}
-			else if (character == '/' && index + 1 < source.length()
-					&& source.charAt(index + 1) == '*') {
-				int end = source.indexOf("*/", index + 2);
-				end = end < 0 ? source.length() : end + 2;
-				spans.add(new int[] { index, end });
-				index = end;
+			if (character == '"' || character == '\'') {
+				int at = index + 1;
+				while (at < source.length() && source.charAt(at) != character) {
+					// A newline ends an unterminated literal rather than letting it
+					// run to the end of the file: a scanner that swallows the rest
+					// of a class hides writes, which is the one direction that must
+					// not happen quietly.
+					if (source.charAt(at) == '\n') {
+						break;
+					}
+					at += source.charAt(at) == '\\' ? 2 : 1;
+				}
+				at = Math.min(at + 1, source.length());
+				index = blank(code, index, at);
+				continue;
 			}
-			else {
-				index++;
+			index++;
+		}
+		return new SourceMask(new String(code), comments);
+	}
+
+	/** Blank {@code [from, to)} and return {@code to}. */
+	private static int blank(char[] code, int from, int to) {
+		for (int at = from; at < to && at < code.length; at++) {
+			if (code[at] != '\n') {
+				code[at] = ' ';
 			}
 		}
-		return spans;
+		return Math.max(to, from + 1);
 	}
 
 	/**
-	 * A table declared in any case lands in the ground truth as its canonical form.
+	 * A table declared in any case lands in the ground truth as its canonical form
+	 * -- in <b>both</b> schema readers.
 	 *
 	 * <p>{@code tenantTables.contains(canonical(captured))} rests on two halves. The
 	 * tenth round's finding was one side of the comparison missing
 	 * {@link #canonical}; the other half is that the set being searched needs no
-	 * normalising, which is a property of the <em>readers</em> and not of the
-	 * comparison.
+	 * normalising, which is a property of the readers and not of the comparison.
 	 *
-	 * <p><b>Asserting that over {@link #tenantOwnedTables()} pins nothing</b>, which
-	 * is how this test was first written and what the twelfth round caught: that set
-	 * is built by calling {@code canonical}, so the property holds by construction,
-	 * and removing {@code canonical} from all three insertion points left every test
-	 * in this class green. It is the same dead-assertion shape round 10 found here,
-	 * written one round after recording the lesson. So the schema is synthetic and
-	 * the case is the thing being varied. MySQL's table names are case-sensitive on
-	 * Linux and this schema half already ships upper-case {@code CREATE TABLE}
-	 * ({@code SPRING_SESSION}), so a mixed-case tenant-owned table is a re-vendored
-	 * dump away.
+	 * <p>Two things this test got wrong before, both caught by a later round, both
+	 * recorded here because they are the same mistake in two forms. First it
+	 * asserted the property over {@link #tenantOwnedTables()}, <b>which is built by
+	 * calling {@code canonical}</b> -- so it held by construction, removing
+	 * {@code canonical} from every insertion point left the class green, and it was
+	 * the dead-assertion shape round 10 had already found in this file. Then, once
+	 * it drove a synthetic schema, it drove only the <em>vendored</em> reader:
+	 * {@link #phase1TenantOwnedFrom} keeps its own calls, and removing them was
+	 * still invisible. Both readers are measured here now.
+	 *
+	 * <p>There is no assertion over {@code entityTables()}. One was here and it
+	 * could not fail either -- all twelve {@code @Table} names are lower-case, so it
+	 * passed whether the production call existed or not.
+	 * {@link #theEntityTableMapComesFromTheEntitiesThemselves} reads the raw capture,
+	 * which is where that half can actually fail.
+	 *
+	 * <p>MySQL's table names are case-sensitive on Linux and the vendored half
+	 * already ships upper-case {@code CREATE TABLE} ({@code SPRING_SESSION}), so a
+	 * mixed-case tenant-owned table is a re-vendored dump away.
 	 */
 	@Test
-	void aTableDeclaredInAnyCaseIsCanonicalInTheGroundTruth() {
-		String schema = """
+	void aTableDeclaredInAnyCaseIsCanonicalInBothSchemaReaders() {
+		assertThat(tenantOwnedFrom("""
 				CREATE TABLE `TimeSheets` (
 				  `id` bigint NOT NULL,
 				  `Company_Id` bigint NOT NULL
@@ -1519,18 +1599,112 @@ class AdminTenantGuardCoverageTest {
 				  `id` bigint NOT NULL,
 				  `note` varchar(64) DEFAULT NULL
 				) ENGINE=InnoDB;
-				""";
-		assertThat(tenantOwnedFrom(schema))
-				.as("the declared case is normalised on the way in, and a tenant column is "
-						+ "recognised whatever case it was declared in -- MySQL's column names "
-						+ "are case-insensitive even where its table names are not")
+				"""))
+				.as("the vendored reader: the declared case is normalised on the way in, and a "
+						+ "tenant column is recognised whatever case it was declared in -- MySQL's "
+						+ "column names are case-insensitive even where its table names are not")
 				.containsExactly("timesheets");
 
-		assertThat(entityTables().values())
-				.as("the entity map's tables are compared the same way; "
-						+ "theEntityTableMapComesFromTheEntitiesThemselves reads the raw capture, "
-						+ "which is where that half can actually fail")
-				.allSatisfy(table -> assertThat(table).isEqualTo(canonical(table)));
+		assertThat(phase1TenantOwnedFrom("""
+				CREATE TABLE IF NOT EXISTS Device_Logs (
+				  id BIGINT NOT NULL,
+				  Company_Id BIGINT NOT NULL
+				);
+				CREATE TABLE IF NOT EXISTS Device_Kinds (
+				  id BIGINT NOT NULL,
+				  label VARCHAR(64)
+				);
+				"""))
+				.as("and the Phase 1 reader, which parses a different shape through its own "
+						+ "calls -- removing them was invisible until this half existed")
+				.containsExactly("device_logs");
+	}
+
+	/**
+	 * A brace, a quote or a comment marker inside a string literal does not move a
+	 * method's boundary.
+	 *
+	 * <p>This is the property both {@link #methodSpans} and {@link #blockAt} rest
+	 * on, and until the thirteenth round neither had it. It is asserted on synthetic
+	 * sources rather than through a mutant on the tree, because the end-to-end
+	 * mutants are defeated by an unrelated detail: a service method calling
+	 * {@code this.store.delete(id)} is followed into the <em>service's own</em>
+	 * {@code delete}, so the guard it inherits has nothing to do with the brace.
+	 *
+	 * <p>The fixtures are built by concatenation rather than as text blocks, because
+	 * a text block containing {@code """} and stray quotes is exactly the thing being
+	 * tested and its own escaping made the first version of this test assert
+	 * something other than what it read -- four mutants survived it.
+	 *
+	 * <p>Each case is a real shape here. Eighty of this repository's 503 classes put
+	 * a brace inside a string literal; six of the twenty-one paired stores write
+	 * their SQL in text blocks; and {@code AdminPageAvailability.pageOf} has the
+	 * first shape today, its body over-running its true end by 78 characters -- which
+	 * cost nothing only because no rule scans that file.
+	 */
+	@Test
+	void aBraceInsideAStringDoesNotMoveAMethodsBoundary() {
+		String braceInAString = "class Store {\n"
+				+ "\tpublic void first() {\n"
+				+ "\t\tString brace = \"{\";\n"
+				+ "\t}\n"
+				+ "\tvoid hidden() {\n"
+				+ "\t\tjdbc.update(\"DELETE FROM employees WHERE id = ?\");\n"
+				+ "\t}\n"
+				+ "}\n";
+		assertThat(methodSpans(braceInAString))
+				.as("one span: `first` is a method to ANY_METHOD and the package-private `hidden` "
+						+ "is not, which is the blind spot the positional rule exists to see")
+				.hasSize(1);
+		assertThat(within(methodSpans(braceInAString), braceInAString.indexOf("DELETE FROM")))
+				.as("and the write in `hidden` is inside NO span, which is what makes it visible. "
+						+ "Count the brace in the string and `first` never closes, its span runs to "
+						+ "the end of the class, this is true instead of false, and the write reads "
+						+ "as covered")
+				.isFalse();
+		assertThat(blockAt(braceInAString, braceInAString.indexOf("public void first")))
+				.as("blockAt stops at first's own brace -- the same defect defeats rule one, where "
+						+ "a method whose body ran on would inherit every later method's guard")
+				.doesNotContain("DELETE FROM employees");
+
+		// A bare brace inside a text block, which six of the paired stores could
+		// write today: `LIKE '%{'` and JSON fragments both appear in this tree.
+		String braceInATextBlock = "class Store {\n"
+				+ "\tpublic void first() {\n"
+				+ "\t\tString sql = \"\"\"\n"
+				+ "\t\t\t\tSELECT json FROM t WHERE json LIKE { \n"
+				+ "\t\t\t\t\"\"\";\n"
+				+ "\t}\n"
+				+ "\tvoid hidden() {\n"
+				+ "\t\tjdbc.update(\"DELETE FROM employees WHERE id = ?\");\n"
+				+ "\t}\n"
+				+ "}\n";
+		assertThat(within(methodSpans(braceInATextBlock),
+						braceInATextBlock.indexOf("DELETE FROM")))
+				.as("read the text block as two strings rather than as a block and its content is "
+						+ "code, the brace in it is counted, `first` never closes, and the write in "
+						+ "the package-private method below reads as inside a method")
+				.isFalse();
+		assertThat(maskNonCode(braceInATextBlock).comments())
+				.as("nothing in that block opens a comment")
+				.isEmpty();
+
+		// The escape and the brace on one line: a scanner that ends the literal at
+		// the escaped quote is one position out for the rest of that line, and the
+		// brace that should have been inside a string is counted.
+		String escapedQuote = "class Store {\n"
+				+ "\tpublic void first() {\n"
+				+ "\t\tString q = \"\\\"\" + \"{\";\n"
+				+ "\t}\n"
+				+ "\tvoid hidden() {\n"
+				+ "\t\tjdbc.update(\"DELETE FROM employees WHERE id = ?\");\n"
+				+ "\t}\n"
+				+ "}\n";
+		assertThat(within(methodSpans(escapedQuote), escapedQuote.indexOf("DELETE FROM")))
+				.as("an escaped quote does not end its literal; treat it as if it did and the "
+						+ "brace in the next string is read as code, `first` runs on, and the write "
+						+ "below reads as covered")
+				.isFalse();
 	}
 
 	@Test
@@ -1554,7 +1728,7 @@ class AdminTenantGuardCoverageTest {
 	 * demonstrates it is not passing vacuously.
 	 */
 	private static Scan scan(String source) {
-		Map<String, String> bodies = methodBodies(source);
+		Map<String, List<String>> bodies = methodBodies(source);
 		List<String> unguarded = new ArrayList<>();
 		int sessionTaking = 0;
 		for (Map.Entry<String, String> method : publicMethodBodies(source).entrySet()) {
@@ -1679,7 +1853,7 @@ class AdminTenantGuardCoverageTest {
 	 * one level down.
 	 */
 	private static WriteScan scanWrites(String source, Set<String> storeWrites) {
-		Map<String, String> bodies = methodBodies(source);
+		Map<String, List<String>> bodies = methodBodies(source);
 		List<String> sessionless = new ArrayList<>();
 		List<String> guarded = new ArrayList<>();
 		int writing = 0;
@@ -1696,7 +1870,8 @@ class AdminTenantGuardCoverageTest {
 
 	/** Does this body call one of {@code wanted}, within three levels of helper? */
 	private static boolean reachesCall(
-			String body, Map<String, String> bodies, Set<String> wanted, Set<String> seen, int depth) {
+			String body, Map<String, List<String>> bodies, Set<String> wanted, Set<String> seen,
+			int depth) {
 		// `name(` and `::name` both reach `name`. Without the second, a write
 		// behind `ids.forEach(this::writeRow)` was invisible to this rule and its
 		// public method was never asked for a session.
@@ -1716,8 +1891,12 @@ class AdminTenantGuardCoverageTest {
 			if (!bodies.containsKey(callee) || !seen.add(callee)) {
 				continue;
 			}
-			if (reachesCall(bodies.get(callee), bodies, wanted, seen, depth + 1)) {
-				return true;
+			// Any overload reaching the write is enough: the call site names no
+			// parameters, so it could be any of them.
+			for (String overload : bodies.get(callee)) {
+				if (reachesCall(overload, bodies, wanted, seen, depth + 1)) {
+					return true;
+				}
 			}
 		}
 		return false;
@@ -1866,16 +2045,30 @@ class AdminTenantGuardCoverageTest {
 	private static Set<String> phase1TenantOwnedTables() {
 		Set<String> tenant = new HashSet<>();
 		for (Path file : phase1SchemaFiles()) {
-			Matcher table = CREATE_TABLE_PHASE1.matcher(read(file));
-			while (table.find()) {
-				Set<String> columns = new HashSet<>();
-				Matcher column = COLUMN_NAME_PHASE1.matcher(table.group(2));
-				while (column.find()) {
-					columns.add(canonical(column.group(1)));
-				}
-				if (columns.contains("company_id") || columns.contains("employee_id")) {
-					tenant.add(canonical(table.group(1)));
-				}
+			tenant.addAll(phase1TenantOwnedFrom(read(file)));
+		}
+		return tenant;
+	}
+
+	/**
+	 * The Phase 1 half, split for the same reason {@link #tenantOwnedFrom} was.
+	 *
+	 * <p>It keeps its own {@link #canonical} calls -- the two readers parse
+	 * different shapes and share no loop -- so pinning one pins one. The twelfth
+	 * round's test measured the vendored reader only, and removing {@code canonical}
+	 * from <em>this</em> one left every test in the class green.
+	 */
+	private static Set<String> phase1TenantOwnedFrom(String schema) {
+		Set<String> tenant = new HashSet<>();
+		Matcher table = CREATE_TABLE_PHASE1.matcher(schema);
+		while (table.find()) {
+			Set<String> columns = new HashSet<>();
+			Matcher column = COLUMN_NAME_PHASE1.matcher(table.group(2));
+			while (column.find()) {
+				columns.add(canonical(column.group(1)));
+			}
+			if (columns.contains("company_id") || columns.contains("employee_id")) {
+				tenant.add(canonical(table.group(1)));
 			}
 		}
 		return tenant;
@@ -1912,14 +2105,17 @@ class AdminTenantGuardCoverageTest {
 			String stem = store.getFileName().toString().replace("Store.java", "");
 			Set<String> writes = new TreeSet<>();
 			String source = read(store);
-			for (Map.Entry<String, String> method : methodBodies(source).entrySet()) {
+			for (Map.Entry<String, List<String>> method : methodBodies(source).entrySet()) {
 				// The same predicate rule three uses, not a second copy of it. Two
 				// copies is how the tenth round's finding happened: one was
 				// normalised for case and the other was not, and the one that was
 				// is unreferenced (#335). Verified behaviour-preserving before
 				// switching -- both forms produce the identical collector today.
-				if (!writtenTenantTables(method.getValue(), tenantTables, entities).isEmpty()) {
-					writes.add(method.getKey());
+				for (String overload : method.getValue()) {
+					if (!writtenTenantTables(overload, tenantTables, entities).isEmpty()) {
+						writes.add(method.getKey());
+						break;
+					}
 				}
 			}
 			if (!writes.isEmpty()) {
@@ -1956,7 +2152,7 @@ class AdminTenantGuardCoverageTest {
 		return byService;
 	}
 
-	private static boolean reachesGuard(String body, Map<String, String> bodies) {
+	private static boolean reachesGuard(String body, Map<String, List<String>> bodies) {
 		return reachesGuard(body, bodies, new HashSet<>(), 0);
 	}
 
@@ -1999,7 +2195,7 @@ class AdminTenantGuardCoverageTest {
 	 * shape on this surface and stops a cycle from running away.
 	 */
 	private static boolean reachesGuard(
-			String body, Map<String, String> bodies, Set<String> seen, int depth) {
+			String body, Map<String, List<String>> bodies, Set<String> seen, int depth) {
 		String code = code(body);
 		Matcher guard = TENANT_GUARD.matcher(code);
 		while (guard.find()) {
@@ -2016,7 +2212,18 @@ class AdminTenantGuardCoverageTest {
 			if (!bodies.containsKey(callee) || !seen.add(callee)) {
 				continue;
 			}
-			if (reachesGuard(bodies.get(callee), bodies, seen, depth + 1)) {
+			// Every overload must guard. One that does not is the one the call
+			// might be reaching, and a guard it does not have cannot be borrowed
+			// from a sibling that does.
+			List<String> overloads = bodies.get(callee);
+			boolean allGuard = !overloads.isEmpty();
+			for (String overload : overloads) {
+				if (!reachesGuard(overload, bodies, seen, depth + 1)) {
+					allGuard = false;
+					break;
+				}
+			}
+			if (allGuard) {
 				return true;
 			}
 		}
@@ -2036,47 +2243,54 @@ class AdminTenantGuardCoverageTest {
 	/**
 	 * Every method on the class, by name, for following helper calls.
 	 *
-	 * <p><b>Overloads are concatenated, not discarded.</b> This was
-	 * {@code putIfAbsent}, which kept the first declaration of each name, so a
-	 * later overload's body was in the file and in no value here -- and since a
-	 * call site names a method without its parameters, rule two asked the first
-	 * overload whether the name writes and took that for the answer. The twelfth
-	 * round reproduced it: a second {@code belongsToCompany} on
-	 * {@code EmployeeStore} doing {@code DELETE FROM employees}, reached from a
-	 * sessionless service method, passed every test in this class. The precondition
-	 * is live -- {@code EmployeeStore} overloads five names and
-	 * {@code JobTitleStore} one -- and an explicit {@code public} on the overload
-	 * means no widening of {@link #ANY_METHOD} would have caught it.
+	 * <p><b>Every overload, kept separately.</b> This was {@code putIfAbsent}, which
+	 * kept the first declaration of each name, so a later overload's body was in the
+	 * file and in no value here -- and a call site names a method without its
+	 * parameters, so rule two asked the first overload whether the name writes and
+	 * took that for the answer. The twelfth round reproduced it: a second
+	 * {@code belongsToCompany} on {@code EmployeeStore} doing
+	 * {@code DELETE FROM employees}, reached from a sessionless service method,
+	 * passed every test in this class.
 	 *
-	 * <p>Concatenating is the safe direction on purpose: a name now reaches every
-	 * write any of its overloads makes, so the rule can demand a session where one
-	 * overload alone would not have. Over-demanding costs an exemption with a
-	 * reason; under-demanding is an unguarded write nothing reports.
+	 * <p>The fix for that was to <em>concatenate</em> the overloads, and the
+	 * thirteenth round showed why a list is needed instead: <b>the two rules want
+	 * opposite approximations, so one merged body cannot serve both.</b> Rule two
+	 * asks "does this name reach a write", where seeing every overload is the safe
+	 * answer -- over-demanding a session costs an exemption with a reason. Rule one
+	 * asks "does this name reach a tenant guard", where seeing every overload is the
+	 * <em>unsafe</em> answer: an unguarded overload inherits its sibling's guard and
+	 * a sessionless write is reported as guarded. Reproduced with a red control --
+	 * an unguarded {@code allow(long)} beside a guarded {@code allow(Session, long)}
+	 * passed at that head and fails at the one before it.
+	 *
+	 * <p>So the callers choose: {@link #reachesCall} succeeds if <b>any</b> overload
+	 * reaches the write, {@link #reachesGuard} only if <b>every</b> one reaches a
+	 * guard. Both err towards demanding more.
 	 */
-	private static Map<String, String> methodBodies(String source) {
-		Map<String, String> bodies = new HashMap<>();
-		Matcher method = ANY_METHOD.matcher(source);
+	private static Map<String, List<String>> methodBodies(String source) {
+		Map<String, List<String>> bodies = new HashMap<>();
+		Matcher method = ANY_METHOD.matcher(maskNonCode(source).code());
 		while (method.find()) {
-			bodies.merge(method.group(1), blockAt(source, method.end() - 1),
-					(first, next) -> first + "\n" + next);
+			bodies.computeIfAbsent(method.group(1), name -> new ArrayList<>())
+					.add(blockAt(source, method.end() - 1));
 		}
 		return bodies;
 	}
 
-	/** The braced block whose opening brace is at or after {@code from}. */
+	/**
+	 * The braced block whose opening brace is at or after {@code from}.
+	 *
+	 * <p>The braces are counted over {@link #maskNonCode}'s output and the text is
+	 * cut from the <em>real</em> source, because the SQL this class looks for lives
+	 * in the string literals the mask blanks. Counting on the raw text let one
+	 * {@code String brace = "{";} in a service method swallow the rest of its class,
+	 * so that method inherited every other method's tenant guard -- a defeat of rule
+	 * one, found by the thirteenth round and older than the round that introduced
+	 * {@link #methodSpans}.
+	 */
 	private static String blockAt(String source, int from) {
-		int open = source.indexOf('{', from);
-		int depth = 0;
-		for (int index = open; index < source.length(); index++) {
-			char character = source.charAt(index);
-			if (character == '{') {
-				depth++;
-			}
-			else if (character == '}' && --depth == 0) {
-				return source.substring(open, index + 1);
-			}
-		}
-		return source.substring(Math.max(open, 0));
+		int[] span = braceSpan(maskNonCode(source).code(), from);
+		return span == null ? "" : source.substring(span[0], span[1]);
 	}
 
 	private static String name(String signature) {
