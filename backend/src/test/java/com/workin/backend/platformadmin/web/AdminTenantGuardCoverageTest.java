@@ -553,6 +553,19 @@ class AdminTenantGuardCoverageTest {
 				"@Query(\"update LegacyEmployee e set e.x = 1\")", tables, Map.of()))
 				.as("without the map the same text reads as no write, which is the bug this closes")
 				.isEmpty();
+
+		assertThat(writtenTenantTables(
+				"entityManager.createQuery(\"update com.workin.backend.hr.LegacyEmployee e"
+						+ " set e.x = 1\");",
+				tables, entities))
+				.as("JPQL permits the entity's fully-qualified name, and a one-segment schema "
+						+ "prefix read com.workin.backend.hr.LegacyEmployee as a write to `workin` "
+						+ "-- which is no table, so the write vanished")
+				.containsExactly("employees");
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"DELETE FROM a.b.c.employees WHERE id = ?\");", tables, entities))
+				.as("and the same prefix now spans however many segments it is given")
+				.containsExactly("employees");
 	}
 
 	/** The entity-to-table map is read from the sources, not hard-coded. */
@@ -816,12 +829,23 @@ class AdminTenantGuardCoverageTest {
 			"(?:\\s+(?:LOW_PRIORITY|HIGH_PRIORITY|DELAYED|QUICK|IGNORE))*";
 
 	/**
-	 * An optional {@code schema.}, {@code `schema`.} or {@code schema . } before
-	 * the table name.
+	 * Any number of {@code schema.}, {@code `schema`.} or {@code schema . }
+	 * segments before the table name.
 	 *
 	 * <p>Every statement here is unqualified today. Without this the capture
 	 * stopped at the schema name, which is in no ground truth, so a qualified write
 	 * was read as a write to nothing -- invisible, not over-approximated.
+	 *
+	 * <p>It takes <em>any</em> number of segments rather than one because SQL is not
+	 * the only dialect scanned here: JPQL permits an entity's fully-qualified name,
+	 * and with one segment {@code update com.workin.backend.hr.LegacyEmployee} read
+	 * as a write to {@code workin} -- the one segment was spent on {@code com.} and
+	 * the capture landed on the next word -- which is in no ground truth, so the
+	 * write vanished. That is this comment's own first paragraph happening again one
+	 * dot further along. The eleventh round found it with no instance in the tree;
+	 * making the prefix repeatable changes nothing measured -- all 797 classes in
+	 * both source trees yield identical per-file table sets either way -- and it is
+	 * safe for the same reason the spaced dot is, below.
 	 *
 	 * <p>It accepts whitespace around the dot on purpose, and the reason is
 	 * {@link #WRITE_STATEMENT}'s lookahead rather than anything about SQL: a wider
@@ -843,15 +867,19 @@ class AdminTenantGuardCoverageTest {
 	 * <p>Because this scan reads whole files rather than stripped ones, prose can
 	 * still match: {@code "the dynamic UPDATE binds. The normalised keys"} parses as
 	 * a write to {@code the}. That costs an exemption for a file that writes
-	 * nothing, and {@link #aSchemaQualifiedWriteNamesItsTable} asserts the property
-	 * that makes it harmless -- the wrong capture is <em>added</em> to the real one
-	 * rather than replacing it.
+	 * nothing, and what makes it harmless is not that the real capture survives
+	 * alongside it -- the paragraph above says it does not, and this one said the
+	 * opposite until self-review caught the two sitting one apart. It is harmless
+	 * because the <em>match</em> ends at the verb: the prose capture belongs to a
+	 * match that consumed no table, so the next statement is still scanned from its
+	 * own verb and still names its own table.
+	 * {@link #aSchemaQualifiedWriteNamesItsTable} asserts exactly that.
 	 *
 	 * <p>Stripping comments first would be the tighter fix and a riskier one: a
 	 * stripper that mistakes {@code //} inside a string literal for a comment
 	 * deletes real SQL, which fails in the direction this gate exists to prevent.
 	 */
-	private static final String SCHEMA_PREFIX = "(?:`?\\w+`?\\s*\\.\\s*)?";
+	private static final String SCHEMA_PREFIX = "(?:`?\\w+`?\\s*\\.\\s*)*";
 
 	/**
 	 * Every write verb this repository actually uses, which is more than the
@@ -901,6 +929,16 @@ class AdminTenantGuardCoverageTest {
 	 * statement's table</b>, because the table is only ever read in the lookahead.
 	 * Every capture is therefore the table of some statement beginning at or after
 	 * the match's own start, and no statement can be skipped over.
+	 *
+	 * <p><b>One alternative is the exception, and it is the modifier union.</b>
+	 * {@code UPDATE delayed SET x = 1} matches {@code "UPDATE delayed"} and captures
+	 * {@code SET}: {@link #STATEMENT_MODIFIERS} read the table, not the lookahead, so
+	 * that match does end past its own statement's table. It costs that statement and
+	 * nothing after it -- {@code UPDATE delayed SET x = 1; DELETE FROM employees}
+	 * still yields {@code employees} -- and the only thing holding it to that is
+	 * {@link #noTenantOwnedTableIsNamedLikeAStatementModifier}, four hundred lines
+	 * away. Anyone widening the union, which that test's javadoc contemplates, is
+	 * widening this exception with it.
 	 *
 	 * <p>It is stated that way because the obvious stronger claim -- that a match
 	 * never consumes another statement's verb -- is false, and the tenth round caught
@@ -1287,6 +1325,87 @@ class AdminTenantGuardCoverageTest {
 				.containsExactlyInAnyOrderElementsOf(DELIBERATELY_CROSS_TENANT.keySet());
 	}
 
+	/**
+	 * Every write the <em>whole file</em> contains is a write rule two's
+	 * <em>per-method</em> walk finds -- which is the assumption rule three makes
+	 * when it calls a paired store "scanned".
+	 *
+	 * <p>Only that direction is asserted, and only that direction can fail: a
+	 * method body is a substring of its file, so the converse holds by
+	 * construction and asserting it would prove nothing.
+	 *
+	 * <p>{@link #ANY_METHOD} needs an explicit {@code public}, {@code private},
+	 * {@code protected} or {@code static}, so a <b>package-private</b> method is
+	 * not a method as far as rule two is concerned. A write inside one is in the
+	 * file and in none of the methods: rule one never sees it (no public entry
+	 * point names it), rule two never sees it (not a method), and rule three
+	 * skips the file because {@link #scannedByRuleOneOrTwo} says it was scanned.
+	 * Three rules, one blind spot, and nothing failing.
+	 *
+	 * <p>There is no instance today -- the union equals the file-wide set for all
+	 * twenty-one paired stores, which is what this asserts -- but thirteen
+	 * package-private methods already exist under {@code com.workin}, so the
+	 * shape is not hypothetical, only absent. This is the cheaper half of the fix:
+	 * it does not demand an access modifier on production code, which is a style
+	 * rule a coverage gate has no business imposing. It asserts the consistency
+	 * the claim actually needs, and it fails on the first write that hides.
+	 */
+	@Test
+	void ruleTwoSeesEveryWriteItsStoreFileContains() {
+		Set<String> tenantTables = tenantOwnedTables();
+		Map<String, String> entities = entityTables();
+		List<String> hidden = new ArrayList<>();
+		int compared = 0;
+
+		for (Path store : files("*Store.java")) {
+			String stem = store.getFileName().toString().replace("Store.java", "");
+			if (serviceFile(stem + "AdminService") == null) {
+				continue;
+			}
+			compared++;
+			String source = read(store);
+			Set<String> wholeFile = writtenTenantTables(source, tenantTables, entities);
+			Set<String> perMethod = new TreeSet<>();
+			for (String body : methodBodies(source).values()) {
+				perMethod.addAll(writtenTenantTables(body, tenantTables, entities));
+			}
+			for (String table : wholeFile) {
+				if (!perMethod.contains(table)) {
+					hidden.add(store.getFileName() + " writes " + table + " outside any method "
+							+ "rule two can see, and rule three counts this file as scanned");
+				}
+			}
+		}
+
+		assertThat(compared)
+				.as("the paired stores rule two walks; a glob that stopped matching would make "
+						+ "this pass by comparing nothing")
+				.isEqualTo(21);
+		assertThat(hidden).isEmpty();
+	}
+
+	/**
+	 * The ground truth is already lower-case, which is the premise
+	 * {@code tenantTables.contains(canonical(table))} rests on.
+	 *
+	 * <p>{@link #canonical} normalises the <em>captured</em> name on both sides of
+	 * that comparison, and the tenth round's finding was one side missing it. The
+	 * other half of the premise is that the set being searched needs no
+	 * normalising, and that is a property of the schema readers rather than of the
+	 * comparison -- so it is asserted where it can be seen, instead of trusted from
+	 * four hundred lines away.
+	 */
+	@Test
+	void theGroundTruthIsAlreadyCanonical() {
+		assertThat(tenantOwnedTables())
+				.as("a table name here that is not its own canonical form would never match a "
+						+ "canonicalised capture, and the gate would silently stop covering it")
+				.allSatisfy(table -> assertThat(table).isEqualTo(canonical(table)));
+		assertThat(entityTables().values())
+				.as("and the entity map's tables are compared the same way")
+				.allSatisfy(table -> assertThat(table).isEqualTo(canonical(table)));
+	}
+
 	@Test
 	void theSchemaDecidesWhatIsTenantOwned() {
 		Set<String> tenantTables = tenantOwnedTables();
@@ -1646,6 +1765,9 @@ class AdminTenantGuardCoverageTest {
 	 */
 	private static Map<String, Set<String>> storeWriteMethodsByService(Set<String> tenantTables) {
 		Map<String, Set<String>> byService = new LinkedHashMap<>();
+		// Read once: it parses every entity in the repository and does not depend
+		// on the store being walked.
+		Map<String, String> entities = entityTables();
 		for (Path store : files("*Store.java")) {
 			String stem = store.getFileName().toString().replace("Store.java", "");
 			if (serviceFile(stem + "AdminService") == null) {
@@ -1653,7 +1775,6 @@ class AdminTenantGuardCoverageTest {
 			}
 			Set<String> writes = new TreeSet<>();
 			String source = read(store);
-			Map<String, String> entities = entityTables();
 			for (Map.Entry<String, String> method : methodBodies(source).entrySet()) {
 				// The same predicate rule three uses, not a second copy of it. Two
 				// copies is how the tenth round's finding happened: one was
