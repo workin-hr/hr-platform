@@ -779,11 +779,19 @@ class AdminTenantGuardCoverageTest {
 			"\\bcompanyId\\s*\\(\\s*\\)|\\bisScopedToOneCompany\\s*\\(|\\bcanOpenRow\\s*\\(");
 
 	private static final Pattern PUBLIC_METHOD = Pattern.compile(
-			"public\\s+[\\w.<>,\\[\\]\\s]+?\\s(\\w+)\\s*\\(([^)]*)\\)\\s*\\{", Pattern.DOTALL);
+			"public\\s+[\\w.<>,?\\[\\]\\s]+?\\s(\\w+)\\s*\\(([^)]*)\\)\\s*\\{", Pattern.DOTALL);
 
-	/** Any method declaration, for following a call into a helper on the same class. */
+	/**
+	 * Any method declaration, for following a call into a helper on the same class.
+	 *
+	 * <p>The return-type class accepts {@code ?} as well: without it
+	 * {@code public List<? extends Row> rows()} matches neither pattern, so rule one
+	 * would not count it as session-taking and rule two would not count it as a write
+	 * path. No such signature exists under an admin service today -- the twelfth round
+	 * checked -- which is why one character was the whole fix.
+	 */
 	private static final Pattern ANY_METHOD = Pattern.compile(
-			"(?:public|private|protected|static)\\s+[\\w.<>,\\[\\]\\s]+?\\s(\\w+)\\s*\\(([^)]*)\\)\\s*\\{",
+			"(?:public|private|protected|static)\\s+[\\w.<>,?\\[\\]\\s]+?\\s(\\w+)\\s*\\(([^)]*)\\)\\s*\\{",
 			Pattern.DOTALL);
 
 	private static final Pattern CREATE_TABLE = Pattern.compile(
@@ -844,8 +852,8 @@ class AdminTenantGuardCoverageTest {
 	 * write vanished. That is this comment's own first paragraph happening again one
 	 * dot further along. The eleventh round found it with no instance in the tree;
 	 * making the prefix repeatable changes nothing measured -- all 797 classes in
-	 * both source trees yield identical per-file table sets either way -- and it is
-	 * safe for the same reason the spaced dot is, below.
+	 * both source trees yield identical per-file <em>tenant-owned table</em> sets
+	 * either way -- and it is safe for the same reason the spaced dot is, below.
 	 *
 	 * <p>It accepts whitespace around the dot on purpose, and the reason is
 	 * {@link #WRITE_STATEMENT}'s lookahead rather than anything about SQL: a wider
@@ -858,8 +866,9 @@ class AdminTenantGuardCoverageTest {
 	 * <p>Not "additive", which an earlier draft of this paragraph claimed and the
 	 * tenth round corrected: the prefix is greedy and a match has one capture, so a
 	 * wider prefix <em>replaces</em> the captured word rather than adding to it.
-	 * Measured over the whole tree, that changes three captures, all of them prose
-	 * and none of them a tenant-owned table ({@code entirely}&rarr;{@code on},
+	 * Measured over {@code src/main/java}, which is the only tree this gate reads,
+	 * that changes three captures, all of them prose and none of them a tenant-owned
+	 * table ({@code entirely}&rarr;{@code on},
 	 * {@code binds}&rarr;{@code the}, {@code carried}&rarr;{@code return}). What the
 	 * lookahead guarantees is the part that matters -- a wrong capture cannot cost a
 	 * later statement its own.
@@ -1326,53 +1335,66 @@ class AdminTenantGuardCoverageTest {
 	}
 
 	/**
-	 * Every write the <em>whole file</em> contains is a write rule two's
-	 * <em>per-method</em> walk finds -- which is the assumption rule three makes
-	 * when it calls a paired store "scanned".
+	 * Every write statement in a paired store <em>sits inside a method body</em>
+	 * rule two can see -- which is the property rule three relies on when it calls
+	 * that store "scanned", and it is per statement rather than per table.
 	 *
-	 * <p>Only that direction is asserted, and only that direction can fail: a
-	 * method body is a substring of its file, so the converse holds by
-	 * construction and asserting it would prove nothing.
+	 * <p>Two ways a write hides from rule two, both live shapes. {@link #ANY_METHOD}
+	 * needs an explicit {@code public}, {@code private}, {@code protected} or
+	 * {@code static}, so a <b>package-private</b> method is not a method as far as it
+	 * is concerned. And {@link #methodBodies} keeps the <b>first</b> declaration of
+	 * each name, so a later <b>overload</b>'s body is in the file and in no map value
+	 * -- {@code EmployeeStore} overloads five names today and {@code JobTitleStore}
+	 * one, so that precondition exists without the write yet doing so. Either way the
+	 * statement is in the file, in no method rule two names, and rule three skips the
+	 * file on rule two's behalf. Three rules, one blind spot.
 	 *
-	 * <p>{@link #ANY_METHOD} needs an explicit {@code public}, {@code private},
-	 * {@code protected} or {@code static}, so a <b>package-private</b> method is
-	 * not a method as far as rule two is concerned. A write inside one is in the
-	 * file and in none of the methods: rule one never sees it (no public entry
-	 * point names it), rule two never sees it (not a method), and rule three
-	 * skips the file because {@link #scannedByRuleOneOrTwo} says it was scanned.
-	 * Three rules, one blind spot, and nothing failing.
+	 * <p><b>Comparing the tables written would not close it, and the twelfth round
+	 * proved that with a working exploit.</b> A file-wide table set minus a
+	 * per-method table set only differs when the hidden write targets a table the
+	 * store writes <em>nowhere else</em>; a package-private
+	 * {@code DELETE FROM employees} in {@code EmployeeStore}, reached from a
+	 * sessionless {@code EmployeeAdminService} method, passed every test in this
+	 * class, because {@code insert} and {@code update} already write
+	 * {@code employees}. That is the R-046 shape this class exists to fail on. So
+	 * the comparison is by <b>offset</b>: every match of {@link #WRITE_STATEMENT} on
+	 * a tenant-owned table must start inside some method's braces. A duplicate table
+	 * cannot mask a statement, because statements are not compared to each other.
 	 *
-	 * <p>There is no instance today -- the union equals the file-wide set for all
-	 * twenty-one paired stores, which is what this asserts -- but thirteen
-	 * package-private methods already exist under {@code com.workin}, so the
-	 * shape is not hypothetical, only absent. This is the cheaper half of the fix:
-	 * it does not demand an access modifier on production code, which is a style
-	 * rule a coverage gate has no business imposing. It asserts the consistency
-	 * the claim actually needs, and it fails on the first write that hides.
+	 * <p>Comments are excluded by offset too, not stripped. This file's house style
+	 * quotes legacy SQL in javadoc constantly, and a javadoc above the class body
+	 * saying {@code DELETE FROM employees WHERE id = ?} is not a write -- without
+	 * this it would fail the build with the wrong diagnosis. Stripping them instead
+	 * is what {@link #code} cannot do here: it blanks string literals, which is where
+	 * the real SQL lives.
 	 */
 	@Test
-	void ruleTwoSeesEveryWriteItsStoreFileContains() {
+	void everyWriteInAPairedStoreSitsInAMethodRuleTwoCanSee() {
 		Set<String> tenantTables = tenantOwnedTables();
 		Map<String, String> entities = entityTables();
 		List<String> hidden = new ArrayList<>();
 		int compared = 0;
+		int statements = 0;
 
-		for (Path store : files("*Store.java")) {
-			String stem = store.getFileName().toString().replace("Store.java", "");
-			if (serviceFile(stem + "AdminService") == null) {
-				continue;
-			}
+		for (Path store : pairedStores()) {
 			compared++;
-			String source = read(store);
-			Set<String> wholeFile = writtenTenantTables(source, tenantTables, entities);
-			Set<String> perMethod = new TreeSet<>();
-			for (String body : methodBodies(source).values()) {
-				perMethod.addAll(writtenTenantTables(body, tenantTables, entities));
-			}
-			for (String table : wholeFile) {
-				if (!perMethod.contains(table)) {
-					hidden.add(store.getFileName() + " writes " + table + " outside any method "
-							+ "rule two can see, and rule three counts this file as scanned");
+			// Flattened first, and every span measured on the flattened text, so
+			// the offsets below and the write matches are in the same coordinates.
+			String source = read(store).replaceAll("\"\\s*\\+\\s*\"", "");
+			List<int[]> methods = methodSpans(source);
+			List<int[]> comments = commentSpans(source);
+			Matcher write = WRITE_STATEMENT.matcher(source);
+			while (write.find()) {
+				String named = canonical(write.group(1));
+				String table = entities.getOrDefault(write.group(1), named);
+				if (!tenantTables.contains(table) || within(comments, write.start())) {
+					continue;
+				}
+				statements++;
+				if (!within(methods, write.start())) {
+					hidden.add(store.getFileName() + " writes " + table + " at offset "
+							+ write.start() + ", which is inside no method rule two can see, "
+							+ "and rule three counts this file as scanned");
 				}
 			}
 		}
@@ -1381,28 +1403,133 @@ class AdminTenantGuardCoverageTest {
 				.as("the paired stores rule two walks; a glob that stopped matching would make "
 						+ "this pass by comparing nothing")
 				.isEqualTo(21);
+		assertThat(statements)
+				.as("the write statements checked; 60 exist across the 21 paired stores today, "
+						+ "and a pattern that stopped matching would otherwise make this pass by "
+						+ "checking nothing")
+				.isGreaterThan(40);
 		assertThat(hidden).isEmpty();
 	}
 
+	/** Whether {@code offset} falls inside any of {@code spans}. */
+	private static boolean within(List<int[]> spans, int offset) {
+		return spans.stream().anyMatch(span -> offset >= span[0] && offset < span[1]);
+	}
+
 	/**
-	 * The ground truth is already lower-case, which is the premise
-	 * {@code tenantTables.contains(canonical(table))} rests on.
+	 * The braces of every method {@link #ANY_METHOD} finds, as {@code [open, close)}.
 	 *
-	 * <p>{@link #canonical} normalises the <em>captured</em> name on both sides of
-	 * that comparison, and the tenth round's finding was one side missing it. The
-	 * other half of the premise is that the set being searched needs no
-	 * normalising, and that is a property of the schema readers rather than of the
-	 * comparison -- so it is asserted where it can be seen, instead of trusted from
-	 * four hundred lines away.
+	 * <p>Every method, not every distinct name: {@link #methodBodies} keeps the first
+	 * declaration per name and this keeps all of them, which is the whole point of
+	 * measuring by offset.
+	 */
+	private static List<int[]> methodSpans(String source) {
+		List<int[]> spans = new ArrayList<>();
+		Matcher method = ANY_METHOD.matcher(source);
+		while (method.find()) {
+			int open = source.indexOf('{', method.end() - 1);
+			if (open < 0) {
+				continue;
+			}
+			int depth = 0;
+			for (int index = open; index < source.length(); index++) {
+				char character = source.charAt(index);
+				if (character == '{') {
+					depth++;
+				}
+				else if (character == '}' && --depth == 0) {
+					spans.add(new int[] { open, index + 1 });
+					break;
+				}
+			}
+		}
+		return spans;
+	}
+
+	/**
+	 * Every {@code //} and {@code /*} comment, as {@code [start, end)}.
+	 *
+	 * <p>String literals are skipped while scanning, so a {@code "//"} or a
+	 * {@code "/*"} inside SQL does not open a comment that swallows the rest of the
+	 * file -- which would hide real writes, the direction this class must never fail
+	 * in. A character literal is skipped for the same reason.
+	 */
+	private static List<int[]> commentSpans(String source) {
+		List<int[]> spans = new ArrayList<>();
+		int index = 0;
+		while (index < source.length()) {
+			char character = source.charAt(index);
+			if (character == '"' || character == '\'') {
+				char quote = character;
+				index++;
+				while (index < source.length() && source.charAt(index) != quote) {
+					index += source.charAt(index) == '\\' ? 2 : 1;
+				}
+				index++;
+			}
+			else if (character == '/' && index + 1 < source.length()
+					&& source.charAt(index + 1) == '/') {
+				int end = source.indexOf('\n', index);
+				end = end < 0 ? source.length() : end;
+				spans.add(new int[] { index, end });
+				index = end;
+			}
+			else if (character == '/' && index + 1 < source.length()
+					&& source.charAt(index + 1) == '*') {
+				int end = source.indexOf("*/", index + 2);
+				end = end < 0 ? source.length() : end + 2;
+				spans.add(new int[] { index, end });
+				index = end;
+			}
+			else {
+				index++;
+			}
+		}
+		return spans;
+	}
+
+	/**
+	 * A table declared in any case lands in the ground truth as its canonical form.
+	 *
+	 * <p>{@code tenantTables.contains(canonical(captured))} rests on two halves. The
+	 * tenth round's finding was one side of the comparison missing
+	 * {@link #canonical}; the other half is that the set being searched needs no
+	 * normalising, which is a property of the <em>readers</em> and not of the
+	 * comparison.
+	 *
+	 * <p><b>Asserting that over {@link #tenantOwnedTables()} pins nothing</b>, which
+	 * is how this test was first written and what the twelfth round caught: that set
+	 * is built by calling {@code canonical}, so the property holds by construction,
+	 * and removing {@code canonical} from all three insertion points left every test
+	 * in this class green. It is the same dead-assertion shape round 10 found here,
+	 * written one round after recording the lesson. So the schema is synthetic and
+	 * the case is the thing being varied. MySQL's table names are case-sensitive on
+	 * Linux and this schema half already ships upper-case {@code CREATE TABLE}
+	 * ({@code SPRING_SESSION}), so a mixed-case tenant-owned table is a re-vendored
+	 * dump away.
 	 */
 	@Test
-	void theGroundTruthIsAlreadyCanonical() {
-		assertThat(tenantOwnedTables())
-				.as("a table name here that is not its own canonical form would never match a "
-						+ "canonicalised capture, and the gate would silently stop covering it")
-				.allSatisfy(table -> assertThat(table).isEqualTo(canonical(table)));
+	void aTableDeclaredInAnyCaseIsCanonicalInTheGroundTruth() {
+		String schema = """
+				CREATE TABLE `TimeSheets` (
+				  `id` bigint NOT NULL,
+				  `Company_Id` bigint NOT NULL
+				) ENGINE=InnoDB;
+				CREATE TABLE `Audits` (
+				  `id` bigint NOT NULL,
+				  `note` varchar(64) DEFAULT NULL
+				) ENGINE=InnoDB;
+				""";
+		assertThat(tenantOwnedFrom(schema))
+				.as("the declared case is normalised on the way in, and a tenant column is "
+						+ "recognised whatever case it was declared in -- MySQL's column names "
+						+ "are case-insensitive even where its table names are not")
+				.containsExactly("timesheets");
+
 		assertThat(entityTables().values())
-				.as("and the entity map's tables are compared the same way")
+				.as("the entity map's tables are compared the same way; "
+						+ "theEntityTableMapComesFromTheEntitiesThemselves reads the raw capture, "
+						+ "which is where that half can actually fail")
 				.allSatisfy(table -> assertThat(table).isEqualTo(canonical(table)));
 	}
 
@@ -1696,7 +1823,20 @@ class AdminTenantGuardCoverageTest {
 
 	/** The inherited half of the database. */
 	private static Set<String> legacyTenantOwnedTables() {
-		String schema = readResource(VENDORED_SCHEMA);
+		return tenantOwnedFrom(readResource(VENDORED_SCHEMA));
+	}
+
+	/**
+	 * The tenant-owned tables one schema text declares.
+	 *
+	 * <p>Split from the file read for the same reason
+	 * {@link #writtenTenantTables(String, Set, Map)} was: so a synthetic schema can
+	 * be measured with the production rule rather than with a copy of it. Asserting
+	 * the canonical form against {@link #tenantOwnedTables()} cannot fail -- that set
+	 * is built by calling {@link #canonical} -- and this class has already recorded
+	 * once, in the tenth round, what an assertion that cannot fail is worth.
+	 */
+	private static Set<String> tenantOwnedFrom(String schema) {
 		Set<String> tenant = new HashSet<>();
 		Matcher table = CREATE_TABLE.matcher(schema);
 		while (table.find()) {
@@ -1768,11 +1908,8 @@ class AdminTenantGuardCoverageTest {
 		// Read once: it parses every entity in the repository and does not depend
 		// on the store being walked.
 		Map<String, String> entities = entityTables();
-		for (Path store : files("*Store.java")) {
+		for (Path store : pairedStores()) {
 			String stem = store.getFileName().toString().replace("Store.java", "");
-			if (serviceFile(stem + "AdminService") == null) {
-				continue;
-			}
 			Set<String> writes = new TreeSet<>();
 			String source = read(store);
 			for (Map.Entry<String, String> method : methodBodies(source).entrySet()) {
@@ -1896,12 +2033,32 @@ class AdminTenantGuardCoverageTest {
 		return bodies;
 	}
 
-	/** Every method on the class, by name, for following helper calls. */
+	/**
+	 * Every method on the class, by name, for following helper calls.
+	 *
+	 * <p><b>Overloads are concatenated, not discarded.</b> This was
+	 * {@code putIfAbsent}, which kept the first declaration of each name, so a
+	 * later overload's body was in the file and in no value here -- and since a
+	 * call site names a method without its parameters, rule two asked the first
+	 * overload whether the name writes and took that for the answer. The twelfth
+	 * round reproduced it: a second {@code belongsToCompany} on
+	 * {@code EmployeeStore} doing {@code DELETE FROM employees}, reached from a
+	 * sessionless service method, passed every test in this class. The precondition
+	 * is live -- {@code EmployeeStore} overloads five names and
+	 * {@code JobTitleStore} one -- and an explicit {@code public} on the overload
+	 * means no widening of {@link #ANY_METHOD} would have caught it.
+	 *
+	 * <p>Concatenating is the safe direction on purpose: a name now reaches every
+	 * write any of its overloads makes, so the rule can demand a session where one
+	 * overload alone would not have. Over-demanding costs an exemption with a
+	 * reason; under-demanding is an unguarded write nothing reports.
+	 */
 	private static Map<String, String> methodBodies(String source) {
 		Map<String, String> bodies = new HashMap<>();
 		Matcher method = ANY_METHOD.matcher(source);
 		while (method.find()) {
-			bodies.putIfAbsent(method.group(1), blockAt(source, method.end() - 1));
+			bodies.merge(method.group(1), blockAt(source, method.end() - 1),
+					(first, next) -> first + "\n" + next);
 		}
 		return bodies;
 	}
@@ -2037,13 +2194,28 @@ class AdminTenantGuardCoverageTest {
 	private static Set<String> scannedByRuleOneOrTwo() {
 		Set<String> scanned = new HashSet<>();
 		adminServices().forEach(path -> scanned.add(path.getFileName().toString()));
+		pairedStores().forEach(store -> scanned.add(store.getFileName().toString()));
+		return scanned;
+	}
+
+	/**
+	 * The stores rule two walks: an {@code <X>Store.java} with an
+	 * {@code <X>AdminService.java} beside it.
+	 *
+	 * <p>One definition, because three had to agree -- rule two's collector, rule
+	 * three's idea of what was scanned, and the check that rule two saw the whole
+	 * file. Widening any one of them without the others is how rule three comes to
+	 * claim coverage that the check above never looked for.
+	 */
+	private static List<Path> pairedStores() {
+		List<Path> paired = new ArrayList<>();
 		for (Path store : files("*Store.java")) {
 			String stem = store.getFileName().toString().replace("Store.java", "");
 			if (serviceFile(stem + "AdminService") != null) {
-				scanned.add(store.getFileName().toString());
+				paired.add(store);
 			}
 		}
-		return scanned;
+		return paired;
 	}
 
 	/**
