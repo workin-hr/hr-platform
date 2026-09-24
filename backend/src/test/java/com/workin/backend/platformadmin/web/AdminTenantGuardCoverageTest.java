@@ -432,39 +432,64 @@ class AdminTenantGuardCoverageTest {
 				.containsExactly("employees");
 
 		assertThat(writtenTenantTables(
-				"-- resolve the row first. Then update it.\n"
+				"-- the caller already resolved the company, so this can safely update\n"
 						+ "\t\tDELETE FROM employees WHERE id = ?",
 				tables, noEntities))
-				.as("ROUND 8: the qualifier must not reach across a period and swallow the verb "
-						+ "on the next line")
+				.as("nor a prose word that is itself a write verb, with no punctuation at all -- this is "
+						+ "the general shape, and the full stop above was only one instance of it")
 				.containsExactly("employees");
 
 		assertThat(writtenTenantTables(
-				"/** The value the dynamic UPDATE binds. The keys were written back. */",
-				Set.of("binds"), noEntities))
-				.as("the price of the qualifier, stated rather than discovered: a sentence can "
-						+ "parse as a write, which costs an exemption for a file that writes "
-						+ "nothing -- and stops at the word before the period, so it cannot reach "
-						+ "the statement below")
-				.containsExactly("binds");
+				"-- see the note above about the payslip update\n"
+						+ "\t\tUPDATE employees SET x = 1",
+				tables, noEntities))
+				.as("the same when the statement below is an UPDATE")
+				.containsExactly("employees");
+
+		assertThat(writtenTenantTables(
+				"-- resolve the row first. Then update it.\n"
+						+ "\t\tDELETE FROM employees WHERE id = ?",
+				tables, noEntities))
+				.as("a comment sentence's full stop must not swallow the verb on the line below it")
+				.containsExactly("employees");
+
+		assertThat(writtenTenantTables(
+				"/** The value the dynamic UPDATE binds. The keys were written back. */\n"
+						+ "\t\tjdbc.update(\"DELETE FROM employees WHERE id = ?\");",
+				Set.of("the", "employees"), noEntities))
+				.as("the price of a recogniser that reads whole files, stated rather than "
+						+ "discovered: a sentence can parse as a write, which costs an exemption "
+						+ "for a file that writes nothing -- and because the tail is a lookahead, "
+						+ "the wrong capture is ADDED to the real one instead of hiding it")
+				.containsExactly("employees", "the");
 	}
 
 	/**
 	 * No tenant-owned table is named like a statement modifier, because one would
 	 * be invisible.
 	 *
-	 * <p>{@link #STATEMENT_MODIFIERS} accepts the modifier family for all four
-	 * verbs, so {@code UPDATE delayed SET x = 1} reads {@code delayed} as a
-	 * modifier and captures {@code SET} as the table. A name that merely
-	 * <em>begins</em> with a modifier is fine -- {@code ignored_signals} is
-	 * asserted above -- but a name that <em>is</em> one cannot be told apart by any
-	 * regex, because in that statement SQL cannot tell them apart either.
+	 * <p>{@link #STATEMENT_MODIFIERS} is one union applied to all four verbs, so
+	 * {@code UPDATE delayed SET x = 1} reads {@code delayed} as a modifier and
+	 * captures {@code SET} as the table. A name that merely <em>begins</em> with a
+	 * modifier is fine -- {@code ignored_signals} is asserted above -- but a name
+	 * that <em>is</em> one is lost.
+	 *
+	 * <p>That is a consequence of the one union, not of SQL being ambiguous, and the
+	 * ninth round corrected this paragraph on exactly that point: MariaDB's
+	 * {@code UPDATE} takes only {@code LOW_PRIORITY} and {@code IGNORE}, so
+	 * {@code UPDATE delayed ...}, {@code UPDATE quick ...} and
+	 * {@code UPDATE high_priority ...} are unambiguous statements naming that table,
+	 * and a per-verb modifier set would read them correctly. One union is still the
+	 * right trade -- five names forbidden is cheaper to keep true than four grammars
+	 * kept in step with MariaDB's -- but the cost is this assertion, not an
+	 * inherent ambiguity.
 	 *
 	 * <p>So the bound is checked rather than described. No table in either schema
 	 * half is named that way today, and a schema that added one would fail here
-	 * instead of quietly leaving its writes unseen. Raised by the eighth review
-	 * round as the other half of a sentence claiming this widening could only ever
-	 * over-approximate.
+	 * instead of quietly leaving its writes unseen. Case is not a way round it:
+	 * both schema readers lower-case the names they collect, because the scanner is
+	 * case-insensitive and a {@code CREATE TABLE Delayed} would otherwise pass this
+	 * assertion and still be read as a modifier.
 	 */
 	@Test
 	void noTenantOwnedTableIsNamedLikeAStatementModifier() {
@@ -756,32 +781,34 @@ class AdminTenantGuardCoverageTest {
 			"(?:\\s+(?:LOW_PRIORITY|HIGH_PRIORITY|DELAYED|QUICK|IGNORE))*";
 
 	/**
-	 * An optional {@code schema.} or {@code `schema`.} before the table name.
+	 * An optional {@code schema.}, {@code `schema`.} or {@code schema . } before
+	 * the table name.
 	 *
 	 * <p>Every statement here is unqualified today. Without this the capture
-	 * stopped at the schema name, which is in no ground truth, so a qualified
-	 * write was read as a write to nothing.
+	 * stopped at the schema name, which is in no ground truth, so a qualified write
+	 * was read as a write to nothing -- invisible, not over-approximated.
 	 *
-	 * <p>It widens what prose can match, because this scan reads whole files
-	 * rather than stripped ones: {@code "the dynamic UPDATE binds. The normalised
-	 * keys"} parses as {@code UPDATE} of table {@code binds}. That costs an
-	 * exemption for a file that writes nothing, which is the safe direction.
+	 * <p>It accepts whitespace around the dot on purpose, and the reason is
+	 * {@link #WRITE_STATEMENT}'s lookahead rather than anything about SQL: once no
+	 * match can consume what follows it, recognising <em>more</em> shapes can only
+	 * add a name, never lose one. So the question "does MariaDB accept
+	 * {@code workin . employees}?" stops mattering -- if it does, the write is
+	 * seen; if it does not, nothing was written that way to miss. Deciding it the
+	 * other way round is what made the spaced form invisible between the eighth and
+	 * ninth rounds.
 	 *
-	 * <p><b>The dot takes no whitespace, and that is the whole of why the above is
-	 * safe.</b> Written {@code \\s*\\.\\s*} it also matched a sentence's full stop,
-	 * and {@link Matcher#find()} resumes at the end of the previous match -- so a
-	 * {@code -- comment ending in a period.} directly above a statement swallowed
-	 * that statement's <em>verb</em> as the table name, and the write below it
-	 * became invisible. That is the one direction this scan must never fail in, and
-	 * it was introduced by the commit that added this prefix and caught by the
-	 * eighth review round. A real qualified name never spaces its dot; a spaced one
-	 * is now unrecognised, which costs at most an exemption.
+	 * <p>Because this scan reads whole files rather than stripped ones, prose can
+	 * still match: {@code "the dynamic UPDATE binds. The normalised keys"} parses as
+	 * a write to {@code the}. That costs an exemption for a file that writes
+	 * nothing, and {@link #aSchemaQualifiedWriteNamesItsTable} asserts the property
+	 * that makes it harmless -- the wrong capture is <em>added</em> to the real one
+	 * rather than replacing it.
 	 *
 	 * <p>Stripping comments first would be the tighter fix and a riskier one: a
 	 * stripper that mistakes {@code //} inside a string literal for a comment
-	 * deletes real SQL, which fails in the same direction.
+	 * deletes real SQL, which fails in the direction this gate exists to prevent.
 	 */
-	private static final String SCHEMA_PREFIX = "(?:`?\\w+`?\\.)?";
+	private static final String SCHEMA_PREFIX = "(?:`?\\w+`?\\s*\\.\\s*)?";
 
 	/**
 	 * Every write verb this repository actually uses, which is more than the
@@ -803,6 +830,40 @@ class AdminTenantGuardCoverageTest {
 	 * names an entity ({@link #entityTables()}), and a Spring Data repository
 	 * writes its entity's table with no statement written down at all
 	 * ({@link #JPA_REPOSITORY}).
+	 *
+	 * <p><b>The table is matched in a lookahead, so no match consumes it.</b> This
+	 * is the one thing in this pattern that is about safety rather than coverage,
+	 * and two rounds were spent on it. With a consuming tail, {@link Matcher#find()}
+	 * resumes past the captured token -- so whenever the word immediately before a
+	 * statement's verb was itself a write verb, prose included, that statement's
+	 * <em>verb</em> was captured as the table name and eaten, and its real table was
+	 * never examined:
+	 *
+	 * <pre>
+	 * -- the caller already resolved the company, so this can safely update
+	 * DELETE FROM employees WHERE id = ?        -- yielded [DELETE], never employees
+	 * </pre>
+	 *
+	 * The file then writes no tenant-owned table as far as every rule below is
+	 * concerned: neither <em>found</em> nor <em>unaccounted for</em>. Nine comment
+	 * lines under {@code com.workin} already end in a write verb, and this
+	 * repository's house style puts {@code --} prose directly above the statement
+	 * inside a SQL text block. The eighth round found the variant where a full stop
+	 * supplied the separator and the fix closed only that one; the ninth round found
+	 * that the separator was never the point. A lookahead ends the match at the
+	 * verb, so a wrong capture is additive and can hide nothing.
+	 *
+	 * <p>That is a claim about the <em>class</em> and not about these two inputs, so
+	 * here is the whole of what a match still consumes: the verb; the enumerated
+	 * words of {@link #STATEMENT_MODIFIERS}; for {@code DELETE}, one optional word
+	 * immediately followed by {@code FROM}; and {@code INTO}/{@code FROM}. None of
+	 * those can be another statement's verb. No modifier is a write verb. The
+	 * {@code DELETE} alias slot only matches when {@code FROM} follows it, which
+	 * makes the statement a real multi-table delete rather than two statements. So
+	 * the token that begins the next statement is always left for the next
+	 * {@code find()}, whatever precedes it -- which is the property the two
+	 * assertions below sample and the reason a third instance of this should not
+	 * exist.
 	 *
 	 * <p>Two shapes are still invisible <em>and asserted here</em>, the second
 	 * being a limit of what "tenant-owned" means rather than a detection gap.
@@ -836,7 +897,7 @@ class AdminTenantGuardCoverageTest {
 					+ "|REPLACE" + STATEMENT_MODIFIERS + "\\s+INTO"
 					+ "|UPDATE" + STATEMENT_MODIFIERS
 					+ "|DELETE" + STATEMENT_MODIFIERS + "(?:\\s+\\w+)?\\s+FROM)"
-					+ "\\s+" + SCHEMA_PREFIX + "`?(\\w+)`?", Pattern.CASE_INSENSITIVE);
+					+ "(?=\\s+" + SCHEMA_PREFIX + "`?(\\w+)`?)", Pattern.CASE_INSENSITIVE);
 
 	/** An {@code @Entity} declaration, at the start of a line so a mention in prose is not one. */
 	private static final Pattern ENTITY_DECLARATION = Pattern.compile("(?m)^@Entity\\b");
@@ -1474,7 +1535,7 @@ class AdminTenantGuardCoverageTest {
 			// Directly owned, or owned through the employee -- the two shapes
 			// R-059 had to distinguish. Both make a row somebody's.
 			if (columns.contains("company_id") || columns.contains("employee_id")) {
-				tenant.add(table.group(1));
+				tenant.add(table.group(1).toLowerCase(java.util.Locale.ROOT));
 			}
 		}
 		return tenant;
@@ -1497,7 +1558,7 @@ class AdminTenantGuardCoverageTest {
 					columns.add(column.group(1).toLowerCase(java.util.Locale.ROOT));
 				}
 				if (columns.contains("company_id") || columns.contains("employee_id")) {
-					tenant.add(table.group(1));
+					tenant.add(table.group(1).toLowerCase(java.util.Locale.ROOT));
 				}
 			}
 		}
@@ -1566,8 +1627,9 @@ class AdminTenantGuardCoverageTest {
 			String flattened = read(store).replaceAll("\"\\s*\\+\\s*\"", "");
 			Matcher write = WRITE_STATEMENT.matcher(flattened);
 			while (write.find()) {
-				if (tenantTables.contains(write.group(1))) {
-					written.add(write.group(1));
+				String table = write.group(1).toLowerCase(java.util.Locale.ROOT);
+				if (tenantTables.contains(table)) {
+					written.add(table);
 				}
 			}
 			if (!written.isEmpty()) {
@@ -1905,7 +1967,8 @@ class AdminTenantGuardCoverageTest {
 			// A JPQL write names the entity; the table it lands in is what the
 			// schema calls tenant-owned. Anything that is not an entity name is
 			// already a table name.
-			String table = entityTables.getOrDefault(write.group(1), write.group(1));
+			String named = write.group(1).toLowerCase(java.util.Locale.ROOT);
+			String table = entityTables.getOrDefault(write.group(1), named);
 			if (tenantTables.contains(table)) {
 				written.add(table);
 			}
@@ -1934,7 +1997,7 @@ class AdminTenantGuardCoverageTest {
 		classesByName().forEach((name, path) -> {
 			Matcher table = ENTITY_TABLE.matcher(read(path));
 			if (table.find()) {
-				tables.put(name, table.group(1));
+				tables.put(name, table.group(1).toLowerCase(java.util.Locale.ROOT));
 			}
 		});
 		assertThat(tables).as("the entities must be findable, or a JPQL write reads as no write at all")
