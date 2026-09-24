@@ -105,6 +105,23 @@ public class BranchStore {
 		return rows.isEmpty() ? null : rows.get(0);
 	}
 
+	/**
+	 * The row's own owning company, or {@code null} when there is no such row.
+	 *
+	 * <p>Not an authorisation check -- {@link #belongsTo} is that. This answers
+	 * "whose row is this", which is what an audit entry has to record when the
+	 * administrator writes across companies (R-061): the posted company is where
+	 * the operator was standing, and this is what they touched.
+	 */
+	public Long companyOf(long id) {
+		if (id <= 0) {
+			return null;
+		}
+		java.util.List<Long> found = this.jdbcTemplate.queryForList(
+				"SELECT company_id FROM branches WHERE id = ?", Long.class, id);
+		return found.isEmpty() ? null : found.get(0);
+	}
+
 	/** {@code org_assert_company_row()}: does this row belong to that company? */
 	public boolean belongsTo(long id, long companyId) {
 		if (id <= 0 || companyId <= 0) {

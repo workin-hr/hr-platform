@@ -437,4 +437,51 @@ class AdminShiftsEndToEndTest {
 				Integer.class)).isZero();
 	}
 
+
+	/**
+	 * When the administrator writes across companies, the audit row says whose row
+	 * it was -- not where the operator was standing.
+	 *
+	 * <p>`assertWritable` resolves the company a write is made *against*, and for
+	 * an unscoped administrator that is the posted `company_id`, checked against
+	 * nothing: R-061 records that as ruled-on parity. The write is correct and is
+	 * deliberately left alone. What was wrong is what it recorded -- the posted
+	 * company, which named the wrong one and read as authoritative.
+	 *
+	 * <p>Each of the four org services carries its own copy of this, so each is
+	 * tested separately: a slip in one is invisible to the others' tests.
+	 */
+	@Test
+	void anAdministratorsCrossCompanyEditIsAuditedAgainstTheRowsOwnCompany() {
+		long beta = seedShift(this.companyB, "Beta Owned");
+		// The scenario is an UNSCOPED administrator, so say so rather than
+		// inheriting whatever company the session was last filtered to: with the
+		// scope still on B, assertWritable ignores the posted field entirely and
+		// there is no cross-company edit to audit. That is how this test first
+		// failed.
+		body("/admin/shifts?company_id=");
+
+		post("/admin/shifts", this.cookie, page("/admin/shifts", this.cookie).csrf(),
+				"action", "save_edit", "id", String.valueOf(beta),
+				"company_id", String.valueOf(this.companyA), "name", "Beta Renamed",
+				"start_time", "10:00", "end_time", "18:00", "is_active", "1");
+
+		assertThat(this.jdbc.queryForObject(
+				"SELECT company_id FROM shifts WHERE id = ?", Long.class, beta))
+				.as("the row stayed company B's: the write is unchanged and this test does not "
+						+ "relitigate R-061")
+				.isEqualTo(this.companyB);
+
+		String detail = this.jdbc.queryForObject(
+				"SELECT detail FROM platform_admin_audit_events WHERE target_type = 'shift'"
+						+ " AND target_id = ? ORDER BY id DESC LIMIT 1",
+				String.class, String.valueOf(beta));
+		assertThat(detail)
+				.as("the affected company is the row's owner")
+				.contains("in company " + this.companyB);
+		assertThat(detail)
+				.as("and the posted company is named as the administrator's, not as the subject")
+				.contains("the administrator posted company " + this.companyA);
+	}
+
 }

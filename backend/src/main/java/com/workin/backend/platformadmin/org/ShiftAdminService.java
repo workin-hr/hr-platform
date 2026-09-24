@@ -130,7 +130,7 @@ public class ShiftAdminService {
 			throw new RefusedException(Refusal.NO_ROW);
 		}
 		audit(adminId, PlatformAdminAuditEventType.ORG_UPDATED, id,
-				"shift updated in company " + companyId);
+				"shift updated in company " + OrgAuditDetail.affected(id, companyId, this.store::companyOf));
 		return companyId;
 	}
 
@@ -146,7 +146,7 @@ public class ShiftAdminService {
 			throw new RefusedException(Refusal.NO_ROW);
 		}
 		audit(adminId, PlatformAdminAuditEventType.ORG_DELETED, id,
-				"shift deactivated in company " + companyId);
+				"shift deactivated in company " + OrgAuditDetail.affected(id, companyId, this.store::companyOf));
 		return companyId;
 	}
 
