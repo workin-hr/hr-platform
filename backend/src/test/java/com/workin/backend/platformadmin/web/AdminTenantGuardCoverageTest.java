@@ -357,6 +357,90 @@ class AdminTenantGuardCoverageTest {
 	}
 
 	/**
+	 * A write verb wearing a modifier is still a write.
+	 *
+	 * <p>{@code INSERT IGNORE} was the third round's finding and was fixed as
+	 * itself. MariaDB allows that family on the other verbs too, and the pattern
+	 * then read the modifier <em>as the table</em>: {@code UPDATE IGNORE employees}
+	 * captured {@code IGNORE}, a name in no ground truth, so the statement was
+	 * seen as a write to nothing -- neither found nor unaccounted for.
+	 *
+	 * <p>None of these is in the repository today, which is why this is a test and
+	 * not a measurement: there is nothing to measure until somebody writes one,
+	 * and by then the gate has already said the file was clean.
+	 */
+	@Test
+	void aWriteVerbWearingAModifierIsStillAWrite() {
+		Set<String> tables = Set.of("employees", "notifications");
+		Map<String, String> noEntities = Map.of();
+
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"UPDATE IGNORE employees SET is_active = 0 WHERE id = ?\");",
+				tables, noEntities))
+				.as("one keyword away from INSERT IGNORE, which this repository does use")
+				.containsExactly("employees");
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"UPDATE LOW_PRIORITY IGNORE employees SET is_active = 0\");",
+				tables, noEntities))
+				.as("both of UPDATE's modifiers at once").containsExactly("employees");
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"DELETE LOW_PRIORITY QUICK FROM notifications WHERE id = ?\");",
+				tables, noEntities))
+				.as("the pattern allowed exactly one word between DELETE and FROM -- room for an "
+						+ "alias, but not for two modifiers")
+				.containsExactly("notifications");
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"INSERT HIGH_PRIORITY INTO employees (company_id) VALUES (?)\");",
+				tables, noEntities))
+				.containsExactly("employees");
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"DELETE a FROM notifications a JOIN employees e ON e.id = a.employee_id\");",
+				tables, noEntities))
+				.as("an alias is not a modifier, and still reads as one table")
+				.containsExactly("notifications");
+
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"UPDATE ignored_signals SET seen = 1 WHERE id = ?\");",
+				Set.of("ignored_signals"), noEntities))
+				.as("a table whose name merely begins with a modifier is a table")
+				.containsExactly("ignored_signals");
+	}
+
+	/**
+	 * A schema-qualified write names its table, not its schema.
+	 *
+	 * <p>Nothing here qualifies a table name today. The capture used to take the
+	 * first word after the verb, so {@code workin.employees} read as a write to
+	 * {@code workin} -- again a name in no ground truth, and again silence in both
+	 * directions rather than a failure.
+	 */
+	@Test
+	void aSchemaQualifiedWriteNamesItsTable() {
+		Set<String> tables = Set.of("employees");
+		Map<String, String> noEntities = Map.of();
+
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"DELETE FROM workin.employees WHERE id = ?\");", tables, noEntities))
+				.containsExactly("employees");
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"UPDATE `workin`.`employees` SET is_active = 0\");", tables, noEntities))
+				.as("backticked on both halves, which is how a dump writes it")
+				.containsExactly("employees");
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"INSERT INTO workin.employees (company_id) VALUES (?)\");",
+				tables, noEntities))
+				.containsExactly("employees");
+
+		assertThat(writtenTenantTables(
+				"/** The value the dynamic UPDATE binds. The keys were written back. */",
+				Set.of("The"), noEntities))
+				.as("the price of the qualifier, stated rather than discovered: a sentence can "
+						+ "parse as a qualified write, which costs an exemption for a file that "
+						+ "writes nothing and never hides one that does")
+				.containsExactly("The");
+	}
+
+	/**
 	 * A JPQL write is a write to the entity's table.
 	 *
 	 * <p>{@code @Modifying @Query("update LegacyEmployee e set ...")} lands in
@@ -621,6 +705,41 @@ class AdminTenantGuardCoverageTest {
 			Pattern.compile("\\bcom\\.workin\\.[\\w.]+\\.([A-Z]\\w+)\\b");
 
 	/**
+	 * MariaDB's optional statement modifiers, which sit between the verb and the
+	 * rest of the statement.
+	 *
+	 * <p>One union for all four verbs, which accepts a handful of combinations SQL
+	 * does not ({@code UPDATE QUICK}). That is the right direction to err: this
+	 * decides whether a file is looked at, so accepting too much costs an
+	 * exemption somebody has to write, and accepting too little hides a writer
+	 * from both halves of the ratchet. {@code INSERT IGNORE} was the third round's
+	 * finding and was fixed as itself rather than as a class; the seventh round
+	 * asked for the rest of the family and found {@code UPDATE IGNORE} -- one
+	 * keyword away from an idiom this repository already uses -- invisible.
+	 */
+	private static final String STATEMENT_MODIFIERS =
+			"(?:\\s+(?:LOW_PRIORITY|HIGH_PRIORITY|DELAYED|QUICK|IGNORE))*";
+
+	/**
+	 * An optional {@code schema.} or {@code `schema`.} before the table name.
+	 *
+	 * <p>Every statement here is unqualified today. Without this the capture
+	 * stopped at the schema name, which is in no ground truth, so a qualified
+	 * write was read as a write to nothing.
+	 *
+	 * <p>It widens what prose can match, because this scan reads whole files
+	 * rather than stripped ones: {@code "the dynamic UPDATE binds. The normalised
+	 * keys"} now parses as {@code UPDATE} of table {@code The}. That is inert
+	 * unless the captured word is itself a tenant-owned table name, and it errs by
+	 * demanding an exemption for a file that writes nothing -- never by hiding a
+	 * file that does. Stripping comments first would be the tighter fix and a
+	 * riskier one: a stripper that mistakes {@code //} inside a string literal for
+	 * a comment deletes real SQL, which fails in the direction this gate exists to
+	 * prevent.
+	 */
+	private static final String SCHEMA_PREFIX = "(?:`?\\w+`?\\s*\\.\\s*)?";
+
+	/**
 	 * Every write verb this repository actually uses, which is more than the
 	 * three a reader assumes.
 	 *
@@ -641,9 +760,14 @@ class AdminTenantGuardCoverageTest {
 	 * writes its entity's table with no statement written down at all
 	 * ({@link #JPA_REPOSITORY}).
 	 *
-	 * <p>Two shapes are still invisible, each with a test saying so, and the
-	 * second is not a detection gap but a limit of what "tenant-owned" means
-	 * here.
+	 * <p>Two shapes are still invisible <em>and asserted here</em>, the second
+	 * being a limit of what "tenant-owned" means rather than a detection gap.
+	 * They are not the whole list: issue #334 records the shapes review has named
+	 * with no instance to assert against -- {@code TRUNCATE TABLE}, a multi-table
+	 * {@code DELETE t1, t2 FROM}, an {@code UPDATE a JOIN b SET}, a tenant column
+	 * added by a later {@code ALTER TABLE}, and a repository reaching
+	 * {@code JpaRepository} through an intermediate interface. Read this as the two
+	 * bounds with a live example, not as a closed enumeration.
 	 *
 	 * <p><b>A variable table name</b> ({@code "DELETE FROM " + table}) has no
 	 * table name in its text.
@@ -664,8 +788,14 @@ class AdminTenantGuardCoverageTest {
 	 * than folded in here.
 	 */
 	private static final Pattern WRITE_STATEMENT = Pattern.compile(
-			"\\b(?:INSERT\\s+(?:IGNORE\\s+)?INTO|REPLACE\\s+INTO|UPDATE|DELETE\\s+(?:\\w+\\s+)?FROM)"
-					+ "\\s+`?(\\w+)`?", Pattern.CASE_INSENSITIVE);
+			"\\b(?:INSERT" + STATEMENT_MODIFIERS + "\\s+INTO"
+					+ "|REPLACE" + STATEMENT_MODIFIERS + "\\s+INTO"
+					+ "|UPDATE" + STATEMENT_MODIFIERS
+					+ "|DELETE" + STATEMENT_MODIFIERS + "(?:\\s+\\w+)?\\s+FROM)"
+					+ "\\s+" + SCHEMA_PREFIX + "`?(\\w+)`?", Pattern.CASE_INSENSITIVE);
+
+	/** An {@code @Entity} declaration, at the start of a line so a mention in prose is not one. */
+	private static final Pattern ENTITY_DECLARATION = Pattern.compile("(?m)^@Entity\\b");
 
 	/**
 	 * A Spring Data repository, and the entity it is declared over.
@@ -691,9 +821,6 @@ class AdminTenantGuardCoverageTest {
 	 * needed, never hide a writer. No repository of a tenant-owned entity is
 	 * reachable from the admin surface today, so it adds nobody.
 	 */
-	/** An {@code @Entity} declaration, at the start of a line so a mention in prose is not one. */
-	private static final Pattern ENTITY_DECLARATION = Pattern.compile("(?m)^@Entity\\b");
-
 	private static final Pattern JPA_REPOSITORY = Pattern.compile(
 			"extends\\s+(?:Jpa|Crud|PagingAndSorting|ListCrud|ListPagingAndSorting)Repository\\s*<\\s*(\\w+)");
 
@@ -924,10 +1051,18 @@ class AdminTenantGuardCoverageTest {
 	 * The eight tables that were invisible, named, so that widening the ground
 	 * truth cannot be quietly reverted.
 	 *
-	 * <p>Without this, deleting the {@link #PHASE1_SCHEMA} read would take rule
-	 * three's five writers down to three and still pass every other assertion
-	 * here -- the two device stores would stop being writers at all, because the
-	 * tables they write would stop counting as tenant-owned.
+	 * <p>Deleting the {@link #PHASE1_SCHEMA} read would take rule three's ten
+	 * writers down to four: each of the six device stores writes exactly one
+	 * phase-1 table and nothing else, so all six would stop being writers,
+	 * because the tables they write would stop counting as tenant-owned.
+	 *
+	 * <p>That revert does <em>not</em> pass silently, and this javadoc claimed it
+	 * did until a review round measured it: {@code found} would no longer equal
+	 * the exemption keys, and six entries would be reported stale, so
+	 * {@link #everyWriterTheAdminSurfaceCanReachIsScannedOrAccountedFor} fails
+	 * twice over. What this test adds is not the detection but the diagnosis --
+	 * six stale exemptions is a confusing way to be told that a schema file
+	 * stopped being read, and these eight names say it directly.
 	 */
 	@Test
 	void theRepositorysOwnTenantOwnedTablesAreNotMissingFromTheGroundTruth() {
@@ -1509,6 +1644,61 @@ class AdminTenantGuardCoverageTest {
 		return String.join(" ", parameters.split("\\s+")).trim();
 	}
 
+	/**
+	 * No two classes share a simple name, because the index rule three walks is
+	 * keyed on one.
+	 *
+	 * <p>{@link #classesByName()} maps a simple name to a path with
+	 * {@code putIfAbsent}, and rule three decides a file is already scanned by
+	 * comparing file <em>names</em>. A second {@code EmployeeStore} anywhere under
+	 * {@code com.workin} would therefore be dropped from the index outright: the
+	 * closure could not reach it, no rule would scan it, and it would be neither
+	 * <em>found</em> nor <em>unaccounted for</em> -- the silence in both directions
+	 * this ratchet exists to remove. An {@code ACCOUNTED_FOR_OUTSIDE_THE_RULES}
+	 * entry would also go on naming a class while describing a different file.
+	 *
+	 * <p>The seventh round established it with a mutant: a second
+	 * {@code EmployeeStore} deleting from {@code employees}, imported by a class in
+	 * the admin root, left the class count, the reachable count and {@code found}
+	 * all unchanged. The same class named {@code WidgetStore} was caught.
+	 *
+	 * <p>This repository mirrors package structure deliberately
+	 * ({@code platformadmin.hr}, {@code legacy}, {@code devices} all name the same
+	 * concepts), so a collision is a plausible accident and not a hypothetical.
+	 * Forbidding it is three lines; making the index path-keyed would change what
+	 * every rule below compares. It is also what the closure's "never less" promise
+	 * needs in order to be true.
+	 *
+	 * <p>{@code package-info.java} is exempt, and is the only name repeated today:
+	 * it declares no class, so it can write nothing, and one per package is the
+	 * whole point of it.
+	 */
+	@Test
+	void noTwoClassesShareASimpleName() {
+		Map<String, List<Path>> byName = new LinkedHashMap<>();
+		try (Stream<Path> tree = Files.walk(MAIN_ROOT)) {
+			tree.filter(Files::isRegularFile)
+					.filter(path -> path.getFileName().toString().endsWith(".java"))
+					.sorted()
+					.forEach(path -> byName
+							.computeIfAbsent(path.getFileName().toString(), key -> new ArrayList<>())
+							.add(path));
+		}
+		catch (IOException ex) {
+			throw new IllegalStateException("could not read " + MAIN_ROOT.toAbsolutePath(), ex);
+		}
+		byName.remove("package-info.java");
+		assertThat(byName).as("the main sources must be findable, or this passes vacuously")
+				.isNotEmpty();
+
+		Map<String, List<Path>> collisions = new LinkedHashMap<>(byName);
+		collisions.values().removeIf(paths -> paths.size() == 1);
+		assertThat(collisions)
+				.as("two classes with one simple name: the index keeps one and the walk never "
+						+ "sees the other, so a write in it fails no assertion in either direction")
+				.isEmpty();
+	}
+
 	/** Every class under {@code com.workin}, by simple name, for the walk below. */
 	private static Map<String, Path> classesByName() {
 		Map<String, Path> byName = new LinkedHashMap<>();
@@ -1555,9 +1745,19 @@ class AdminTenantGuardCoverageTest {
 	 *
 	 * <p>Comments are stripped first, so a {@code @link} in a javadoc does not
 	 * invent a call the code never makes -- which would demand an entry for a
-	 * class the admin surface merely talks about. The closure over-approximates
-	 * in the safe direction otherwise: it follows any reference in code, so it can
-	 * only ask for more accounting than strictly necessary, never less.
+	 * class the admin surface merely talks about. The closure over-approximates in
+	 * the safe direction otherwise: it follows any reference in code, so it
+	 * ordinarily asks for more accounting than strictly necessary.
+	 *
+	 * <p>It is not <em>incapable</em> of asking for less, and saying so plainly is
+	 * worth more than the reassurance: a class reached only through an interface it
+	 * implements is invisible to a walk over class names, because the name in the
+	 * calling code is the interface's. The shape exists here --
+	 * {@code PlatformAdminCompanyService} injects {@code PlatformAdminCompanyDirectory}
+	 * -- and hides nothing, because that interface's only implementation,
+	 * {@code LegacyPlatformAdminCompanyDirectory}, sits inside the admin root and is
+	 * accounted for by name. A simple-name collision is the other way to ask for
+	 * less, and {@link #noTwoClassesShareASimpleName} forbids it outright.
 	 */
 	private static Set<String> reachableFromAdminSurface(Map<String, Path> byName) {
 		Map<Path, Set<String>> siblings = classesByPackage(byName);
