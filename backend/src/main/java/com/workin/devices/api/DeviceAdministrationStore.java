@@ -131,36 +131,51 @@ public class DeviceAdministrationStore {
 				FROM device_punches p
 				JOIN attendance_devices d ON d.id = p.device_id
 				LEFT JOIN companies c ON c.id = p.company_id
-				LEFT JOIN employees e ON e.id = p.employee_id AND e.company_id = p.company_id
-				WHERE 1 = 1""");
-		if (companyId != null) {
-			sql.append(" AND p.company_id = ?");
-			args.add(companyId);
-		}
-		if (deviceId != null) {
-			sql.append(" AND p.device_id = ?");
-			args.add(deviceId);
-		}
+				LEFT JOIN employees e ON e.id = p.employee_id AND e.company_id = p.company_id""");
+		sql.append(punchWhere(companyId, deviceId, args));
 		sql.append(" ORDER BY p.id DESC LIMIT ? OFFSET ?");
 		args.add(limit);
 		args.add(offset);
 		return jdbcTemplate.query(sql.toString(), LegacyJdbcValues.rowMapper(), args.toArray());
 	}
 
+	/**
+	 * How many punches the same filters match, ignoring the page.
+	 *
+	 * <p>Same WHERE clause as the read, by the same method, for the reason
+	 * {@link #deviceWhere} gives: a filter added to one and not the other makes
+	 * the pager count a different set from the one it pages through.
+	 *
+	 * <p>It carries the read's inner join and not its outer ones. The joins to
+	 * {@code companies} and {@code employees} are {@code LEFT}, so they add no row
+	 * and remove none. The join to {@code attendance_devices} is a filter:
+	 * {@code device_punches.device_id} is {@code NOT NULL} but is deliberately
+	 * <em>not</em> a foreign key, so a punch can name a device row that is not
+	 * there and the read drops it. Counting without the join would report a total
+	 * the pages cannot show.
+	 */
 	public int punchCount(Long companyId, Long deviceId) {
 		List<Object> args = new ArrayList<>();
-		StringBuilder sql = new StringBuilder(
-				"SELECT COUNT(*) FROM device_punches p WHERE 1 = 1");
+		String where = punchWhere(companyId, deviceId, args);
+		Integer total = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM device_punches p"
+						+ " JOIN attendance_devices d ON d.id = p.device_id" + where,
+				Integer.class, args.toArray());
+		return total == null ? 0 : total;
+	}
+
+	/** The filters, once, for both the count and the read. */
+	private static String punchWhere(Long companyId, Long deviceId, List<Object> args) {
+		StringBuilder where = new StringBuilder(" WHERE 1 = 1");
 		if (companyId != null) {
-			sql.append(" AND p.company_id = ?");
+			where.append(" AND p.company_id = ?");
 			args.add(companyId);
 		}
 		if (deviceId != null) {
-			sql.append(" AND p.device_id = ?");
+			where.append(" AND p.device_id = ?");
 			args.add(deviceId);
 		}
-		Integer total = jdbcTemplate.queryForObject(sql.toString(), Integer.class, args.toArray());
-		return total == null ? 0 : total;
+		return where.toString();
 	}
 
 	/** Counts by state and by how they arrived, for one device. */

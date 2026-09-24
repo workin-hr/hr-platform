@@ -392,6 +392,45 @@ class AdminDevicesEndToEndTest {
 		}
 	}
 
+	/**
+	 * The punch total counts the punches the page can show, not the rows the table
+	 * holds.
+	 *
+	 * <p>{@code device_punches.device_id} is {@code NOT NULL} and deliberately
+	 * <em>not</em> a foreign key, so a punch can name a device row that is not
+	 * there. The read inner joins {@code attendance_devices} and drops it. A count
+	 * without that join reports a total the pages cannot reach: the heading says
+	 * one more than the list, and the last page comes back empty for no visible
+	 * reason.
+	 *
+	 * <p>This is the drift the shared {@code punchWhere} exists to stop, caught in
+	 * self-review rather than in production: the count was assembled separately
+	 * from the read, five lines below a javadoc arguing that a separately
+	 * assembled count is exactly what goes wrong.
+	 */
+	@Test
+	void thePunchTotalCountsOnlyThePunchesThePageCanShow() {
+		long host = device("PORPH-1", "Orphan Host", 1);
+		punch(host, "PPIN1", 3);
+		punch(host, "PPIN2", 2);
+		punch(host, "PPIN3", 1);
+		long absent = this.jdbc.queryForObject(
+				"SELECT COALESCE(MAX(id), 0) + 1000 FROM attendance_devices", Long.class);
+		this.jdbc.update("INSERT INTO device_punches (device_id, company_id, pin, punched_at_local,"
+				+ " received_at, dedup_key, raw_line, processing_state, delivered_via)"
+				+ " VALUES (?, ?, 'PORPHAN', NOW(), NOW(), 'dedup-orphan', 'raw', 'UNMATCHED', 'PUSH')",
+				absent, this.company);
+
+		String html = body("/admin/devices?per_page=50");
+
+		assertThat(countOccurrences(html, "PPIN")).as("the three punches the page can show").isEqualTo(3);
+		assertThat(html).as("the orphan is not one of them").doesNotContain("PORPHAN");
+		assertThat(Pattern.compile("data-table-title\">[^<]*\\(3\\)</h2>").matcher(html).results().count())
+				.as("exactly one heading reports three -- the punch list, which would say four if "
+						+ "the count did not carry the read's join: %s", html)
+				.isEqualTo(1);
+	}
+
 	private long device(String serial, String name, int minutesOld) {
 		this.jdbc.update("INSERT INTO attendance_devices (company_id, branch_id, vendor, serial_number, name,"
 				+ " device_time_zone, is_active, last_seen_at, created_at, updated_at)"
