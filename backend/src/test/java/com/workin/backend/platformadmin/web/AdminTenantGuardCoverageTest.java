@@ -544,6 +544,15 @@ class AdminTenantGuardCoverageTest {
 	 * invisible to rule three, and that is a sentence this gate should say out
 	 * loud rather than leave for the next review round to find.
 	 */
+	@Test
+	void aTableNameBuiltFromAVariableIsNotSeenAndThatIsRecorded() {
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"DELETE FROM \" + table + \" WHERE company_id = ?\", companyId);",
+				Set.of("employees"), Map.of()))
+				.as("a dynamic table name is invisible to a text scan -- the documented limit")
+				.isEmpty();
+	}
+
 	/**
 	 * A table owned only through a non-employee parent is not in the ground
 	 * truth, so no rule looks at a write to it.
@@ -554,6 +563,10 @@ class AdminTenantGuardCoverageTest {
 	 * invisible to this gate -- harmless today, because that store also writes
 	 * {@code departments} and its service takes a session, and a stated bound
 	 * rather than a fifth review round's discovery.
+	 *
+	 * <p>Widening the ground truth to follow a foreign key into a tenant-owned
+	 * parent is tracked as #334; the {@code doesNotContain} below is what makes
+	 * that a deliberate change rather than a silent one.
 	 */
 	@Test
 	void aTableOwnedOnlyThroughItsParentIsNotInTheGroundTruth() {
@@ -567,15 +580,6 @@ class AdminTenantGuardCoverageTest {
 				"jdbc.update(\"DELETE FROM department_branches WHERE department_id = ?\", id);",
 				tables, entityTables()))
 				.as("so a write to one is seen by nothing").isEmpty();
-	}
-
-	@Test
-	void aTableNameBuiltFromAVariableIsNotSeenAndThatIsRecorded() {
-		assertThat(writtenTenantTables(
-				"jdbc.update(\"DELETE FROM \" + table + \" WHERE company_id = ?\", companyId);",
-				Set.of("employees"), Map.of()))
-				.as("a dynamic table name is invisible to a text scan -- the documented limit")
-				.isEmpty();
 	}
 
 	/** A call that resolves or enforces the session's company. */
