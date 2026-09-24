@@ -155,18 +155,20 @@ class AdminTenantGuardCoverageTest {
 	 * rule two scans {@code <X>Store.java} only when {@code <X>AdminService.java}
 	 * sits beside it, and both look only under the admin root. So a file could be
 	 * invisible to the whole gate by being named something else, or by living
-	 * somewhere else -- and two were. {@code LegacyPlatformAdminCompanyDirectory}
+	 * somewhere else -- and ten are. {@code LegacyPlatformAdminCompanyDirectory}
 	 * writes {@code branches} from inside the admin root under a name matching
 	 * neither pattern; the device stores write seven tables the gate could not
-	 * even call tenant-owned. Neither was a hole. Both were invisible, which is
-	 * the part a gate is supposed to make impossible.
+	 * even call tenant-owned. None of them was a hole. All of them were
+	 * invisible, which is the part a gate is supposed to make impossible -- and
+	 * the list grew from two to five to nine to ten as three review rounds each
+	 * found a different reason the gate could not see a writer.
 	 *
 	 * <p>Self-policing in both directions, like {@link #DELIBERATELY_CROSS_TENANT}:
 	 * an entry that stops writing a tenant-owned table, or that becomes
 	 * scannable by rule one or rule two, fails this test rather than outliving
 	 * its reason. And a new writer that reaches the admin surface fails until
 	 * someone writes down why -- which is the whole point, because the answer
-	 * for all five below is good and none of them had been written down.
+	 * for all ten below is good and none of them had been written down.
 	 */
 	private static final Map<String, String> ACCOUNTED_FOR_OUTSIDE_THE_RULES = Map.ofEntries(
 			Map.entry("AttendanceDeviceStore",
@@ -194,19 +196,28 @@ class AdminTenantGuardCoverageTest {
 							+ "methods; an exemption's SQL shape has to be read off each method."),
 
 			Map.entry("DeviceAgentStore",
-					"Reached from DeviceAdministrationService.setAgentActive(agentId, active), which "
-							+ "writes `WHERE id = ?` with no company predicate. That is inside the trust "
-							+ "model rather than outside it: AdminDevicesController constructs "
-							+ "DashboardSession.admin(...) and is reachable only as a platform "
-							+ "administrator, who is cross-company by design (R-044's deliberate "
-							+ "exception, R-061). No company-scoped session reaches it. The company is "
-							+ "still resolved for the record -- AdminDeviceActions audits "
-							+ "agent.companyId() from the returned row, not from the request."),
+					"Four writes, and the admin surface reaches two of them -- which an earlier version "
+							+ "of this entry did not say, because it described only one. "
+							+ "`setAgentActive(agentId, active)` reaches `setActive`, `WHERE id = ?` with "
+							+ "no company predicate, and its audit row resolves the company from the "
+							+ "returned row (AdminDeviceActions reads agent.companyId()). "
+							+ "`issueAgent(companyId, name)` reaches `create`, an INSERT whose "
+							+ "company_id is the *posted* form field: existence-checked in "
+							+ "DeviceAdministrationService.issueAgent and then audited as posted. Both "
+							+ "are inside the trust model rather than outside it -- "
+							+ "AdminDevicesController constructs DashboardSession.admin(...) and is "
+							+ "reachable only as a platform administrator, who is cross-company by "
+							+ "design (R-044's deliberate exception, R-061), so no company-scoped "
+							+ "session reaches either. The other two, `recordContact` and "
+							+ "`recordHeartbeat`, are `WHERE id = ?` and are not admin-session writes at "
+							+ "all: their caller is the agent API, where the presented token resolved "
+							+ "the row."),
 
 			Map.entry("DeviceAssignmentHistoryStore",
 					"Append-only history. Its single write takes the companyId its caller already "
-							+ "resolved from the device row, so it records an ownership decision rather "
-							+ "than making one."),
+							+ "resolved -- from the device row on an update, and from the branch on a "
+							+ "claim, where no device row exists yet -- so it records an ownership "
+							+ "decision rather than making one."),
 
 			Map.entry("DevicePunchStore",
 					"Reached from the admin surface only through a file import, and that import starts "
@@ -215,6 +226,19 @@ class AdminTenantGuardCoverageTest {
 							+ "`insert(deviceId, companyId, ...)` takes the company explicitly. The punch "
 							+ "rows land in the company the device belongs to, which is not a value the "
 							+ "request supplies."),
+
+			Map.entry("DeviceMalformedPunchStore",
+					"The same file import as DevicePunchStore, and the same answer: "
+							+ "`quarantine(deviceId, companyId, rawLines, receivedAt)` takes the company "
+							+ "explicitly and writes it as the row's column, and every caller passes "
+							+ "`device.companyId()` off an AttendanceDevice already resolved -- on the "
+							+ "admin path by `requireDevice(deviceId)` in "
+							+ "DeviceAdministrationService.importAttlog. It is an `INSERT IGNORE INTO`, "
+							+ "which is why it was missing from this list until the third review round: "
+							+ "the write detector knew three verbs and this is a fourth, so the rule "
+							+ "reported full coverage of a set it had never looked at. That is recorded "
+							+ "here rather than only in the log, because the next reader of this list is "
+							+ "entitled to know it was once incomplete and how."),
 
 			Map.entry("EmployeeDeviceIdentityStore",
 					"`bind(companyId, employeeId, pin, ...)` takes the company explicitly, and every "
@@ -236,8 +260,11 @@ class AdminTenantGuardCoverageTest {
 							+ "controls here, not a tenant predicate."),
 
 			Map.entry("LegacyPayrollBatchStore",
-					"Reached only through PayrollAdminService, every public method of which takes a "
-							+ "DashboardSession -- so rule one already enforces the guard, one layer "
+					"Reached only through PayrollAdminService, every public method of which that "
+							+ "reaches a batch write takes a DashboardSession (createRun, calculate, "
+							+ "finalizeRun, reopenRun, deleteRun, editDetail; actionsEnabled and the "
+							+ "static helpers write nothing) -- so rule one already enforces the guard, "
+							+ "one layer "
 							+ "above. The store sits outside the admin root because payroll's arithmetic "
 							+ "is shared with the legacy API, not because it is unguarded."),
 
@@ -247,17 +274,131 @@ class AdminTenantGuardCoverageTest {
 							+ "closure follows classes rather than methods, so the service's own write "
 							+ "path comes with it. Those service writes -- `create`, `update` and "
 							+ "`delete` on LegacyPayslipService, the only way to reach the store's "
-							+ "`insert`/`update`/`delete`, which are by row id -- each take an explicit "
+							+ "`update` and `delete`, which are `WHERE id=?`, and its `insert`, which "
+							+ "has no predicate at all -- each take an explicit "
 							+ "companyId and belong to the legacy API, which has its own "
 							+ "tenant control (TenantFilterCoverageTest, the tenant filter, "
 							+ "LegacyTenantContext). No admin-surface path reaches them."),
 
 			Map.entry("LegacyPlatformAdminCompanyDirectory",
 					"create() makes a company and its first branch, so there is no prior owner to "
-							+ "compare a session against. update()'s `UPDATE branches ... WHERE id = ?` "
-							+ "is by row id and safe for the reason the class javadoc gives: the "
-							+ "preceding `SELECT id FROM branches WHERE company_id = ? ORDER BY id ASC "
-							+ "LIMIT 1` resolved that id inside the company being edited."));
+							+ "compare a session against. update() writes the main branch two ways and "
+							+ "both are safe for a reason visible in the method itself, not in the class "
+							+ "javadoc (which is about not mutating the entity, and says nothing about "
+							+ "branches): its `SELECT id FROM branches WHERE company_id = ? ORDER BY id "
+							+ "ASC LIMIT 1` resolves the id inside the company being edited, so the "
+							+ "following `UPDATE branches ... WHERE id = ?` cannot reach another "
+							+ "company's row, and when that select finds nothing the else-branch "
+							+ "`INSERT INTO branches (company_id, ...)` writes the same resolved "
+							+ "company as a column."));
+
+	/**
+	 * The write detector sees every verb this repository writes with.
+	 *
+	 * <p>Not a style test. Rule three's claim is exhaustive, and a verb it
+	 * cannot see makes a writer neither found nor unaccounted for -- invisible
+	 * to both directions of the ratchet. This is the assertion that was missing
+	 * when {@code INSERT IGNORE INTO} and {@code DELETE a FROM} were, so the
+	 * next narrowing of the pattern fails here instead of going quiet.
+	 */
+	@Test
+	void theWriteDetectorSeesEveryVerbThisRepositoryUses() {
+		Set<String> tables = Set.of("attendance", "device_malformed_punches", "employees", "notifications");
+		Map<String, String> noEntities = Map.of();
+
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"INSERT INTO employees (company_id) VALUES (?)\");", tables, noEntities))
+				.containsExactly("employees");
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"INSERT IGNORE INTO device_malformed_punches (company_id) VALUES (?)\");",
+				tables, noEntities))
+				.as("the device ingest idiom").containsExactly("device_malformed_punches");
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"REPLACE INTO employees (id) VALUES (?)\");", tables, noEntities))
+				.containsExactly("employees");
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"UPDATE employees SET is_active = 0 WHERE id = ?\");", tables, noEntities))
+				.containsExactly("employees");
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"DELETE FROM notifications WHERE company_id = ?\");", tables, noEntities))
+				.containsExactly("notifications");
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"DELETE a FROM attendance a JOIN employees e ON e.id = a.employee_id\");",
+				tables, noEntities))
+				.as("MySQL's multi-table delete puts an alias between the verb and the table")
+				.contains("attendance");
+
+		assertThat(writtenTenantTables(
+				"jdbc.query(\"SELECT * FROM employees WHERE company_id = ?\");", tables, noEntities))
+				.as("a read is not a write").isEmpty();
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"DELETE FROM sessions WHERE id = ?\");", tables, noEntities))
+				.as("a table the schema does not call tenant-owned").isEmpty();
+	}
+
+	/**
+	 * A JPQL write is a write to the entity's table.
+	 *
+	 * <p>{@code @Modifying @Query("update LegacyEmployee e set ...")} lands in
+	 * {@code employees}. Without the translation the pattern matches, compares
+	 * "LegacyEmployee" against table names, and reports nothing written -- a
+	 * second whole category of write that the rule's exhaustive claim did not
+	 * cover. No such writer is reachable from the admin surface today, which is
+	 * exactly why this needs a test: there is nothing else to notice if it stops
+	 * working.
+	 */
+	@Test
+	void aJpqlWriteIsReadAsAWriteToTheEntitysTable() {
+		Set<String> tables = Set.of("employees", "legacy_refresh_tokens");
+		Map<String, String> entities = Map.of(
+				"LegacyEmployee", "employees", "LegacyRefreshToken", "legacy_refresh_tokens");
+
+		assertThat(writtenTenantTables(
+				"@Query(\"update LegacyEmployee e set e.tokenVersion = e.tokenVersion + 1 where e.id = :id\")",
+				tables, entities))
+				.containsExactly("employees");
+		assertThat(writtenTenantTables(
+				"@Query(\"DELETE FROM LegacyRefreshToken t WHERE t.employeeId = :id\")", tables, entities))
+				.containsExactly("legacy_refresh_tokens");
+		assertThat(writtenTenantTables(
+				"@Query(\"update LegacyEmployee e set e.x = 1\")", tables, Map.of()))
+				.as("without the map the same text reads as no write, which is the bug this closes")
+				.isEmpty();
+	}
+
+	/** The entity-to-table map is read from the sources, not hard-coded. */
+	@Test
+	void theEntityTableMapComesFromTheEntitiesThemselves() {
+		assertThat(entityTables())
+				.as("every entity declares its table explicitly")
+				.containsEntry("LegacyEmployee", "employees")
+				.containsEntry("LegacyCompany", "companies")
+				.containsEntry("LegacyRefreshToken", "legacy_refresh_tokens")
+				.containsEntry("PlatformAdminAuditEvent", "platform_admin_audit_events");
+		assertThat(entityTables().values())
+				.as("a table name, never a class name").allSatisfy(
+						table -> assertThat(table).isEqualTo(table.toLowerCase(java.util.Locale.ROOT)));
+	}
+
+	/**
+	 * What the detector still cannot see, asserted so that it is a known limit
+	 * rather than a discovery.
+	 *
+	 * <p>A statement assembled around a variable table name has no table name in
+	 * its text. {@code LegacyCompanyDelete} writes twelve tables that way and is
+	 * on the exemption list for its own reasons, so nothing is hidden today --
+	 * but a store whose <em>only</em> writes were of this shape would be
+	 * invisible to rule three, and that is a sentence this gate should say out
+	 * loud rather than leave for the next review round to find.
+	 */
+	@Test
+	void aTableNameBuiltFromAVariableIsNotSeenAndThatIsRecorded() {
+		assertThat(writtenTenantTables(
+				"jdbc.update(\"DELETE FROM \" + table + \" WHERE company_id = ?\", companyId);",
+				Set.of("employees"), Map.of()))
+				.as("a dynamic table name is invisible to a text scan -- the documented limit")
+				.isEmpty();
+	}
 
 	/** A call that resolves or enforces the session's company. */
 	private static final Pattern TENANT_GUARD = Pattern.compile(
@@ -297,8 +438,34 @@ class AdminTenantGuardCoverageTest {
 	private static final Pattern QUALIFIED_CLASS =
 			Pattern.compile("\\bcom\\.workin\\.[\\w.]+\\.([A-Z]\\w+)\\b");
 
+	/**
+	 * Every write verb this repository actually uses, which is more than the
+	 * three a reader assumes.
+	 *
+	 * <p>It began as {@code INSERT INTO|UPDATE|DELETE FROM} and that was wrong
+	 * in two ways at once, both found by review. {@code INSERT IGNORE INTO} is
+	 * this repository's idiom for de-duplicated device ingest
+	 * ({@code DeviceMalformedPunchStore}, {@code DeviceOperationLogStore}), and
+	 * MySQL's multi-table delete puts an alias between the verb and the table
+	 * ({@code DELETE a FROM attendance a JOIN ...}) -- seven files use one or
+	 * the other. A writer the verb set cannot see is worse than one the closure
+	 * cannot reach, because it is neither <em>found</em> nor <em>unaccounted
+	 * for</em>: no direction of the ratchet below can notice it, and the gate
+	 * reports full coverage of a set it silently never looked at.
+	 *
+	 * <p>Two shapes are still invisible, deliberately and with a test each
+	 * saying so: a statement whose table name is a variable
+	 * ({@code "DELETE FROM " + table}), and any write that is not SQL text at
+	 * all. The second one is handled instead of ignored -- see
+	 * {@link #entityTables()}.
+	 */
 	private static final Pattern WRITE_STATEMENT = Pattern.compile(
-			"\\b(?:INSERT\\s+INTO|UPDATE|DELETE\\s+FROM)\\s+`?(\\w+)`?", Pattern.CASE_INSENSITIVE);
+			"\\b(?:INSERT\\s+(?:IGNORE\\s+)?INTO|REPLACE\\s+INTO|UPDATE|DELETE\\s+(?:\\w+\\s+)?FROM)"
+					+ "\\s+`?(\\w+)`?", Pattern.CASE_INSENSITIVE);
+
+	/** {@code @Entity} ... {@code @Table(name = "x")}, in that order, as every entity here declares it. */
+	private static final Pattern ENTITY_TABLE = Pattern.compile(
+			"@Entity\\b[^;{]*?@Table\\s*\\(\\s*name\\s*=\\s*\"(\\w+)\"", Pattern.DOTALL);
 
 	@Test
 	void everySessionTakingServiceMethodReachesATenantGuard() {
@@ -336,9 +503,13 @@ class AdminTenantGuardCoverageTest {
 	 * until {@link #PHASE1_SCHEMA} was read, because they are declared in this
 	 * repository's own schema rather than the vendored one.
 	 *
-	 * <p>Neither was a vulnerability: both resolve the row's company before
-	 * writing, which is exactly what D-176 asks. The defect was that the gate
-	 * could not have told anyone either way. This rule closes that by making the
+	 * <p>Neither was a vulnerability -- but not for one reason, and saying it as
+	 * one reason is how an exemption drifts from its code. Most resolve the
+	 * row's company before writing, which is what D-176 asks;
+	 * {@code LegacyPlatformAdminCompanyDirectory.create} has no prior row to
+	 * resolve because it is creating the company, and
+	 * {@code LegacyPayrollBatchStore} is guarded a layer above by rule one. The
+	 * defect was that the gate could not have told anyone either way. This rule closes that by making the
 	 * gate's coverage an enumerated claim instead of an implied one: reachability
 	 * is computed from the admin root outward, and every writer it finds must be
 	 * scanned or listed.
@@ -350,7 +521,7 @@ class AdminTenantGuardCoverageTest {
 	 * LegacyTenantContext}). Demanding an entry for each would produce the wall of
 	 * exemptions this class's javadoc already rejected once, for the same reason:
 	 * it would tell nobody anything. Scoped to what the admin surface can reach,
-	 * the answer is five.
+	 * the answer is ten.
 	 */
 	@Test
 	void everyWriterTheAdminSurfaceCanReachIsScannedOrAccountedFor() {
@@ -1217,15 +1388,59 @@ class AdminTenantGuardCoverageTest {
 
 	/** Which tenant-owned tables one file writes, by the same reading rule two uses. */
 	private static Set<String> writtenTenantTables(Path file, Set<String> tenantTables) {
-		String flattened = read(file).replaceAll("\"\\s*\\+\\s*\"", "");
+		return writtenTenantTables(read(file), tenantTables, entityTables());
+	}
+
+	/**
+	 * The tenant-owned tables one file's source writes.
+	 *
+	 * <p>Split from the file read so a synthetic source can be measured with
+	 * the production rule rather than a copy of it.
+	 */
+	private static Set<String> writtenTenantTables(
+			String source, Set<String> tenantTables, Map<String, String> entityTables) {
+		String flattened = source.replaceAll("\"\\s*\\+\\s*\"", "");
 		Set<String> written = new java.util.TreeSet<>();
 		Matcher write = WRITE_STATEMENT.matcher(flattened);
 		while (write.find()) {
-			if (tenantTables.contains(write.group(1))) {
-				written.add(write.group(1));
+			// A JPQL write names the entity; the table it lands in is what the
+			// schema calls tenant-owned. Anything that is not an entity name is
+			// already a table name.
+			String table = entityTables.getOrDefault(write.group(1), write.group(1));
+			if (tenantTables.contains(table)) {
+				written.add(table);
 			}
 		}
 		return written;
+	}
+
+	/**
+	 * Entity simple name to table name.
+	 *
+	 * <p>A {@code @Modifying @Query} writes in JPQL, which names the entity:
+	 * {@code update LegacyEmployee e set e.tokenVersion = ...} lands in
+	 * {@code employees}. {@link #WRITE_STATEMENT} matches that text perfectly
+	 * well and then compares "LegacyEmployee" against a set of table names,
+	 * concludes nothing tenant-owned was written, and moves on -- so a whole
+	 * category of write was invisible to a rule whose product is an exhaustive
+	 * claim. Translating the name is all it takes, because JPQL's verbs are
+	 * SQL's.
+	 *
+	 * <p>No entity here overrides its name ({@code @Entity(name = ...)}), so
+	 * the class name is the entity name, and every one declares its table
+	 * explicitly.
+	 */
+	private static Map<String, String> entityTables() {
+		Map<String, String> tables = new LinkedHashMap<>();
+		classesByName().forEach((name, path) -> {
+			Matcher table = ENTITY_TABLE.matcher(read(path));
+			if (table.find()) {
+				tables.put(name, table.group(1));
+			}
+		});
+		assertThat(tables).as("the entities must be findable, or a JPQL write reads as no write at all")
+				.isNotEmpty();
+		return tables;
 	}
 
 	private static List<Path> adminServices() {
