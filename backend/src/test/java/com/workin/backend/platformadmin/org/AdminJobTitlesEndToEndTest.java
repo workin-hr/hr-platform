@@ -581,7 +581,6 @@ class AdminJobTitlesEndToEndTest {
 				.as("no audit row for a job title that is not there").isZero();
 	}
 
-
 	/**
 	 * When the administrator writes across companies, the audit row says whose row
 	 * it was -- not where the operator was standing.

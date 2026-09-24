@@ -637,7 +637,6 @@ class AdminDepartmentsEndToEndTest {
 				.as("no audit row for a department that is not there").isZero();
 	}
 
-
 	/**
 	 * When the administrator deletes across companies, the audit row says whose row
 	 * it was -- not where the operator was standing.

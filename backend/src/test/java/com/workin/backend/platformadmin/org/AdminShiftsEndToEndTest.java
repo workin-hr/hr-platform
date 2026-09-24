@@ -437,7 +437,6 @@ class AdminShiftsEndToEndTest {
 				Integer.class)).isZero();
 	}
 
-
 	/**
 	 * When the administrator writes across companies, the audit row says whose row
 	 * it was -- not where the operator was standing.
@@ -470,6 +469,51 @@ class AdminShiftsEndToEndTest {
 				"SELECT company_id FROM shifts WHERE id = ?", Long.class, beta))
 				.as("the row stayed company B's: the write is unchanged and this test does not "
 						+ "relitigate R-061")
+				.isEqualTo(this.companyB);
+
+		String detail = this.jdbc.queryForObject(
+				"SELECT detail FROM platform_admin_audit_events WHERE target_type = 'shift'"
+						+ " AND target_id = ? ORDER BY id DESC LIMIT 1",
+				String.class, String.valueOf(beta));
+		assertThat(detail)
+				.as("the affected company is the row's owner")
+				.contains("in company " + this.companyB);
+		assertThat(detail)
+				.as("and the posted company is named as the administrator's, not as the subject")
+				.contains("the administrator posted company " + this.companyA);
+	}
+
+	/**
+	 * The same for a delete, which is a different audit call carrying a different
+	 * event type -- and one that can only name the owner because the delete is
+	 * soft.
+	 *
+	 * <p>{@code deactivate} sets {@code is_active = 0} and leaves the row, so the
+	 * owner is still there to resolve after the write. A hard delete would find
+	 * nothing, fall back silently to the posted company, and restore exactly the
+	 * defect this fixes -- which is why the surviving row is asserted here and not
+	 * taken for granted.
+	 */
+	@Test
+	void anAdministratorsCrossCompanyDeleteIsAuditedAgainstTheRowsOwnCompany() {
+		long beta = seedShift(this.companyB, "Beta Closing");
+		// The scenario is an UNSCOPED administrator, so say so rather than
+		// inheriting whatever company the session was last filtered to: with the
+		// scope still on B, assertWritable ignores the posted field entirely and
+		// there is no cross-company write to audit.
+		body("/admin/shifts?company_id=");
+
+		post("/admin/shifts", this.cookie, page("/admin/shifts", this.cookie).csrf(),
+				"action", "delete", "id", String.valueOf(beta),
+				"company_id", String.valueOf(this.companyA));
+
+		assertThat(this.jdbc.queryForObject(
+				"SELECT is_active FROM shifts WHERE id = ?", Integer.class, beta))
+				.as("deactivated rather than removed -- the row the audit resolves its owner from")
+				.isZero();
+		assertThat(this.jdbc.queryForObject(
+				"SELECT company_id FROM shifts WHERE id = ?", Long.class, beta))
+				.as("and it stayed company B's row")
 				.isEqualTo(this.companyB);
 
 		String detail = this.jdbc.queryForObject(
