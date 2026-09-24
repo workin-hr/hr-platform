@@ -168,39 +168,80 @@ class AdminTenantGuardCoverageTest {
 	 * someone writes down why -- which is the whole point, because the answer
 	 * for all five below is good and none of them had been written down.
 	 */
-	private static final Map<String, String> ACCOUNTED_FOR_OUTSIDE_THE_RULES = Map.of(
-			"AttendanceDeviceStore",
-			"Every write takes an explicit companyId and scopes by it "
-					+ "(`WHERE company_id = ? AND id = ?`), and the admin-side caller derives that "
-					+ "company from the row rather than the request: DeviceAdministrationService"
-					+ ".setActive reads device.companyId() after requireDevice(deviceId), and "
-					+ ".allocate reads branchCompanyId(branchId). That is D-176's invariant, "
-					+ "satisfied one layer above the store.",
+	private static final Map<String, String> ACCOUNTED_FOR_OUTSIDE_THE_RULES = Map.ofEntries(
+			Map.entry("AttendanceDeviceStore",
+					"Two shapes, and the distinction matters. `claim` and `update` -- the writes the "
+							+ "admin surface reaches -- take an explicit companyId and scope by it "
+							+ "(`WHERE company_id = ? AND id = ?`), and the caller derives that company "
+							+ "from the row rather than the request: DeviceAdministrationService.setActive "
+							+ "reads device.companyId() after requireDevice(deviceId), and .allocate reads "
+							+ "branchCompanyId(branchId). That is D-176's invariant, satisfied one layer "
+							+ "above the store. `touchSeen`, `recordHandshake`, `recordSelfDescription` and "
+							+ "`recordAttlogStamp` are `WHERE id = ?` with no company at all, and they are "
+							+ "NOT admin-session writes: their only callers are DeviceAgentIngestService "
+							+ "and ZkTecoAdmsService, where the terminal has already authenticated by "
+							+ "serial or agent token and that identity resolved the row -- the id is not "
+							+ "independently attacker-chosen. An earlier version of this entry said "
+							+ "'every write takes an explicit companyId', which was false of those four; "
+							+ "the review round caught it."),
 
-			"DeviceAssignmentHistoryStore",
-			"Append-only history. Its single write takes the companyId its caller already "
-					+ "resolved from the device row, so it records an ownership decision rather "
-					+ "than making one.",
+			Map.entry("DeviceAgentStore",
+					"Reached from DeviceAdministrationService.setAgentActive(agentId, active), which "
+							+ "writes `WHERE id = ?` with no company predicate. That is inside the trust "
+							+ "model rather than outside it: AdminDevicesController constructs "
+							+ "DashboardSession.admin(...) and is reachable only as a platform "
+							+ "administrator, who is cross-company by design (R-044's deliberate "
+							+ "exception, R-061). No company-scoped session reaches it. The company is "
+							+ "still resolved for the record -- AdminDeviceActions audits "
+							+ "agent.companyId() from the returned row, not from the request."),
 
-			"LegacyCompanyDelete",
-			"The platform administrator deleting a whole company: every statement is "
-					+ "`WHERE company_id = ?` for the company being deleted, and there is no "
-					+ "session company to compare it against, because the operation's subject IS "
-					+ "the company. ADR-0015's typed-name confirmation and its audit row are the "
-					+ "controls here, not a tenant predicate.",
+			Map.entry("DeviceAssignmentHistoryStore",
+					"Append-only history. Its single write takes the companyId its caller already "
+							+ "resolved from the device row, so it records an ownership decision rather "
+							+ "than making one."),
 
-			"LegacyPayrollBatchStore",
-			"Reached only through PayrollAdminService, every public method of which takes a "
-					+ "DashboardSession -- so rule one already enforces the guard, one layer "
-					+ "above. The store sits outside the admin root because payroll's arithmetic "
-					+ "is shared with the legacy API, not because it is unguarded.",
+			Map.entry("DevicePunchStore",
+					"Reached from the admin surface only through a file import, and that import starts "
+							+ "from a resolved device: AdminDeviceActions passes requireDevice(deviceId)'s "
+							+ "AttendanceDevice to DeviceFileImportService.importAttlog, and "
+							+ "`insert(deviceId, companyId, ...)` takes the company explicitly. The punch "
+							+ "rows land in the company the device belongs to, which is not a value the "
+							+ "request supplies."),
 
-			"LegacyPlatformAdminCompanyDirectory",
-			"create() makes a company and its first branch, so there is no prior owner to "
-					+ "compare a session against. update()'s `UPDATE branches ... WHERE id = ?` "
-					+ "is by row id and safe for the reason the class javadoc gives: the "
-					+ "preceding `SELECT id FROM branches WHERE company_id = ? ORDER BY id ASC "
-					+ "LIMIT 1` resolved that id inside the company being edited.");
+			Map.entry("EmployeeDeviceIdentityStore",
+					"`bind(companyId, employeeId, pin, ...)` takes the company explicitly and scopes "
+							+ "every statement by it, including the uniqueness checks it makes before "
+							+ "writing (`WHERE company_id = ? AND pin = ?`). Reached, like DevicePunchStore, "
+							+ "only through an import that began from a resolved device."),
+
+			Map.entry("LegacyCompanyDelete",
+					"The platform administrator deleting a whole company: every statement is "
+							+ "`WHERE company_id = ?` for the company being deleted, and there is no "
+							+ "session company to compare it against, because the operation's subject IS "
+							+ "the company. ADR-0015's typed-name confirmation and its audit row are the "
+							+ "controls here, not a tenant predicate."),
+
+			Map.entry("LegacyPayrollBatchStore",
+					"Reached only through PayrollAdminService, every public method of which takes a "
+							+ "DashboardSession -- so rule one already enforces the guard, one layer "
+							+ "above. The store sits outside the admin root because payroll's arithmetic "
+							+ "is shared with the legacy API, not because it is unguarded."),
+
+			Map.entry("LegacyPayslipStore",
+					"Reachable by class, not by write. The admin surface touches "
+							+ "LegacyPayslipService for one method -- enrichRows, a read -- and this "
+							+ "closure follows classes rather than methods, so the service's own write "
+							+ "path comes with it. Those writes (`create`, `update`, `delete`) each take "
+							+ "an explicit companyId and belong to the legacy API, which has its own "
+							+ "tenant control (TenantFilterCoverageTest, the tenant filter, "
+							+ "LegacyTenantContext). No admin-surface path reaches them."),
+
+			Map.entry("LegacyPlatformAdminCompanyDirectory",
+					"create() makes a company and its first branch, so there is no prior owner to "
+							+ "compare a session against. update()'s `UPDATE branches ... WHERE id = ?` "
+							+ "is by row id and safe for the reason the class javadoc gives: the "
+							+ "preceding `SELECT id FROM branches WHERE company_id = ? ORDER BY id ASC "
+							+ "LIMIT 1` resolved that id inside the company being edited."));
 
 	/** A call that resolves or enforces the session's company. */
 	private static final Pattern TENANT_GUARD = Pattern.compile(
@@ -232,6 +273,9 @@ class AdminTenantGuardCoverageTest {
 
 	private static final Pattern IMPORTED_CLASS =
 			Pattern.compile("(?m)^import\\s+com\\.workin\\.[\\w.]+\\.(\\w+);");
+
+	/** A bare capitalised identifier, resolved only against the file's own package. */
+	private static final Pattern BARE_CLASS = Pattern.compile("\\b([A-Z]\\w+)\\b");
 
 	/** This repository uses fully-qualified names inline a great deal, so both shapes count. */
 	private static final Pattern QUALIFIED_CLASS =
@@ -300,7 +344,7 @@ class AdminTenantGuardCoverageTest {
 
 		List<String> unaccounted = new ArrayList<>();
 		Set<String> entriesStillNeeded = new HashSet<>();
-		int writersFound = 0;
+		Set<String> found = new java.util.TreeSet<>();
 
 		for (String name : reachableFromAdminSurface(byName)) {
 			Path file = byName.get(name);
@@ -310,7 +354,7 @@ class AdminTenantGuardCoverageTest {
 			if (writtenTenantTables(file, tenantTables).isEmpty()) {
 				continue;
 			}
-			writersFound++;
+			found.add(name);
 			if (ACCOUNTED_FOR_OUTSIDE_THE_RULES.containsKey(name)) {
 				entriesStillNeeded.add(name);
 				continue;
@@ -321,9 +365,18 @@ class AdminTenantGuardCoverageTest {
 					+ "<X>AdminService.java, and both look only under " + ADMIN_ROOT);
 		}
 
-		assertThat(writersFound)
-				.as("the rule is worthless if it matched nothing; five such writers exist today")
-				.isGreaterThanOrEqualTo(5);
+		// Exact, not a floor. A floor is a dead ratchet: the review round pointed out
+		// that `>= 5` could be loosened to `>= 0` with nothing noticing, because
+		// nothing else re-derives the count. An equality catches drift in both
+		// directions -- a writer appearing, and a writer quietly disappearing
+		// because the closure stopped finding it, which is how the same-package gap
+		// hid four of them.
+		assertThat(found)
+				.as("by name, not by count: the rule is worthless if it matched nothing, and a floor "
+						+ "would not notice the closure narrowing -- which is how the same-package gap "
+						+ "hid four of these. Naming them makes both directions of drift a failure "
+						+ "that says which writer moved.")
+				.containsExactlyInAnyOrderElementsOf(ACCOUNTED_FOR_OUTSIDE_THE_RULES.keySet());
 		assertThat(unaccounted)
 				.as("a write to a tenant-owned table that no rule can see is the failure mode this "
 						+ "whole class exists to prevent. Either move it where a rule scans it, or "
@@ -371,7 +424,8 @@ class AdminTenantGuardCoverageTest {
 				}
 				""";
 
-		Set<String> reached = referencedClasses(source, known);
+		// No package siblings for this fixture: the bare-name edge has its own test.
+		Set<String> reached = referencedClasses(source, known, Set.of());
 
 		assertThat(reached)
 				.as("an imported and used collaborator is reached")
@@ -383,6 +437,54 @@ class AdminTenantGuardCoverageTest {
 		assertThat(reached)
 				.as("and so is a line comment")
 				.doesNotContain("AdminNav");
+	}
+
+	/**
+	 * A class named with no import and no qualifier is still reached.
+	 *
+	 * <p>Java requires neither for a class in the same package, so
+	 * {@code private final DeviceAgentStore agents;} is a real edge with nothing
+	 * for {@link #IMPORTED_CLASS} or {@link #QUALIFIED_CLASS} to match. Matching
+	 * only those two missed **every edge inside a package**, and rule three's
+	 * claim to have found every writer the admin surface can reach was therefore
+	 * false: four more existed -- {@code DeviceAgentStore},
+	 * {@code DevicePunchStore}, {@code EmployeeDeviceIdentityStore} and
+	 * {@code LegacyPayslipStore}. Found by the review round on this change, which
+	 * reimplemented the closure and compared.
+	 *
+	 * <p>The resolution is deliberately narrow: a bare capitalised word counts only
+	 * when it names a class in <em>this file's own package</em>. Widened to every
+	 * known simple name, {@code Map} or {@code List} in a comment-stripped body
+	 * would invent edges to anything that happened to share a name.
+	 */
+	@Test
+	void aClassInTheSamePackageIsReachedWithNoImportAndNoQualifier() {
+		Set<String> known = Set.of("DeviceAgentStore", "DeviceAgentService", "LegacyCompanyDelete");
+		String source = """
+				package com.workin.devices.agent;
+
+				public class DeviceAgentService {
+					private final DeviceAgentStore agents;
+				}
+				""";
+
+		assertThat(referencedClasses(source, known, Set.of("DeviceAgentStore")))
+				.as("a bare same-package field type is an edge, and it is the one that was missed")
+				.contains("DeviceAgentStore");
+		assertThat(referencedClasses(source, known, Set.of()))
+				.as("and without the sibling set there is nothing to match it against -- which is "
+						+ "exactly the state that hid four writers")
+				.doesNotContain("DeviceAgentStore");
+		assertThat(referencedClasses(source, known, Set.of("LegacyCompanyDelete")))
+				.as("a sibling that is not named in the source is not invented")
+				.doesNotContain("LegacyCompanyDelete");
+		assertThat(referencedClasses(
+				"package com.workin.devices.agent;\n class X { LegacyCompanyDelete d; }",
+				known, Set.of("DeviceAgentStore")))
+				.as("and a bare name that is NOT this file's sibling is not an edge either, however "
+						+ "well known it is elsewhere -- widened to every known class, a bare word in "
+						+ "any file would invent an edge to anything sharing its name")
+				.doesNotContain("LegacyCompanyDelete");
 	}
 
 	/**
@@ -1025,6 +1127,7 @@ class AdminTenantGuardCoverageTest {
 	 * only ask for more accounting than strictly necessary, never less.
 	 */
 	private static Set<String> reachableFromAdminSurface(Map<String, Path> byName) {
+		Map<Path, Set<String>> siblings = classesByPackage(byName);
 		Set<String> seen = new HashSet<>();
 		List<String> frontier = new ArrayList<>();
 		for (Path path : files("*.java")) {
@@ -1040,7 +1143,8 @@ class AdminTenantGuardCoverageTest {
 				if (file == null) {
 					continue;
 				}
-				for (String referenced : referencedClasses(read(file), byName.keySet())) {
+				for (String referenced : referencedClasses(read(file), byName.keySet(),
+						siblings.getOrDefault(file.getParent(), Set.of()))) {
 					if (seen.add(referenced)) {
 						next.add(referenced);
 					}
@@ -1051,7 +1155,12 @@ class AdminTenantGuardCoverageTest {
 		return seen;
 	}
 
-	private static Set<String> referencedClasses(String source, Set<String> known) {
+	/**
+	 * @param packageSiblings the other classes declared in this file's own package,
+	 *        which Java lets it name with no import and no qualification at all
+	 */
+	private static Set<String> referencedClasses(
+			String source, Set<String> known, Set<String> packageSiblings) {
 		String code = source.replaceAll("(?s)/\\*.*?\\*/", " ").replaceAll("//[^\n]*", " ");
 		Set<String> referenced = new HashSet<>();
 		Matcher imported = IMPORTED_CLASS.matcher(code);
@@ -1062,8 +1171,32 @@ class AdminTenantGuardCoverageTest {
 		while (qualified.find()) {
 			referenced.add(qualified.group(1));
 		}
+		// A same-package reference has neither an import nor a qualifier -- it is a
+		// bare `DeviceAgentStore agents;` -- so matching only the two patterns above
+		// misses every edge inside a package. That is not hypothetical: it hid four
+		// real writers, and the rule below claimed exhaustiveness it did not have.
+		// Restricted to this file's own siblings, so a bare capitalised word cannot
+		// pull in an unrelated class that merely shares a name.
+		if (!packageSiblings.isEmpty()) {
+			Matcher bare = BARE_CLASS.matcher(code);
+			while (bare.find()) {
+				if (packageSiblings.contains(bare.group(1))) {
+					referenced.add(bare.group(1));
+				}
+			}
+		}
 		referenced.retainAll(known);
 		return referenced;
+	}
+
+	/** Which classes share each package directory, for the same-package edges above. */
+	private static Map<Path, Set<String>> classesByPackage(Map<String, Path> byName) {
+		Map<Path, Set<String>> byPackage = new LinkedHashMap<>();
+		for (Map.Entry<String, Path> entry : byName.entrySet()) {
+			byPackage.computeIfAbsent(entry.getValue().getParent(), key -> new HashSet<>())
+					.add(entry.getKey());
+		}
+		return byPackage;
 	}
 
 	/** Which tenant-owned tables one file writes, by the same reading rule two uses. */
