@@ -1,6 +1,7 @@
 @import java.util.function.Function
 @import com.workin.backend.platformadmin.org.ActiveCompanies
 @import com.workin.backend.platformadmin.org.Branch
+@import com.workin.backend.platformadmin.org.BranchQrImage
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -101,13 +102,14 @@
 					     (_branch_qr_modal.php:12). A code that is blank but not empty is
 					     active to empty() and still renders no image, so legacy shows the
 					     expired state for it rather than an image tag with no source. --%>
-					@if(qrRow.qrActive(now) && !Branch.qrImageUrl(qrRow.qrCode()).isEmpty())
+					!{var qrImage = BranchQrImage.dataUri(qrRow.qrCode());}
+					@if(qrRow.qrActive(now) && !qrImage.isEmpty())
 						<div class="branch-qr-preview">
 							<p class="branch-qr-status branch-qr-status--active">${t.apply("branch_qr_active")}</p>
-							<%-- Legacy renders the code through api.qrserver.com. Reproduced,
-							     and worth stating: this sends the branch's check-in code to a
-							     third party on every render. --%>
-							<img src="${Branch.qrImageUrl(qrRow.qrCode())}" width="220" height="220"
+							<%-- Legacy renders the code through api.qrserver.com, which sends
+							     the branch's check-in code to a third party on every render.
+							     Drawn here instead (D-285, #298); the same text is encoded. --%>
+							<img src="${qrImage}" width="220" height="220"
 							     alt="QR" class="branch-qr-image">
 							<p class="branch-qr-meta">
 								<span>${t.apply("branch_qr_expires_at")}:</span>
