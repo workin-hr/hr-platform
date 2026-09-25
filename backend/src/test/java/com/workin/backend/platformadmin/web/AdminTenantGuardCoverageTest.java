@@ -154,37 +154,124 @@ class AdminTenantGuardCoverageTest {
 	private static final Map<String, String> DELIBERATELY_CROSS_TENANT = Map.of();
 
 	/**
-	 * Store writes reached from a class neither rule scans, and accepted anyway,
-	 * keyed on {@code <file>: <field>.<method>()} with the reason.
+	 * Store writes reached from a class neither rule scans, and accounted for, keyed
+	 * on {@code <file>: <field>.<method>()} with the reason.
 	 *
-	 * <p>Keyed on the <b>call</b> and not on the type, deliberately. Skipping any
-	 * field whose type is in {@link #ACCOUNTED_FOR_OUTSIDE_THE_RULES} would be the
-	 * shorter spelling and the wrong one: those entries each state why <em>their
-	 * own</em> writers are safe, not that any class may call them. Three of them --
-	 * the device stores -- are accounted for by the device endpoint's own
-	 * authentication, so a controller calling {@code AttendanceDeviceStore.claim}
-	 * from the admin surface would be a new, unaudited path that their reasons say
-	 * nothing about. Type-keyed exemptions re-open exactly that.
+	 * <p>Keyed on the <b>call</b> and not on the field's type, deliberately.
+	 * Skipping any field whose type is in
+	 * {@link #ACCOUNTED_FOR_OUTSIDE_THE_RULES} would be the shorter spelling and
+	 * the wrong one: those entries each state why <em>their own</em> writers are
+	 * safe, not that any class may call them. {@code LegacyPayrollBatchStore}'s
+	 * reason is literally "rule one enforces the guard, one layer above", which
+	 * says nothing about a second caller, and the device stores rest on the device
+	 * endpoint's own authentication. A type-keyed skip licences every future caller
+	 * of all of them at once; a call-keyed one names the caller, so a second one has
+	 * to be read.
 	 *
 	 * <p>Self-policing in both directions, like
-	 * {@link #ACCOUNTED_FOR_OUTSIDE_THE_RULES}: an offender absent from this map
-	 * fails the rule, and a key here that the rule no longer reports fails it too,
-	 * so a call that moves or gains a guard cannot leave a licence behind.
+	 * {@link #ACCOUNTED_FOR_OUTSIDE_THE_RULES}: a call absent from this map fails
+	 * the rule, and a key here the rule no longer reports fails it too, so a call
+	 * that moves or gains a guard cannot leave a licence behind.
+	 *
+	 * <p>Every reason below was read at the call site, not inferred from the store's
+	 * entry. Three shapes account for all nineteen, and the shape is the reason:
+	 * the company is an argument of the write itself, or a company-scoped read of
+	 * the same row precedes it, or the surface reaching it is the platform
+	 * administrator's, who is cross-company by design.
 	 */
-	private static final Map<String, String> CROSS_TENANT_BY_DESIGN = Map.of(
-			"PlatformAdminCompanyService.java: companyDelete.cascadeDeleteInCurrentTransaction()",
-			"The platform administrator deleting a whole company, and the caller of the cascade "
-					+ "whose own entry in ACCOUNTED_FOR_OUTSIDE_THE_RULES says why it carries no "
-					+ "tenant predicate: the operation's subject IS the company, so there is no "
-					+ "session company to compare it against. The actor is a platform "
-					+ "administrator on the /admin chain -- a separate authority from a dashboard "
-					+ "session, and `anyRequest().authenticated()` there -- not a company user. "
-					+ "PlatformAdminCompanyService.delete's controls are the ones ADR-0015 names: "
-					+ "the actionsEnabled flag, a deletionTarget that must exist, the company's "
-					+ "own name typed back and normalised, and an audit row written before the "
-					+ "cascade in the same transaction, so a cascade that fails rolls the row "
-					+ "back and a row that cannot be written stops the cascade. A tenant "
-					+ "predicate here would be a predicate on the row being deleted.");
+	private static final Map<String, String> REACHED_WRITES_ACCOUNTED_FOR = reachedWrites();
+
+	/**
+	 * The company is an argument of the write, not something resolved beside it.
+	 *
+	 * <p>The strongest of the three shapes, and the reason a caller cannot weaken
+	 * it: the statement is predicated on the company it is handed, so it cannot
+	 * address another tenant's row whatever the caller passes -- a wrong company
+	 * writes nothing rather than writing somebody else's row. The company reaching
+	 * these calls is resolved from the authenticated device, the agent's presented
+	 * token, or a device row already read, never from a request parameter.
+	 */
+	private static final String COMPANY_IS_AN_ARGUMENT_OF_THE_WRITE =
+			"The company is an argument of this write, so the statement is predicated on it and a "
+					+ "wrong company writes no rows rather than another tenant's. It is resolved "
+					+ "from the authenticated device, the agent's token, or a device row already "
+					+ "read -- never from a request parameter.";
+
+	/**
+	 * The row is resolved against the company before it is written.
+	 *
+	 * <p>The legacy payroll idiom, and D-176's shape one surface over: the write is
+	 * by bare id, and the same method first reads that id scoped to the company --
+	 * {@code store.withBatchStatus(payslipId, companyId)},
+	 * {@code store.scoped(batchId, companyId)},
+	 * {@code store.scopedForUpdate(batchId, companyId)} -- and stops when it comes
+	 * back empty. An insert has no prior row of its own, so what is resolved first
+	 * is its parents: the batch and the employee.
+	 */
+	private static final String ROW_RESOLVED_AGAINST_THE_COMPANY_FIRST =
+			"The write is by bare id, and the same method resolves that id against the company "
+					+ "first -- the row itself for an update or a delete, its batch and its "
+					+ "employee for an insert -- and stops when the scoped read comes back empty. "
+					+ "The companyId is the legacy API's own tenant parameter, covered by "
+					+ "TenantFilterCoverageTest, the tenant filter and LegacyTenantContext.";
+
+	/** Reachable only as a platform administrator, who is cross-company by design. */
+	private static final String PLATFORM_ADMINISTRATOR_ONLY =
+			"Reachable only as a platform administrator, who is cross-company by design (R-044's "
+					+ "deliberate exception, R-061), so no company-scoped session reaches it and "
+					+ "there is no session company to compare it against.";
+
+	private static Map<String, String> reachedWrites() {
+		Map<String, String> accounted = new LinkedHashMap<>();
+		for (String call : List.of(
+				"DeviceAdministrationService.java: devices.update()",
+				"DeviceAgentService.java: agents.create()",
+				"DeviceFileImportService.java: malformedPunches.quarantine()",
+				"DeviceManagementService.java: devices.claimWithHistory()",
+				"DeviceManagementService.java: devices.update()",
+				"DeviceManagementService.java: identities.bind()",
+				"DeviceManagementService.java: punches.adoptUnmatched()",
+				"DeviceManagementService.java: punches.confirmInferredAssignment()",
+				"DevicePunchIngestionService.java: punches.insert()",
+				"DevicePunchIngestionService.java: punches.adoptUnmatched()")) {
+			accounted.put(call, COMPANY_IS_AN_ARGUMENT_OF_THE_WRITE);
+		}
+		for (String call : List.of(
+				"LegacyPayrollBatchService.java: store.insert()",
+				"LegacyPayrollBatchService.java: store.updatePeriod()",
+				"LegacyPayrollBatchService.java: store.finalizeBatchIfNotAlready()",
+				"LegacyPayslipService.java: store.insert()",
+				"LegacyPayslipService.java: store.delete()",
+				"LegacyPayslipService.java: store.update()")) {
+			accounted.put(call, ROW_RESOLVED_AGAINST_THE_COMPANY_FIRST);
+		}
+		accounted.put("DeviceAgentService.java: agents.setActive()",
+				"`UPDATE device_agents SET is_active = ? WHERE id = ?`, with no company predicate "
+						+ "and no company resolved above it -- the one write here that is neither "
+						+ "of the other two shapes. " + PLATFORM_ADMINISTRATOR_ONLY
+						+ " AdminDevicesController builds DashboardSession.admin(...) and "
+						+ "AdminDeviceActions audits the company it reads back off the returned "
+						+ "row. DeviceAgentStore's own entry says the same of the same write, "
+						+ "which is why the two must not drift.");
+		accounted.put("AttendanceDeviceStore.java: history.append()",
+				"Store to store, not surface to store: the append records the ownership decision "
+						+ "its caller has already made, with the companyId that caller resolved -- "
+						+ "from the device row on an update, and from the branch on a claim, where "
+						+ "no device row exists yet. DeviceAssignmentHistoryStore's entry is the "
+						+ "same statement from the callee's side.");
+		accounted.put(
+				"PlatformAdminCompanyService.java: companyDelete.cascadeDeleteInCurrentTransaction()",
+				"The platform administrator deleting a whole company, and the caller of the "
+						+ "cascade whose own entry says why it carries no tenant predicate: the "
+						+ "operation's subject IS the company. " + PLATFORM_ADMINISTRATOR_ONLY
+						+ " The controls are the ones ADR-0015 names -- the actionsEnabled flag, a "
+						+ "deletionTarget that must exist, the company's own name typed back and "
+						+ "normalised, and an audit row written before the cascade in the same "
+						+ "transaction, so a cascade that fails rolls the row back and a row that "
+						+ "cannot be written stops the cascade. A tenant predicate here would be a "
+						+ "predicate on the row being deleted.");
+		return Map.copyOf(accounted);
+	}
 
 	/**
 	 * Classes that write a tenant-owned table, are reachable from the admin
@@ -228,12 +315,19 @@ class AdminTenantGuardCoverageTest {
 							+ "company at all, and they are NOT admin-session writes: their only callers "
 							+ "are DeviceAgentIngestService and ZkTecoAdmsService, where the terminal has "
 							+ "already authenticated by serial or agent token and that identity resolved "
-							+ "the row -- the id is not independently attacker-chosen. This entry has now "
-							+ "been corrected twice by review: first for saying 'every write takes an "
-							+ "explicit companyId', false of those four, and then for attributing "
-							+ "`WHERE company_id = ? AND id = ?` to `claim`, which has no WHERE clause. "
-							+ "Both times the error was one sentence generalised across a group of "
-							+ "methods; an exemption's SQL shape has to be read off each method."),
+							+ "the row -- the id is not independently attacker-chosen. Seven, not the "
+							+ "six those two groups name: `claimWithHistory` holds no SQL of its own "
+							+ "and is a write because it reaches `claim` and appends the assignment "
+							+ "row, which is what the gate's own closure counts -- so counting the "
+							+ "SELECT-free statements gives six and counting write methods gives "
+							+ "seven. Its company is the one DeviceManagementService resolved from "
+							+ "the branch under `FOR UPDATE`. This entry has now been corrected three "
+							+ "times by review: for saying 'every write takes an explicit companyId', "
+							+ "false of those four; for attributing `WHERE company_id = ? AND id = ?` "
+							+ "to `claim`, which has no WHERE clause; and for counting statements "
+							+ "where the gate counts methods. Every time the error was one sentence "
+							+ "generalised across a group of methods; an exemption's shape has to be "
+							+ "read off each method."),
 
 			Map.entry("DeviceAgentStore",
 					"Four writes, and the admin surface reaches two of them -- which an earlier version "
@@ -336,7 +430,17 @@ class AdminTenantGuardCoverageTest {
 							+ "has no predicate at all -- each take an explicit "
 							+ "companyId and belong to the legacy API, which has its own "
 							+ "tenant control (TenantFilterCoverageTest, the tenant filter, "
-							+ "LegacyTenantContext). No admin-surface path reaches them."),
+							+ "LegacyTenantContext). Not 'no admin-surface path reaches them', which "
+							+ "is what this entry said and is the wrong claim to rest on: "
+							+ "AdminPayrollController holds the service in a field, so the write is "
+							+ "one call away, and it is a coverage question rather than a "
+							+ "reachability one. The answer is that the write itself is now "
+							+ "enumerated -- `LegacyPayslipService.java: store.insert()`, "
+							+ "`store.delete()` and `store.update()` are three of the keys in "
+							+ "REACHED_WRITES_ACCOUNTED_FOR, each with the scoped read that precedes "
+							+ "it -- so a controller calling `create`, `update` or `delete` would "
+							+ "call a method whose row is already resolved against the companyId it "
+							+ "passes, and rule one is what asks where that companyId came from."),
 
 			Map.entry("LegacyPlatformAdminCompanyDirectory",
 					"create() makes a company and its first branch, so there is no prior owner to "
@@ -1473,22 +1577,9 @@ class AdminTenantGuardCoverageTest {
 			String service = entry.getKey();
 			WriteScan scan = scanWrites(read(serviceFile(service)), entry.getValue());
 			checked += scan.writing();
-			for (String method : scan.sessionless()) {
-				String key = service + "::" + method;
-				if (DELIBERATELY_CROSS_TENANT.containsKey(key)) {
-					exemptionsStillNeeded.add(key);
-					continue;
-				}
-				offenders.add(key + " reaches a store write on a tenant-owned table but takes "
-						+ "no DashboardSession, so rule one never sees it");
-			}
-			for (String method : scan.guarded()) {
-				String key = service + "::" + method;
-				if (DELIBERATELY_CROSS_TENANT.containsKey(key)) {
-					offenders.add(key + " is listed as deliberately cross-tenant but now takes a "
-							+ "DashboardSession; the exemption has outlived its reason");
-				}
-			}
+			Verdict verdict = judge(service, scan, DELIBERATELY_CROSS_TENANT);
+			offenders.addAll(verdict.offenders());
+			exemptionsStillNeeded.addAll(verdict.stillNeeded());
 		}
 
 		assertThat(checked)
@@ -1502,6 +1593,76 @@ class AdminTenantGuardCoverageTest {
 				.as("every declared cross-tenant exemption must still be a sessionless write, "
 						+ "or it is a stale entry to delete")
 				.containsExactlyInAnyOrderElementsOf(DELIBERATELY_CROSS_TENANT.keySet());
+	}
+
+	/** One service's sessionless and guarded writes, judged against an exemption map. */
+	private record Verdict(List<String> offenders, Set<String> stillNeeded) {
+	}
+
+	/**
+	 * What rule one does with a write it found, given the exemptions in force.
+	 *
+	 * <p>Extracted so it has a subject. {@link #DELIBERATELY_CROSS_TENANT} is empty
+	 * -- no admin service needs the escape hatch today -- so both branches that
+	 * consult it were unreachable, and an unreachable branch in a gate is a branch
+	 * nothing has ever run. This class has now found that shape three times: the
+	 * callee set, the caller set, and this. The fixture below is the subject.
+	 */
+	private static Verdict judge(String service, WriteScan scan, Map<String, String> exempt) {
+		List<String> offenders = new ArrayList<>();
+		Set<String> stillNeeded = new HashSet<>();
+		for (String method : scan.sessionless()) {
+			String key = service + "::" + method;
+			if (exempt.containsKey(key)) {
+				stillNeeded.add(key);
+				continue;
+			}
+			offenders.add(key + " reaches a store write on a tenant-owned table but takes "
+					+ "no DashboardSession, so rule one never sees it");
+		}
+		for (String method : scan.guarded()) {
+			String key = service + "::" + method;
+			if (exempt.containsKey(key)) {
+				offenders.add(key + " is listed as deliberately cross-tenant but now takes a "
+						+ "DashboardSession; the exemption has outlived its reason");
+			}
+		}
+		return new Verdict(offenders, stillNeeded);
+	}
+
+	/**
+	 * The cross-tenant escape hatch, exercised.
+	 *
+	 * <p>Both directions, because both are the point: a listed method stops being an
+	 * offender, and a listed method that has since gained a session <em>becomes</em>
+	 * one. The second is the half that keeps an exemption honest, and with an empty
+	 * map it had never executed.
+	 */
+	@Test
+	void aCrossTenantExemptionSilencesAWriteAndExpiresWhenItGainsASession() {
+		WriteScan sessionless = new WriteScan(1, List.of("purge"), List.of());
+		assertThat(judge("PenaltyAdminService", sessionless, Map.of()).offenders())
+				.as("with nothing listed, a sessionless write is an offender")
+				.hasSize(1);
+
+		Map<String, String> listed = Map.of("PenaltyAdminService::purge", "a reason");
+		Verdict silenced = judge("PenaltyAdminService", sessionless, listed);
+		assertThat(silenced.offenders())
+				.as("and a listed one is not")
+				.isEmpty();
+		assertThat(silenced.stillNeeded())
+				.as("but it is recorded, so the stale-entry check can see it is still needed")
+				.containsExactly("PenaltyAdminService::purge");
+
+		WriteScan nowGuarded = new WriteScan(1, List.of(), List.of("purge"));
+		Verdict expired = judge("PenaltyAdminService", nowGuarded, listed);
+		assertThat(expired.offenders())
+				.as("the same method, now taking a session: the licence has outlived its reason "
+						+ "and saying so is the whole value of listing it")
+				.hasSize(1);
+		assertThat(expired.stillNeeded())
+				.as("and it is no longer needed, which is what fails the stale-entry check")
+				.isEmpty();
 	}
 
 	/**
@@ -1579,10 +1740,12 @@ class AdminTenantGuardCoverageTest {
 						+ "but whose hidden writes nothing reports")
 				.isEqualTo(22);
 		assertThat(statements)
-				.as("the write statements checked; 73 exist across those 22 classes today, and a "
-						+ "pattern that stopped matching would otherwise make this pass by "
-						+ "checking nothing")
-				.isGreaterThan(40);
+				.as("the write statements checked across those 22 classes. Exact, not a floor: "
+						+ "this figure was written as 73 and was 74, the third bare number in this "
+						+ "class to be wrong, and a prose figure nothing compares against is a "
+						+ "number that rots. Pinned, a new write to a tenant-owned table fails "
+						+ "here until somebody has read this file, which is the point of it")
+				.isEqualTo(74);
 		assertThat(hidden).isEmpty();
 	}
 
@@ -2119,6 +2282,28 @@ class AdminTenantGuardCoverageTest {
 				.as("the control: the same declaration without the type annotation is visible, "
 						+ "so the sweep reports nothing")
 				.isEmpty();
+
+		// And the gap on the parameter side, which this sweep could not report for
+		// as long as it interpolated PARAMETERS: one level of paren nesting is all
+		// that pattern allows, and a nested annotation is two.
+		assertThat(declarationsTheRealPatternMisses("""
+				class Store {
+					public int purge(@ArraySchema(schema = @Schema(name = "code")) String code) {
+						return jdbcTemplate.update("DELETE FROM penalties WHERE code = ?", code);
+					}
+				}"""))
+				.as("a nested annotation in the parameter list is legal Java and puts the whole "
+						+ "method outside ANY_METHOD, so the sweep must report it")
+				.containsExactly("purge");
+		assertThat(declarationsTheRealPatternMisses("""
+				class Store {
+					public int purge(@Schema(name = "code") String code) {
+						return jdbcTemplate.update("DELETE FROM penalties WHERE code = ?", code);
+					}
+				}"""))
+				.as("the control: one level of nesting is inside PARAMETERS, so ANY_METHOD sees "
+						+ "this one and the sweep reports nothing")
+				.isEmpty();
 	}
 
 	/**
@@ -2432,8 +2617,15 @@ class AdminTenantGuardCoverageTest {
 	 */
 	private static List<String> declarationsTheRealPatternMisses(String rawSource) {
 		String source = maskNonCode(rawSource).code();
+		// Loose in the parameters too, and not by interpolating PARAMETERS. Sharing
+		// the real pattern's parameter arm is the same mistake as sharing its head:
+		// a sweep that spells the gap the same way the pattern does cannot report
+		// it. PARAMETERS allows one level of nesting, so a parameter list holding a
+		// nested annotation -- `@ArraySchema(schema = @Schema(...))`, legal and
+		// idiomatic -- is outside ANY_METHOD and was outside this sweep with it.
+		// `\(.*?\)` plus the permissive tail spans any parameter list at all.
 		Pattern loose = Pattern.compile(
-				"(?:public|private|protected|static)[^;{)=]*?\\s(\\w+)\\s*" + PARAMETERS + "[^;{]*?\\{",
+				"(?:public|private|protected|static)[^;{)=]*?\\s(\\w+)\\s*\\(.*?\\)[^;{]*?\\{",
 				Pattern.DOTALL);
 		Set<String> types = new java.util.HashSet<>();
 		Matcher typeName = Pattern.compile("\\b(?:class|interface|enum|record)\\s+(\\w+)")
@@ -2568,30 +2760,40 @@ class AdminTenantGuardCoverageTest {
 	 * {@code this.service.delete(...)} is the correct shape and shares its name with
 	 * {@code PenaltyStore.delete}, so a name-only check would report every
 	 * well-written controller. The receiver's declared type decides.
+	 *
+	 * <p><b>Everywhere the admin surface reaches, not everywhere under the admin
+	 * root.</b> This rule shipped iterating {@code files("*.java")}, which made a
+	 * rule about the code into a rule about a directory for the third time in this
+	 * class -- the same mistake as the callee set and the caller set, one scope out.
+	 * It also made this javadoc's own title false, since a class outside the root is
+	 * very much outside the two rules. Rule three already computes what the admin
+	 * surface reaches, and deliberately does not stop at the root, because the device
+	 * stores that prompted it live outside; this now reads the same set, and
+	 * <b>nineteen calls</b> came into view the moment it did. None of them is
+	 * unguarded -- every one was read at its call site, and they fall into three
+	 * shapes -- but none of them was covered by anything either, which is the
+	 * difference this rule exists to remove. They are enumerated in
+	 * {@link #REACHED_WRITES_ACCOUNTED_FOR}.
 	 */
 	@Test
 	void noClassOutsideTheTwoRulesCallsAStoreWrite() {
 		Set<String> tenantTables = tenantOwnedTables();
 		Map<String, String> entities = entityTables();
 		Map<String, Path> known = classesByName();
-		Set<String> scanned = scannedByRuleOneOrTwo();
 		Map<String, Set<String>> writesByType = new HashMap<>();
 		java.util.function.Function<String, Set<String>> writesOf = type ->
 				writesByType.computeIfAbsent(type,
 						owner -> writeMethodsOf(known.get(owner), tenantTables, entities));
 
-		List<String> offenders = new ArrayList<>();
+		Set<String> offenders = new TreeSet<>();
 		Set<String> accepted = new TreeSet<>();
 		int fieldsChecked = 0;
-		for (Path file : files("*.java")) {
-			if (scanned.contains(file.getFileName().toString())) {
-				continue;
-			}
+		for (Path file : unscannedReachableFiles(known)) {
 			StoreCalls found = storeWriteCallsIn(read(file), writesOf);
 			fieldsChecked += found.fieldsResolved();
 			for (String call : found.calls()) {
 				String key = file.getFileName() + ": " + call;
-				if (CROSS_TENANT_BY_DESIGN.containsKey(key)) {
+				if (REACHED_WRITES_ACCOUNTED_FOR.containsKey(key)) {
 					accepted.add(key);
 					continue;
 				}
@@ -2604,19 +2806,23 @@ class AdminTenantGuardCoverageTest {
 				.as("a write reached from outside a service is a write no rule asks for a guard")
 				.isEmpty();
 		assertThat(accepted)
-				.as("and every licence in CROSS_TENANT_BY_DESIGN is still describing a call this "
+				.as("and every licence in REACHED_WRITES_ACCOUNTED_FOR is still describing a call this "
 						+ "rule reports. A key the rule stopped reporting is a reason nobody "
 						+ "re-read, for a call that moved or gained a guard")
-				.containsExactlyInAnyOrderElementsOf(CROSS_TENANT_BY_DESIGN.keySet());
+				.containsExactlyInAnyOrderElementsOf(REACHED_WRITES_ACCOUNTED_FOR.keySet());
 		assertThat(fieldsChecked)
 				.as("fields whose declared type writes a tenant-owned table, held by a class "
 						+ "neither rule scans; pinned above zero so the rule cannot pass by "
-						+ "resolving no type at all")
-				.isGreaterThan(10);
+						+ "resolving no type at all. Thirty-four across the reachable set, "
+						+ "which was 21 while this looked only under the admin root -- the pin "
+						+ "names the scope it belongs to, since the last three bare figures in "
+						+ "this class were each wrong after a widening")
+				.isGreaterThan(25);
 
-		// No class outside the rules calls a store write today, so the live half of
-		// this rule has no subject -- the shape the sixteenth round learned needs a
-		// fixture, because tightening it back kills nothing.
+		// The live half has nineteen subjects now that the scope is the reachable set
+		// rather than a directory, and every one of them is accounted for above. The
+		// fixtures stay: an accounted call cannot demonstrate that an UNaccounted one
+		// would be reported, and it is the reporting that is the rule.
 		Set<String> penaltyWrites = Set.of("delete", "insert");
 		java.util.function.Function<String, Set<String>> fixtureWrites = type ->
 				"PenaltyStore".equals(type) ? penaltyWrites : Set.of();
@@ -2734,17 +2940,13 @@ class AdminTenantGuardCoverageTest {
 		Set<String> tenantTables = tenantOwnedTables();
 		Map<String, String> entities = entityTables();
 		Map<String, Path> known = classesByName();
-		Set<String> scanned = scannedByRuleOneOrTwo();
 		Map<String, Set<String>> writesByType = new HashMap<>();
 		java.util.function.Function<String, Set<String>> writesOf = type ->
 				writesByType.computeIfAbsent(type,
 						owner -> writeMethodsOf(known.get(owner), tenantTables, entities));
 
 		List<String> held = new ArrayList<>();
-		for (Path file : files("*.java")) {
-			if (scanned.contains(file.getFileName().toString())) {
-				continue;
-			}
+		for (Path file : unscannedReachableFiles(known)) {
 			for (String found : writersHeldInContainersIn(read(file), writesOf)) {
 				held.add(file.getFileName() + ": " + found);
 			}
@@ -2826,6 +3028,31 @@ class AdminTenantGuardCoverageTest {
 			}
 		}
 		return held;
+	}
+
+	/**
+	 * The files rules one and two do not scan, from everywhere the admin surface
+	 * reaches.
+	 *
+	 * <p>{@code files("*.java")} was the first spelling, and it made the two rules
+	 * that read this into rules about a directory -- the third time in this class
+	 * that a rule meant to be about the code was written as a rule about a path.
+	 * Rule three already computes what the admin surface reaches and does not stop
+	 * at the admin root, because the device stores that prompted it live outside:
+	 * a class out there whose own text holds no write is invisible to rule three,
+	 * and was invisible to these two as well, so a controller or a legacy service
+	 * the admin surface reaches could call a store's write with nothing looking.
+	 */
+	private static List<Path> unscannedReachableFiles(Map<String, Path> known) {
+		Set<String> scanned = scannedByRuleOneOrTwo();
+		List<Path> files = new ArrayList<>();
+		for (String name : new TreeSet<>(reachableFromAdminSurface(known))) {
+			Path file = known.get(name);
+			if (file != null && !scanned.contains(file.getFileName().toString())) {
+				files.add(file);
+			}
+		}
+		return files;
 	}
 
 	/** What one class's source says about the store writes it calls. */
@@ -3478,7 +3705,13 @@ class AdminTenantGuardCoverageTest {
 		// store's; this is that same walk, applied inside the store. Extracting a
 		// method is not a change of behaviour, and it must not be a change of
 		// coverage.
-		for (int pass = 0; pass < 4; pass++) {
+		// To a fixed point, not to a number. This read `pass < 4`, which is a hop
+		// bound nothing stated and nothing justified: a store delegating five deep
+		// would have dropped its outermost name out of the set, which is the unsafe
+		// direction. Each pass that changes anything adds at least one name, so
+		// `bodies.size()` passes cannot be reached before the loop settles -- it is
+		// a termination guard, not a depth limit.
+		for (int pass = 0; pass <= bodies.size(); pass++) {
 			Set<String> reaching = new TreeSet<>();
 			for (Map.Entry<String, List<String>> method : bodies.entrySet()) {
 				if (writes.contains(method.getKey())) {
