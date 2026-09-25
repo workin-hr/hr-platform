@@ -76,6 +76,25 @@ public class ShiftStore {
 		return rows.isEmpty() ? null : rows.get(0);
 	}
 
+	/**
+	 * The row's own owning company, or {@code null} when there is no such row.
+	 *
+	 * <p>Not an authorisation check -- {@link #belongsTo} is that. This answers
+	 * "whose row is this", which is what an audit entry has to record when the
+	 * administrator writes across companies: the company the request named
+	 * need not be the row's (R-047, D-281), and this is the row's. Also
+	 * {@code null} for a shift whose {@code company_id} is NULL, which the
+	 * vendored schema allows here and nowhere else in the org tables.
+	 */
+	public Long companyOf(long id) {
+		if (id <= 0) {
+			return null;
+		}
+		java.util.List<Long> found = this.jdbcTemplate.queryForList(
+				"SELECT company_id FROM shifts WHERE id = ?", Long.class, id);
+		return found.isEmpty() ? null : found.get(0);
+	}
+
 	public boolean belongsTo(long id, long companyId) {
 		if (id <= 0 || companyId <= 0) {
 			return false;

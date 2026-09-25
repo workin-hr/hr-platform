@@ -167,7 +167,7 @@ public class BranchAdminService {
 			throw new RefusedException(Refusal.NO_ROW);
 		}
 		audit(adminId, PlatformAdminAuditEventType.ORG_UPDATED, id,
-				"branch updated in company " + companyId);
+				"branch updated in company " + OrgAuditDetail.affected(id, companyId, this.store::companyOf));
 		return companyId;
 	}
 
@@ -181,7 +181,7 @@ public class BranchAdminService {
 			throw new RefusedException(Refusal.NO_ROW);
 		}
 		audit(adminId, PlatformAdminAuditEventType.ORG_DELETED, id,
-				"branch deactivated in company " + companyId);
+				"branch deactivated in company " + OrgAuditDetail.affected(id, companyId, this.store::companyOf));
 		return companyId;
 	}
 

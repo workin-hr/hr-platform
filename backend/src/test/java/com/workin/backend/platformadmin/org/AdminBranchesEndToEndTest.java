@@ -578,6 +578,111 @@ class AdminBranchesEndToEndTest {
 		assertThat(body("/admin/branches?action=edit&id=" + id)).contains("Beta Only");
 	}
 
+	/**
+	 * When the administrator writes across companies, the audit row says whose row
+	 * it was -- not only the company the request named.
+	 *
+	 * <p>`assertWritable` resolves the company a write is made *against*, and for
+	 * an unscoped administrator that is the posted `company_id`, checked against
+	 * nothing: the owner ruled on 2026-09-23 to leave that
+	 * as it is (D-281; the mismatch itself is R-047). The write is therefore correct and
+	 * is deliberately left alone here. What was wrong is what it recorded. Posting
+	 * company A while editing a branch of company B wrote "branch updated in
+	 * company A" -- an entry that names the wrong company and reads as
+	 * authoritative, which is worse than one that names none.
+	 *
+	 * <p>The one case an auditor most needs to find was the one case the record
+	 * hid, so it now names the owner and says which company the request named.
+	 */
+	@Test
+	void anAdministratorsCrossCompanyEditIsAuditedAgainstTheRowsOwnCompany() {
+		long beta = seedBranch(this.companyB, "Beta Owned");
+		post("/admin/branches", this.cookie, page("/admin/branches", this.cookie).csrf(),
+				"action", "save_edit", "id", String.valueOf(beta),
+				"company_id", String.valueOf(this.companyA),
+				"name", "Beta Renamed", "is_active", "1");
+
+		assertThat(this.jdbc.queryForObject(
+				"SELECT name FROM branches WHERE id = ?", String.class, beta))
+				.as("the write itself is unchanged: the owner ruled to leave it (D-281), and this test does "
+						+ "not relitigate it")
+				.isEqualTo("Beta Renamed");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT company_id FROM branches WHERE id = ?", Long.class, beta))
+				.as("and it stayed company B's row")
+				.isEqualTo(this.companyB);
+
+		String detail = this.jdbc.queryForObject(
+				"SELECT detail FROM platform_admin_audit_events WHERE target_type = 'branch'"
+						+ " AND target_id = ? ORDER BY id DESC LIMIT 1",
+				String.class, String.valueOf(beta));
+		assertThat(detail)
+				.as("the affected company is the row's owner")
+				.contains("in company " + this.companyB);
+		assertThat(detail)
+				.as("and the posted company is named as the administrator's, not as the subject")
+				.contains("made against company " + this.companyA);
+	}
+
+	/** The ordinary case is unchanged: one company, one number, no parenthetical. */
+	@Test
+	void anEditWithinOneCompanyRecordsThatCompanyPlainly() {
+		long alpha = seedBranch(this.companyA, "Alpha Owned");
+
+		post("/admin/branches", this.cookie, page("/admin/branches", this.cookie).csrf(),
+				"action", "save_edit", "id", String.valueOf(alpha),
+				"company_id", String.valueOf(this.companyA),
+				"name", "Alpha Renamed", "is_active", "1");
+
+		String detail = this.jdbc.queryForObject(
+				"SELECT detail FROM platform_admin_audit_events WHERE target_type = 'branch'"
+						+ " AND target_id = ? ORDER BY id DESC LIMIT 1",
+				String.class, String.valueOf(alpha));
+		assertThat(detail).isEqualTo("branch updated in company " + this.companyA);
+		assertThat(detail)
+				.as("nothing is added when there is nothing to disambiguate")
+				.doesNotContain("made against");
+	}
+
+	/**
+	 * The same for a delete, which is a different audit call carrying a different
+	 * event type -- and one that can only name the owner because the delete is
+	 * soft.
+	 *
+	 * <p>{@code deactivate} sets {@code is_active = 0} and leaves the row, so the
+	 * owner is still there to resolve after the write. A hard delete would find
+	 * nothing, and the entry would say the row had no owning company when it had
+	 * one -- which is why the surviving row is asserted here and not taken for
+	 * granted.
+	 */
+	@Test
+	void anAdministratorsCrossCompanyDeleteIsAuditedAgainstTheRowsOwnCompany() {
+		long beta = seedBranch(this.companyB, "Beta Closing");
+		post("/admin/branches", this.cookie, page("/admin/branches", this.cookie).csrf(),
+				"action", "delete", "id", String.valueOf(beta),
+				"company_id", String.valueOf(this.companyA));
+
+		assertThat(this.jdbc.queryForObject(
+				"SELECT is_active FROM branches WHERE id = ?", Integer.class, beta))
+				.as("deactivated rather than removed -- the row the audit resolves its owner from")
+				.isZero();
+		assertThat(this.jdbc.queryForObject(
+				"SELECT company_id FROM branches WHERE id = ?", Long.class, beta))
+				.as("and it stayed company B's row")
+				.isEqualTo(this.companyB);
+
+		String detail = this.jdbc.queryForObject(
+				"SELECT detail FROM platform_admin_audit_events WHERE target_type = 'branch'"
+						+ " AND target_id = ? ORDER BY id DESC LIMIT 1",
+				String.class, String.valueOf(beta));
+		assertThat(detail)
+				.as("the affected company is the row's owner")
+				.contains("in company " + this.companyB);
+		assertThat(detail)
+				.as("and the posted company is named as the administrator's, not as the subject")
+				.contains("made against company " + this.companyA);
+	}
+
 	@Test
 	void everyWriteLeavesAnAuditRow() {
 		post("/admin/branches", this.cookie, page("/admin/branches?action=add", this.cookie).csrf(),

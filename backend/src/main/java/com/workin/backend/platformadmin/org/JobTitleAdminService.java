@@ -189,7 +189,7 @@ public class JobTitleAdminService {
 			throw new RefusedException(Refusal.NO_ROW);
 		}
 		audit(adminId, PlatformAdminAuditEventType.ORG_DELETED, id,
-				"job title deactivated in company " + companyId);
+				"job title deactivated in company " + OrgAuditDetail.affected(id, companyId, this.store::companyOf));
 		return companyId;
 	}
 
