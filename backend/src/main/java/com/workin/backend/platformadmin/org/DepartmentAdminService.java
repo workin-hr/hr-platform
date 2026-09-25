@@ -196,7 +196,7 @@ public class DepartmentAdminService {
 			throw new RefusedException(Refusal.NO_ROW);
 		}
 		audit(adminId, PlatformAdminAuditEventType.ORG_DELETED, id,
-				"department deactivated in company " + companyId);
+				"department deactivated in company " + OrgAuditDetail.affected(id, companyId, this.store::companyOf));
 		return companyId;
 	}
 

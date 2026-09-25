@@ -581,4 +581,59 @@ class AdminJobTitlesEndToEndTest {
 				.as("no audit row for a job title that is not there").isZero();
 	}
 
+	/**
+	 * When the administrator writes across companies, the audit row says whose row
+	 * it was -- not only the company the request named.
+	 *
+	 * <p>`assertWritable` resolves the company a write is made *against*, and for
+	 * an unscoped administrator that is the posted `company_id`, checked against
+	 * nothing: the owner ruled on 2026-09-23 to leave that
+	 * as it is (D-281; the mismatch itself is R-047). The write is correct and is
+	 * deliberately left alone. What was wrong is what it recorded -- the posted
+	 * company, which named the wrong one and read as authoritative.
+	 *
+	 * <p>The wording lives in one helper, {@code OrgAuditDetail}; what each service
+	 * can still get wrong is the wiring -- which store's {@code companyOf} it
+	 * passes, or a call site left unconverted -- so each call site has its own test.
+	 */
+	@Test
+	void anAdministratorsCrossCompanyDeleteIsAuditedAgainstTheRowsOwnCompany() {
+		long beta = seedJobTitleRow(this.companyB, "Beta Owned");
+		// delete(), not save_edit(): saveEdit already resolves ownerOf(id) itself
+		// and audits that, so it never had this defect. The two methods differ, and
+		// the test has to name the one that does.
+		post("/admin/job_titles", this.cookie, page("/admin/job_titles", this.cookie).csrf(),
+				"action", "delete", "id", String.valueOf(beta),
+				"company_id", String.valueOf(this.companyA));
+
+		assertThat(this.jdbc.queryForObject(
+				"SELECT company_id FROM job_titles WHERE id = ?", Long.class, beta))
+				.as("the row stayed company B's: the write is unchanged and this test does not "
+						+ "relitigate D-281's ruling")
+				.isEqualTo(this.companyB);
+		assertThat(this.jdbc.queryForObject(
+				"SELECT is_active FROM job_titles WHERE id = ?", Integer.class, beta))
+				.as("and it was deactivated, so there is a write to audit")
+				.isZero();
+
+		String detail = this.jdbc.queryForObject(
+				"SELECT detail FROM platform_admin_audit_events WHERE target_type = 'job_title'"
+						+ " AND target_id = ? ORDER BY id DESC LIMIT 1",
+				String.class, String.valueOf(beta));
+		assertThat(detail)
+				.as("the affected company is the row's owner")
+				.contains("in company " + this.companyB);
+		assertThat(detail)
+				.as("and the posted company is named as the administrator's, not as the subject")
+				.contains("made against company " + this.companyA);
+	}
+
+	private long seedJobTitleRow(long companyId, String name) {
+		this.jdbc.update("INSERT INTO job_titles (company_id, name, work_hours, is_active, created_at)"
+				+ " VALUES (?, ?, 8, 1, NOW())", companyId, name);
+		return this.jdbc.queryForObject(
+				"SELECT id FROM job_titles WHERE company_id = ? AND name = ?", Long.class,
+				companyId, name);
+	}
+
 }
