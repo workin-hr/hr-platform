@@ -277,9 +277,10 @@ class AdminDevicesEndToEndTest {
 	void pagingOneListCarriesTheOtherFourPagesForward() {
 		twelveOfEverything();
 
-		// A different page for each list, so a carry that copied one list's page into
-		// another's key is told apart from one that carried the right number.
-		String html = body("/admin/devices?per_page=5&dev_page=2&sight_page=3&agent_page=1&punch_page=2");
+		// A different page for each list -- four distinct numbers, so twelve rows at
+		// three a page -- so a carry that copied one list's page into another's key
+		// is told apart from one that carried the right number.
+		String html = body("/admin/devices?per_page=3&dev_page=2&sight_page=3&agent_page=1&punch_page=4");
 
 		Matcher devicesNext = Pattern.compile("href=\"(/admin/devices\\?dev_page=3[^\"]*)\"").matcher(html);
 		assertThat(devicesNext.find()).as("the device list's next-page link").isTrue();
@@ -291,7 +292,7 @@ class AdminDevicesEndToEndTest {
 		}
 		assertThat(parameterValue(link, "sight_page")).as("serials stay on page three: %s", link).isEqualTo("3");
 		assertThat(parameterValue(link, "agent_page")).as("agents stay on page one: %s", link).isEqualTo("1");
-		assertThat(parameterValue(link, "punch_page")).as("punches stay on page two: %s", link).isEqualTo("2");
+		assertThat(parameterValue(link, "punch_page")).as("punches stay on page four: %s", link).isEqualTo("4");
 
 		Matcher sightingsFirst = Pattern.compile("href=\"(/admin/devices\\?sight_page=1[^\"]*)\"").matcher(html);
 		assertThat(sightingsFirst.find()).as("the unclaimed list's first-page link").isTrue();
@@ -299,6 +300,8 @@ class AdminDevicesEndToEndTest {
 				.as("it keeps the device list's page").isEqualTo("2");
 		assertThat(parameterValue(sightingsFirst.group(1), "agent_page"))
 				.as("and the agents' page").isEqualTo("1");
+		assertThat(parameterValue(sightingsFirst.group(1), "punch_page"))
+				.as("and the punches' page").isEqualTo("4");
 
 		// The size form re-submits the same map, and each pager skips its own
 		// there too -- so `dev_page` appears once per *other* pager that rendered.
@@ -427,6 +430,18 @@ class AdminDevicesEndToEndTest {
 		}
 		assertThat(links).as("both pagers drew links to check").isGreaterThanOrEqualTo(4);
 
+		// Each of the terminal's two pagers carries the other's page by value, on
+		// different pages so a copy of one into the other is visible.
+		String apart = body("/admin/devices?device=" + deviceId + "&per_page=3&punch_page=3&mal_page=2");
+		Matcher punchPager = Pattern.compile("href=\"(/admin/devices\\?punch_page=[^\"]*)\"").matcher(apart);
+		assertThat(punchPager.find()).as("the terminal's punch pager").isTrue();
+		assertThat(parameterValue(punchPager.group(1), "mal_page")).as("keeps the unreadable lines' page")
+				.isEqualTo("2");
+		Matcher malPager = Pattern.compile("href=\"(/admin/devices\\?mal_page=[^\"]*)\"").matcher(apart);
+		assertThat(malPager.find()).as("the terminal's unreadable-lines pager").isTrue();
+		assertThat(parameterValue(malPager.group(1), "punch_page")).as("keeps the punches' page")
+				.isEqualTo("3");
+
 		Set<String> punchesOne = matches(html, "(SELPIN\\d+)");
 		Set<String> punchesTwo = matches(live, "(SELPIN\\d+)");
 		assertThat(punchesTwo).as("page two of the terminal's punches").hasSize(3)
@@ -435,6 +450,74 @@ class AdminDevicesEndToEndTest {
 		Set<String> junkTwo = matches(live, "(SELJUNK\\d+)");
 		assertThat(junkTwo).as("page two of its unreadable lines").hasSize(3)
 				.doesNotContainAnyElementsOf(junkOne);
+	}
+
+	/**
+	 * A total counts what its list can show under the same filter, not the table.
+	 *
+	 * <p>Every other fixture here is one company and one terminal, so a count that
+	 * dropped its filter still reported the right number. Two companies and two
+	 * terminals, each with a different number of rows, make each total name the
+	 * rows it belongs to.
+	 */
+	@Test
+	void everyTotalCountsOnlyWhatItsFilterLetsTheListShow() {
+		String phone = "02" + System.nanoTime() % 1_000_000_000L;
+		this.jdbc.update("INSERT INTO companies (company_name, phone, status, created_at) VALUES ('Other Co', ?, 'active', NOW())", phone);
+		long other = this.jdbc.queryForObject("SELECT id FROM companies WHERE phone = ?", Long.class, phone);
+		this.jdbc.update("INSERT INTO branches (company_id, name, is_active, created_at) VALUES (?, 'Other Branch', 1, NOW())", other);
+		long otherBranch = this.jdbc.queryForObject("SELECT id FROM branches WHERE company_id = ?", Long.class, other);
+
+		long mine = device("PFLT-MINE", "Mine", 1);
+		device("PFLT-MINE-2", "Mine too", 2);
+		for (int index = 1; index <= 3; index++) {
+			punch(mine, "MINEPIN" + index, index);
+			malformed(mine, this.company, "MINEJUNK" + index);
+		}
+		agent(this.company, "MineAgent-1");
+		for (int index = 1; index <= 5; index++) {
+			this.jdbc.update("INSERT INTO attendance_devices (company_id, branch_id, vendor, serial_number, name,"
+					+ " device_time_zone, is_active, last_seen_at, created_at, updated_at)"
+					+ " VALUES (?, ?, 'zkteco', ?, ?, 'Africa/Cairo', 1, NOW(), NOW(), NOW())",
+					other, otherBranch, "PFLT-OTHER-" + index, "Other " + index);
+			agent(other, "OtherAgent-" + index);
+		}
+		long theirs = this.jdbc.queryForObject(
+				"SELECT id FROM attendance_devices WHERE serial_number = 'PFLT-OTHER-1'", Long.class);
+		for (int index = 1; index <= 6; index++) {
+			this.jdbc.update("INSERT INTO device_punches (device_id, company_id, pin, punched_at_local, received_at,"
+					+ " dedup_key, raw_line, processing_state, delivered_via)"
+					+ " VALUES (?, ?, ?, NOW(), NOW(), ?, 'raw', 'UNMATCHED', 'PUSH')",
+					theirs, other, "OTHERPIN" + index, "dedup-other-" + index);
+			malformed(theirs, other, "OTHERJUNK" + index);
+		}
+
+		String scoped = body("/admin/devices?company_id=" + this.company + "&per_page=50");
+		assertThat(headingTotals(scoped))
+				.as("devices 2, agents 1, punches 3 -- this company's, not the platform's 7, 6 and 9")
+				.contains(2L, 1L, 3L).doesNotContain(7L, 6L, 9L);
+
+		String terminal = body("/admin/devices?device=" + mine + "&per_page=50");
+		assertThat(headingTotals(terminal))
+				.as("this terminal's 3 punches and 3 unreadable lines, not every terminal's 9")
+				.containsExactlyInAnyOrder(3L, 3L);
+	}
+
+	private void malformed(long deviceId, long companyId, String line) {
+		this.jdbc.update("INSERT INTO device_malformed_punches (device_id, company_id, received_at, raw_line, dedup_key)"
+				+ " VALUES (?, ?, NOW(), ?, ?)", deviceId, companyId, line, "mal-" + line);
+	}
+
+	private void agent(long companyId, String name) {
+		this.jdbc.update("INSERT INTO device_agents (company_id, name, token_sha256, token_hint, is_active,"
+				+ " created_at, updated_at) VALUES (?, ?, SHA2(?, 256), 'abcd', 1, NOW(), NOW())",
+				companyId, name, "token-" + name);
+	}
+
+	/** Every total a list heading reports, as {@code Title (N)}. */
+	private static List<Long> headingTotals(String html) {
+		return Pattern.compile("data-table-title\">[^<]*\\((\\d+)\\)</h2>").matcher(html).results()
+				.map(heading -> Long.parseLong(heading.group(1))).toList();
 	}
 
 	/**

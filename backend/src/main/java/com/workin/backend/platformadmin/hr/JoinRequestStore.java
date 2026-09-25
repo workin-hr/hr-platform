@@ -62,11 +62,8 @@ public class JoinRequestStore {
 	 * <p>Legacy also selects {@code photo_url} here, behind a runtime
 	 * column-existence check, and this page renders no photograph. Not carried
 	 * over: a column nothing displays is not parity, it is a wasted read.
-	 */
-	/**
-	 * One page of the same list, with the total the pager needs.
 	 *
-	 * <p>The count is built from the same {@code WHERE} clause as the read, by
+	 * <p>One page of that list, with the total the pager needs. The count is built from the same {@code WHERE} clause as the read, by
 	 * the same private method, so the two cannot disagree about what a matching
 	 * request is -- a count assembled separately drifts the moment a filter is
 	 * added to one and not the other.

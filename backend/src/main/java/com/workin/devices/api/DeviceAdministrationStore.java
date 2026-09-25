@@ -93,13 +93,9 @@ public class DeviceAdministrationStore {
 		return jdbcTemplate.query(sql.toString(), LegacyJdbcValues.rowMapper(), args.toArray());
 	}
 
-	/** One page of devices, with the total the pager needs. */
+	/** One page of devices; {@link #deviceCount} is its total. */
 	public List<Map<String, Object>> devicePage(Long companyId, int limit, long offset) {
 		return devices(companyId, null, limit, offset);
-	}
-
-	public List<Map<String, Object>> sightings(int limit) {
-		return sightings(limit, 0L);
 	}
 
 	/**
@@ -127,10 +123,6 @@ public class DeviceAdministrationStore {
 	}
 
 	/** Newest received first. */
-	public List<Map<String, Object>> punches(Long companyId, Long deviceId, int limit) {
-		return punches(companyId, deviceId, limit, 0L);
-	}
-
 	public List<Map<String, Object>> punches(Long companyId, Long deviceId, int limit, long offset) {
 		List<Object> args = new ArrayList<>();
 		StringBuilder sql = new StringBuilder("""
@@ -195,10 +187,6 @@ public class DeviceAdministrationStore {
 				FROM device_punches WHERE device_id = ?
 				GROUP BY processing_state, delivered_via
 				ORDER BY processing_state, delivered_via""", LegacyJdbcValues.rowMapper(), deviceId);
-	}
-
-	public List<Map<String, Object>> malformed(long deviceId, int limit) {
-		return malformed(deviceId, limit, 0L);
 	}
 
 	public List<Map<String, Object>> malformed(long deviceId, int limit, long offset) {
