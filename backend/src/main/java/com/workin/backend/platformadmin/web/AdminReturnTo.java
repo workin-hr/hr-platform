@@ -24,7 +24,7 @@ import org.springframework.http.HttpHeaders;
  * operator had just acted on was nowhere in view.
  *
  * <p>The state is read from the {@code Referer} of the POST rather than posted
- * by every form, so the fourteen list pages need no template change: a browser
+ * by every form, so the list pages need no template change: a browser
  * sends the full URL for a same-origin request under the default referrer
  * policy, and the admin pages set none. Only the query string is taken, and
  * only when the referring path is the list's own, so the redirect can never
@@ -45,8 +45,20 @@ final class AdminReturnTo {
 	 */
 	private static final Set<String> DROPPED = Set.of("error", "action", "id");
 
-	/** The page keys a list uses; dropped with the company filter when it no longer applies. */
-	private static final Pattern PAGE_KEY = Pattern.compile("(?:[a-z]+_)?page");
+	/**
+	 * The page numbers a list uses -- {@code page}, {@code sight_page} -- but
+	 * not {@code per_page}: the size is the administrator's preference, not a
+	 * position in one company's list.
+	 */
+	private static final Pattern PAGE_KEY = Pattern.compile("(?:(?!per_)[a-z]+_)?page");
+
+	/**
+	 * Filters that name a row of one company. Carried into another company's
+	 * list they match nothing, and the row just written would be filtered out.
+	 */
+	private static final Set<String> COMPANY_BOUND = Set.of(
+			"filter_branch", "filter_department", "filter_job_title",
+			"branch_id", "department_id", "job_title_id", "shift_id", "employee_id");
 
 	private static final int MAX_PARAMETERS = 40;
 
@@ -56,10 +68,13 @@ final class AdminReturnTo {
 	/**
 	 * The list's own query, as {@code ?a=1&b=2}, or {@code ""}.
 	 *
-	 * @param writtenCompany the company the action wrote to, or {@code 0}; a
-	 *        carried {@code company_id} naming a different company is dropped,
-	 *        with the page numbers, so {@code rememberAfterWrite}'s filter
-	 *        applies and the row just written is on screen
+	 * @param writtenCompany the company the action wrote to, or {@code 0}.
+	 *        When the list was rendered under another company's filter -- the
+	 *        referrer's {@code company_id}, or, without one, the session filter
+	 *        {@code rememberAfterWrite} replaced (an unfiltered list's is 0) --
+	 *        the company filter, the page numbers and the company-bound filters
+	 *        are dropped, so the redirect shows page one of the written
+	 *        company's list, where the row is
 	 */
 	static String query(HttpServletRequest request, String path, long writtenCompany) {
 		List<String> kept = carried(request, path, writtenCompany);
@@ -106,7 +121,7 @@ final class AdminReturnTo {
 			return kept;
 		}
 		List<String[]> pairs = new ArrayList<>();
-		boolean dropCompany = false;
+		String renderedCompany = null;
 		for (String pair : uri.getRawQuery().split("&")) {
 			if (pair.isEmpty() || pairs.size() >= MAX_PARAMETERS) {
 				continue;
@@ -117,13 +132,19 @@ final class AdminReturnTo {
 			if (key == null || value == null || !KEY.matcher(key).matches() || DROPPED.contains(key)) {
 				continue;
 			}
-			if ("company_id".equals(key) && writtenCompany > 0 && !value.equals(Long.toString(writtenCompany))) {
-				dropCompany = true;
+			if ("company_id".equals(key)) {
+				renderedCompany = value;
 			}
 			pairs.add(new String[] {key, value});
 		}
+		if (renderedCompany == null && request.getAttribute(DashboardOrgScope.FILTER_BEFORE_WRITE) instanceof Long before) {
+			renderedCompany = Long.toString(before);
+		}
+		boolean dropCompany = writtenCompany > 0 && renderedCompany != null
+				&& !renderedCompany.equals(Long.toString(writtenCompany));
 		for (String[] pair : pairs) {
-			if (dropCompany && ("company_id".equals(pair[0]) || PAGE_KEY.matcher(pair[0]).matches())) {
+			if (dropCompany && ("company_id".equals(pair[0]) || PAGE_KEY.matcher(pair[0]).matches()
+					|| COMPANY_BOUND.contains(pair[0]))) {
 				continue;
 			}
 			kept.add(encode(pair[0]) + "=" + encode(pair[1]));

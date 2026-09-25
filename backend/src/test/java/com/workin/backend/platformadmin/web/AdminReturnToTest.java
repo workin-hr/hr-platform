@@ -80,6 +80,50 @@ class AdminReturnToTest {
 	}
 
 	@Test
+	void anUnfilteredListNarrowedByTheWriteStartsAtPageOneOfThatCompany() {
+		// The administrator's default view: no company_id in the URL, session
+		// filter 0. rememberAfterWrite narrows the filter to the row's company;
+		// page 3 of the whole list is not page 3 of that company's.
+		MockHttpServletRequest request = from(
+				"https://admin.example/admin/employees?page=3&per_page=50&filter_branch=31&search=aya");
+		request.setAttribute(DashboardOrgScope.FILTER_BEFORE_WRITE, 0L);
+		assertThat(AdminReturnTo.query(request, PATH, 7L))
+				.as("the page and the other company's branch go; the size and the search stay")
+				.isEqualTo("?per_page=50&search=aya");
+	}
+
+	@Test
+	void aSessionFilterOfTheSameCompanyKeepsEverything() {
+		MockHttpServletRequest request = from("https://admin.example/admin/employees?page=3&filter_branch=31");
+		request.setAttribute(DashboardOrgScope.FILTER_BEFORE_WRITE, 7L);
+		assertThat(AdminReturnTo.query(request, PATH, 7L)).isEqualTo("?page=3&filter_branch=31");
+	}
+
+	@Test
+	void theReferrersCompanyOutranksTheSessionFilter() {
+		// The URL is what the list was rendered with; the session only stands
+		// in for it when the URL is silent.
+		MockHttpServletRequest request = from("https://admin.example/admin/employees?company_id=7&page=2");
+		request.setAttribute(DashboardOrgScope.FILTER_BEFORE_WRITE, 9L);
+		assertThat(AdminReturnTo.query(request, PATH, 7L)).isEqualTo("?company_id=7&page=2");
+	}
+
+	@Test
+	void aChangedCompanyDropsItsBoundFiltersButNotThePageSize() {
+		String referer = "https://admin.example/admin/departments?company_id=7&filter_branch=31"
+				+ "&filter_department=4&job_title_id=2&page=2&per_page=25";
+		assertThat(AdminReturnTo.query(from(referer), "/admin/departments", 9L)).isEqualTo("?per_page=25");
+	}
+
+	@Test
+	void withoutARememberedFilterOrACompanyInTheUrlNothingIsDropped() {
+		// A company-scoped session: rememberAfterWrite does nothing, so there
+		// is no attribute, and the list can only ever be that company's.
+		assertThat(AdminReturnTo.query(from("https://admin.example/admin/employees?page=3&filter_branch=31"),
+				PATH, 7L)).isEqualTo("?page=3&filter_branch=31");
+	}
+
+	@Test
 	void aListParameterKeepsItsBrackets() {
 		assertThat(AdminReturnTo.query(from("https://admin.example/admin/employees?status%5B%5D=a&status%5B%5D=b"),
 				PATH, 0L))

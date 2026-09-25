@@ -57,6 +57,8 @@ class AdminActiveCheckboxEndToEndTest {
 
 	private static final String PHONE_COUNTRIES = "/admin/phone_countries";
 
+	private static final String GUIDE_VIDEOS = "/admin/guide_videos";
+
 	private static final Pattern CSRF = Pattern.compile("name=\"([^\"]*_csrf[^\"]*)\" value=\"([^\"]+)\"");
 
 	@DynamicPropertySource
@@ -87,6 +89,7 @@ class AdminActiveCheckboxEndToEndTest {
 		this.jdbc.update("DELETE FROM faq_items");
 		this.jdbc.update("DELETE FROM faq_categories");
 		this.jdbc.update("DELETE FROM phone_countries WHERE country_code IN ('+881', '+882')");
+		this.jdbc.update("DELETE FROM guide_videos WHERE video IN ('open-clip.mp4', 'closed-clip.mp4')");
 
 		Page login = page("/admin/login", null);
 		this.cookie = cookieOf(post("/admin/login", login.cookie(), login.csrf(), List.of("password", PASSWORD)));
@@ -136,6 +139,25 @@ class AdminActiveCheckboxEndToEndTest {
 				.as("an inactive country is not re-activated by saving it unchanged").isFalse();
 		assertThat(this.jdbc.queryForObject("SELECT name_en FROM phone_countries WHERE id = ?", String.class, closed))
 				.as("the dialog was filled from the row").isEqualTo("Closed country");
+	}
+
+	@Test
+	void aGuideVideoSavedUnchangedFromItsDialogKeepsItsActiveState() {
+		// D-287 moved the edit from a per-row form, which rendered each row's
+		// own values, into one dialog filled from the trigger's attributes.
+		long open = seedVideo("open-clip.mp4", "Open clip", true);
+		long closed = seedVideo("closed-clip.mp4", "Closed clip", false);
+
+		saveFromDialog(GUIDE_VIDEOS, "gv-edit", open);
+		saveFromDialog(GUIDE_VIDEOS, "gv-edit", closed);
+
+		assertThat(active("guide_videos", open)).as("an active video stays active").isTrue();
+		assertThat(active("guide_videos", closed))
+				.as("an inactive video is not re-activated by saving it unchanged").isFalse();
+		assertThat(this.jdbc.queryForMap("SELECT title_en, video, sort_order FROM guide_videos WHERE id = ?", closed))
+				.as("the dialog was filled from the row")
+				.containsEntry("title_en", "Closed clip").containsEntry("video", "closed-clip.mp4")
+				.containsEntry("sort_order", 90);
 	}
 
 	@Test
@@ -201,6 +223,12 @@ class AdminActiveCheckboxEndToEndTest {
 				.doesNotContain("error");
 		return this.jdbc.queryForObject("SELECT id FROM phone_countries WHERE country_code = ?", Long.class,
 				countryCode);
+	}
+
+	private long seedVideo(String video, String titleEn, boolean active) {
+		this.jdbc.update("INSERT INTO guide_videos (title_ar, title_en, video, sort_order, is_active)"
+				+ " VALUES ('فيديو', ?, ?, 90, ?)", titleEn, video, active ? 1 : 0);
+		return this.jdbc.queryForObject("SELECT id FROM guide_videos WHERE video = ?", Long.class, video);
 	}
 
 	private boolean active(String table, long id) {

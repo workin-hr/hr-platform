@@ -91,8 +91,20 @@ public final class DashboardOrgScope {
 		if (session.isScopedToOneCompany() || companyId <= 0) {
 			return;
 		}
+		// The filter the list was rendered under, before this write replaces
+		// it: AdminReturnTo needs it to tell whether the carried page and
+		// branch filters still describe the list the redirect will show, and
+		// an unfiltered list has no company_id in its URL to say so.
+		request.setAttribute(FILTER_BEFORE_WRITE, current(request.getSession(false)));
 		request.getSession(true).setAttribute(SESSION_KEY, companyId);
 	}
+
+	/**
+	 * Request attribute holding the company filter (a {@code Long}, {@code 0}
+	 * for all companies) that was in force before {@link #rememberAfterWrite}
+	 * changed it; absent when no write changed it.
+	 */
+	static final String FILTER_BEFORE_WRITE = DashboardOrgScope.class.getName() + ".filterBeforeWrite";
 
 	/**
 	 * {@code org_show_company_column()}: the company column appears only in the

@@ -145,6 +145,15 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 				assertThat(row.get("target_id")).isEqualTo(String.valueOf(companyId));
 			});
 
+		// A row action from the ⋮ menu returns to the page and filters it was
+		// used on (D-286): the POST goes to /action, the referrer is the list.
+		ResponseEntity<String> restored = postFrom("/admin/companies/action", cookie,
+				get("/admin/companies", cookie).csrf(),
+				"http://localhost/admin/companies?page=2&per_page=25&filter=suspended",
+				"action", "COMPANY_RESTORE", "companyId", String.valueOf(companyId));
+		assertThat(restored.getHeaders().getLocation()).asString()
+				.endsWith("/admin/companies?page=2&per_page=25&filter=suspended");
+
 		ResponseEntity<String> loggedOut = post("/admin/logout", cookie, get("/admin", cookie).csrf());
 		assertThat(loggedOut.getStatusCode()).isEqualTo(HttpStatus.FOUND);
 		assertThat(get("/admin", cookie).response().getStatusCode()).isEqualTo(HttpStatus.FOUND);
@@ -1101,7 +1110,15 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 	}
 
 	private ResponseEntity<String> post(String path, String cookie, Csrf csrf, String... fields) {
+		return postFrom(path, cookie, csrf, null, fields);
+	}
+
+	private ResponseEntity<String> postFrom(String path, String cookie, Csrf csrf, String referer,
+			String... fields) {
 		HttpHeaders headers = new HttpHeaders();
+		if (referer != null) {
+			headers.add(HttpHeaders.REFERER, referer);
+		}
 		headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
 		headers.add(HttpHeaders.COOKIE, "WORKIN_ADMIN_SESSION=" + cookie);
 		MultiValueMap<String, String> body = new LinkedMultiValueMap<>();

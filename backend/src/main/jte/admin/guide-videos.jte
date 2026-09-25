@@ -19,9 +19,10 @@
 <%-- dashboard/pages/guide_videos/page.php.
 
      PHP puts add and edit behind two modals filled by a script that reads a
-     JSON data attribute off each row. The same capability is here as an add
-     form and a per-row disclosure, which needs no JavaScript and no row data
-     duplicated into an attribute. Nothing about what can be submitted changes.
+     JSON data attribute off each row. Here too: add opens its own modal, and
+     edit is the row menu's item, opening one shared rowDialog that
+     row-dialog.js fills from the item's data-dialog-* attributes (D-287; it
+     was a per-row <details> form). Nothing about what can be submitted changes.
 
      The filename column is dir="ltr" because it is never Arabic, and the
      titles are, so a shared direction would render one of them backwards. --%>

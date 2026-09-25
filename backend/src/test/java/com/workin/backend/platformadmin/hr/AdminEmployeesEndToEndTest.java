@@ -851,6 +851,22 @@ class AdminEmployeesEndToEndTest {
 	}
 
 	@Test
+	void aWriteFromTheUnfilteredListStartsAtPageOneOfTheRowsCompany() {
+		// The administrator's default view carries no company_id, so the URL
+		// alone cannot say the write narrowed the list: the session filter
+		// rememberAfterWrite replaced (0, all companies) is what does.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		assertThat(get("/admin/employees?company_id=0", this.cookie).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+		String unfiltered = "http://localhost/admin/employees?page=3&per_page=50&filter_branch=31&search=Aya";
+		assertThat(postFrom(unfiltered, "action", "deactivate", "id", String.valueOf(id))
+				.getHeaders().getLocation()).asString()
+				.as("page 3 of every company is not page 3 of company A's; the branch was nobody's in "
+						+ "particular; the size and the search are the administrator's own")
+				.endsWith("/admin/employees?per_page=50&search=Aya");
+	}
+
+	@Test
 	void anUnknownActionIsRefused() {
 		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
 		ResponseEntity<String> response = postForm("action", "drop_everything",
