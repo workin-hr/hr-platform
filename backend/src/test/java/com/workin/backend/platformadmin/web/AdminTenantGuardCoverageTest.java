@@ -154,6 +154,39 @@ class AdminTenantGuardCoverageTest {
 	private static final Map<String, String> DELIBERATELY_CROSS_TENANT = Map.of();
 
 	/**
+	 * Store writes reached from a class neither rule scans, and accepted anyway,
+	 * keyed on {@code <file>: <field>.<method>()} with the reason.
+	 *
+	 * <p>Keyed on the <b>call</b> and not on the type, deliberately. Skipping any
+	 * field whose type is in {@link #ACCOUNTED_FOR_OUTSIDE_THE_RULES} would be the
+	 * shorter spelling and the wrong one: those entries each state why <em>their
+	 * own</em> writers are safe, not that any class may call them. Three of them --
+	 * the device stores -- are accounted for by the device endpoint's own
+	 * authentication, so a controller calling {@code AttendanceDeviceStore.claim}
+	 * from the admin surface would be a new, unaudited path that their reasons say
+	 * nothing about. Type-keyed exemptions re-open exactly that.
+	 *
+	 * <p>Self-policing in both directions, like
+	 * {@link #ACCOUNTED_FOR_OUTSIDE_THE_RULES}: an offender absent from this map
+	 * fails the rule, and a key here that the rule no longer reports fails it too,
+	 * so a call that moves or gains a guard cannot leave a licence behind.
+	 */
+	private static final Map<String, String> CROSS_TENANT_BY_DESIGN = Map.of(
+			"PlatformAdminCompanyService.java: companyDelete.cascadeDeleteInCurrentTransaction()",
+			"The platform administrator deleting a whole company, and the caller of the cascade "
+					+ "whose own entry in ACCOUNTED_FOR_OUTSIDE_THE_RULES says why it carries no "
+					+ "tenant predicate: the operation's subject IS the company, so there is no "
+					+ "session company to compare it against. The actor is a platform "
+					+ "administrator on the /admin chain -- a separate authority from a dashboard "
+					+ "session, and `anyRequest().authenticated()` there -- not a company user. "
+					+ "PlatformAdminCompanyService.delete's controls are the ones ADR-0015 names: "
+					+ "the actionsEnabled flag, a deletionTarget that must exist, the company's "
+					+ "own name typed back and normalised, and an audit row written before the "
+					+ "cascade in the same transaction, so a cascade that fails rolls the row "
+					+ "back and a row that cannot be written stops the cascade. A tenant "
+					+ "predicate here would be a predicate on the row being deleted.");
+
+	/**
 	 * Classes that write a tenant-owned table, are reachable from the admin
 	 * surface, and that neither rule above can scan -- with the reason each is
 	 * correct rather than an oversight.
@@ -805,6 +838,22 @@ class AdminTenantGuardCoverageTest {
 	private static final Pattern OWN_CALL =
 			Pattern.compile("(?<![.\\w])(?:this\\s*\\.\\s*)?(\\w+)\\s*\\(");
 
+	/**
+	 * A call to a name, however it is spelled: {@code name(} or {@code ::name}.
+	 *
+	 * <p>One copy, used by every walk of a call graph in this class. It was two
+	 * copies for one round, and the copy that lacked the {@code ::} arm lost a store
+	 * that handed its own write to a stream. A shared constant cannot drift; a
+	 * second literal can, and did.
+	 */
+	private static final Pattern CALL_OR_REFERENCE =
+			Pattern.compile("\\b(\\w+)\\s*\\(|::\\s*(\\w+)");
+
+	/** The name a {@link #CALL_OR_REFERENCE} match reached, from whichever arm matched. */
+	private static String calledName(Matcher call) {
+		return call.group(1) != null ? call.group(1) : call.group(2);
+	}
+
 	/** A call that resolves or enforces the session's company. */
 	private static final Pattern TENANT_GUARD = Pattern.compile(
 			"\\bcompanyId\\s*\\(\\s*\\)|\\bisScopedToOneCompany\\s*\\(|\\bcanOpenRow\\s*\\(");
@@ -873,6 +922,45 @@ class AdminTenantGuardCoverageTest {
 			"(?:public|private|protected|static)\\s+" + TYPE_ANNOTATIONS
 					+ "[\\w.<>,?\\[\\]\\s]+?\\s(\\w+)\\s*" + PARAMETERS + THROWS + "\\s*\\{",
 			Pattern.DOTALL);
+
+	/**
+	 * A field declaration: the type expression it names, and the name it is held
+	 * under.
+	 *
+	 * <p>Three shapes were outside the first spelling of this, and each of them on
+	 * its own made a store write invisible to the rule that reads it:
+	 *
+	 * <ul>
+	 * <li>a <b>fully-qualified type</b>, because the type group was {@code (\w+)}
+	 * and a dot is not a word character. This one is live: eight fields under the
+	 * admin root are declared with their package, two of them
+	 * {@code com.workin.legacy.profile.LegacyCompanyDelete}, which clears
+	 * thirty-two tenant tables.
+	 * <li>a <b>modifier the pattern did not list</b> -- {@code static} between the
+	 * access keyword and the type, which is exactly the eleventh round's finding on
+	 * a method, one construct to the left.
+	 * <li>an <b>annotation in type position</b>, which is the round before last's
+	 * finding on a method, on a field.
+	 * </ul>
+	 *
+	 * <p>The type expression is captured whole and narrowed by {@link #simpleName},
+	 * because the index this is resolved against is keyed on the simple name. A
+	 * generic or array type is matched so the declaration is <em>seen</em>, but the
+	 * writer it may contain is reached through an access this rule does not model --
+	 * {@code stores.get(0).delete(id)} names no field followed by the write -- so
+	 * {@link #noUnscannedClassHoldsAWriterInsideAContainer} refuses the shape
+	 * outright rather than letting it pass as a resolved read. Group 2 is that
+	 * decoration, captured for it.
+	 */
+	private static final Pattern FIELD_DECLARATION = Pattern.compile(
+			"(?:private|protected|public)\\s+(?:(?:static|final|transient|volatile)\\s+)*"
+					+ TYPE_ANNOTATIONS
+					+ "([\\w.]+)((?:\\s*<[^;=]*>)?(?:\\s*\\[\\s*\\])*)\\s+(\\w+)\\s*[;=]");
+
+	/** The last segment of a possibly-qualified type name. */
+	private static String simpleName(String type) {
+		return type.substring(type.lastIndexOf('.') + 1);
+	}
 
 	private static final Pattern CREATE_TABLE = Pattern.compile(
 			"CREATE TABLE `(\\w+)` \\((.*?)\\n\\)\\s*ENGINE", Pattern.DOTALL);
@@ -2493,6 +2581,7 @@ class AdminTenantGuardCoverageTest {
 						owner -> writeMethodsOf(known.get(owner), tenantTables, entities));
 
 		List<String> offenders = new ArrayList<>();
+		Set<String> accepted = new TreeSet<>();
 		int fieldsChecked = 0;
 		for (Path file : files("*.java")) {
 			if (scanned.contains(file.getFileName().toString())) {
@@ -2501,7 +2590,12 @@ class AdminTenantGuardCoverageTest {
 			StoreCalls found = storeWriteCallsIn(read(file), writesOf);
 			fieldsChecked += found.fieldsResolved();
 			for (String call : found.calls()) {
-				offenders.add(file.getFileName() + ": " + call + " writes a tenant-owned table, "
+				String key = file.getFileName() + ": " + call;
+				if (CROSS_TENANT_BY_DESIGN.containsKey(key)) {
+					accepted.add(key);
+					continue;
+				}
+				offenders.add(key + " writes a tenant-owned table, "
 						+ "and this class is scanned by neither rule");
 			}
 		}
@@ -2509,6 +2603,11 @@ class AdminTenantGuardCoverageTest {
 		assertThat(offenders)
 				.as("a write reached from outside a service is a write no rule asks for a guard")
 				.isEmpty();
+		assertThat(accepted)
+				.as("and every licence in CROSS_TENANT_BY_DESIGN is still describing a call this "
+						+ "rule reports. A key the rule stopped reporting is a reason nobody "
+						+ "re-read, for a call that moved or gained a guard")
+				.containsExactlyInAnyOrderElementsOf(CROSS_TENANT_BY_DESIGN.keySet());
 		assertThat(fieldsChecked)
 				.as("fields whose declared type writes a tenant-owned table, held by a class "
 						+ "neither rule scans; pinned above zero so the rule cannot pass by "
@@ -2563,6 +2662,170 @@ class AdminTenantGuardCoverageTest {
 		assertThat(storeWriteCallsIn(readsOnly, fixtureWrites).calls())
 				.as("a read through the same field is what twenty controllers already do")
 				.isEmpty();
+
+		// The declaration is half the rule, and it was the narrow half. Three shapes
+		// the shipped pattern could not span, each of them ordinary Java and each of
+		// them enough to make the write invisible: a fully-qualified type, a
+		// `static` modifier, and an annotation in type position. The first is live
+		// -- eight fields under the admin root are declared with their package, two
+		// of them the company delete -- so this is not a hypothetical.
+		String qualified = """
+				class AdminPenaltiesController {
+					private final com.workin.backend.platformadmin.hr.PenaltyStore store;
+
+					public String submit(long id) {
+						this.store.delete(id);
+						return "ok";
+					}
+				}""";
+		assertThat(storeWriteCallsIn(qualified, fixtureWrites).calls())
+				.as("writing the package before the type is not a way out of the rule; eight "
+						+ "fields under the admin root are declared exactly this way")
+				.containsExactly("store.delete()");
+
+		String statick = """
+				class AdminPenaltiesController {
+					private static PenaltyStore store;
+
+					public String submit(long id) {
+						store.delete(id);
+						return "ok";
+					}
+				}""";
+		assertThat(storeWriteCallsIn(statick, fixtureWrites).calls())
+				.as("nor is a modifier the pattern did not list")
+				.containsExactly("store.delete()");
+
+		String annotated = """
+				class AdminPenaltiesController {
+					private final @Lazy PenaltyStore store;
+
+					public String submit(long id) {
+						this.store.delete(id);
+						return "ok";
+					}
+				}""";
+		assertThat(storeWriteCallsIn(annotated, fixtureWrites).calls())
+				.as("nor an annotation in type position -- the same position that hid a method "
+						+ "from every rule two rounds ago, now on a field")
+				.containsExactly("store.delete()");
+	}
+
+	/**
+	 * No class outside the two rules holds a writer inside a container.
+	 *
+	 * <p>The companion to {@link #noClassOutsideTheTwoRulesCallsAStoreWrite}, and the
+	 * honest half of it. That rule matches a write through the field that holds it --
+	 * {@code this.store.delete(id)} -- which is the only access it models. A writer
+	 * reached out of a list or an array is written
+	 * {@code stores.get(0).delete(id)} or {@code stores[0].delete(id)}, and neither
+	 * names the field immediately before the write, so that rule looks at the
+	 * declaration, resolves {@code List} or nothing, and reports a class that writes.
+	 *
+	 * <p>So this one refuses the shape instead of modelling it. There is no such
+	 * field today; if one is written, this fails and says which, and whoever writes
+	 * it chooses between scanning the class and teaching the other rule to follow a
+	 * container. Silently resolving {@code List} to no writes is the third option and
+	 * the one this class keeps finding: a rule that passes because it looked in the
+	 * wrong place.
+	 */
+	@Test
+	void noUnscannedClassHoldsAWriterInsideAContainer() {
+		Set<String> tenantTables = tenantOwnedTables();
+		Map<String, String> entities = entityTables();
+		Map<String, Path> known = classesByName();
+		Set<String> scanned = scannedByRuleOneOrTwo();
+		Map<String, Set<String>> writesByType = new HashMap<>();
+		java.util.function.Function<String, Set<String>> writesOf = type ->
+				writesByType.computeIfAbsent(type,
+						owner -> writeMethodsOf(known.get(owner), tenantTables, entities));
+
+		List<String> held = new ArrayList<>();
+		for (Path file : files("*.java")) {
+			if (scanned.contains(file.getFileName().toString())) {
+				continue;
+			}
+			for (String found : writersHeldInContainersIn(read(file), writesOf)) {
+				held.add(file.getFileName() + ": " + found);
+			}
+		}
+		assertThat(held)
+				.as("a writer held in a container is reached by an access the rule beside this "
+						+ "one does not model, so that rule would pass on it while meaning "
+						+ "nothing")
+				.isEmpty();
+
+		// Nothing live, so the rule is pinned by fixtures or by nothing at all.
+		Set<String> penaltyWrites = Set.of("delete", "insert");
+		java.util.function.Function<String, Set<String>> fixtureWrites = type ->
+				"PenaltyStore".equals(type) ? penaltyWrites : Set.of();
+
+		assertThat(writersHeldInContainersIn("""
+				class AdminPenaltiesController {
+					private final List<PenaltyStore> stores;
+				}""", fixtureWrites))
+				.as("a writer in a list: `stores.get(0).delete(id)` writes, and resolving the "
+						+ "declared type finds `List`, which writes nothing")
+				.containsExactly("stores holds PenaltyStore in <PenaltyStore>");
+
+		assertThat(writersHeldInContainersIn("""
+				class AdminPenaltiesController {
+					private final Map<Long, PenaltyStore> byCompany;
+				}""", fixtureWrites))
+				.as("and in a type argument that is not the first")
+				.containsExactly("byCompany holds PenaltyStore in <Long,PenaltyStore>");
+
+		assertThat(writersHeldInContainersIn("""
+				class AdminPenaltiesController {
+					private final PenaltyStore[] stores;
+				}""", fixtureWrites))
+				.as("and in an array, where the declared type IS the writer but the access is "
+						+ "`stores[0].delete(id)`, which names no field before the write")
+				.containsExactly("stores holds PenaltyStore in []");
+
+		assertThat(writersHeldInContainersIn("""
+				class AdminPenaltiesController {
+					private final PenaltyStore store;
+					private final List<String> names;
+					private final Map<String, Long> counts;
+				}""", fixtureWrites))
+				.as("the control: a writer held plainly is the other rule's subject, and a "
+						+ "container of anything else is not this rule's business")
+				.isEmpty();
+	}
+
+	/**
+	 * Fields whose container holds a writer, as {@code <name> holds <type> in
+	 * <decoration>}.
+	 */
+	private static List<String> writersHeldInContainersIn(
+			String rawSource, java.util.function.Function<String, Set<String>> writesOf) {
+		String source = maskNonCode(rawSource).code();
+		List<String> held = new ArrayList<>();
+		Matcher field = FIELD_DECLARATION.matcher(source);
+		while (field.find()) {
+			String decoration = field.group(2).strip();
+			if (decoration.isEmpty()) {
+				continue;
+			}
+			// An array's element type is the declared type; a generic's is in the
+			// arguments. Both are candidates, and the decoration says which applies.
+			Set<String> candidates = new java.util.LinkedHashSet<>();
+			if (decoration.contains("[")) {
+				candidates.add(simpleName(field.group(1)));
+			}
+			Matcher argument = Pattern.compile("\\w+").matcher(decoration);
+			while (argument.find()) {
+				candidates.add(simpleName(argument.group()));
+			}
+			for (String candidate : candidates) {
+				if (!writesOf.apply(candidate).isEmpty()) {
+					held.add(field.group(3) + " holds " + candidate + " in "
+							+ decoration.replaceAll("\\s+", ""));
+				}
+			}
+		}
+		return held;
 	}
 
 	/** What one class's source says about the store writes it calls. */
@@ -2582,12 +2845,14 @@ class AdminTenantGuardCoverageTest {
 		String source = maskNonCode(rawSource).code();
 		List<String> calls = new ArrayList<>();
 		int fieldsResolved = 0;
-		Matcher field = Pattern.compile(
-				"(?:private|protected|public)\\s+(?:final\\s+)?(\\w+)\\s+(\\w+)\\s*[;=]")
-				.matcher(source);
+		Matcher field = FIELD_DECLARATION.matcher(source);
 		while (field.find()) {
-			String type = field.group(1);
-			String name = field.group(2);
+			// Group 2 is the container decoration, captured for
+			// `writersHeldInContainersIn` and deliberately unused here: a writer
+			// inside one is not reached through `field.write(`, so this rule would
+			// report nothing and mean nothing. That rule refuses the shape instead.
+			String type = simpleName(field.group(1));
+			String name = field.group(3);
 			Set<String> writes = writesOf.apply(type);
 			if (writes.isEmpty()) {
 				continue;
@@ -2662,6 +2927,27 @@ class AdminTenantGuardCoverageTest {
 		assertThat(writeMethodsIn(inlined, tenantOwnedTables(), entityTables()))
 				.as("the control: the same write one hop shorter")
 				.containsExactly("purgeRow");
+
+		// And the same delegation written as a method reference. `reachesCall` has
+		// carried the `::name` arm since the round that found
+		// `ids.forEach(this::writeRow)`; the closure added one layer down did not,
+		// so a store handing its own write to a stream dropped out of the wanted
+		// set again -- the identical defect, in the identical position, one round
+		// later.
+		String referenced = """
+				class PenaltyStore {
+					public void purgeRows(List<Long> ids) {
+						ids.forEach(this::runPurge);
+					}
+
+					private int runPurge(long id) {
+						return this.jdbcTemplate.update("DELETE FROM penalties WHERE id = ?", id);
+					}
+				}""";
+		assertThat(writeMethodsIn(referenced, tenantOwnedTables(), entityTables()))
+				.as("`purgeRows` reaches the write through a method reference, and the name the "
+						+ "service calls is `purgeRows`")
+				.contains("purgeRows", "runPurge");
 
 		assertThat(wanted.get("PayrollAdminService"))
 				.as("deleteWithPayslips is declared on LegacyPayrollBatchStore, which is not "
@@ -2892,10 +3178,10 @@ class AdminTenantGuardCoverageTest {
 		// `name(` and `::name` both reach `name`. Without the second, a write
 		// behind `ids.forEach(this::writeRow)` was invisible to this rule and its
 		// public method was never asked for a session.
-		Matcher call = Pattern.compile("\\b(\\w+)\\s*\\(|::\\s*(\\w+)").matcher(code(body));
+		Matcher call = CALL_OR_REFERENCE.matcher(code(body));
 		List<String> callees = new ArrayList<>();
 		while (call.find()) {
-			String callee = call.group(1) != null ? call.group(1) : call.group(2);
+			String callee = calledName(call);
 			if (wanted.contains(callee)) {
 				return true;
 			}
@@ -3212,11 +3498,22 @@ class AdminTenantGuardCoverageTest {
 		return writes;
 	}
 
-	/** Does this body call any of these names on anything? */
+	/**
+	 * Does this body call any of these names on anything?
+	 *
+	 * <p>Both arms, for the reason {@link #reachesCall} carries them: {@code name(}
+	 * and {@code ::name} reach {@code name} alike. This helper shipped with only the
+	 * first, so a store handing its own write to a stream --
+	 * {@code ids.forEach(this::deleteRow)} -- left the name the service calls out of
+	 * the wanted set, and rule two asked that service method for nothing. It was the
+	 * same omission an earlier round had already fixed in {@link #reachesCall},
+	 * re-introduced one layer down by a second copy of the literal, which is why
+	 * both now read the one {@link #CALL_OR_REFERENCE}.
+	 */
 	private static boolean callsAnyOf(String body, Set<String> names) {
-		Matcher call = Pattern.compile("\\b(\\w+)\\s*\\(").matcher(code(body));
+		Matcher call = CALL_OR_REFERENCE.matcher(code(body));
 		while (call.find()) {
-			if (names.contains(call.group(1))) {
+			if (names.contains(calledName(call))) {
 				return true;
 			}
 		}
