@@ -204,7 +204,7 @@
 						!{String employeeName = EmployeeDisplay.displayName(row.employeeName(), "—");}
 						<tr>
 							<td>${result.from() + index}</td>
-							<td class="text-muted">${row.empCode() == null ? "—" : row.empCode()}</td>
+							<td class="text-muted nowrap">${row.empCode() == null ? "—" : row.empCode()}</td>
 							<td class="bold">${employeeName}</td>
 							<%-- page.php:202-206. Whether a punch fell on a Friday is the
 							     difference between an absence and a weekend; legacy puts it in
@@ -288,7 +288,7 @@
 						!{AttendanceRecord.AggregateRow row = aggregateResult.data().get(index);}
 						<tr>
 							<td>${aggregateResult.from() + index}</td>
-							<td class="text-muted">${row.empCode() == null || row.empCode().isEmpty() ? "—" : row.empCode()}</td>
+							<td class="text-muted nowrap">${row.empCode() == null || row.empCode().isEmpty() ? "—" : row.empCode()}</td>
 							<%-- page.php:242 prints the name its SQL returns, not through
 							     dashboard_employee_display_name(), so a blank one stays blank. --%>
 							<td class="bold">${row.employeeName()}</td>

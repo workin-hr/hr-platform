@@ -61,7 +61,7 @@ html[dir="ltr"] .home-banner-slide {
   inset: 0;
   background: linear-gradient(
     to inline-start,
-    rgba(15, 23, 42, .15) 0%,
+    rgb(var(--ui-ink-rgb) / .15) 0%,
     transparent 40%
   );
   pointer-events: none;
@@ -85,10 +85,10 @@ html[dir="ltr"] .home-banner-slide {
   color: var(--ui-surface);
   box-sizing: border-box;
   pointer-events: none;
-  background: rgba(15, 23, 42, .18);
+  background: rgb(var(--ui-ink-rgb) / .18);
   backdrop-filter: blur(1px);
   -webkit-backdrop-filter: blur(1px);
-  border-inline-end: 1px solid rgba(255, 255, 255, .06);
+  border-inline-end: 1px solid rgb(var(--ui-white-rgb) / .06);
 }
 @media (max-width: 720px) {
   .home-banner-content {
@@ -120,7 +120,7 @@ html[dir="ltr"] .home-banner-slide {
   align-items: center;
   gap: 8px;
   padding: 10px 20px;
-  border: 1.5px solid rgba(255, 255, 255, .85);
+  border: 1.5px solid rgb(var(--ui-white-rgb) / .85);
   border-radius: 12px;
   color: var(--ui-surface);
   font-size: 14px;
@@ -130,7 +130,7 @@ html[dir="ltr"] .home-banner-slide {
   transition: background .25s, border-color .25s, transform .2s;
 }
 .home-banner-cta:hover {
-  background: rgba(255, 255, 255, .12);
+  background: rgb(var(--ui-white-rgb) / .12);
   border-color: var(--ui-surface);
   transform: translateY(-1px);
 }
@@ -157,7 +157,7 @@ html[dir="ltr"] .home-banner-slide {
   border: none;
   padding: 0;
   cursor: pointer;
-  background: rgba(255, 255, 255, .35);
+  background: rgb(var(--ui-white-rgb) / .35);
   transition: background .2s, transform .2s;
 }
 .home-banner-dots button.active {
@@ -183,7 +183,7 @@ html[dir="ltr"] .home-banner-slide {
   min-height: 300px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .04);
+  box-shadow: 0 1px 3px rgb(var(--ui-ink-rgb) / .04);
   animation: appFadeUp .55s cubic-bezier(.22, 1, .36, 1) .12s both;
 }
 .home-panel-head {

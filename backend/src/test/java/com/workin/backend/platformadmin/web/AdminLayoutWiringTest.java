@@ -898,22 +898,6 @@ class AdminLayoutWiringTest {
 	}
 
 	/**
-	 * A window the server renders already open says it is a dialog, or is named
-	 * here as one that does not yet.
-	 *
-	 * <p>{@code rowDialog.jte:40} is the port's shape -- {@code role="dialog"},
-	 * {@code aria-modal="true"} and an {@code aria-labelledby} pointing at the
-	 * window's own heading. Legacy carries none of it, so this is the port's
-	 * addition rather than a parity item, and without it a screen reader is
-	 * handed ordinary page content underneath an overlay it cannot see.
-	 *
-	 * <p>{@link #NO_DIALOG_SEMANTICS} is a list rather than a count, so that
-	 * fixing one is a visible deletion from this file and a new window cannot
-	 * quietly join them. Every entry predates #305, which added the semantics to
-	 * the window it converted and left the rest to their own pages' changes
-	 * (#306).
-	 */
-	/**
 	 * The shapes {@link #namesItsOwnHeading} must answer, which the templates cannot
 	 * ask it: all three live targets resolve, so the rule reading the attribute's
 	 * presence alone was green against the whole tree while a name pointing at
@@ -937,6 +921,22 @@ class AdminLayoutWiringTest {
 				.as("no name at all").isFalse();
 	}
 
+	/**
+	 * A window the server renders already open says it is a dialog, or is named
+	 * here as one that does not yet.
+	 *
+	 * <p>{@code rowDialog.jte:40} is the port's shape -- {@code role="dialog"},
+	 * {@code aria-modal="true"} and an {@code aria-labelledby} pointing at the
+	 * window's own heading. Legacy carries none of it, so this is the port's
+	 * addition rather than a parity item, and without it a screen reader is
+	 * handed ordinary page content underneath an overlay it cannot see.
+	 *
+	 * <p>{@link #NO_DIALOG_SEMANTICS} is a list rather than a count, so that
+	 * fixing one is a visible deletion from this file and a new window cannot
+	 * quietly join them. Every entry predates #305, which added the semantics to
+	 * the window it converted and left the rest to their own pages' changes
+	 * (#306).
+	 */
 	@Test
 	void aServerOpenedWindowSaysItIsADialog() throws IOException {
 		List<String> missing = new ArrayList<>();

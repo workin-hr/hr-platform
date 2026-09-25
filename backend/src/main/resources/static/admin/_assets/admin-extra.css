@@ -79,12 +79,12 @@
 .home-stat-card--link:hover {
 	transform: translateY(-2px);
 	border-color: var(--ui-info-edge);
-	box-shadow: var(--app-shadow, 0 12px 28px rgba(15, 35, 70, .07));
+	box-shadow: var(--app-shadow, 0 12px 28px rgb(var(--ui-ink-rgb) / .07));
 }
 
 .home-stat-card--link:focus-visible {
 	outline: none;
-	box-shadow: var(--app-focus-ring, 0 0 0 4px rgba(24, 95, 165, .12));
+	box-shadow: var(--app-focus-ring, 0 0 0 4px rgb(var(--ui-accent-rgb) / .12));
 }
 
 /* The tinted icon chip. Legacy writes these as inline `style` attributes on
@@ -227,7 +227,7 @@
 .modal-close:focus-visible {
 	outline: none;
 	border-radius: 8px;
-	box-shadow: var(--app-focus-ring, 0 0 0 4px rgba(24, 95, 165, .12));
+	box-shadow: var(--app-focus-ring, 0 0 0 4px rgb(var(--ui-accent-rgb) / .12));
 }
 
 @media (prefers-reduced-motion: no-preference) {

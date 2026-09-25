@@ -72,7 +72,6 @@ public final class AdminIcons {
 	private AdminIcons() {
 	}
 
-	/** @return the wrapped SVG for {@code name}, or an empty string when there is no such icon */
 	/**
 	 * The same glyph under a different class, for a surface that is not the
 	 * sidebar.
@@ -86,6 +85,7 @@ public final class AdminIcons {
 		return icon.isEmpty() ? icon : icon.replace("class=\"nav-icon\"", "class=\"" + className + "\"");
 	}
 
+	/** @return the wrapped SVG for {@code name}, or an empty string when there is no such icon */
 	public static String of(String name) {
 		String path = ICONS.get(name);
 		return path == null ? "" : OPEN + path + "</svg>";

@@ -275,7 +275,6 @@ class AdminTableConventionsTest {
 		return text.length() - 1;
 	}
 
-	/** Legacy closes the table card and only then draws the pager ({@code requests/page.php:137-140}). */
 	/**
 	 * The accessors whose value is one indivisible token.
 	 *
@@ -289,7 +288,13 @@ class AdminTableConventionsTest {
 			"createdAtDisplay()", "employeeCode()", "phoneLabel()", "hireDateLabel()",
 			"periodFrom()", "periodTo()", "workTenure(", "EmployeeDisplay.date(",
 			"AttendanceDisplay.date(", "HomeDisplay.dateTime(", "createdAt().toString()",
-			"lastAccessedAt().toString()");
+			"lastAccessedAt().toString()",
+			// A list assembled by reading the templates is a list that stops where the
+			// reading stopped. These three were cells this rule never asked about: two
+			// date bounds and a code, in the same shapes as the accessors beside them.
+			// `employeeCode()` was listed and `empCode()` was not, which is the whole
+			// argument for adding the pair together.
+			"fromDate()", "toDate()", "empCode()");
 
 	/**
 	 * The cells that hold an atomic value and still wrap, with the reason.
@@ -350,7 +355,7 @@ class AdminTableConventionsTest {
 		assertThat(examined)
 				.as("cells holding an atomic value; pinned so the rule cannot measure nothing, "
 						+ "and so adding a list page is a decision about its columns")
-				.isEqualTo(32);
+				.isEqualTo(38);
 	}
 
 	/**
@@ -390,6 +395,7 @@ class AdminTableConventionsTest {
 				.isEqualTo(19);
 	}
 
+	/** Legacy closes the table card and only then draws the pager ({@code requests/page.php:137-140}). */
 	@Test
 	void noPagerSitsInsideItsTableCard() throws IOException {
 		List<String> offenders = new ArrayList<>();

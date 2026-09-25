@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -77,7 +78,23 @@ class AdminDesignTokensTest {
 	private static final Map<String, String> LITERALS_THAT_ARE_NOT_COLOURS = Map.of(
 			"login.css#000", "a mask-image gradient stop: alpha, not colour");
 
-	private static final Pattern COLOUR = Pattern.compile("#([0-9a-fA-F]{3,8})\\b");
+	/**
+	 * A colour written out rather than taken from a token.
+	 *
+	 * <p>Hex <b>and</b> the functional notations, because reading hex alone made this
+	 * rule a rule about a spelling. Sixty-six {@code rgba()} literals sat outside the
+	 * token sheet while it was green -- forty-two of them chromatic, on five base
+	 * colours, of which only three were a token's value. One was Tailwind's
+	 * {@code #0f172a} as {@code rgba(15, 23, 42, ...)}: the palette this design system
+	 * replaced, still shipping, in a notation the gate could not read. A grep for the
+	 * hex found nothing, which is how it survived a conversion that was otherwise
+	 * complete.
+	 *
+	 * <p>{@code rgb(var(--ui-...-rgb) / .12)} is not a literal and must not match: it
+	 * is a token carrying an alpha, which is the reason the triples exist.
+	 */
+	private static final Pattern COLOUR = Pattern.compile(
+			"#([0-9a-fA-F]{3,8})\\b|(?:rgba?|hsla?)\\(\\s*(?!var\\()([^)]*)\\)");
 
 	private static final Pattern DECLARATION =
 			Pattern.compile("(?m)([a-z-]+)\\s*:\\s*([^;{}]+)");
@@ -109,7 +126,10 @@ class AdminDesignTokensTest {
 			sheets++;
 			Matcher colour = COLOUR.matcher(Files.readString(sheet, StandardCharsets.UTF_8));
 			while (colour.find()) {
-				String key = name + "#" + colour.group(1).toLowerCase(Locale.ROOT);
+				String written = colour.group(1) != null
+						? "#" + colour.group(1).toLowerCase(Locale.ROOT)
+						: colour.group().replaceAll("\\s+", "");
+				String key = name + written;
 				if (LITERALS_THAT_ARE_NOT_COLOURS.containsKey(key)) {
 					exemptionsUsed.add(key);
 					continue;
@@ -515,6 +535,242 @@ class AdminDesignTokensTest {
 			channel[index] = raw <= 0.03928 ? raw / 12.92 : Math.pow((raw + 0.055) / 1.055, 2.4);
 		}
 		return 0.2126 * channel[0] + 0.7152 * channel[1] + 0.0722 * channel[2];
+	}
+
+	/** Each RGB triple and the hex token whose colour it must be. */
+	private static final Map<String, String> TRIPLE_OF = Map.of(
+			"--ui-accent-rgb", "--ui-accent-500",
+			"--ui-danger-rgb", "--ui-danger",
+			"--ui-success-rgb", "--ui-success",
+			"--ui-nav-accent-rgb", "--ui-nav-accent",
+			"--ui-nav-accent-soft-rgb", "--ui-nav-accent-soft",
+			"--ui-ink-rgb", "--ui-neutral-12",
+			"--ui-white-rgb", "#ffffff");
+
+	/**
+	 * A triple that is deliberately not its token's colour, with the reason.
+	 *
+	 * <p>Keyed {@code <token>@dark}, because a triple may follow its token in the light
+	 * theme and something else in the dark one.
+	 */
+	private static final Map<String, String> TRIPLE_DIFFERS = Map.of(
+			"--ui-ink-rgb@dark",
+			"The dark shadows are pure black rather than the warm neutral -- "
+					+ "--ui-shadow-sm is `rgba(0, 0, 0, .45)` there -- and the ink follows the "
+					+ "shadows it is the base of, not the ramp step it matches in light.");
+
+	/**
+	 * A tint is its token at an opacity, not a fourth colour.
+	 *
+	 * <p>The rule the sidebar needed. {@code .nav-chevron} painted its glyph
+	 * {@code var(--ui-nav-accent-soft)} -- {@code #9ec8f5} -- and the pill directly
+	 * behind it {@code rgba(133, 183, 235, .14)}, which is {@code #85b7eb}: a glyph and
+	 * its own wash in two different blues, shipped, and invisible to a rule that read
+	 * hex only. {@code login.css} carried the same orphan.
+	 *
+	 * <p>So the triples are not free-standing values. Each one names a token and must
+	 * be that token's colour, which is what makes
+	 * {@code rgb(var(--ui-accent-rgb) / .12)} a twelve-percent accent rather than a
+	 * twelve-percent something-near-the-accent. Checked in both themes, because a
+	 * token that lifts in dark and a triple that does not would put the pair back out
+	 * of step exactly where nobody looks.
+	 */
+	@Test
+	void aTintIsItsTokenAtAnOpacity() throws IOException {
+		String sheet = Files.readString(ASSETS.resolve(TOKEN_SHEET), StandardCharsets.UTF_8);
+		int dark = indexOfDark(sheet);
+		Map<String, String> light = valuesIn(sheet.substring(0, dark));
+		Map<String, String> overlay = new java.util.LinkedHashMap<>(light);
+		overlay.putAll(valuesIn(sheet.substring(dark)));
+
+		Set<String> triples = new TreeSet<>();
+		Matcher declared = Pattern.compile("(--ui-[\\w-]*-rgb)\\s*:").matcher(sheet);
+		while (declared.find()) {
+			triples.add(declared.group(1));
+		}
+		assertThat(triples)
+				.as("every triple this sheet declares must name the token it stands for, or it is "
+						+ "a colour with no owner again")
+				.containsExactlyInAnyOrderElementsOf(TRIPLE_OF.keySet());
+
+		List<String> drifted = new ArrayList<>();
+		Set<String> allowancesUsed = new TreeSet<>();
+		for (Map.Entry<String, Map<String, String>> theme : Map.of(
+				"light", light, "dark", overlay).entrySet()) {
+			for (Map.Entry<String, String> pair : new TreeMap<>(TRIPLE_OF).entrySet()) {
+				String triple = theme.getValue().get(pair.getKey());
+				if (triple == null) {
+					continue;
+				}
+				String expected = pair.getValue().startsWith("#")
+						? pair.getValue()
+						: theme.getValue().get(pair.getValue());
+				if (expected == null) {
+					drifted.add(pair.getKey() + "@" + theme.getKey() + ": "
+							+ pair.getValue() + " is not defined in this theme");
+					continue;
+				}
+				String allowance = pair.getKey() + "@" + theme.getKey();
+				if (!asHex(triple).equals(expected.toLowerCase(Locale.ROOT))) {
+					if (TRIPLE_DIFFERS.containsKey(allowance)) {
+						allowancesUsed.add(allowance);
+						continue;
+					}
+					drifted.add(allowance + ": " + triple + " is " + asHex(triple)
+							+ ", but " + pair.getValue() + " is " + expected);
+				}
+			}
+		}
+		assertThat(drifted)
+				.as("a triple that is not its token's colour makes every tint drawn from it a "
+						+ "colour nobody chose, and the tint is usually behind the token it is "
+						+ "supposed to match")
+				.isEmpty();
+		assertThat(allowancesUsed)
+				.as("and a stated difference that is no longer a difference is a stale allowance")
+				.containsExactlyInAnyOrderElementsOf(TRIPLE_DIFFERS.keySet());
+	}
+
+	/** {@code "24 95 165"} as {@code "#185fa5"}. */
+	private static String asHex(String triple) {
+		Matcher channel = Pattern.compile("\\d+").matcher(triple);
+		StringBuilder hex = new StringBuilder("#");
+		while (channel.find()) {
+			hex.append(String.format("%02x", Integer.parseInt(channel.group())));
+		}
+		return hex.toString();
+	}
+
+	/**
+	 * The shell is a scrolling pane, not a growing page.
+	 *
+	 * <p>Three declarations make the admin layout an app shell, and each one is
+	 * useless without the other two: {@code .shell} fixes a height,
+	 * {@code .main} hides its overflow, and {@code .content} scrolls. Get one wrong
+	 * and the document becomes the scroller while the other two still look right.
+	 *
+	 * <p>That is what shipped. {@code .shell} read {@code min-height: 100vh}, so it
+	 * grew to its content, {@code .content} never overflowed and so never scrolled --
+	 * while remaining a scroll container, which is what a sticky descendant anchors
+	 * itself to. Measured in headless Chromium at 1440x900 on the real sheets: the
+	 * document scrolled 400px and <b>both</b> {@code .topbar} and {@code .tbl th} lost
+	 * exactly 400px of viewport position. With a real height, {@code .content} carries
+	 * the 5587px of overflow and both hold their position.
+	 *
+	 * <p>Three behaviours depended on it and all three were silently dead: the sticky
+	 * table header, the sticky topbar, and
+	 * {@code body.nav-locked .content { overflow: hidden }} in app-responsive.css,
+	 * whose own comment explains that {@code .content} is the scroller and that
+	 * locking the body would do nothing -- true only once this is right.
+	 *
+	 * <p>A rule about three declarations rather than about the sticky ones, because
+	 * {@code position: sticky} was <em>present</em> and correct throughout. Nothing
+	 * about it was wrong, and a rule that read it would have passed.
+	 */
+	@Test
+	void theShellScrollsItsPaneAndNotTheDocument() throws IOException {
+		String style = Files.readString(ASSETS.resolve("style.css"), StandardCharsets.UTF_8);
+
+		assertThat(declarationsOf(style, ".shell"))
+				.as("`.shell` must fix a height. `min-height` lets it grow, and then the pane "
+						+ "below it never overflows, never scrolls, and every sticky descendant "
+						+ "anchored to it stops working while still reading as sticky")
+				.containsKey("height");
+		assertThat(declarationsOf(style, ".main"))
+				.as("`.main` hides its overflow so the pane inside it is the scroller")
+				.containsEntry("overflow", "hidden");
+		assertThat(declarationsOf(style, ".content"))
+				.as("and `.content` is that pane")
+				.containsEntry("overflow-y", "auto");
+	}
+
+	/**
+	 * The declarations of the first rule whose selector list is exactly this one.
+	 *
+	 * <p>Exact, not a prefix: {@code .shell.nav-open} and {@code .main a:focus-visible}
+	 * are different rules about different things, and a prefix match would read one of
+	 * them and report on the other.
+	 */
+	private static Map<String, String> declarationsOf(String css, String selector) {
+		Matcher rule = Pattern.compile(
+				"(?m)^\\s*" + Pattern.quote(selector) + "\\s*\\{").matcher(css);
+		assertThat(rule.find())
+				.as("the rule for `" + selector + "` must be findable, or this checks nothing")
+				.isTrue();
+		Map<String, String> declarations = new java.util.LinkedHashMap<>();
+		Matcher declaration = Pattern.compile("([a-z-]+)\\s*:\\s*([^;}]+)")
+				.matcher(ruleBlocks(css.substring(rule.start())).get(0));
+		while (declaration.find()) {
+			// Last one wins, as CSS does: `height: 100vh; height: 100dvh` is one
+			// property declared twice on purpose, with the fallback first.
+			declarations.put(declaration.group(1), declaration.group(2).trim());
+		}
+		return declarations;
+	}
+
+	/**
+	 * Every legacy alias still has a referrer, and points at the design system.
+	 *
+	 * <p>{@code style.css} keeps a handful of legacy names -- {@code --blue},
+	 * {@code --gray} -- re-pointed at {@code --ui-*}, because sheets already written
+	 * against them would otherwise all have to change at once. That is a real reason
+	 * for the ones it is true of, and it was written as prose covering all of them:
+	 * "these twelve exist because 18 sheets already reference them". There were
+	 * thirteen, four sheets referenced any of them, and <b>eight had no referrer at
+	 * all</b> -- dead names carrying an explanation of why they had to stay.
+	 *
+	 * <p>{@link #everyTokenUsedIsDefinedAndEveryTokenDefinedIsUsed} could not see it:
+	 * it reads {@code --ui-} names, and the whole point of an alias is that it is not
+	 * one. So the compatibility layer was the one part of the token system exempt from
+	 * the rule that a declared token must be used, which is exactly where an unused
+	 * declaration hides.
+	 */
+	@Test
+	void noLegacyAliasIsDeclaredWithoutAReferrer() throws IOException {
+		String style = Files.readString(ASSETS.resolve("style.css"), StandardCharsets.UTF_8);
+		Matcher root = Pattern.compile("(?m)^:root \\{").matcher(style);
+		assertThat(root.find())
+				.as("the alias block must be findable, or this rule checks nothing")
+				.isTrue();
+		String block = ruleBlocks(style.substring(root.start())).get(0);
+
+		List<String> aliases = new ArrayList<>();
+		List<String> notAnAlias = new ArrayList<>();
+		Matcher declaration = Pattern.compile("(?m)^\\s*(--[\\w-]+)\\s*:\\s*([^;]+);").matcher(block);
+		while (declaration.find()) {
+			String name = declaration.group(1);
+			aliases.add(name);
+			if (!declaration.group(2).trim().startsWith("var(--ui-")) {
+				notAnAlias.add(name + " = " + declaration.group(2).trim());
+			}
+		}
+		assertThat(notAnAlias)
+				.as("an entry here that is not `var(--ui-...)` is a colour living in this sheet "
+						+ "again, which is the thing the block exists to have removed")
+				.isEmpty();
+		assertThat(aliases)
+				.as("the aliases read; pinned so a pattern that stopped matching cannot pass")
+				.hasSizeGreaterThan(3);
+
+		List<String> unreferenced = new ArrayList<>();
+		for (String alias : aliases) {
+			int references = 0;
+			for (Path sheet : sheets()) {
+				String css = Files.readString(sheet, StandardCharsets.UTF_8);
+				Matcher use = Pattern.compile(
+						"var\\(\\s*" + Pattern.quote(alias) + "\\s*\\)").matcher(css);
+				while (use.find()) {
+					references++;
+				}
+			}
+			if (references == 0) {
+				unreferenced.add(alias);
+			}
+		}
+		assertThat(unreferenced)
+				.as("an alias nothing references is not a compatibility shim, it is a dead name "
+						+ "with a paragraph explaining why it had to stay")
+				.isEmpty();
 	}
 
 	/**

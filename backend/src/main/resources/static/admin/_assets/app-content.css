@@ -68,7 +68,7 @@
   border: 1px solid var(--ui-border-soft);
   border-radius: 0 12px 12px 12px;
   padding: 24px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 3px rgb(var(--ui-ink-rgb) / 0.04);
 }
 
 .app-content-page .app-content-panel {

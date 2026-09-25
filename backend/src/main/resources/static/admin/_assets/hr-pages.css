@@ -274,7 +274,7 @@
   background: var(--ui-neutral-2);
   border-color: var(--ui-border);
   color: var(--ui-text);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 1px 3px rgb(var(--ui-ink-rgb) / 0.08);
 }
 
 .row-actions__menu {

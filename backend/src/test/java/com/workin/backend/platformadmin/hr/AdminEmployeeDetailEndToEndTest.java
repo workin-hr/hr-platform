@@ -321,7 +321,9 @@ class AdminEmployeeDetailEndToEndTest {
 
 		String html = detailBody(id, 3, 2026);
 		assertThat(html).as("detail.php:95: the request's status as legacy's badge")
-				.containsPattern("<td>Sick leave</td><td>2026-03-01</td><td>2026-03-02</td>\\s*<td>\\s*<span class=\"badge badge-green\">Approved</span>\\s*</td>");
+				.containsPattern("<td>Sick leave</td><td class=\"nowrap\">2026-03-01</td>"
+						+ "<td class=\"nowrap\">2026-03-02</td>\\s*<td>\\s*"
+						+ "<span class=\"badge badge-green\">Approved</span>\\s*</td>");
 		assertThat(html).as("detail.php:102: type, red days, date, and yes or no")
 				.containsPattern("<td>late</td>\\s*<td class=\"text-red\">1.5</td>\\s*<td class=\"nowrap\">2026-03-05</td>\\s*"
 						+ "<td>\\s*<span class=\"badge badge-green\">Yes</span>\\s*</td>")

@@ -285,6 +285,31 @@
   --ui-radius-xl: 18px;
   --ui-radius-pill: 999px;
 
+  /* ── RGB TRIPLES ───────────────────────────────────────────────────────
+     The one thing a hex token cannot do is carry an alpha, so a sheet that
+     wanted a 12% accent wrote the accent out as `rgba(24, 95, 165, .12)` and
+     the design system never saw it. Sixty-six such literals existed across
+     eleven sheets, on five base colours -- and only three of those bases were
+     a token's value. The others were a fourth blue, a second red, a second
+     green, two navy shadow bases and Tailwind's slate-900, which is the
+     palette this file replaced.
+
+     A triple is the same colour as the token it names, so a tint is that token
+     at an opacity rather than a new colour. Written space-separated for
+     `rgb(var(--ui-accent-rgb) / .12)`.
+
+     aTintIsItsTokenAtAnOpacity keeps each pair equal. The reason for it is on
+     the sidebar: the chevron used --ui-nav-accent-soft (#9ec8f5) while its own
+     pill tinted #85b7eb, so the glyph and the wash behind it were two
+     different blues -- shipped, and invisible to a gate that read hex only. */
+  --ui-accent-rgb:          24 95 165;
+  --ui-danger-rgb:          163 45 45;
+  --ui-success-rgb:         59 109 17;
+  --ui-nav-accent-rgb:      110 179 255;
+  --ui-nav-accent-soft-rgb: 158 200 245;
+  --ui-ink-rgb:             26 25 23;
+  --ui-white-rgb:           255 255 255;
+
   --ui-shadow-xs: 0 1px 2px rgba(26, 25, 23, .05);
   --ui-shadow-sm: 0 2px 8px rgba(26, 25, 23, .06);
   --ui-shadow: 0 4px 6px rgba(26, 25, 23, .04), 0 12px 28px rgba(26, 25, 23, .07);
@@ -357,6 +382,12 @@
   --ui-accent-pink-weak: #2d1620;
   --ui-accent-pink-edge: #4a2436;
   --ui-accent-purple-weak: #2a1a3d;
+  /* The triples follow their tokens into dark, and the ink follows the dark
+     shadows, which are pure black rather than the warm neutral. */
+  --ui-danger-rgb:  240 138 134;
+  --ui-success-rgb: 143 201 90;
+  --ui-ink-rgb:     0 0 0;
+
   --ui-shadow-xs: 0 1px 2px rgba(0, 0, 0, .4);
   --ui-shadow-sm: 0 2px 8px rgba(0, 0, 0, .45);
   --ui-shadow: 0 4px 6px rgba(0, 0, 0, .35), 0 12px 28px rgba(0, 0, 0, .5);

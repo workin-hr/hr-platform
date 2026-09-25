@@ -476,13 +476,13 @@ class AdminAttendanceEndToEndTest {
 		String aggregate = html.substring(report);
 
 		assertThat(punches)
-				.containsPattern("<td class=\"text-muted\">A200</td>\\s*<td class=\"bold\">\u2014</td>")
-				.containsPattern("<td class=\"text-muted\">A100</td>\\s*<td class=\"bold\">Aya Alpha</td>");
+				.containsPattern("<td class=\"text-muted nowrap\">A200</td>\\s*<td class=\"bold\">\u2014</td>")
+				.containsPattern("<td class=\"text-muted nowrap\">A100</td>\\s*<td class=\"bold\">Aya Alpha</td>");
 		assertThat(menuOf(punches, punch)).contains("data-dialog-subject=\"\u2014\"");
 		assertThat(menuOf(punches, named)).contains("data-dialog-subject=\"Aya Alpha\"");
 		assertThat(aggregate)
-				.containsPattern("<td class=\"text-muted\">A200</td>\\s*<td class=\"bold\"></td>")
-				.containsPattern("<td class=\"text-muted\">A100</td>\\s*<td class=\"bold\">Aya Alpha</td>");
+				.containsPattern("<td class=\"text-muted nowrap\">A200</td>\\s*<td class=\"bold\"></td>")
+				.containsPattern("<td class=\"text-muted nowrap\">A100</td>\\s*<td class=\"bold\">Aya Alpha</td>");
 	}
 
 	/** One punch's row menu. */

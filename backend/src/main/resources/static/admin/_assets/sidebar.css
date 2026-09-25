@@ -79,7 +79,7 @@
   font-weight: 600;
   border-inline-end: none !important;
   border-inline-start: 3px solid var(--ui-nav-accent) !important;
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 0 rgb(var(--ui-ink-rgb) / 0.12);
 }
 
 .nav-item-leading {
@@ -163,7 +163,7 @@
 }
 .nav-group-toggle:hover .nav-chevron {
   color: var(--ui-nav-text-muted);
-  background: rgba(255, 255, 255, 0.05);
+  background: rgb(var(--ui-white-rgb) / 0.05);
 }
 
 .nav-chevron-icon {
@@ -176,7 +176,7 @@ html[dir="rtl"] .nav-chevron-icon { transform: rotate(90deg); }
 .nav-group[open] .nav-chevron-icon { transform: rotate(0deg); }
 .nav-group[open] > .nav-group-toggle .nav-chevron {
   color: var(--ui-nav-accent-soft);
-  background: rgba(133, 183, 235, 0.14);
+  background: rgb(var(--ui-nav-accent-soft-rgb) / 0.14);
 }
 
 /* بدون حركة عند أول تحميل — تُفعَّل بعد JS */
@@ -299,13 +299,13 @@ html[dir="rtl"] .nav-chevron-icon { transform: rotate(90deg); }
 }
 .sidebar-lang__btn:hover:not(.is-active) {
   color: var(--ui-border-soft);
-  background: rgba(255, 255, 255, 0.04);
+  background: rgb(var(--ui-white-rgb) / 0.04);
 }
 .sidebar-lang__btn.is-active {
   background: var(--ui-nav-bg-hover);
   color: var(--ui-nav-text);
   font-weight: 600;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 1px 4px rgb(var(--ui-ink-rgb) / 0.35);
 }
 
 .sidebar-logout {
@@ -320,14 +320,14 @@ html[dir="rtl"] .nav-chevron-icon { transform: rotate(90deg); }
   font-size: 13px;
   font-weight: 600;
   color: var(--ui-nav-danger);
-  background: rgba(163, 45, 45, 0.1);
-  border: 1px solid rgba(163, 45, 45, 0.22);
+  background: rgb(var(--ui-danger-rgb) / 0.1);
+  border: 1px solid rgb(var(--ui-danger-rgb) / 0.22);
   transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
 }
 .sidebar-logout:hover {
   color: var(--ui-danger-weak);
-  background: rgba(163, 45, 45, 0.18);
-  border-color: rgba(163, 45, 45, 0.35);
+  background: rgb(var(--ui-danger-rgb) / 0.18);
+  border-color: rgb(var(--ui-danger-rgb) / 0.35);
 }
 .sidebar-logout:active {
   transform: scale(0.98);
@@ -358,11 +358,11 @@ html[dir="rtl"] .nav-chevron-icon { transform: rotate(90deg); }
   font-weight: 500;
 }
 .sidebar-profile:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgb(var(--ui-white-rgb) / 0.06);
   color: var(--ui-surface);
 }
 .sidebar-profile.is-active {
-  background: rgba(110, 179, 255, 0.12);
+  background: rgb(var(--ui-nav-accent-rgb) / 0.12);
   color: var(--ui-nav-accent);
 }
 

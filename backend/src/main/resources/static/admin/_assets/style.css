@@ -6,27 +6,26 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 /*
- * Legacy's vocabulary, kept as the name every sheet in here already uses and
+ * Legacy's vocabulary, kept as the name some sheets in here already use and
  * re-pointed at app-tokens.css. Nothing below this block changed: a sheet
  * asking for var(--blue) gets the design system's accent, and the hex
  * literals that used to live here are now one ramp in one file.
  *
- * Do not add a colour here. New rules read --ui-* directly; these twelve exist
- * because 18 sheets already reference them.
+ * Do not add a colour here. New rules read --ui-* directly. These five are the
+ * ones with a referrer: --blue and --blue-lt in app-responsive.css, app-ui.css
+ * and this sheet, --red here, --gray in home.css, and --topbar-h here -- four
+ * sheets and twelve references in total. This block declared thirteen until
+ * review counted them, and the sentence here said "these twelve exist because
+ * 18 sheets already reference them", which was wrong about all three numbers
+ * and about eight aliases that had no referrer at all. They are deleted, and
+ * noLegacyAliasIsDeclaredWithoutAReferrer is what counts now, because a
+ * sentence does not.
  */
 :root {
   --blue:    var(--ui-accent-500);
   --blue-lt: var(--ui-info-weak);
-  --green:   var(--ui-success);
-  --green-lt:var(--ui-success-weak);
   --red:     var(--ui-danger);
-  --red-lt:  var(--ui-danger-weak);
-  --yellow:  var(--ui-warning);
-  --yel-lt:  var(--ui-warning-weak);
   --gray:    var(--ui-neutral-9);
-  --gray-lt: var(--ui-neutral-2);
-  --pink-lt: var(--ui-accent-pink-weak);
-  --pink:    var(--ui-accent-pink);
   --topbar-h: var(--ui-topbar-h);
 }
 
@@ -44,7 +43,27 @@ html[dir="ltr"] body {
 }
 
 /* ===== LAYOUT ===== */
-.shell { display: flex; min-height: 100vh; }
+/*
+ * `height`, not `min-height`, and this one declaration decides three separate
+ * behaviours further down this sheet and the next.
+ *
+ * `.main` is `overflow: hidden` and `.content` is `overflow-y: auto`: that is an
+ * app shell, where the pane scrolls and the document does not. With
+ * `min-height` the shell grew to its content instead, so `.content` never
+ * overflowed, never produced a scrollbar, and never scrolled -- while still
+ * being a scroll container, which is what a sticky descendant anchors itself to.
+ * So the document scrolled and three things quietly did nothing:
+ *
+ *   - `.topbar`'s `position: sticky` (anchored to `.main`, which cannot scroll)
+ *   - `.tbl th`'s `position: sticky` (anchored to `.content`, same)
+ *   - `body.nav-locked .content { overflow: hidden }` in app-responsive.css,
+ *     whose own comment explains that `.content` is the scroller and locking
+ *     the body would do nothing -- which was the wrong way round
+ *
+ * `dvh` second so a mobile browser's shrinking toolbar does not crop the pane;
+ * the `vh` line stays as the fallback, as `.sidebar` already does at 1024.
+ */
+.shell { display: flex; height: 100vh; height: 100dvh; }
 .main  { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
 /* ===== TOPBAR ===== */
@@ -52,7 +71,13 @@ html[dir="ltr"] body {
           border-bottom: 1px solid var(--ui-border-soft);
           display: flex; align-items: center; justify-content: space-between;
           padding: 0 var(--ui-space-6); flex-shrink: 0;
-          position: sticky; top: 0; z-index: var(--ui-z-topbar); }
+          /* `relative` and not `sticky`: the app shell already pins this. `.main`
+             does not scroll -- only `.content` inside it does -- so measured at
+             1440x900 the topbar holds its viewport position through a 400px
+             scroll with `position: static` just as it does with `sticky`. A
+             declaration that changes nothing reads as if something needed
+             doing. `relative` is kept so the z-index still applies. */
+          position: relative; z-index: var(--ui-z-topbar); }
 .page-title  { font-size: var(--ui-text-lg); font-weight: var(--ui-weight-semibold);
                line-height: var(--ui-leading-tight); color: var(--ui-text);
                letter-spacing: -.01em; }
@@ -162,7 +187,7 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
   border-color: var(--ui-danger); }
 input[aria-invalid="true"]:focus, select[aria-invalid="true"]:focus,
 textarea[aria-invalid="true"]:focus {
-  box-shadow: 0 0 0 3px rgba(163, 45, 45, .25); }
+  box-shadow: 0 0 0 3px rgb(var(--ui-danger-rgb) / .25); }
 select { cursor: pointer; }
 textarea { min-height: 88px; resize: vertical; line-height: var(--ui-leading); }
 .input-sm { max-width: 220px; }
@@ -279,7 +304,7 @@ textarea { min-height: 88px; resize: vertical; line-height: var(--ui-leading); }
    is how a dialog ends up under its own backdrop. The token records the intent
    for new layers; this one keeps the number it has. */
 .modal-bg { display: none; position: fixed; inset: 0;
-            background: rgba(26, 25, 23, .5); z-index: 11000;
+            background: rgb(var(--ui-ink-rgb) / .5); z-index: 11000;
             justify-content: center; align-items: center;
             padding: var(--ui-space-4);
             -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
