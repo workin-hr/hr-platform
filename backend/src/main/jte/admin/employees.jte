@@ -545,10 +545,10 @@
 							</td>
 							<td>
 								<div class="bold">${EmployeeDisplay.displayName(row.employeeName(), "—")}</div>
-								<div class="tbl-sub">${row.employeeCode() == null || row.employeeCode().isBlank()
-									? "—" : row.employeeCode()}</div>
+								<div class="tbl-sub"><span data-copy dir="ltr">${row.employeeCode() == null || row.employeeCode().isBlank()
+									? "—" : row.employeeCode()}</span></div>
 							</td>
-							<td class="nowrap text-muted" dir="ltr">${row.phoneLabel()}</td>
+							<td class="nowrap text-muted" dir="ltr"><span data-copy dir="ltr">${row.phoneLabel()}</span></td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
@@ -581,7 +581,7 @@
 											     reactivating is a success item and asks nothing. --%>
 											@if(row.active())
 												<form method="POST" class="row-actions__form" role="none"
-												      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+												      data-confirm="${t.apply("confirm_delete")}" data-confirm-tone="danger">
 													<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 													<input type="hidden" name="action" value="deactivate">
 													<input type="hidden" name="id" value="${row.id()}">
@@ -598,7 +598,7 @@
 												</form>
 											@endif
 											<form method="POST" class="row-actions__form" role="none"
-											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											      data-confirm="${t.apply("confirm_delete")}" data-confirm-tone="danger">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 												<input type="hidden" name="action" value="delete">
 												<input type="hidden" name="id" value="${row.id()}">

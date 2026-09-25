@@ -109,7 +109,7 @@
 					<p class="text-muted">${t.apply("device_agent_token_once")}</p>
 					<div class="form-row">
 						<label for="issued_token">${t.apply("device_agent_token")}</label>
-						<input type="text" id="issued_token" readonly data-issued-token value="${issuedAgent.token()}">
+						<input type="text" id="issued_token" readonly data-issued-token data-copy dir="ltr" value="${issuedAgent.token()}">
 					</div>
 				</div>
 			@endif
@@ -136,7 +136,7 @@
 					<tbody>
 						@for(Map<String, Object> row : sightingResult.data())
 							<tr>
-								<td class="bold">${AdminDeviceView.text(row, "serial_number")}</td>
+								<td class="bold"><span data-copy dir="ltr">${AdminDeviceView.text(row, "serial_number")}</span></td>
 								<td>${AdminDeviceView.text(row, "device_type")}</td>
 								<td>${AdminDeviceView.text(row, "push_version")}</td>
 								<td>${AdminDeviceView.text(row, "first_seen_at")}</td>
@@ -227,7 +227,7 @@
 								<td class="text-muted">${AdminDeviceView.text(row, "company_name")}</td>
 								<td>${AdminDeviceView.text(row, "branch_name")}</td>
 								<td class="bold">${AdminDeviceView.text(row, "name")}</td>
-								<td>${AdminDeviceView.text(row, "serial_number")}</td>
+								<td><span data-copy dir="ltr">${AdminDeviceView.text(row, "serial_number")}</span></td>
 								<td>${AdminDeviceView.text(row, "vendor")}</td>
 								<td>${AdminDeviceView.text(row, "model")} / ${AdminDeviceView.text(row, "firmware")}</td>
 								<td>${AdminDeviceView.text(row, "last_seen_at")}</td>

@@ -166,7 +166,7 @@
 										@endif
 									</td>
 									<td>${row.accountHolder()}</td>
-									<td class="text-muted" dir="ltr">${row.phone()}</td>
+									<td class="text-muted" dir="ltr"><span data-copy dir="ltr">${row.phone()}</span></td>
 									<td class="text-muted">${row.activityLabel()}</td>
 									<td class="text-muted">${row.titleLabel()}</td>
 									<%-- A headcount band -- "500 - 1000" -- reads back to front

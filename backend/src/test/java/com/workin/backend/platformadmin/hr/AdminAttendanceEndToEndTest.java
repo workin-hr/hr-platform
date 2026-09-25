@@ -703,10 +703,9 @@ class AdminAttendanceEndToEndTest {
 				+ "&from=x'-alert(document.cookie)-'&to=2026-03-31");
 		assertThat(html).as("the raw query value never reaches the page")
 				.doesNotContain("alert(document.cookie)");
-		// The template's own literal `\n` (two characters: backslash then n, the JS escape
-		// confirm() reads as a newline), not an actual newline in the HTML source.
+		// The range the confirm window names, on its own line (D-288's data-confirm-detail).
 		Matcher confirm = Pattern.compile(
-				"onsubmit=\"return confirm\\('.*\\\\n(\\d{4}-\\d{2}-\\d{2}) . 2026-03-31'\\)\"").matcher(html);
+				"data-confirm-detail=\"(\\d{4}-\\d{2}-\\d{2}) . 2026-03-31\"").matcher(html);
 		assertThat(confirm.find()).as("the confirm text carries a well-formed fallback date").isTrue();
 		Matcher fromField = Pattern.compile("id=\"at_from\" name=\"from\" value=\"(\\d{4}-\\d{2}-\\d{2})\"")
 				.matcher(html);

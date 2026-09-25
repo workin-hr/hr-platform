@@ -126,7 +126,7 @@
 						!{String employeeName = EmployeeDisplay.displayName(row.employeeName(), "—");}
 						<tr>
 							<td>${result.from() + index}</td>
-							<td class="nowrap text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
+							<td class="nowrap text-muted"><span data-copy dir="ltr">${row.employeeCode() == null ? "—" : row.employeeCode()}</span></td>
 							<td class="bold">${employeeName}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
@@ -148,7 +148,7 @@
 												data-dialog-total="${row.totalDisplay()}"
 												data-dialog-used="${row.usedDisplay()}">${t.apply("edit")}</button>
 										<form method="POST" class="row-actions__form" role="none"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+										      data-confirm="${t.apply("confirm_delete")}" data-confirm-tone="danger">
 											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 											<input type="hidden" name="action" value="delete_leave">
 											<input type="hidden" name="id" value="${row.id()}">

@@ -81,7 +81,7 @@ body.login-body .login-page {
   max-width: 520px;
   width: 100%;
   color: var(--ui-text-on-accent);
-  animation: loginFadeUp 0.75s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: loginFadeUp 0.75s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 .login-hero-brand {
@@ -255,7 +255,7 @@ body.login-body .login-page {
 .login-anim {
   opacity: 0;
   transform: translateY(14px);
-  animation: loginFadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) calc(0.07s * var(--d, 0) + 0.15s) both;
+  animation: loginFadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) calc(0.07s * var(--d, 0) + 0.15s) backwards;
 }
 
 .login-card-head {
@@ -293,7 +293,7 @@ body.login-body .login-page {
   border-radius: 10px;
   font-size: 13px;
   margin-bottom: 16px;
-  animation: loginAlertIn 0.4s ease both;
+  animation: loginAlertIn 0.4s ease backwards;
 }
 .login-alert--warn {
   background: var(--ui-warning-weak);
@@ -522,7 +522,7 @@ html[dir="rtl"] .login-dial-select {
 }
 .login-validation:not([hidden]) {
   display: block;
-  animation: loginAlertIn 0.35s ease both;
+  animation: loginAlertIn 0.35s ease backwards;
 }
 
 .login-input-wrap input::placeholder {
@@ -615,7 +615,7 @@ html[dir="rtl"] .login-submit-icon {
 }
 
 body.login-shake .login-card {
-  animation: loginShake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  animation: loginShake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) backwards;
 }
 
 @keyframes loginFadeUp {

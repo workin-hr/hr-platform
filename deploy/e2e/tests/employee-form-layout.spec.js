@@ -25,7 +25,7 @@ const template = (name) => readFileSync(
 /** The shared stylesheets `layout.jte` links, in its order; see employee-detail.spec.js. */
 function layoutSheets() {
 	const layout = template('layout.jte');
-	const sheets = [...layout.matchAll(/<link rel="stylesheet" href="\/admin\/_assets\/([\w-]+\.css)">/g)].map((match) => match[1]);
+	const sheets = [...layout.matchAll(/<link rel="stylesheet" href="\/admin\/_assets\/((?:vendor\/)?[\w.-]+\.css)">/g)].map((match) => match[1]);
 	if (sheets.length === 0 || !sheets.includes('app-ui.css')) {
 		throw new Error(`layout.jte's stylesheet links did not read as expected: ${sheets}`);
 	}

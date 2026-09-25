@@ -314,7 +314,9 @@ class AdminDesignTokensTest {
 		assertThat(dataUriColours)
 				.as("the colours read inside data: URIs, every one a token's value; pinned so the "
 						+ "arm that reads them cannot stop matching unnoticed")
-				.isEqualTo(19);
+				// 23: D-288's ui-tools.css adds four -- the select chevron, the
+				// confirm window's two icons and the date field's calendar.
+				.isEqualTo(23);
 		assertThat(literals).isEmpty();
 		assertThat(exemptionsUsed)
 				.as("an exemption whose literal is gone is a stale entry to delete, the same way "
@@ -965,7 +967,9 @@ class AdminDesignTokensTest {
 						+ "buttons and, since round four moved eleven labels off --ui-surface, "
 						+ "three more whose fill is one token, each twice over; pinned so a parser "
 						+ "that stopped resolving cannot pass this on nothing")
-				.isEqualTo(14);
+				// 16: D-288's active option and flatpickr's selected day, each a
+				// label on a one-token fill.
+				.isEqualTo(16);
 
 		// And every fill token on its own, which is what covers a hover. A `:hover`
 		// rule sets a background and no colour -- it inherits the label from the base

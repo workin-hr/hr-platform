@@ -164,7 +164,7 @@
 					     range, because "bulk delete" alone does not say how much. --%>
 					@if(canWrite && filters.companyId() > 0)
 						<form method="POST" class="inline-form"
-						      onsubmit="return confirm('${t.apply("att_range_delete_confirm")}\n${from} → ${to}')">
+						      data-confirm="${t.apply("att_range_delete_confirm")}" data-confirm-detail="${from} → ${to}" data-confirm-tone="danger">
 							<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 							<input type="hidden" name="action" value="delete_range">
 							<input type="hidden" name="company_id" value="${filters.companyId()}">
@@ -237,7 +237,7 @@
 												data-dialog-exception_type_id="${row.exceptionTypeId() == null ? "0" : String.valueOf(row.exceptionTypeId())}"
 												data-dialog-exception_name="${row.exceptionName() == null ? "—" : row.exceptionName()}">${t.apply("edit")}</button>
 										<form method="POST" class="row-actions__form" role="none"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+										      data-confirm="${t.apply("confirm_delete")}" data-confirm-tone="danger">
 											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 											<input type="hidden" name="action" value="delete">
 											<input type="hidden" name="id" value="${row.id()}">

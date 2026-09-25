@@ -29,6 +29,8 @@ on:
       - "deploy/e2e/playwright.config.js"
       - "deploy/e2e/README.md"
       - "deploy/e2e/tests/**"
+      - "deploy/e2e/package.json"
+      - "deploy/e2e/package-lock.json"
       - "contracts/legacy-dashboard-pages.txt"
       - "docs/operations/provisioning-phase1-tables.md"
   push:
@@ -51,6 +53,8 @@ on:
       - "deploy/e2e/playwright.config.js"
       - "deploy/e2e/README.md"
       - "deploy/e2e/tests/**"
+      - "deploy/e2e/package.json"
+      - "deploy/e2e/package-lock.json"
       - "contracts/legacy-dashboard-pages.txt"
       - "docs/operations/provisioning-phase1-tables.md"
 
@@ -185,3 +189,33 @@ jobs:
           print(f"\n{len(rows)} classes, {totals[0]} tests, "
                 f"{totals[1]} failed, {totals[2]} skipped")
           PY
+
+  # The `browser` Playwright project: the dashboard's own scripts and sheets on
+  # static pages, needing no stack (deploy/e2e/README.md). It ran nowhere in CI,
+  # so D-284's design system merged with eight of its assertions red -- among
+  # them a real regression, every dialog's backdrop painted under the topbar
+  # (D-288). It runs here on every change to the sheets, scripts, templates or
+  # specs it reads, which backend/** and deploy/e2e/tests/** already trigger.
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: deploy/e2e
+    steps:
+      - name: Check out repository (immutable action reference)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Node.js (immutable action reference; exact Node version, not checksum-verified)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: "22.23.2"
+
+      - name: Install the locked Playwright
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Chromium and its system libraries
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the browser project
+        run: npx playwright test --project=browser --reporter=line

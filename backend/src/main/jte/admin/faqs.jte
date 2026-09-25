@@ -100,7 +100,7 @@
 													data-dialog-sortOrder="${category.sortOrder()}"
 													data-dialog-isActive="${category.active() ? "1" : "0"}">${t.apply("edit")}</button>
 											<form method="post" class="row-actions__form"
-											      onsubmit="return confirm('${t.apply("faq_delete_category_confirm")}')">
+											      data-confirm="${t.apply("faq_delete_category_confirm")}" data-confirm-tone="danger">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 												<input type="hidden" name="action" value="delete_category">
 												<input type="hidden" name="id" value="${category.id()}">
@@ -183,7 +183,7 @@
 													data-dialog-sortOrder="${item.sortOrder()}"
 													data-dialog-isActive="${item.active() ? "1" : "0"}">${t.apply("edit")}</button>
 											<form method="post" class="row-actions__form"
-											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											      data-confirm="${t.apply("confirm_delete")}" data-confirm-tone="danger">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 												<input type="hidden" name="action" value="delete_item">
 												<input type="hidden" name="id" value="${item.id()}">
