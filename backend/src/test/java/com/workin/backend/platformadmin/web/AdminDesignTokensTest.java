@@ -96,6 +96,15 @@ class AdminDesignTokensTest {
 	private static final Pattern COLOUR = Pattern.compile(
 			"#([0-9a-fA-F]{3,8})\\b|(?:rgba?|hsla?)\\(\\s*(?!var\\()([^)]*)\\)");
 
+	/**
+	 * A token named for the job of carrying a label.
+	 *
+	 * <p>One constant, read by the sweep and by the pin that keeps the sweep from
+	 * iterating nothing. Two copies of it meant a mutant could empty the sweep while
+	 * the pin still counted eight.
+	 */
+	private static final Pattern FILL_TOKEN = Pattern.compile("--ui-[\\w-]*-fill(-hover)?");
+
 	private static final Pattern DECLARATION =
 			Pattern.compile("(?m)([a-z-]+)\\s*:\\s*([^;{}]+)");
 
@@ -764,7 +773,7 @@ class AdminDesignTokensTest {
 				"light", light, "dark", darkTheme).entrySet()) {
 			String label = theme.getValue().get("--ui-text-on-accent");
 			for (Map.Entry<String, String> token : new TreeMap<>(theme.getValue()).entrySet()) {
-				if (!token.getKey().matches("--ui-[\\w-]*-fill(-hover)?")) {
+				if (!FILL_TOKEN.matcher(token.getKey()).matches()) {
 					continue;
 				}
 				double ratio = contrast(label, token.getValue());
@@ -779,10 +788,61 @@ class AdminDesignTokensTest {
 						+ "in both themes -- including the hover states, which set no colour of "
 						+ "their own and are therefore invisible to the pass above")
 				.isEmpty();
-		assertThat(light.keySet().stream().filter(t -> t.matches("--ui-[\\w-]*-fill(-hover)?")).count())
+		assertThat(light.keySet().stream().filter(t -> FILL_TOKEN.matcher(t).matches()).count())
 				.as("the fill tokens found; pinned so renaming the convention cannot make the "
 						+ "check above iterate nothing")
 				.isEqualTo(8);
+
+		// Every state of a filled button, which is the property the two passes above
+		// approximate from either side. A `:hover` rule sets a background and inherits
+		// the label from its base selector, so the label the reader sees on hover is
+		// the base's -- and repointing that hover at `--ui-danger-strong` (`#f5a5a1`
+		// in dark, 1.95:1 under white) was caught by neither pass. The base rule names
+		// the label; every rule whose selector starts with the same class must paint a
+		// background that carries it.
+		String style = Files.readString(ASSETS.resolve("style.css"), StandardCharsets.UTF_8);
+		Set<String> filled = new TreeSet<>();
+		Matcher base = Pattern.compile(
+				"(?m)^(\\.[\\w-]+)\\s*\\{[^}]*color:\\s*var\\(--ui-text-on-accent\\)").matcher(style);
+		while (base.find()) {
+			filled.add(base.group(1));
+		}
+		assertThat(filled)
+				.as("the classes that declare a label on a fill; this is what the states below "
+						+ "are found from, so an empty set would check nothing")
+				.hasSize(4);
+
+		List<String> states = new ArrayList<>();
+		for (String selector : filled) {
+			Matcher rule = Pattern.compile("(?m)^" + Pattern.quote(selector)
+					+ "[\\w\\s:().,\\[\\]=\"-]*\\{([^}]*)\\}").matcher(style);
+			while (rule.find()) {
+				Matcher background = Pattern.compile(
+						"background:\\s*var\\(\\s*(--[\\w-]+)\\s*\\)").matcher(rule.group(1));
+				while (background.find()) {
+					String token = background.group(1);
+					for (Map.Entry<String, Map<String, String>> theme : Map.of(
+							"light", light, "dark", darkTheme).entrySet()) {
+						String fill = theme.getValue().get(token);
+						String label = theme.getValue().get("--ui-text-on-accent");
+						if (fill == null || !fill.startsWith("#")) {
+							continue;
+						}
+						double ratio = contrast(label, fill);
+						if (ratio < 4.5) {
+							states.add(String.format("%s@%s: a state of %s paints %s (%s), %.2f:1 "
+									+ "under the label %s inherits", selector, theme.getKey(),
+									selector, token, fill, ratio, selector));
+						}
+					}
+				}
+			}
+		}
+		assertThat(states)
+				.as("a filled button's hover and focus states inherit its label, so each of their "
+						+ "fills carries that label too -- the state that fails is the one the "
+						+ "reader is pointing at")
+				.isEmpty();
 	}
 
 	/** One declaration's value inside a rule block, or null when it sets none. */
