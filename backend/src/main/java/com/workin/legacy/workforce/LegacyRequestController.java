@@ -102,6 +102,7 @@ public class LegacyRequestController {
 		Map<String, Object> body = LegacyJsonBody.read(request);
 		String reply = body.get("reply") == null ? "" : LegacyValues.toPhpString(body.get("reply"));
 		Long approverId = context.employeeId() > 0 ? context.employeeId() : null;
+		requestService.requireManagerMayDecide(context, id);
 		approvalService.approve(
 				id, context.companyId(), approverId, reply, messages.resolveLocale(request));
 		return LegacyApiResponse.ok(message(request, "decision_recorded"), null);

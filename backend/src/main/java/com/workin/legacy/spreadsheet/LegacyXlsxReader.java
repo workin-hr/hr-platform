@@ -82,13 +82,42 @@ public final class LegacyXlsxReader {
 		return parseSheet(sheetXml, sharedStrings, styles);
 	}
 
+	/**
+	 * The most any one part may inflate to. An exported attendance or employee
+	 * sheet is a few megabytes of XML at most; a part past this is not a
+	 * workbook anyone uploads, it is a decompression bomb (D-289).
+	 */
+	static final int MAX_PART_BYTES = 32 * 1024 * 1024;
+
+	/** The most every part together may inflate to. */
+	static final long MAX_TOTAL_BYTES = 64L * 1024 * 1024;
+
+	/** The most entries the container may hold; a workbook has a few dozen. */
+	static final int MAX_ENTRIES = 2000;
+
+	/** Excel's own last column, {@code XFD}. A cell reference past it cannot come from a workbook. */
+	static final int MAX_COLUMN_INDEX = 16_383;
+
+	/**
+	 * Every part, inflated through a bounded read. PHP's {@code ZipArchive}
+	 * has no limit; a file past one of the three bounds is refused as an
+	 * unreadable workbook, which is what the callers already answer for a
+	 * corrupt one.
+	 */
 	private static Map<String, byte[]> readZip(byte[] content) {
 		Map<String, byte[]> parts = new LinkedHashMap<>();
+		long total = 0;
+		int entries = 0;
 		try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(content))) {
 			ZipEntry entry;
 			while ((entry = zip.getNextEntry()) != null) {
+				if (++entries > MAX_ENTRIES) {
+					throw new LegacyXlsxException("XLSX file has too many parts");
+				}
 				if (!entry.isDirectory()) {
-					parts.put(entry.getName(), zip.readAllBytes());
+					byte[] part = readBounded(zip, (int) Math.min(MAX_PART_BYTES, MAX_TOTAL_BYTES - total));
+					total += part.length;
+					parts.put(entry.getName(), part);
 				}
 				zip.closeEntry();
 			}
@@ -99,6 +128,20 @@ public final class LegacyXlsxReader {
 			throw new LegacyXlsxException("Cannot open XLSX file");
 		}
 		return parts;
+	}
+
+	/** Reads the current entry, refusing it as soon as it passes {@code limit} -- never after. */
+	private static byte[] readBounded(InputStream entry, int limit) throws IOException {
+		java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+		byte[] buffer = new byte[8192];
+		int read;
+		while ((read = entry.read(buffer)) != -1) {
+			if (out.size() + read > limit) {
+				throw new LegacyXlsxException("XLSX part inflates past the size limit");
+			}
+			out.write(buffer, 0, read);
+		}
+		return out.toByteArray();
 	}
 
 	/** {@code parseSharedStrings()}: each {@code si} is the concatenation of its {@code t} nodes. */
@@ -170,6 +213,11 @@ public final class LegacyXlsxReader {
 			for (int cellIndex = 0; cellIndex < cellElements.getLength(); cellIndex++) {
 				Element cell = (Element) cellElements.item(cellIndex);
 				int column = columnIndex(cell.getAttribute("r").replaceAll("\\d", ""));
+				if (column > MAX_COLUMN_INDEX) {
+					// The row below is filled out to its last column, so an
+					// invented reference like ZZZZZZ1 would allocate millions.
+					throw new LegacyXlsxException("XLSX cell reference out of range");
+				}
 				cells.put(column, cellValue(cell, sharedStrings, styles));
 			}
 			if (!cells.isEmpty()) {

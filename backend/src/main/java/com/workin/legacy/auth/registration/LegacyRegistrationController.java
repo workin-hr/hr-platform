@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.workin.legacy.LegacyJsonBody;
 import com.workin.legacy.LegacyValues;
+import com.workin.legacy.auth.LegacyLoginThrottle;
 import com.workin.legacy.auth.LegacyPhpJwtService;
 import com.workin.legacy.uploads.LegacyFileUploads;
 import com.workin.legacy.wire.LegacyApiException;
@@ -35,16 +36,18 @@ public class LegacyRegistrationController {
 	private final LegacyEmployeeSessionTokens sessionTokens;
 	private final LegacyFileUploads fileUploads;
 	private final LegacyMessages messages;
+	private final LegacyLoginThrottle loginThrottle;
 
 	public LegacyRegistrationController(
 			LegacyRegistrationService service, LegacyPhpJwtService jwtService,
 			LegacyEmployeeSessionTokens sessionTokens, LegacyFileUploads fileUploads,
-			LegacyMessages messages) {
+			LegacyMessages messages, LegacyLoginThrottle loginThrottle) {
 		this.service = service;
 		this.jwtService = jwtService;
 		this.sessionTokens = sessionTokens;
 		this.fileUploads = fileUploads;
 		this.messages = messages;
+		this.loginThrottle = loginThrottle;
 	}
 
 	/** The only GET in the module. */
@@ -158,7 +161,8 @@ public class LegacyRegistrationController {
 		requireMethod(request, "POST");
 		Map<String, Object> body = LegacyJsonBody.read(request);
 		required(body, "phone", "password");
-		return companyLoginResponse(request, body, false);
+		return loginThrottle.guard(body.get("phone"), request.getRemoteAddr(),
+				() -> companyLoginResponse(request, body, false));
 	}
 
 	/**
@@ -177,11 +181,13 @@ public class LegacyRegistrationController {
 		String loginAs = LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("login_as")))
 				.toLowerCase(java.util.Locale.ROOT);
 		if ("hr".equals(loginAs) || "employee".equals(loginAs)) {
-			return LegacyApiResponse.ok(message(request, "login_successful"),
-					service.desktopHrLogin(body, messages.resolveLocale(request)));
+			return loginThrottle.guard(body.get("phone"), request.getRemoteAddr(),
+					() -> LegacyApiResponse.ok(message(request, "login_successful"),
+							service.desktopHrLogin(body, messages.resolveLocale(request))));
 		}
 		if ("company".equals(loginAs) || "company_admin".equals(loginAs)) {
-			return companyLoginResponse(request, body, true);
+			return loginThrottle.guard(body.get("phone"), request.getRemoteAddr(),
+					() -> companyLoginResponse(request, body, true));
 		}
 		throw new LegacyApiException(400, "field_required", null, Map.of("field", "login_as"));
 	}

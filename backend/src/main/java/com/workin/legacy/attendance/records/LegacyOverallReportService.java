@@ -16,6 +16,7 @@ import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyPhpStrtotime;
 import com.workin.legacy.attendance.calendar.LegacyAttendanceCalendar;
 import com.workin.legacy.attendance.calendar.LegacyAttendanceReportDetails;
+import com.workin.legacy.attendance.calendar.LegacyReportRange;
 import com.workin.legacy.attendance.calendar.LegacyWeeklyRestCredit;
 import com.workin.legacy.payroll.LegacyPayrollAttendanceFigures;
 import com.workin.legacy.payroll.LegacyPayrollPeriod;
@@ -108,6 +109,7 @@ public class LegacyOverallReportService {
 		if (periodFrom.compareTo(periodTo) > 0) {
 			throw new LegacyApiException(400, "invalid_date");
 		}
+		LegacyReportRange.requireWithinCap(periodFrom, periodTo, "invalid_date");
 
 		String asOf = LegacyPayrollPeriod.asOfDate(clock.todayAsString(), periodTo);
 		String rangeTo = LegacyPayrollPeriod.rangeEnd(periodTo, asOf);

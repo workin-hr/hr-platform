@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.workin.legacy.LegacyJsonBody;
 import com.workin.legacy.LegacyValues;
+import com.workin.legacy.auth.LegacyLoginThrottle;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyApiResponse;
 import com.workin.legacy.wire.LegacyMessages;
@@ -21,10 +22,13 @@ public class LegacyLoginPhpController {
 
 	private final LegacyPhpLoginService service;
 	private final LegacyMessages messages;
+	private final LegacyLoginThrottle loginThrottle;
 
-	public LegacyLoginPhpController(LegacyPhpLoginService service, LegacyMessages messages) {
+	public LegacyLoginPhpController(
+			LegacyPhpLoginService service, LegacyMessages messages, LegacyLoginThrottle loginThrottle) {
 		this.service = service;
 		this.messages = messages;
+		this.loginThrottle = loginThrottle;
 	}
 
 	@RequestMapping("/login_employee.php")
@@ -36,7 +40,8 @@ public class LegacyLoginPhpController {
 
 		String phone = LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("phone")));
 		String password = LegacyValues.toPhpString(body.get("password"));
-		LegacyPhpLoginService.LoginResult login = service.login(phone, password);
+		LegacyPhpLoginService.LoginResult login = loginThrottle.guard(
+				phone, request.getRemoteAddr(), () -> service.login(phone, password));
 
 		Map<String, Object> data = new LinkedHashMap<>();
 		data.put("token", login.token());

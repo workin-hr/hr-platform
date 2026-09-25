@@ -284,6 +284,7 @@ public class LegacyRequestService {
 		if (request == null) {
 			throw new LegacyApiException(400, "not_found");
 		}
+		requireManagerBranch(context, request);
 		if (!"pending".equals(request.get("status"))) {
 			throw new LegacyApiException(400, "already_decided");
 		}
@@ -300,6 +301,34 @@ public class LegacyRequestService {
 		notifications.toEmployee(
 				context.companyId(), LegacyValues.toPhpLong(request.get("employee_id")), approverEmployeeId,
 				"request_rejected", title, body, "request", id);
+	}
+
+	/**
+	 * {@code approve.php}'s manager branch check, run before the approval
+	 * service reads the request for itself. A request this company does not
+	 * own passes through, so the service still answers it with its own 404.
+	 */
+	public void requireManagerMayDecide(LegacyRequestContext context, long id) {
+		if (context.role() != LegacyEmployee.Role.MANAGER) {
+			return;
+		}
+		Map<String, Object> request = store.byIdForCompanyWithType(id, context.companyId());
+		if (request != null) {
+			requireManagerBranch(context, request);
+		}
+	}
+
+	/**
+	 * A manager decides only for employees in their own branch -- the check
+	 * {@code one.php} already makes. PHP's {@code approve.php} and
+	 * {@code reject.php} skip it, so a manager could decide any request in the
+	 * company; the port refuses with {@code one.php}'s 403 (D-289).
+	 */
+	private void requireManagerBranch(LegacyRequestContext context, Map<String, Object> request) {
+		if (context.role() == LegacyEmployee.Role.MANAGER && !employeeStore.managerCanAccessEmployeeBranch(
+				context.employeeId(), LegacyValues.toPhpLong(request.get("employee_id")), context.companyId())) {
+			throw new LegacyApiException(403, "forbidden_insufficient_role");
+		}
 	}
 
 	/** {@code required($data, [$fields])} -- missing, null and "" fail; "0" passes. */

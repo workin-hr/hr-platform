@@ -151,6 +151,12 @@ public final class LegacySimpleXlsReader {
 	 */
 	private static final String REFUSE_TO_DECRYPT = "legacy parity -- never decrypt an .xls";
 
+	/** BIFF8's row limit. */
+	static final int MAX_ROWS = 65_536;
+
+	/** BIFF8's column limit. */
+	static final int MAX_COLUMNS = 256;
+
 	private LegacySimpleXlsReader() {
 	}
 
@@ -251,8 +257,12 @@ public final class LegacySimpleXlsReader {
 			return List.of();
 		}
 		HSSFSheet sheet = workbook.getSheetAt(0);
-		int numRows = rowCount(sheet);
-		int numCols = columnCount(sheet);
+		// DIMENSION is the file's own claim and is read before any cell, so a
+		// forged one sized the grid at will (D-289). Clamped to BIFF8's limits,
+		// and never past the last row that exists: every row beyond it would
+		// be blank, and xlsAssoc drops a row with fewer than two filled cells.
+		int numRows = Math.max(0, Math.min(rowCount(sheet), Math.min(MAX_ROWS, sheet.getLastRowNum() + 1)));
+		int numCols = Math.max(0, Math.min(columnCount(sheet), MAX_COLUMNS));
 		Map<Integer, String> formats = formatRecords(workbook);
 		boolean nineteenFour = workbook.getInternalWorkbook().isUsing1904DateWindowing();
 
