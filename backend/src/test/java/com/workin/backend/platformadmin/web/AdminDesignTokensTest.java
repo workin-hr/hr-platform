@@ -108,9 +108,17 @@ class AdminDesignTokensTest {
 			"--ui-text", "--ui-text-soft", "--ui-text-muted", "--ui-text-faint",
 			"--ui-nav-text", "--ui-nav-text-muted", "--ui-nav-text-faint");
 
-	/** Tokens that name a surface role; using one as a text colour is the mirror. */
+	/**
+	 * Tokens that name a surface role; using one as a text colour is the mirror.
+	 *
+	 * <p>{@code --ui-surface-raised} was in this list and is defined nowhere. A name
+	 * that does not exist cannot be misused, so the entry was a rule about nothing --
+	 * written from what the palette sounded like rather than from the sheet. The
+	 * assertion in the rule below now reads both lists against the token sheet, so the
+	 * next invented name fails instead of reassuring.
+	 */
 	private static final Set<String> SURFACE_ROLES = Set.of(
-			"--ui-bg", "--ui-surface-sunk", "--ui-surface-hover", "--ui-surface-raised",
+			"--ui-bg", "--ui-surface-sunk", "--ui-surface-hover",
 			"--ui-nav-bg", "--ui-nav-bg-raised", "--ui-nav-bg-hover", "--ui-hero-bg");
 
 	@Test
@@ -165,9 +173,36 @@ class AdminDesignTokensTest {
 				.isTrue();
 	}
 
+	/**
+	 * A role token is used for its role, whatever name it is reached under.
+	 *
+	 * <p><b>Through the alias layer.</b> This read {@code var(--ui-...)} only, and
+	 * {@code app-ui.css} declares sixteen {@code --app-*} aliases pointing straight at
+	 * {@code --ui-*} tokens -- {@code --app-text}, {@code --app-surface} -- which nine
+	 * declarations across two sheets then use for {@code color} and {@code background}.
+	 * Repointing {@code --app-surface} at {@code --ui-text} was invisible to this rule
+	 * and to every other, so the one indirection the design system deliberately keeps
+	 * was the one place the role check did not reach. Every custom property is resolved
+	 * to the {@code --ui-} token it ends at before the role is judged, and a
+	 * {@code var(x, var(y))} fallback is judged on both arms, since either may be what
+	 * paints.
+	 *
+	 * <p>And the counts are pinned. This rule had no coverage assertion at all: a
+	 * {@code DECLARATION} pattern that stopped matching would have made it pass on
+	 * nothing, which is the vacuity every other rule in this file guards against.
+	 */
 	@Test
 	void noTokenIsUsedAgainstTheRoleItsNameClaims() throws IOException {
+		Map<String, String> definitions = allTokenDefinitions();
+		assertThat(definitions.keySet())
+				.as("a role list may name only tokens that exist; an invented name is a rule "
+						+ "about nothing, which is what --ui-surface-raised was")
+				.containsAll(TEXT_ROLES)
+				.containsAll(SURFACE_ROLES);
+
 		List<String> mismatches = new ArrayList<>();
+		int painted = 0;
+		int reachedThroughAnAlias = 0;
 		for (Path sheet : sheets()) {
 			String name = sheet.getFileName().toString();
 			String source = Files.readString(sheet, StandardCharsets.UTF_8);
@@ -180,15 +215,23 @@ class AdminDesignTokensTest {
 				if (!paintsSurface && !paintsText) {
 					continue;
 				}
-				Matcher used = TOKEN_USE.matcher(declaration.group(2));
+				painted++;
+				Matcher used = Pattern.compile("var\\(\\s*(--[\\w-]+)")
+						.matcher(declaration.group(2));
 				while (used.find()) {
-					String token = used.group(1);
+					String written = used.group(1);
+					String token = roleTokenFor(written, definitions);
+					if (!written.equals(token)) {
+						reachedThroughAnAlias++;
+					}
 					if (paintsSurface && TEXT_ROLES.contains(token)) {
-						mismatches.add(name + ": " + property + " painted with " + token
+						mismatches.add(name + ": " + property + " painted with " + written
+								+ (written.equals(token) ? "" : " -> " + token)
 								+ ", which names a text role");
 					}
 					if (paintsText && SURFACE_ROLES.contains(token)) {
-						mismatches.add(name + ": color set from " + token
+						mismatches.add(name + ": color set from " + written
+								+ (written.equals(token) ? "" : " -> " + token)
 								+ ", which names a surface role");
 					}
 				}
@@ -199,6 +242,41 @@ class AdminDesignTokensTest {
 						+ "tokens do carry one, and using it the other way is how #1e293b -- a dark "
 						+ "surface -- became the text colour and turned the home banner near-black")
 				.isEmpty();
+		assertThat(painted)
+				.as("the colour and background declarations examined; this rule shipped with no "
+						+ "count at all, so a pattern that stopped matching would have passed it "
+						+ "on nothing")
+				.isGreaterThan(200);
+		assertThat(reachedThroughAnAlias)
+				.as("and the ones reached through an alias, which is the half this rule could not "
+						+ "see; pinned above zero so removing the resolution fails here rather "
+						+ "than silently narrowing the rule back")
+				.isGreaterThan(5);
+	}
+
+	/**
+	 * The {@code --ui-} token a custom property ends at, or the property itself.
+	 *
+	 * <p>Bounded, because a cycle between two aliases would otherwise not return. Six
+	 * hops is more than the one the alias layer actually uses.
+	 */
+	private static String roleTokenFor(String property, Map<String, String> definitions) {
+		String current = property;
+		for (int hop = 0; hop < 6; hop++) {
+			if (current.startsWith("--ui-")) {
+				return current;
+			}
+			String value = definitions.get(current);
+			if (value == null) {
+				return current;
+			}
+			Matcher reference = Pattern.compile("var\\(\\s*(--[\\w-]+)").matcher(value);
+			if (!reference.find()) {
+				return current;
+			}
+			current = reference.group(1);
+		}
+		return current;
 	}
 
 	@Test
