@@ -91,6 +91,11 @@ for expected cases:
   error) with a token issued — this is a real, easy-to-miss branch, not
   an oversight to "fix" during migration without checking with someone
   who understands why pending accounts get a token.
+- **Java port only (D-289):** `429 too_many_login_attempts` -- the phone
+  (8 misses) or the client address (60 misses) has spent its 15-minute
+  budget. Checked before the password, so even the right one is refused
+  until the window passes. `login_company` and `login_desktop` share the
+  same budget and answer the same way. Legacy has no limit.
 
 **Evidence:** `apis/api/auth/login_employee.php`, full file, read directly.
 

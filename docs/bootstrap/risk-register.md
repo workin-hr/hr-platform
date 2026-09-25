@@ -1326,3 +1326,63 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Status | Open — awaiting an owner decision on `attendance`. |
 | Evidence | `hr-legacy` `dashboard/includes/payroll_list_helper.php:777-880`; `?export=csv` in the `attendance`, `leave_balances`, `advances` and `penalties` dashboard pages; `AdminAttendanceController.java` has no export branch and `admin/attendance.jte` no export link. Leave balances: `AdminLeaveBalancesController`'s `export=csv` branch, `LeaveBalanceStore.exportRows` and D-269. Advances and penalties: `AdminAdvancesController`'s and `AdminPenaltiesController`'s `export=csv` branches, `AdvanceStore.exportRows`, `PenaltyStore.exportRows` and D-271. |
 | Last Reviewed | 2026-09-21 |
+
+## R-074: `join_company` Hands An Unverified Phone An Employee Token, And `lookup_company` Lists The Codes To Join With
+
+| Field | Value |
+|---|---|
+| Description | `join_company.php` creates an `employees` row with `is_active = 0` and `join_request_status = 'pending'` and returns an employee-role token for it at once. Nothing proves the caller owns the phone -- no OTP is asked for, although the OTP machinery exists and `register_company` uses it. `lookup_company.php` is public and, when no `company_code` is sent, resolves a bare `company_id` to the company's code and name; ids are small sequential integers. Together: anyone can walk the ids, collect every company's code and name, and join any company under any phone number. **D-289 keeps this token working on purpose** -- a pending applicant is the one inactive row `requireSessionValid` still admits, because `login_employee` deliberately lets a single pending row in and refusing it would lock every applicant out of the app while HR decides. So until HR rejects the row, the token is an employee-role session of that company, and no endpoint checked for this entry reads `join_request_status` (`LegacyCheckInService` checks the branch's QR code and nothing about the employee's state). |
+| Category | Security / AuthN / Tenant boundary |
+| Probability | High -- two public calls, no credentials. |
+| Impact | Medium. The session is a plain employee's: it sees what an employee sees (the company's name, branches, request types and whatever the employee surfaces return) and can write what an employee writes (requests, attendance) before anyone has looked at the application. It also spams the company's join queue and notifications under numbers the attacker does not own. |
+| Severity | Medium |
+| Owner | Repository owner -- both fixes change what a client must send or may do, which D-111 reserves to the owner. |
+| Recommendation | (1) Require the phone's OTP at `join_company` (possession proof the system already knows how to ask for), or issue no token until HR accepts. (2) Until then, admit a pending token only to the status-check calls the app makes while waiting (`profile/employee.php`, `logout.php`) -- a Java-side allowlist in `requireSessionValid`, which D-289 made the natural place. (3) Drop `lookup_company`'s `company_id` fallback, or charge it to the same address budget D-289's login throttle keeps. |
+| Status | Open -- recorded by D-289, not fixed. |
+| Evidence | `LegacyRegistrationService.joinCompany` and `lookupCompany`; `LegacyRegistrationController.joinCompany` (the token); `LegacyLoginResolver` (a single pending row succeeds); `LegacyRequestGuard.requireSessionValid` (the pending exception); `LegacyClientApiHardeningEndToEndTest#aPendingJoinerIsInactiveByConstructionAndKeepsItsSession`. |
+| Last Reviewed | 2026-09-26 |
+
+## R-075: A Company Token Cannot Be Revoked
+
+| Field | Value |
+|---|---|
+| Description | `LegacyPhpJwtService.issueCompanyToken` signs `{type: company, company_id, role}` with no version claim, and `requireSessionValid` skips every token whose type is not `employee`, exactly as PHP's `requireEmployeeSessionValid()` does. A company token therefore lives until its `exp`, whatever happens meanwhile: a changed company password, a leaked token, a deleted account. Suspension and rejection are covered only where an endpoint calls `requireCompanyActive()`. D-289's employee fix has no company counterpart because there is nothing to compare against. |
+| Category | Security / Session management |
+| Probability | Medium -- needs a token to have leaked or an owner to want one ended. |
+| Impact | High when it happens: a company token is the company admin's session. |
+| Severity | Medium |
+| Owner | Repository owner -- **it needs a schema change**. |
+| Recommendation | A version per company, compared exactly as the employee one is. `companies` is the vendored legacy table and must not change in Java alone, so either add `token_version` to it in `hr-legacy` first, or keep it in a Phase 1 table beside it (`phase1_extensions.sql`, with the provisioning runbook, `verify_phase1_tables.sql` and `Phase1SchemaCheck`), bumped on password change, suspension and deletion. Tokens already issued carry no claim; read a missing claim as version 0 for one token lifetime so the rollout signs nobody out, then refuse it. |
+| Status | Open -- recorded by D-289, not fixed. |
+| Evidence | `LegacyPhpJwtService.issueCompanyToken`; `LegacyRequestGuard.requireSessionValid` (the non-employee early return); the `companies` table in `mysql_workin.schema.sql` (no version column). |
+| Last Reviewed | 2026-09-26 |
+
+## R-076: Stored Documents Are Public, Publicly Cached, And Outlive Their Row
+
+| Field | Value |
+|---|---|
+| Description | `/uploads` is public by design (R-068, D-201): the clients fetch it without a session. `LegacyUploadServing` answers it with `Cache-Control: public, max-age=3600`, so any shared cache on the way may keep a copy for an hour. The names are `uniqid()`-shaped -- a millisecond timestamp plus eight digits from `ThreadLocalRandom`, not a secure generator. And nothing deletes a file when its row goes: an employee document, a photo or a commercial registration stays at the same URL after the employee, the document row or the company is deleted, for as long as the volume exists. |
+| Category | Security / Data retention / Privacy |
+| Probability | Low for guessing a name; certain that deleted records leave their files behind. |
+| Impact | Medium: employee documents and commercial registrations are personal and business data, and a URL that once reached a log, a chat or a cache keeps working after the deletion that was meant to end it. |
+| Severity | Medium |
+| Owner | Repository owner -- authenticating downloads is a client change (D-111). |
+| Recommendation | In order of disruption: (1) delete the file in the same code path that deletes its row, and sweep the volume once for files no row references; (2) generate names with `SecureRandom` (the shape can stay `uniqid()`-like); (3) serve the document areas with `Cache-Control: private, no-store` while keeping images public; (4) signed, expiring URLs for documents -- a client change. |
+| Status | Open -- recorded by D-289, not fixed. |
+| Evidence | `LegacyUploadServing` (`cachePublic()`, one hour); `LegacyFileUploads.uniqueId()`; no delete of a stored file anywhere under `com.workin.legacy` (`grep Files.delete`). |
+| Last Reviewed | 2026-09-26 |
+
+## R-077: The Login Answers Say Whether A Phone Is Registered
+
+| Field | Value |
+|---|---|
+| Description | `login_employee` answers `user_not_found` for an unknown phone and `incorrect_password` for a known one; `login_desktop` does the same, and its company branch says `company_not_registered`. So anyone can test whether a number belongs to a customer's employee. D-289's address budget bounds the rate -- 60 misses per client address per 15 minutes, about 5,700 phones a day from one address -- but does not remove the oracle. |
+| Category | Security / Account enumeration |
+| Probability | High -- one unauthenticated call per phone. |
+| Impact | Low-Medium: a list of which phones are employees of some customer, useful for targeted phishing and for spending each phone's miss budget on purpose. |
+| Severity | Low |
+| Owner | Repository owner -- **the messages are what the app shows**, so merging them is a product decision and a client-visible change. D-289 kept them unchanged for that reason. |
+| Recommendation | Answer both with one message (`invalid_phone_password` already exists and `login_company` already uses it on mobile), after checking the Flutter clients do not branch on the key. Keep the budget either way. |
+| Status | Open -- awaiting an owner decision. |
+| Evidence | `LegacyLoginOutcome` (`USER_NOT_FOUND`, `INCORRECT_PASSWORD`); `LegacyRegistrationService.companyLogin` and `desktopHrLogin`; `LegacyClientApiHardeningEndToEndTest#aPhonesMissBudgetRefusesEvenTheRightPasswordAcrossAllThreeRoutes` (asserts the existing message is unchanged). |
+| Last Reviewed | 2026-09-26 |
