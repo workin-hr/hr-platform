@@ -240,7 +240,7 @@
   /* ── STATUS AS A FILL, WHICH IS NOT STATUS AS A FOREGROUND ─────────────
      A filled button's surface and a status word's colour are two jobs, and
      --ui-success was doing both. As a foreground it has to LIFT in dark to
-     read on a dark page (#3b6d11 on #17161a is 1.5:1); as the surface under a
+     read on a dark page (#3b6d11 on #17161a is 2.90:1); as the surface under a
      white label it has to STAY DARK. Reusing one token for both made the dark
      theme's filled buttons white-on-#8fc95a -- 1.97:1 -- and the same for
      danger (2.42), warning (2.11) and all three hovers (1.62, 1.95, 1.74).
@@ -384,8 +384,9 @@
   --ui-info-weak:     #14243a;
   --ui-info-edge:     #24405f;
   /* The foreground hues have to lift, not just their tints: #3b6d11 on #17161a
-     is 1.5:1. These are the same hues at a luminance that reads on a dark
-     surface -- 10.25, 8.50 and 9.53 to one on --ui-surface.
+     is 2.90:1. These are the same hues at a luminance that reads on a dark
+     surface -- --ui-success-strong at 10.25 and --ui-danger-strong at 8.50 to
+     one on --ui-surface.
 
      These three -strong values were declared a second time ten lines below and
      CSS keeps the last, so what shipped was the light ramp's dark ends at

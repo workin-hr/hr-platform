@@ -33,9 +33,10 @@ import org.junit.jupiter.api.Test;
  * of that was anybody's decision; it accumulated, because nothing said it could
  * not. That is what this class says.
  *
- * <p>It is seven rules, and each exists because the conversion actually tripped
- * over it -- the last three because a rendered page measured something a
- * reviewed palette had agreed with:
+ * <p>It is thirteen rules, and each exists because the conversion or a review of
+ * it actually tripped over it. The first seven came with the conversion -- the
+ * fifth to seventh because a rendered page measured something a reviewed palette
+ * had agreed with -- and the other six with its first review round:
  *
  * <ol>
  * <li><b>No literal outside the token sheet.</b> The obvious one, and the only
@@ -62,6 +63,18 @@ import org.junit.jupiter.api.Test;
  * <li><b>Every gradient gradates.</b> Five places painted a flat colour as a
  * gradient from itself to itself, one of them behind two token names that
  * resolved to the same value.</li>
+ * <li><b>Every filled label is readable on its fill</b>, in every state and in
+ * whichever sheet wins the cascade.</li>
+ * <li><b>A tint is its token at an opacity</b>, so a wash and its glyph cannot
+ * drift into two blues.</li>
+ * <li><b>The shell scrolls its pane and not the document</b>, which is what every
+ * sticky rule depends on.</li>
+ * <li><b>Every sticky rule has a scrollport that can scroll</b>, or is listed as
+ * inert with the reason.</li>
+ * <li><b>No alias is declared without a referrer</b>, in any sheet's
+ * {@code :root}.</li>
+ * <li><b>No token is declared twice in one block</b>, since CSS ships the last and
+ * the reader believes the first.</li>
  * </ol>
  */
 class AdminDesignTokensTest {
@@ -94,10 +107,44 @@ class AdminDesignTokensTest {
 	 * complete.
 	 *
 	 * <p>{@code rgb(var(--ui-...-rgb) / .12)} is not a literal and must not match: it
-	 * is a token carrying an alpha, which is the reason the triples exist.
+	 * is a token carrying an alpha, which is the reason the triples exist. The
+	 * lookahead sits before the whitespace: after it, {@code \\s*} backtracked to
+	 * zero width so {@code rgb( var(...) / .12)} read as a literal and the message
+	 * sent its author to make a token for a token.
 	 */
 	private static final Pattern COLOUR = Pattern.compile(
-			"#([0-9a-fA-F]{3,8})\\b|(?:rgba?|hsla?)\\(\\s*(?!var\\()([^)]*)\\)");
+			"#([0-9a-fA-F]{3,8})\\b|(?:rgba?|hsla?)\\((?!\\s*var\\()\\s*([^)]*)\\)");
+
+	/**
+	 * A colour written as its CSS name.
+	 *
+	 * <p>The third spelling of a literal, and the one {@link #COLOUR} could not
+	 * read: {@code background: white} passed every rule here. Matched in declaration
+	 * values only, and as a whole word, so {@code white-space}, {@code --ui-white-rgb}
+	 * and {@code .btn-red} are names rather than colours. {@code transparent} and
+	 * {@code currentColor} are not on the list: neither is a colour anybody chose.
+	 */
+	private static final Pattern NAMED_COLOUR = Pattern.compile("(?i)(?<![\\w.#-])(?:"
+			+ "aliceblue|antiquewhite|aqua|aquamarine|azure|beige|bisque|black|blanchedalmond|"
+			+ "blue|blueviolet|brown|burlywood|cadetblue|chartreuse|chocolate|coral|"
+			+ "cornflowerblue|cornsilk|crimson|cyan|darkblue|darkcyan|darkgoldenrod|darkgray|"
+			+ "darkgreen|darkgrey|darkkhaki|darkmagenta|darkolivegreen|darkorange|darkorchid|"
+			+ "darkred|darksalmon|darkseagreen|darkslateblue|darkslategray|darkslategrey|"
+			+ "darkturquoise|darkviolet|deeppink|deepskyblue|dimgray|dimgrey|dodgerblue|"
+			+ "firebrick|floralwhite|forestgreen|fuchsia|gainsboro|ghostwhite|gold|goldenrod|"
+			+ "gray|green|greenyellow|grey|honeydew|hotpink|indianred|indigo|ivory|khaki|"
+			+ "lavender|lavenderblush|lawngreen|lemonchiffon|lightblue|lightcoral|lightcyan|"
+			+ "lightgoldenrodyellow|lightgray|lightgreen|lightgrey|lightpink|lightsalmon|"
+			+ "lightseagreen|lightskyblue|lightslategray|lightslategrey|lightsteelblue|"
+			+ "lightyellow|lime|limegreen|linen|magenta|maroon|mediumaquamarine|mediumblue|"
+			+ "mediumorchid|mediumpurple|mediumseagreen|mediumslateblue|mediumspringgreen|"
+			+ "mediumturquoise|mediumvioletred|midnightblue|mintcream|mistyrose|moccasin|"
+			+ "navajowhite|navy|oldlace|olive|olivedrab|orange|orangered|orchid|palegoldenrod|"
+			+ "palegreen|paleturquoise|palevioletred|papayawhip|peachpuff|peru|pink|plum|"
+			+ "powderblue|purple|rebeccapurple|red|rosybrown|royalblue|saddlebrown|salmon|"
+			+ "sandybrown|seagreen|seashell|sienna|silver|skyblue|slateblue|slategray|"
+			+ "slategrey|snow|springgreen|steelblue|tan|teal|thistle|tomato|turquoise|violet|"
+			+ "wheat|white|whitesmoke|yellow|yellowgreen)(?![\\w-])");
 
 	/**
 	 * A token named for the job of carrying a label.
@@ -112,6 +159,20 @@ class AdminDesignTokensTest {
 			Pattern.compile("(?m)([a-z-]+)\\s*:\\s*([^;{}]+)");
 
 	private static final Pattern TOKEN_USE = Pattern.compile("var\\(\\s*(--ui-[\\w-]+)");
+
+	/**
+	 * A custom property declared, wherever on its line it starts.
+	 *
+	 * <p>On a declaration boundary, not on a line start. Both rules that read this
+	 * were written {@code (?m)^\\s*--x:}, and the sheets put several declarations on
+	 * one line -- {@code --topbar-h: a; --topbar-h: b;} was a duplicate nobody saw.
+	 */
+	private static final Pattern DECLARED_PROPERTY =
+			Pattern.compile("(?m)(?:^|[;{])\\s*(--[\\w-]+)\\s*:\\s*([^;}]*)");
+
+	/** {@code position: sticky}, on a declaration boundary for the same reason. */
+	private static final Pattern STICKY =
+			Pattern.compile("(?m)(?:^|[;{])\\s*position\\s*:\\s*sticky");
 
 	private static final Pattern TOKEN_DEFINITION = Pattern.compile("(?m)^\\s*(--ui-[\\w-]+)\\s*:");
 
@@ -161,6 +222,16 @@ class AdminDesignTokensTest {
 				}
 				literals.add(key + " -- give it a token in " + TOKEN_SHEET);
 			}
+			Matcher declaration = DECLARATION.matcher(
+					withoutComments(Files.readString(sheet, StandardCharsets.UTF_8)));
+			while (declaration.find()) {
+				Matcher named = NAMED_COLOUR.matcher(declaration.group(2));
+				while (named.find()) {
+					literals.add(name + " " + declaration.group(1) + ": " + named.group()
+							+ " -- a colour by name is a literal too; give it a token in "
+							+ TOKEN_SHEET);
+				}
+			}
 		}
 		assertThat(sheets)
 				.as("the sheets checked; a glob that stopped matching would pass by checking nothing")
@@ -188,6 +259,20 @@ class AdminDesignTokensTest {
 		assertThat(COLOUR.matcher("border-color: #185fa5;").find())
 				.as("and the hex arm still matches, so widening took nothing away")
 				.isTrue();
+
+		assertThat(COLOUR.matcher("background: rgb( var(--ui-accent-rgb) / .12);").find())
+				.as("nor is the same token with a space inside the parenthesis")
+				.isFalse();
+		assertThat(NAMED_COLOUR.matcher("white").find())
+				.as("a colour by its name is the spelling the two arms above cannot read")
+				.isTrue();
+		assertThat(NAMED_COLOUR.matcher("0 0 0 1px Red inset").find())
+				.as("in any case, inside a shorthand")
+				.isTrue();
+		assertThat(NAMED_COLOUR.matcher("nowrap var(--ui-white-rgb) .btn-red transparent "
+						+ "currentColor white-space #red").find())
+				.as("and not inside a token, a class, a property or a keyword that is no colour")
+				.isFalse();
 
 		assertThat(COLOUR.matcher(withoutComments("/* removed as inert; see #338 */")).find())
 				.as("an issue number in a comment is not a colour, and three sheets cite one")
@@ -816,7 +901,18 @@ class AdminDesignTokensTest {
 		// in dark, 1.95:1 under white) was caught by neither pass. The base rule names
 		// the label; every rule whose selector starts with the same class must paint a
 		// background that carries it.
-		String style = Files.readString(ASSETS.resolve("style.css"), StandardCharsets.UTF_8);
+		//
+		// In every sheet, not in style.css. app-ui.css loads after it and declared
+		// `.btn-green { background: var(--ui-success) }` at the same specificity, so
+		// its background was the one that painted -- white on #8fc95a at 1.97:1 in
+		// dark, the exact figure the `-fill` split was written to remove -- while this
+		// pass measured the losing declaration and passed. The sheet that wins has to
+		// be a sheet that is read.
+		StringBuilder allSheets = new StringBuilder();
+		for (Path sheet : sheets()) {
+			allSheets.append(Files.readString(sheet, StandardCharsets.UTF_8)).append('\n');
+		}
+		String style = allSheets.toString();
 		Set<String> filled = new TreeSet<>();
 		Matcher base = Pattern.compile(
 				"(?m)^(\\.[\\w-]+)\\s*\\{[^}]*color:\\s*var\\(--ui-text-on-accent\\)").matcher(style);
@@ -1059,7 +1155,7 @@ class AdminDesignTokensTest {
 			String css = withoutComments(Files.readString(sheet, StandardCharsets.UTF_8));
 			Matcher rule = Pattern.compile("([^{}]+)\\{([^{}]*)\\}").matcher(css);
 			while (rule.find()) {
-				if (Pattern.compile("(?m)^\\s*position\\s*:\\s*sticky").matcher(rule.group(2)).find()) {
+				if (STICKY.matcher(rule.group(2)).find()) {
 					found.put(rule.group(1).trim().replaceAll("\\s+", " "),
 							sheet.getFileName().toString());
 				}
@@ -1097,6 +1193,18 @@ class AdminDesignTokensTest {
 				.as("`.table-wrap` is a scroll container on both axes with no height, so nothing "
 						+ "may stick inside it until #338 gives the table region a height")
 				.doesNotContain("sticky");
+
+		// The sheets' own idiom is several declarations to a line, and a detector
+		// anchored at a line start passed a sticky written that way.
+		assertThat(STICKY.matcher(" display: flex; position: sticky; top: 0; ").find())
+				.as("a sticky that shares its line")
+				.isTrue();
+		assertThat(STICKY.matcher("\n  position: sticky;\n").find())
+				.as("and one on a line of its own")
+				.isTrue();
+		assertThat(STICKY.matcher(" position: relative; top: 0; ").find())
+				.as("the control")
+				.isFalse();
 	}
 
 	/**
@@ -1134,6 +1242,9 @@ class AdminDesignTokensTest {
 		return declarations;
 	}
 
+	/** The sheets whose {@code :root} is a layer of aliases onto the design system. */
+	private static final Set<String> ALIAS_LAYERS = Set.of("style.css", "app-ui.css");
+
 	/**
 	 * Every legacy alias still has a referrer, and points at the design system.
 	 *
@@ -1153,23 +1264,42 @@ class AdminDesignTokensTest {
 	 */
 	@Test
 	void noLegacyAliasIsDeclaredWithoutAReferrer() throws IOException {
-		String style = Files.readString(ASSETS.resolve("style.css"), StandardCharsets.UTF_8);
-		Matcher root = Pattern.compile("(?m)^:root \\{").matcher(style);
-		assertThat(root.find())
-				.as("the alias block must be findable, or this rule checks nothing")
-				.isTrue();
-		String block = ruleBlocks(style.substring(root.start())).get(0);
-
+		// Every `:root` block outside the token sheet, not style.css's alone:
+		// app-ui.css declares its own `--app-*` layer of exactly the same kind, and
+		// `everyTokenUsedIsDefinedAndEveryTokenDefinedIsUsed` reads `--ui-` names only,
+		// so that layer was the sibling of the defect above with nothing gating it.
+		// Three more sheets keep a `:root` of sheet-local constants -- a width, a tap
+		// size, two z-indices -- which are not aliases and need not point at `--ui-*`,
+		// but a dead one is dead all the same, so every block is read for referrers.
 		List<String> aliases = new ArrayList<>();
 		List<String> notAnAlias = new ArrayList<>();
-		Matcher declaration = Pattern.compile("(?m)^\\s*(--[\\w-]+)\\s*:\\s*([^;]+);").matcher(block);
-		while (declaration.find()) {
-			String name = declaration.group(1);
-			aliases.add(name);
-			if (!declaration.group(2).trim().startsWith("var(--ui-")) {
-				notAnAlias.add(name + " = " + declaration.group(2).trim());
+		Set<String> sheetsWithAliases = new TreeSet<>();
+		for (Path sheet : sheets()) {
+			String name = sheet.getFileName().toString();
+			if (TOKEN_SHEET.equals(name)) {
+				continue;
+			}
+			String css = withoutComments(Files.readString(sheet, StandardCharsets.UTF_8));
+			Matcher root = Pattern.compile("(?m)^\\s*:root\\s*\\{").matcher(css);
+			while (root.find()) {
+				sheetsWithAliases.add(name);
+				Matcher declaration = DECLARED_PROPERTY.matcher(
+						ruleBlocks(css.substring(root.start())).get(0));
+				while (declaration.find()) {
+					String alias = declaration.group(1);
+					aliases.add(alias);
+					if (ALIAS_LAYERS.contains(name)
+							&& !declaration.group(2).trim().startsWith("var(--ui-")) {
+						notAnAlias.add(name + ": " + alias + " = " + declaration.group(2).trim());
+					}
+				}
 			}
 		}
+		assertThat(sheetsWithAliases)
+				.as("the sheets that keep an alias layer; pinned so a pattern that stopped "
+						+ "finding `:root` cannot pass by reading nothing")
+				.containsExactlyInAnyOrder("app-responsive.css", "app-ui.css", "login.css",
+						"sidebar.css", "style.css");
 		assertThat(notAnAlias)
 				.as("an entry here that is not `var(--ui-...)` is a colour living in this sheet "
 						+ "again, which is the thing the block exists to have removed")
@@ -1229,11 +1359,7 @@ class AdminDesignTokensTest {
 			String css = Files.readString(sheet, StandardCharsets.UTF_8);
 			for (String block : ruleBlocks(css)) {
 				blocks++;
-				Map<String, Integer> counts = new java.util.LinkedHashMap<>();
-				Matcher definition = Pattern.compile("(?m)^\\s*(--[\\w-]+)\\s*:").matcher(block);
-				while (definition.find()) {
-					counts.merge(definition.group(1), 1, Integer::sum);
-				}
+				Map<String, Integer> counts = declarationCounts(block);
 				counts.forEach((token, count) -> {
 					if (count > 1) {
 						repeated.add(sheet.getFileName() + ": " + token + " declared " + count
@@ -1262,22 +1388,33 @@ class AdminDesignTokensTest {
 				}"""))
 				.as("one block")
 				.hasSize(1);
-		Map<String, Integer> counted = new java.util.LinkedHashMap<>();
-		Matcher definition = Pattern.compile("(?m)^\\s*(--[\\w-]+)\\s*:").matcher(
-				ruleBlocks("""
+		assertThat(declarationCounts(ruleBlocks("""
 						:root[data-theme="dark"] {
 						  --ui-success-strong: #a6db73;
 						  --ui-danger-strong: #f5a5a1;
 						  --ui-success-strong: #4d8a1a;
-						}""").get(0));
-		while (definition.find()) {
-			counted.merge(definition.group(1), 1, Integer::sum);
-		}
-		assertThat(counted)
+						}""").get(0)))
 				.as("the shape this rule exists for, counted: the token declared twice and the "
 						+ "one declared once")
 				.containsEntry("--ui-success-strong", 2)
 				.containsEntry("--ui-danger-strong", 1);
+		assertThat(declarationCounts(ruleBlocks("""
+						:root {
+						  --topbar-h: var(--ui-topbar-h); --topbar-h: var(--ui-space-10);
+						}""").get(0)))
+				.as("and the same duplicate written on one line, which is how style.css writes "
+						+ "most of its blocks and which a line-anchored count read as one")
+				.containsEntry("--topbar-h", 2);
+	}
+
+	/** How many times each custom property is declared in one rule block. */
+	private static Map<String, Integer> declarationCounts(String block) {
+		Map<String, Integer> counts = new java.util.LinkedHashMap<>();
+		Matcher definition = DECLARED_PROPERTY.matcher(block);
+		while (definition.find()) {
+			counts.merge(definition.group(1), 1, Integer::sum);
+		}
+		return counts;
 	}
 
 	/**

@@ -33,7 +33,7 @@
   //
   // Still literals, and the only colours in this directory's own JavaScript that
   // are. A series hue is not a surface or a foreground: it is chosen against its
-  // neighbours, and on a dark canvas `#185FA5` reads at 2.1:1, so moving these
+  // neighbours, and on the dark theme's `--ui-surface` `#185FA5` reads at 2.54:1, so moving these
   // into the token sheet means choosing ten dark values -- design work, not a
   // relocation. #339 carries that, and the colour gate reaches these files with
   // it.

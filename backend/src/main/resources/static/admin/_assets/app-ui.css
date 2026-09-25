@@ -127,9 +127,12 @@ body:not(.login-body) {
    gradient from itself to itself, and the two that really did shade switched to
    flat under the pointer, because style.css's hover sets background-color and a
    class-plus-pseudo-class beats a class. A gradient also makes the computed
-   background-color transparent, which is what any contrast tooling reads. */
+   background-color transparent, which is what any contrast tooling reads.
+   The fill itself is style.css's, from the --ui-*-fill tokens. These four blocks
+   painted it too, at the same specificity and later in the cascade, so theirs
+   was the one that shipped -- from the status foregrounds, which lift in dark:
+   white on #8fc95a at 1.97:1, the figure the -fill split existed to remove. */
 .btn-blue {
-  background: var(--ui-accent-500);
   box-shadow: 0 3px 12px rgb(var(--ui-accent-rgb) / .3);
 }
 .btn-blue:hover {
@@ -141,7 +144,6 @@ body:not(.login-body) {
 }
 
 .btn-green {
-  background: var(--ui-success);
   box-shadow: 0 3px 10px rgb(var(--ui-success-rgb) / .25);
 }
 .btn-green:hover {
@@ -149,16 +151,12 @@ body:not(.login-body) {
 }
 
 .btn-red {
-  background: var(--ui-danger);
   box-shadow: 0 3px 10px rgb(var(--ui-danger-rgb) / .25);
 }
 .btn-red:hover {
   transform: translateY(-1px);
 }
 
-.btn-yellow {
-  background: var(--ui-warning);
-}
 .btn-yellow:hover {
   transform: translateY(-1px);
 }

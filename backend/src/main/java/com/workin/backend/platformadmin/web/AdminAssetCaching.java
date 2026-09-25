@@ -24,7 +24,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * revalidated on every load against an ETag of its content, and a browser holding the current
  * copy gets a 304.
  *
- * <p>A font is cached for a year and marked immutable. The twelve {@code .woff2} files are 312 KB
+ * <p>A font is cached for a year and marked immutable. The twelve {@code .woff2} files are 277 KB
  * of third-party binary that changes when the typeface changes, which is not a deploy -- and they
  * shipped in the revalidated bucket, so every page load spent a round trip per font asking whether
  * a file that had not changed since it was vendored had changed. <b>The price of the year is that a
