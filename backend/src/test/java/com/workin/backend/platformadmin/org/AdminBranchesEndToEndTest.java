@@ -401,9 +401,16 @@ class AdminBranchesEndToEndTest {
 				"SELECT qr_code, expires_at FROM branches WHERE id = " + id);
 		assertThat((String) row.get("qr_code")).matches("[0-9a-f]{32}");
 		assertThat(row.get("expires_at")).isNotNull();
-		assertThat(body("/admin/branches?action=qr&id=" + id))
-				.as("the panel now renders the code through legacy's own third-party renderer")
-				.contains("api.qrserver.com");
+		String panel = body("/admin/branches?action=qr&id=" + id);
+		assertThat(panel)
+				.as("the panel draws the code on this host (D-285, #298): legacy's renderer sent "
+						+ "the check-in code and the viewer's address to api.qrserver.com")
+				.contains("<img src=\"data:image/svg+xml;base64,")
+				.doesNotContain("qrserver");
+		assertThat(panel)
+				.as("and nothing on the page loads from another host at all, which is the class "
+						+ "#298 was one instance of")
+				.doesNotContainPattern("(?i)\\b(?:src|srcset|poster)\\s*=\\s*[\"']?\\s*(?:https?:)?//");
 	}
 
 	@Test
