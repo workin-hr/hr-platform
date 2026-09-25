@@ -158,22 +158,4 @@ public record Branch(
 		return this.createdAt == null ? "" : this.createdAt.substring(0, Math.min(10, this.createdAt.length()));
 	}
 
-	/**
-	 * {@code org_branch_qr_image_url()}: the third-party renderer legacy links
-	 * to.
-	 *
-	 * <p>Kept because the dashboard's QR page is an image tag pointing at
-	 * {@code api.qrserver.com} and reproducing the page means reproducing the
-	 * tag. Worth stating plainly: this sends the branch's check-in code to a
-	 * third party on every render, which is legacy's behaviour and not an
-	 * improvement on it.
-	 */
-	public static String qrImageUrl(String code) {
-		if (code == null || code.trim().isEmpty()) {
-			return "";
-		}
-		return "https://api.qrserver.com/v1/create-qr-code/?size=220x220&data="
-				+ java.net.URLEncoder.encode(code, java.nio.charset.StandardCharsets.UTF_8);
-	}
-
 }

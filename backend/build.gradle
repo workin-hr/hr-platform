@@ -87,6 +87,12 @@ dependencies {
 	// refactored onto POI. `poi` only -- `poi-ooxml` is deliberately NOT a
 	// dependency, because the XLSX path is already ported.
 	implementation 'org.apache.poi:poi:5.5.1'
+	// Draws a branch's check-in QR on this host (D-285). The dashboard used to
+	// point an <img> at api.qrserver.com with the code in the URL, which handed
+	// every branch's check-in code, and the viewer's address, to a third party
+	// on every render (#298). One small MIT-licensed package with no
+	// dependencies of its own: an encoder, not a renderer, so the SVG is ours.
+	implementation 'io.nayuki:qrcodegen:1.8.0'
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
@@ -107,6 +113,10 @@ dependencies {
 	// more of the authorization framework built out first. Not yet
 	// exercised by a test in this slice -- tracked, not silently dropped.
 	testImplementation 'com.tngtech.archunit:archunit-junit5:1.5.0'
+	// A second, independent QR implementation, so BranchQrImageTest proves the
+	// drawn image decodes to the code rather than that the encoder agrees with
+	// itself. Test scope only.
+	testImplementation 'com.google.zxing:core:3.5.3'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
 	// Phase 1 substrate. MariaDB, not MySQL: production is MariaDB

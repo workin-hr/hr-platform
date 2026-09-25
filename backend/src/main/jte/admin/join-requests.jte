@@ -3,11 +3,12 @@
 @import com.workin.backend.platformadmin.home.HomeDisplay
 @import com.workin.backend.platformadmin.hr.JoinRequest
 @import com.workin.backend.platformadmin.web.DashboardListFilters
+@import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
-@param List<JoinRequest> items
+@param DashboardPage<JoinRequest> result
 @param DashboardListFilters filters
 @param String status
 @param List<String> statuses
@@ -71,7 +72,7 @@
 
 	<div class="data-table-card">
 		<div class="data-table-head">
-			<h2 class="data-table-title">${t.apply("nav_join_requests")} (${items.size()})</h2>
+			<h2 class="data-table-title">${t.apply("nav_join_requests")} (${result.total()})</h2>
 		</div>
 		<div class="table-wrap">
 		<table class="tbl">
@@ -86,13 +87,13 @@
 				</tr>
 			</thead>
 			<tbody>
-			@if(items.isEmpty())
+			@if(result.isEmpty())
 				<tr><td colspan="6" class="text-muted">${t.apply("join_requests_empty_sub")}</td></tr>
 			@else
-				@for(int i = 0; i < items.size(); i++)
-				!{JoinRequest row = items.get(i);}
+				@for(int i = 0; i < result.data().size(); i++)
+				!{JoinRequest row = result.data().get(i);}
 				<tr>
-					<td>${i + 1}</td>
+					<td>${result.from() + i}</td>
 					<td class="bold">${row.label()}</td>
 					<td>${row.phone() == null || row.phone().isBlank() ? "—" : row.phone()}</td>
 					<td>
@@ -143,4 +144,17 @@
 		</table>
 		</div>
 	</div>
+	<%-- The status tab rides along, or turning the page would drop the operator
+	     back to the pending list -- which here is not merely a lost filter: the
+	     row actions post redirect_status, so the reader would be looking at a
+	     different list than the one they acted on.
+
+	     No backticks in this comment, deliberately: jte reads one as the end of
+	     the enclosing content block even inside a comment, and the error it
+	     then reports names the file's last line. --%>
+	!{java.util.SequencedMap<String, String> carry =
+			new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+	!{carry.put("status", status);}
+	@template.admin.pager(basePath = "/admin/join_requests", result = result,
+			carry = carry, t = t)
 `)

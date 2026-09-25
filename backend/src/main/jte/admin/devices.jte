@@ -5,6 +5,7 @@
 @import com.workin.backend.platformadmin.org.ActiveCompanies
 @import com.workin.backend.platformadmin.web.AdminDeviceView
 @import com.workin.backend.platformadmin.web.DashboardListFilters
+@import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
 @import com.workin.devices.agent.DeviceAgent
 @import com.workin.devices.agent.DeviceAgentService
@@ -22,13 +23,18 @@
 @param DeviceAgentService.IssuedAgent issuedAgent = null
 @param AttendanceDevice selected = null
 @param Map<String, Object> selectedRow = java.util.Map.of()
-@param List<Map<String, Object>> deviceRows
-@param List<Map<String, Object>> sightings
-@param List<DeviceAgent> agents
+@param DashboardPage<Map<String, Object>> deviceResult
+@param DashboardPage<Map<String, Object>> sightingResult
+@param DashboardPage<DeviceAgent> agentResult
 @param List<Map<String, Object>> branches
-@param List<Map<String, Object>> punches
+@param DashboardPage<Map<String, Object>> punchResult
 @param List<Map<String, Object>> counts
-@param List<Map<String, Object>> malformed
+@param DashboardPage<Map<String, Object>> malformedResult
+@param int devPage
+@param int sightPage
+@param int agentPage
+@param int punchPage
+@param int malPage
 @param String currentPage
 @param String lang
 @param DashboardSession session
@@ -36,6 +42,26 @@
 @param String flash = null
 @param String flashType = "success"
 @param Function<String, Boolean> available
+<%-- Five tables, five page numbers, one size. Each pager appends the other
+     four pages to its links (pager.jte skips whichever one names its own
+     pageParam), so turning one table leaves the rest where they were --
+     attendance.jte's two-pager rule, at five.
+
+     `device` and `live` ride along too: without them a pager link would leave
+     the terminal you were looking at, or silently stop the live refresh. The
+     requested page numbers are carried, not the clamped ones, for the reason
+     attendance.jte gives. `error` is deliberately absent -- a flash replayed
+     by every page link is a message that will not go away. --%>
+!{java.util.SequencedMap<String, String> carry =
+		new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+!{if (selected != null) { carry.put("device", String.valueOf(selected.id())); }}
+!{if (liveSeconds > 0) { carry.put("live", "1"); }}
+!{if (!allocateSerial.isEmpty()) { carry.put("serial", allocateSerial); }}
+!{carry.put("dev_page", String.valueOf(devPage));}
+!{carry.put("sight_page", String.valueOf(sightPage));}
+!{carry.put("agent_page", String.valueOf(agentPage));}
+!{carry.put("punch_page", String.valueOf(punchPage));}
+!{carry.put("mal_page", String.valueOf(malPage));}
 <%-- No PHP counterpart: the dashboard never had devices. Built from the list
      and form vocabulary the org pages already style, so nothing here needs a
      stylesheet of its own. --%>
@@ -90,7 +116,7 @@
 
 			<div class="data-table-card">
 				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply("device_sightings")} (${sightings.size()})</h2>
+					<h2 class="data-table-title">${t.apply("device_sightings")} (${sightingResult.total()})</h2>
 				</div>
 				<p class="text-muted">${t.apply("device_sightings_hint")}</p>
 				<div class="table-wrap">
@@ -108,7 +134,7 @@
 						</tr>
 					</thead>
 					<tbody>
-						@for(Map<String, Object> row : sightings)
+						@for(Map<String, Object> row : sightingResult.data())
 							<tr>
 								<td class="bold">${AdminDeviceView.text(row, "serial_number")}</td>
 								<td>${AdminDeviceView.text(row, "device_type")}</td>
@@ -120,13 +146,15 @@
 								<td><a class="btn btn-outline btn-sm" href="/admin/devices?serial=${AdminDeviceView.text(row, "serial_number")}#allocate">${t.apply("device_allocate")}</a></td>
 							</tr>
 						@endfor
-						@if(sightings.isEmpty())
+						@if(sightingResult.isEmpty())
 							<tr><td colspan="8" class="data-table-empty">${t.apply("no_data")}</td></tr>
 						@endif
 					</tbody>
 				</table>
 				</div>
 			</div>
+			@template.admin.pager(basePath = "/admin/devices", result = sightingResult,
+					carry = carry, t = t, pageParam = "sight_page")
 
 			<div class="data-table-card" id="allocate">
 				<div class="data-table-head">
@@ -175,7 +203,7 @@
 
 			<div class="data-table-card">
 				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply("nav_devices")} (${deviceRows.size()})</h2>
+					<h2 class="data-table-title">${t.apply("nav_devices")} (${deviceResult.total()})</h2>
 				</div>
 				<div class="table-wrap">
 				<table class="tbl">
@@ -194,7 +222,7 @@
 						</tr>
 					</thead>
 					<tbody>
-						@for(Map<String, Object> row : deviceRows)
+						@for(Map<String, Object> row : deviceResult.data())
 							<tr>
 								<td class="text-muted">${AdminDeviceView.text(row, "company_name")}</td>
 								<td>${AdminDeviceView.text(row, "branch_name")}</td>
@@ -208,17 +236,19 @@
 								<td><a class="btn btn-outline btn-sm" href="/admin/devices?device=${AdminDeviceView.id(row, "id")}">${t.apply("device_open")}</a></td>
 							</tr>
 						@endfor
-						@if(deviceRows.isEmpty())
+						@if(deviceResult.isEmpty())
 							<tr><td colspan="10" class="data-table-empty">${t.apply("no_data")}</td></tr>
 						@endif
 					</tbody>
 				</table>
 				</div>
 			</div>
+			@template.admin.pager(basePath = "/admin/devices", result = deviceResult,
+					carry = carry, t = t, pageParam = "dev_page")
 
 			<div class="data-table-card">
 				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply("device_agents")} (${agents.size()})</h2>
+					<h2 class="data-table-title">${t.apply("device_agents")} (${agentResult.total()})</h2>
 				</div>
 				<p class="text-muted">${t.apply("device_agents_hint")}</p>
 				<form method="POST">
@@ -265,7 +295,7 @@
 						</tr>
 					</thead>
 					<tbody>
-						@for(DeviceAgent agent : agents)
+						@for(DeviceAgent agent : agentResult.data())
 							<tr>
 								<td class="bold">${agent.name()}</td>
 								<td>${agent.companyId()}</td>
@@ -292,15 +322,20 @@
 								</td>
 							</tr>
 						@endfor
-						@if(agents.isEmpty())
+						@if(agentResult.isEmpty())
 							<tr><td colspan="9" class="data-table-empty">${t.apply("no_data")}</td></tr>
 						@endif
 					</tbody>
 				</table>
 				</div>
 			</div>
+			@template.admin.pager(basePath = "/admin/devices", result = agentResult,
+					carry = carry, t = t, pageParam = "agent_page")
 
-			@template.admin.devicePunches(punches = punches, title = t.apply("device_latest_punches"), t = t)
+			@template.admin.devicePunches(result = punchResult,
+				title = t.apply("device_latest_punches"), t = t)
+			@template.admin.pager(basePath = "/admin/devices", result = punchResult,
+					carry = carry, t = t, pageParam = "punch_page")
 		@else
 			<div class="toolbar page-toolbar">
 				<a href="/admin/devices" class="btn btn-gray">${t.apply("back")}</a>
@@ -385,25 +420,30 @@
 				</form>
 			</div>
 
-			@template.admin.devicePunches(punches = punches, title = t.apply("device_punches"), t = t)
+			@template.admin.devicePunches(result = punchResult,
+				title = t.apply("device_punches"), t = t)
+			@template.admin.pager(basePath = "/admin/devices", result = punchResult,
+					carry = carry, t = t, pageParam = "punch_page")
 
 			<div class="data-table-card">
 				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply("device_malformed")} (${malformed.size()})</h2>
+					<h2 class="data-table-title">${t.apply("device_malformed")} (${malformedResult.total()})</h2>
 				</div>
 				<div class="table-wrap">
 				<table class="tbl">
 					<thead><tr><th>${t.apply("device_received_at")}</th><th>${t.apply("device_raw_line")}</th></tr></thead>
 					<tbody>
-						@for(Map<String, Object> row : malformed)
+						@for(Map<String, Object> row : malformedResult.data())
 							<tr><td>${AdminDeviceView.text(row, "received_at")}</td><td class="text-muted">${AdminDeviceView.text(row, "raw_line")}</td></tr>
 						@endfor
-						@if(malformed.isEmpty())
+						@if(malformedResult.isEmpty())
 							<tr><td colspan="2" class="data-table-empty">${t.apply("no_data")}</td></tr>
 						@endif
 					</tbody>
 				</table>
 				</div>
 			</div>
+			@template.admin.pager(basePath = "/admin/devices", result = malformedResult,
+					carry = carry, t = t, pageParam = "mal_page")
 		@endif
 	`)
