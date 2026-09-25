@@ -82,6 +82,15 @@
 								<td class="col-actions">
 									@if(canWrite)
 										@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+											<button type="button" role="menuitem" class="row-actions__item"
+													data-dialog="gv-edit"
+													data-dialog-id="${row.id()}"
+													data-dialog-subject="${row.titleAr()}"
+													data-dialog-titleAr="${row.titleAr()}"
+													data-dialog-titleEn="${row.titleEn()}"
+													data-dialog-video="${row.video()}"
+													data-dialog-sortOrder="${row.sortOrder()}"
+													data-dialog-isActive="${row.active() ? "1" : "0"}">${t.apply("edit")}</button>
 											<form method="post" class="row-actions__form"
 											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -95,42 +104,6 @@
 									@endif
 								</td>
 							</tr>
-							@if(canWrite)
-								<tr>
-									<td colspan="7">
-										<details>
-											<summary>${t.apply("edit_guide_video")}</summary>
-											<form method="post">
-												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-												<input type="hidden" name="action" value="edit">
-												<input type="hidden" name="id" value="${row.id()}">
-												<div class="form-row">
-													<label>${t.apply("title_ar")}
-														<input type="text" name="title_ar" required
-														       value="${row.titleAr()}"></label>
-													<label>${t.apply("title_en")}
-														<input type="text" name="title_en" required
-														       value="${row.titleEn()}"></label>
-													<label>${t.apply("guide_video_file")}
-														<input type="text" name="video" dir="ltr" required
-														       placeholder="1.mp4" value="${row.video()}"></label>
-													<label>${t.apply("sort_order")}
-														<input type="number" name="sort_order"
-														       value="${row.sortOrder()}"></label>
-													<label>
-														<input type="checkbox" name="is_active" value="1"
-														       checked="${row.active()}">
-														<span>${t.apply("status_active")}</span></label>
-												</div>
-												<p class="text-muted">${t.apply("guide_video_hint")}</p>
-												<div class="form-footer">
-													<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
-												</div>
-											</form>
-										</details>
-									</td>
-								</tr>
-							@endif
 						@endfor
 						@if(videos.isEmpty())
 							<tr><td colspan="7" class="data-table-empty">${t.apply("no_data")}</td></tr>
@@ -181,5 +154,36 @@
 				</form>
 				</div>
 			</div>
+
+			<%-- Edit, from the row's menu. It was a <details> row under every
+			     video, which doubled the table's height and put a form in the
+			     list; one dialog serves every row (rowDialog.jte). --%>
+			@template.admin.rowDialog(id = "gv-edit", action = "edit",
+					title = t.apply("edit_guide_video"), csrfParameterName = csrfParameterName,
+					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
+					fields = @`
+						<div class="form-row">
+							<label for="gv_edit_title_ar">${t.apply("title_ar")}</label>
+							<input type="text" id="gv_edit_title_ar" name="title_ar" required data-dialog-field="titleAr">
+						</div>
+						<div class="form-row">
+							<label for="gv_edit_title_en">${t.apply("title_en")}</label>
+							<input type="text" id="gv_edit_title_en" name="title_en" required data-dialog-field="titleEn">
+						</div>
+						<div class="form-row">
+							<label for="gv_edit_video">${t.apply("guide_video_file")}</label>
+							<input type="text" id="gv_edit_video" name="video" dir="ltr" required placeholder="1.mp4"
+							       data-dialog-field="video">
+							<p class="text-muted">${t.apply("guide_video_hint")}</p>
+						</div>
+						<div class="form-row">
+							<label for="gv_edit_sort">${t.apply("sort_order")}</label>
+							<input type="number" id="gv_edit_sort" name="sort_order" data-dialog-field="sortOrder">
+						</div>
+						<div class="form-row">
+							<label><input type="checkbox" name="is_active" value="1" data-dialog-field="isActive">
+								<span>${t.apply("status_active")}</span></label>
+						</div>
+					`)
 		@endif
 	`)

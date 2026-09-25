@@ -106,6 +106,39 @@ body:not(.login-body) {
   box-shadow: var(--app-focus-ring);
 }
 
+/* The block above sets `direction: inherit` on every field, which outranks the
+   user-agent rule a `dir` attribute works through: a field marked dir="ltr"
+   -- a file name, a phone number, a URL -- was laid out right to left, and
+   "2.mp4" read "mp4.2". The attribute is the author's statement about the
+   value, so it wins -- the :not() chain is the field rule's own, repeated so
+   this selector outranks it rather than tying. */
+.main input[dir="ltr"]:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=file]),
+.main textarea[dir="ltr"],
+.modal input[dir="ltr"]:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=file]),
+.modal textarea[dir="ltr"] {
+  direction: ltr;
+}
+
+/* One chevron for every single-choice select, the one the filter bars draw.
+   The platform arrow sat against the wrong edge in RTL, differed between
+   browsers, and made a form's selects look unlike its filters. After the
+   :focus rule on purpose: its `background` shorthand resets the image, and a
+   later longhand at the same specificity puts it back. The pager's size box
+   keeps its own rule. */
+.main select:not([multiple]):not(.pager-size-select),
+.modal select:not([multiple]) {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b6862' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-size: 12px 12px;
+  background-position: left 12px center;
+  padding-inline-end: 34px;
+}
+[dir="ltr"] .main select:not([multiple]):not(.pager-size-select),
+[dir="ltr"] .modal select:not([multiple]) {
+  background-position: right 12px center;
+}
+
 .form-row label {
   font-size: 12px;
   font-weight: 600;
@@ -411,6 +444,23 @@ body:not(.login-body) {
   box-shadow: var(--app-shadow);
 }
 
+/* A card that holds a form or a note rather than only a table. The table
+   runs edge to edge; anything else sat flush against the card's border. */
+.data-table-card > p.text-muted {
+  margin: 0;
+  padding: 12px 20px 0;
+}
+.data-table-card > form,
+.data-table-card > .form-row {
+  padding: 16px 20px 20px;
+}
+.data-table-card > .table-wrap {
+  margin-top: 12px;
+}
+.data-table-card > .data-table-head + .table-wrap {
+  margin-top: 0;
+}
+
 .data-table-head {
   background: var(--ui-neutral-2);
   border-bottom: 1px solid var(--app-border);
@@ -489,8 +539,7 @@ body:not(.login-body) {
   min-width: 0;
 }
 
-.pager-pages,
-.pager-controls {
+.pager-pages {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -541,8 +590,6 @@ a.pager-btn:hover {
 }
 
 .pager-btn--nav {
-  font-size: 18px;
-  font-weight: 600;
   color: var(--ui-text-soft);
 }
 
@@ -593,7 +640,7 @@ a.pager-btn:hover {
   box-shadow: none;
 }
 
-[dir="ltr"] .pager-controls .pager-btn--nav {
+[dir="ltr"] .pager-btn--nav svg {
   transform: scaleX(-1);
 }
 

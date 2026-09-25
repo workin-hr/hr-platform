@@ -45,9 +45,27 @@
 	}}
 	!{String query = basePath + "?" + pageParam + "=";}
 	!{String rest = tail.toString();}
+	<%-- Chevrons are drawn pointing the RTL way (previous points right, next
+	     points left); [dir="ltr"] mirrors them in app-ui.css. First and
+	     previous sit before page 1 and next and last after the final page, in
+	     one row, so each control is beside the end of the range it moves
+	     toward -- in either direction. --%>
+	!{String prevIcon = "<svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M9 18l6-6-6-6\"/></svg>";}
+	!{String firstIcon = "<svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M13 17l5-5-5-5M6 17l5-5-5-5\"/></svg>";}
+	!{String nextIcon = "<svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M15 18l-6-6 6-6\"/></svg>";}
+	!{String lastIcon = "<svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M11 17l-5-5 5-5M18 17l-5-5 5-5\"/></svg>";}
 	<nav class="pager-wrap" aria-label="${t.apply("page")}">
 		<div class="pager-main">
 			<div class="pager-pages">
+				@if(current > 1)
+					<a href="${query}1${rest}" class="pager-btn pager-btn--nav"
+					   title="${t.apply("first")}" aria-label="${t.apply("first")}">$unsafe{firstIcon}</a>
+					<a href="${query}${current - 1}${rest}" class="pager-btn pager-btn--nav"
+					   title="${t.apply("prev")}" aria-label="${t.apply("prev")}">$unsafe{prevIcon}</a>
+				@else
+					<span class="pager-btn pager-btn--nav is-disabled" aria-disabled="true">$unsafe{firstIcon}</span>
+					<span class="pager-btn pager-btn--nav is-disabled" aria-disabled="true">$unsafe{prevIcon}</span>
+				@endif
 				@if(start > 2)
 					<a href="${query}1${rest}" class="pager-btn">1</a>
 					<span class="pager-dots" aria-hidden="true">…</span>
@@ -67,27 +85,14 @@
 				@elseif(end == pages - 1 && pages > 1)
 					<a href="${query}${pages}${rest}" class="pager-btn">${pages}</a>
 				@endif
-			</div>
-			<%-- Glyphs point the RTL way; [dir="ltr"] flips them in app-ui.css,
-			     so the same markup reads correctly in both directions. --%>
-			<div class="pager-controls">
-				@if(current > 1)
-					<a href="${query}1${rest}" class="pager-btn pager-btn--nav"
-					   title="${t.apply("first")}" aria-label="${t.apply("first")}">&#187;</a>
-					<a href="${query}${current - 1}${rest}" class="pager-btn pager-btn--nav"
-					   title="${t.apply("prev")}" aria-label="${t.apply("prev")}">&#8250;</a>
-				@else
-					<span class="pager-btn pager-btn--nav is-disabled" aria-disabled="true">&#187;</span>
-					<span class="pager-btn pager-btn--nav is-disabled" aria-disabled="true">&#8250;</span>
-				@endif
 				@if(current < pages)
 					<a href="${query}${current + 1}${rest}" class="pager-btn pager-btn--nav"
-					   title="${t.apply("next")}" aria-label="${t.apply("next")}">&#8249;</a>
+					   title="${t.apply("next")}" aria-label="${t.apply("next")}">$unsafe{nextIcon}</a>
 					<a href="${query}${pages}${rest}" class="pager-btn pager-btn--nav"
-					   title="${t.apply("last")}" aria-label="${t.apply("last")}">&#171;</a>
+					   title="${t.apply("last")}" aria-label="${t.apply("last")}">$unsafe{lastIcon}</a>
 				@else
-					<span class="pager-btn pager-btn--nav is-disabled" aria-disabled="true">&#8249;</span>
-					<span class="pager-btn pager-btn--nav is-disabled" aria-disabled="true">&#171;</span>
+					<span class="pager-btn pager-btn--nav is-disabled" aria-disabled="true">$unsafe{nextIcon}</span>
+					<span class="pager-btn pager-btn--nav is-disabled" aria-disabled="true">$unsafe{lastIcon}</span>
 				@endif
 			</div>
 			<%-- Which rows these are, out of how many. A pager without it makes

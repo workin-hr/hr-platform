@@ -1,6 +1,7 @@
 @import java.util.function.Function
 @import com.workin.backend.platformadmin.payroll.EgyptSalaryCalculator
 @import com.workin.backend.platformadmin.web.DashboardSession
+@import com.workin.backend.platformadmin.web.AdminIcons
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
@@ -66,14 +67,14 @@
 					<div class="hint">${t.apply("salary_other_non_taxable_hint")}</div>
 				</div>
 				<div class="salary-calc-actions">
-					<button type="submit" class="btn btn-blue btn-calc">&#128202; ${t.apply("salary_calc_btn")}</button>
+					<button type="submit" class="btn btn-blue btn-calc">$unsafe{AdminIcons.of("calculator", "inline-icon")} ${t.apply("salary_calc_btn")}</button>
 					<a href="?reset=1" class="btn btn-outline">${t.apply("reset")}</a>
 				</div>
 			</form>
 		</div>
 
 		<div class="salary-calc-card">
-			<h3>&#128202; ${t.apply("salary_breakdown")}</h3>
+			<h3>$unsafe{AdminIcons.of("reports", "inline-icon")} ${t.apply("salary_breakdown")}</h3>
 			@if(result != null)
 			<div class="salary-net-box">
 				<div class="label">${t.apply("salary_net_final")}</div>

@@ -53,7 +53,7 @@
 	body = @`
 
 		<div class="home-welcome">
-			<h2>${t.apply("welcome_greeting")}، ${currentAdminPhone} 👋</h2>
+			<h2>${t.apply("welcome_greeting")}، ${currentAdminPhone}</h2>
 		</div>
 
 		<%-- The banner carousel legacy's index.php opens with. home.css has
@@ -69,7 +69,7 @@
 						<div class="home-banner-slide">
 							@if(banner.imageUrl() != null && !banner.imageUrl().isBlank())
 								<div class="home-banner-media">
-									<img src="${banner.imageUrl()}" alt="${banner.title(lang)}">
+									<img src="${banner.imageUrl()}" alt="" data-fallback-remove=".home-banner-media">
 									<div class="home-banner-overlay" aria-hidden="true"></div>
 								</div>
 							@endif
@@ -131,11 +131,11 @@
 				@template.admin.statCard(href = "/admin/payroll", value = String.valueOf(summary.payrollDraft()),
 						label = t.apply("payroll_draft"), icon = "payroll", tone = "yellow")
 				@template.admin.statCard(href = null, value = summary.gross() + " " + t.apply("currency_egp"),
-						label = t.apply("total_gross_salaries"), icon = "money", tone = "yellow")
+						label = t.apply("total_gross_salaries"), icon = "coins", tone = "yellow")
 				@template.admin.statCard(href = null, value = summary.basic() + " " + t.apply("currency_egp"),
-						label = t.apply("total_basic_salaries"), icon = "reports", tone = "violet")
+						label = t.apply("total_basic_salaries"), icon = "money", tone = "violet")
 				@template.admin.statCard(href = "/admin/payroll", value = summary.net() + " " + t.apply("currency_egp"),
-						label = t.apply("monthly_net"), icon = "calculator", tone = "green")
+						label = t.apply("monthly_net"), icon = "payroll_group", tone = "green")
 				@template.admin.statCard(href = "/admin/employees?filter=inactive", value = String.valueOf(summary.resignations()),
 						label = t.apply("resignations_year"), icon = "logout", tone = "gray")
 			</div>
