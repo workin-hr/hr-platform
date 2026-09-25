@@ -1176,9 +1176,25 @@ class AdminTenantGuardCoverageTest {
 	private static final Pattern DECLARES_NO_BODIES =
 			Pattern.compile("\\b(?:interface|abstract\\s+class)\\s+\\w+");
 
-	/** {@code implements A, B<C>} -- the names, before the generics are stripped. */
-	private static final Pattern IMPLEMENTS_CLAUSE =
-			Pattern.compile("\\bimplements\\s+([\\w.,<>\\s]+?)\\s*\\{");
+	/**
+	 * The supertypes a declaration names: {@code extends A} or {@code implements B, C<D>}.
+	 *
+	 * <p><b>Both keywords.</b> This read {@code implements} only, and the abstract-class
+	 * case -- the same defect as the interface, since an abstract method has no body
+	 * either -- is reached by {@code extends}. A fixture written for the abstract class
+	 * is what found it; the live tree has no abstract-typed field, so nothing else
+	 * would have.
+	 *
+	 * <p>The lookahead stops the list before the next keyword, so
+	 * {@code extends B implements C} yields {@code B} for one match and {@code C} for
+	 * the other rather than {@code B implements C} for the first. A type parameter's
+	 * own bound ({@code class A<T extends Foo>}) is captured too, which unions an
+	 * unrelated type's exports -- over-reporting, which can only ask for an accounting
+	 * that was not needed.
+	 */
+	private static final Pattern SUPERTYPE_CLAUSE = Pattern.compile(
+			"\\b(?:extends|implements)\\s+"
+					+ "((?:(?!extends\\b|implements\\b)[\\w.]+(?:<[^<>]*>)?\\s*,?\\s*)+)");
 
 	/** The last segment of a possibly-qualified type name. */
 	private static String simpleName(String type) {
@@ -3057,6 +3073,27 @@ class AdminTenantGuardCoverageTest {
 						+ "positional backstop the way there is on a method")
 				.containsExactly("store.delete()");
 
+		// Two writer-typed fields whose names are suffixes of one another. Without a
+		// left boundary the shorter name matches inside the longer receiver, so a
+		// single call is attributed to both -- and the wrong one names a field that
+		// was never called. It over-reports rather than hides, which is why no live
+		// class showed it, and why removing the boundary killed nothing until this.
+		java.util.function.Function<String, Set<String>> twoWriters = type ->
+				"PenaltyStore".equals(type) || "BackupStore".equals(type)
+						? penaltyWrites : Set.of();
+		assertThat(storeWriteCallsIn("""
+				class AdminPenaltiesController {
+					private final PenaltyStore store;
+					private final BackupStore backupStore;
+
+					public String submit(long id) {
+						this.backupStore.delete(id);
+						return "ok";
+					}
+				}""", twoWriters).calls())
+				.as("one call, on the field that was actually called")
+				.containsExactly("backupStore.delete()");
+
 		String local = """
 				class AdminPenaltiesController {
 					public String submit(long id) {
@@ -3454,6 +3491,32 @@ class AdminTenantGuardCoverageTest {
 		assertThat(throughTheInterface.exportedBy("PenaltyDirectory"))
 				.as("and the answer is memoised rather than recomputed per field")
 				.containsExactly("erase");
+
+		// An abstract class is the same shape for the same reason: its own text
+		// declares the method without a body. Dropping it from the pattern killed no
+		// test, because no abstract class is held as a field today.
+		Map<String, String> behindAnAbstractClass = new HashMap<>();
+		behindAnAbstractClass.put("PenaltyStore", sources.get("PenaltyStore"));
+		behindAnAbstractClass.put("AbstractPenaltyDirectory", """
+				abstract class AbstractPenaltyDirectory {
+					public abstract void erase(long companyId, long id);
+				}""");
+		behindAnAbstractClass.put("LivePenaltyDirectory", """
+				class LivePenaltyDirectory extends AbstractPenaltyDirectory implements Runnable {
+					private final PenaltyStore store;
+
+					@Override
+					public void erase(long companyId, long id) {
+						this.store.delete(id);
+					}
+				}""");
+		assertThat(new WriteResolver(behindAnAbstractClass::get, behindAnAbstractClass.keySet(),
+						tenantTables, entities)
+						.exportedBy("AbstractPenaltyDirectory"))
+				.as("an abstract class declares the method and not the body, so reading its own "
+						+ "text finds no write -- and the subclass is found by the same "
+						+ "`implements` clause, which it carries beside an unrelated interface")
+				.containsExactly("erase");
 	}
 
 	/**
@@ -3689,11 +3752,12 @@ class AdminTenantGuardCoverageTest {
 		}
 
 		/**
-		 * Every class declaring {@code implements <type>}, by the interface's simple
-		 * name.
+		 * Every class naming {@code <type>} as a supertype, by that type's simple name.
 		 *
 		 * <p>Built once and lazily, because a tree with no interface-typed field
-		 * should not pay for the scan.
+		 * should not pay for the scan. Keyed on every supertype a class names, so an
+		 * abstract class reached by {@code extends} is found the same way an interface
+		 * reached by {@code implements} is.
 		 */
 		private Set<String> implementorsOf(String type) {
 			if (this.implementors == null) {
@@ -3703,7 +3767,7 @@ class AdminTenantGuardCoverageTest {
 					if (source == null) {
 						continue;
 					}
-					Matcher implemented = IMPLEMENTS_CLAUSE.matcher(maskNonCode(source).code());
+					Matcher implemented = SUPERTYPE_CLAUSE.matcher(maskNonCode(source).code());
 					while (implemented.find()) {
 						for (String each : implemented.group(1).split(",")) {
 							String simple = simpleName(
