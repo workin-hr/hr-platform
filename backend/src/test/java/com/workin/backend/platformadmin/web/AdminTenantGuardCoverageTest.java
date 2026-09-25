@@ -1198,14 +1198,22 @@ class AdminTenantGuardCoverageTest {
 	 * throughout and has none of them.
 	 * </ul>
 	 *
-	 * <p>Anchored at a line start, and requiring an access modifier <em>or</em> at
-	 * least one of {@code static|final|transient|volatile}, because a line with
-	 * neither may be a bare statement inside a method body -- {@code Row row = ...}
-	 * is not a field, and treating it as one would report the write it leads to
-	 * against whatever local happened to be named. A local can never carry an
-	 * access modifier, so one alone is enough. The price is the one shape left:
-	 * a package-private, non-final, non-static field, {@code PenaltyStore store;},
-	 * is indistinguishable from a local by its line and is not matched.
+	 * <p>Anchored at a line start, and requiring at least one modifier, in any order,
+	 * because a line with none may be a bare statement inside a method body --
+	 * {@code Row row = ...} is not a field, and treating it as one would report the
+	 * write it leads to against whatever local happened to be named. A local can
+	 * carry only {@code final}, which errs toward reporting. The declarator list is
+	 * captured whole, so {@code private final PenaltyStore a, b;} declares both
+	 * names ({@link #declaredNames}); the twenty-second round found reversed
+	 * modifiers ({@code final private}) and a declarator list both unmatched.
+	 *
+	 * <p>What is still not matched, none of it house style and none of it in the
+	 * tree: a package-private, non-final, non-static field, {@code PenaltyStore
+	 * store;}, indistinguishable from a local by its line; a C-style array,
+	 * {@code PenaltyStore stores[];}; a field sharing its line with another member;
+	 * and an annotation whose arguments nest parentheses. Matching by brace depth
+	 * rather than by line would close all four, and is a rewrite of every rule that
+	 * reads declarations, so it is not done here.
 	 *
 	 * <p>The type expression is captured whole and narrowed by {@link #simpleName},
 	 * because the index this is resolved against is keyed on the simple name. A
@@ -1218,10 +1226,20 @@ class AdminTenantGuardCoverageTest {
 	 */
 	private static final Pattern FIELD_DECLARATION = Pattern.compile(
 			"(?m)^[ \\t]*(?:@[\\w.]+(?:\\([^)]*\\))?\\s+)*"
-					+ "(?:(?:private|protected|public)\\s+(?:(?:static|final|transient|volatile)\\s+)*"
-					+ "|(?:(?:static|final|transient|volatile)\\s+)+)"
+					+ "(?:(?:private|protected|public|static|final|transient|volatile)\\s+)+"
 					+ TYPE_ANNOTATIONS
-					+ "([\\w.]+)((?:\\s*<[^;=]*>)?(?:\\s*\\[\\s*\\])*)\\s+(\\w+)\\s*[;=]");
+					+ "([\\w.]+)((?:\\s*<[^;=]*>)?(?:\\s*\\[\\s*\\])*)\\s+"
+					+ "(\\w+(?:\\s*(?:=[^,;]*)?,\\s*\\w+)*)\\s*[;=]");
+
+	private static final Pattern DECLARATOR = Pattern.compile("(?:^|,)\\s*(\\w+)");
+
+	/**
+	 * Every name one {@link #FIELD_DECLARATION} match declares: group 3 is the
+	 * declarator list, so {@code private final PenaltyStore a, b;} declares both.
+	 */
+	private static List<String> declaredNames(Matcher field) {
+		return DECLARATOR.matcher(field.group(3)).results().map(name -> name.group(1)).toList();
+	}
 
 	/**
 	 * A type whose methods have no bodies, so reading its own text finds no writes.
@@ -2069,7 +2087,7 @@ class AdminTenantGuardCoverageTest {
 	 * method, so its span ran to the end of the class and every later write --
 	 * including a package-private one nothing else sees -- read as "inside a
 	 * method". That is the gap the twelfth round's fix had just closed, re-opened
-	 * by the fix itself. Eighty of the 502 classes the gate indexes contain a brace inside a
+	 * by the fix itself. Eighty of the 503 classes the gate indexes contain a brace inside a
 	 * string literal; one {@code LIKE '%{'} in a paired store would have done it.
 	 *
 	 * <p>Text blocks are handled as text blocks, not as two strings. A
@@ -2231,7 +2249,7 @@ class AdminTenantGuardCoverageTest {
 	 * tested and its own escaping made the first version of this test assert
 	 * something other than what it read -- four mutants survived it.
 	 *
-	 * <p>Each case is a real shape here. Eighty of the 502 classes the gate indexes put
+	 * <p>Each case is a real shape here. Eighty of the 503 classes the gate indexes put
 	 * a brace inside a string literal; six of the twenty-one paired stores write
 	 * their SQL in text blocks; and {@code AdminPageAvailability.pageOf} has the
 	 * first shape today, its body over-running its true end by 78 characters -- which
@@ -3270,6 +3288,20 @@ class AdminTenantGuardCoverageTest {
 				.containsExactly("purger.delete()", "store.delete()", "archive.insert()");
 		assertThat(storeWriteCallsIn("""
 				class AdminPenaltiesController {
+					final private PenaltyStore purger;
+					private final PenaltyStore store, spare;
+
+					public String submit(long id) {
+						this.purger.delete(id);
+						this.spare.delete(id);
+						return "ok";
+					}
+				}""", fixtureWrites).calls())
+				.as("the twenty-second round's shapes: modifiers in reverse order, and the "
+						+ "second name of a declarator list")
+				.containsExactly("purger.delete()", "spare.delete()");
+		assertThat(storeWriteCallsIn("""
+				class AdminPenaltiesController {
 					private final PenaltyStore store;
 
 					public String submit(List<Long> ids) {
@@ -3589,7 +3621,9 @@ class AdminTenantGuardCoverageTest {
 				while (field.find()) {
 					String held = simpleName(field.group(1));
 					if (field.group(2).isBlank() && !writesOf.apply(held).isEmpty()) {
-						inherited.add(field.group(3) + " (" + held + ") from " + type);
+						for (String name : declaredNames(field)) {
+							inherited.add(name + " (" + held + ") from " + type);
+						}
 					}
 				}
 				for (String held : writersHeldInContainersIn(source, writesOf)) {
@@ -3627,7 +3661,7 @@ class AdminTenantGuardCoverageTest {
 			}
 			for (String candidate : candidates) {
 				if (!writesOf.apply(candidate).isEmpty()) {
-					held.add(field.group(3) + " holds " + candidate + " in "
+					held.add(String.join(", ", declaredNames(field)) + " holds " + candidate + " in "
 							+ decoration.replaceAll("\\s+", ""));
 				}
 			}
@@ -3684,14 +3718,15 @@ class AdminTenantGuardCoverageTest {
 			// inside one is not reached through `field.write(`, so this rule would
 			// report nothing and mean nothing. That rule refuses the shape instead.
 			String type = simpleName(field.group(1));
-			String name = field.group(3);
 			Set<String> writes = writesOf.apply(type);
 			if (writes.isEmpty()) {
 				continue;
 			}
-			fieldsResolved++;
-			for (String write : fieldWriteCallsIn(source, name, writes)) {
-				calls.add(name + "." + write + "()");
+			for (String name : declaredNames(field)) {
+				fieldsResolved++;
+				for (String write : fieldWriteCallsIn(source, name, writes)) {
+					calls.add(name + "." + write + "()");
+				}
 			}
 		}
 		return new StoreCalls(calls, fieldsResolved);
@@ -4059,7 +4094,9 @@ class AdminTenantGuardCoverageTest {
 			while (field.find()) {
 				Set<String> held = exportedBy(simpleName(field.group(1)));
 				if (!held.isEmpty()) {
-					throughFields.put(field.group(3), held);
+					for (String name : declaredNames(field)) {
+						throughFields.put(name, held);
+					}
 				}
 			}
 			return reachingWrites(source, this.tenantTables, this.entities,
@@ -4399,9 +4436,19 @@ class AdminTenantGuardCoverageTest {
 					public long c(DashboardSession session, long id) {
 						return session.isScopedToOneCompany() ? id : 0L;
 					}
+
+					public boolean d(DashboardSession session, long id) {
+						return session.isScopedToOneCompany();
+					}
+
+					public long e(DashboardSession session, long id) {
+						return session . companyId();
+					}
 				}""";
+		// d and e: a guard helper returns its answer, which is the opposite of
+		// discarding it (DashboardAccess returns isScopedToOneCompany() this way).
 		Scan scan = scan(source);
-		assertThat(scan.sessionTaking()).isEqualTo(3);
+		assertThat(scan.sessionTaking()).isEqualTo(5);
 		assertThat(scan.unguarded()).isEmpty();
 	}
 
@@ -4921,7 +4968,10 @@ class AdminTenantGuardCoverageTest {
 				code.lastIndexOf('}', start)) + 1;
 		int semicolon = code.indexOf(';', end);
 		String statement = code.substring(from, semicolon < 0 ? code.length() : semicolon).trim();
-		return !statement.matches("(?:[\\w.\\s]*\\.\\s*)?(?:companyId|isScopedToOneCompany|canOpenRow)"
+		// Whitespace only around a dot in an identifier chain: `[\\w.\\s]*` also took
+		// in a leading `return`, and read a returned guard as a discarded one.
+		return !statement.matches("(?:\\w+(?:\\s*\\.\\s*\\w+)*\\s*\\.\\s*)?"
+				+ "(?:companyId|isScopedToOneCompany|canOpenRow)"
 				+ "\\s*" + BALANCED_ARGUMENTS);
 	}
 
@@ -4983,7 +5033,7 @@ class AdminTenantGuardCoverageTest {
 		// Masked, like methodBodies: a `public T name(...) {` inside a javadoc or a
 		// string is otherwise a phantom method whose body is the next real block,
 		// and because this map is keyed on the signature a phantom can replace a
-		// real one. No drift today -- 350 matches either way across the 43 scanned
+		// real one. No drift today -- 352 matches either way across the 43 scanned
 		// files -- and the two collectors reading the same text is the point.
 		Matcher method = PUBLIC_METHOD.matcher(maskNonCode(source).code());
 		while (method.find()) {
