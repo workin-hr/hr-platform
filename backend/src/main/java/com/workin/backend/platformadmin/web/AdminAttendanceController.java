@@ -168,9 +168,9 @@ public class AdminAttendanceController {
 			// pages, which pass `hr_post_company_id()`, this one never moves an
 			// unfiltered administrator's filter. DashboardOrgScope.rememberAfterWrite
 			// is therefore deliberately not called here.
-			return "redirect:" + PATH;
+			return "redirect:" + PATH + AdminReturnTo.query(request, PATH, 0L);
 		} catch (AttendanceAdminService.RefusedException refused) {
-			return "redirect:" + PATH + "?error=" + messageKey(refused);
+			return "redirect:" + PATH + AdminReturnTo.queryWithError(request, PATH, messageKey(refused));
 		}
 	}
 

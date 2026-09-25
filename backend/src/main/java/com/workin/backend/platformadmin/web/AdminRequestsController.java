@@ -122,9 +122,9 @@ public class AdminRequestsController {
 				default -> {
 				}
 			}
-			return "redirect:" + PATH;
+			return "redirect:" + PATH + AdminReturnTo.query(request, PATH, wrote);
 		} catch (EmployeeRequestAdminService.RefusedException refused) {
-			return "redirect:" + PATH + "?error=" + messageKey(refused);
+			return "redirect:" + PATH + AdminReturnTo.queryWithError(request, PATH, messageKey(refused));
 		}
 	}
 

@@ -816,6 +816,40 @@ class AdminEmployeesEndToEndTest {
 				.isEqualTo(1);
 	}
 
+	/**
+	 * A row action returns to the page and filters the administrator was on
+	 * (#347). Legacy's bare redirect was harmless while the list was one page;
+	 * paged, it landed a refusal on page 3 back on page 1, away from the row.
+	 */
+	@Test
+	void aRowActionReturnsToThePageAndFiltersItCameFrom() {
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		String list = "http://localhost/admin/employees?company_id=" + this.companyA
+				+ "&page=3&per_page=50&search=Aya";
+
+		assertThat(postFrom(list, "action", "deactivate", "id", String.valueOf(id))
+				.getHeaders().getLocation()).asString()
+				.as("the same list, page and filters -- the row's own company")
+				.endsWith("/admin/employees?company_id=" + this.companyA + "&page=3&per_page=50&search=Aya");
+
+		assertThat(postFrom(list, "action", "drop_everything", "id", String.valueOf(id))
+				.getHeaders().getLocation()).asString()
+				.as("a refusal keeps them too, with its own message")
+				.endsWith("?company_id=" + this.companyA + "&page=3&per_page=50&search=Aya&error=error_db");
+
+		String otherCompany = "http://localhost/admin/employees?company_id=" + this.companyB + "&page=3&search=Aya";
+		assertThat(postFrom(otherCompany, "action", "reactivate", "id", String.valueOf(id))
+				.getHeaders().getLocation()).asString()
+				.as("a filter the write left is dropped with its page, so the row just written is on "
+						+ "screen under rememberAfterWrite's filter")
+				.endsWith("/admin/employees?search=Aya");
+
+		assertThat(postFrom("http://localhost/admin/branches?page=4", "action", "deactivate",
+				"id", String.valueOf(id)).getHeaders().getLocation()).asString()
+				.as("another page's query is never carried")
+				.endsWith("/admin/employees");
+	}
+
 	@Test
 	void anUnknownActionIsRefused() {
 		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
@@ -1680,6 +1714,21 @@ class AdminEmployeesEndToEndTest {
 			pairs.add(value);
 		});
 		return postForm(pairs.toArray(String[]::new));
+	}
+
+	private ResponseEntity<String> postFrom(String referer, String... fields) {
+		Csrf csrf = page("/admin/employees?action=add", this.cookie).csrf();
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+		headers.add(HttpHeaders.COOKIE, "WORKIN_ADMIN_SESSION=" + this.cookie);
+		headers.add(HttpHeaders.REFERER, referer);
+		MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+		for (int index = 0; index < fields.length; index += 2) {
+			form.add(fields[index], fields[index + 1]);
+		}
+		form.add(csrf.name(), csrf.value());
+		return this.restTemplate.exchange("/admin/employees", HttpMethod.POST,
+				new HttpEntity<>(form, headers), String.class);
 	}
 
 	private ResponseEntity<String> postForm(String... fields) {

@@ -361,6 +361,41 @@ class AdminJoinRequestsEndToEndTest {
 	}
 
 	/**
+	 * A refusal returns to the tab, page and page size it was made from (#347),
+	 * and only when the referring list is that tab: the posted status decides.
+	 */
+	@Test
+	void aRefusalReturnsToThePageItWasMadeFrom() {
+		long first = createJoinRequest(this.companyA, "Wael", "01000000021", "pending");
+		long second = createJoinRequest(this.companyA, "Wael", "01000000022", "pending");
+
+		assertThat(postFrom("http://localhost/admin/join_requests?status=all&page=2&per_page=5",
+				"action", "reject_join", "id", String.valueOf(first), "redirect_status", "all")
+				.getHeaders().getLocation()).asString()
+				.endsWith("/admin/join_requests?status=all&page=2&per_page=5");
+		assertThat(postFrom("http://localhost/admin/join_requests?status=pending&page=2",
+				"action", "reject_join", "id", String.valueOf(second), "redirect_status", "all")
+				.getHeaders().getLocation()).asString()
+				.as("a referrer on another tab than the posted one is not carried")
+				.endsWith("/admin/join_requests?status=all");
+	}
+
+	private ResponseEntity<String> postFrom(String referer, String... fields) {
+		Csrf csrf = page(PATH, this.cookie).csrf();
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+		headers.add(HttpHeaders.COOKIE, "WORKIN_ADMIN_SESSION=" + this.cookie);
+		headers.add(HttpHeaders.REFERER, referer);
+		MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+		for (int index = 0; index < fields.length; index += 2) {
+			form.add(fields[index], fields[index + 1]);
+		}
+		form.add(csrf.name(), csrf.value());
+		return this.restTemplate.exchange(withLang(PATH), HttpMethod.POST,
+				new HttpEntity<>(form, headers), String.class);
+	}
+
+	/**
 	 * {@code home_service.php:669-673}: an approval flashes {@code approved_ok}
 	 * and hands the operator straight to {@code employees.php?action=edit&id=},
 	 * because a join request carries a name and a phone and nothing else -- no

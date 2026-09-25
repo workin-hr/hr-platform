@@ -92,6 +92,12 @@ public class AdminJoinRequestsController {
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
 		String back = STATUSES.contains(redirectStatus) ? redirectStatus : "pending";
+		// The tab the row was on, with its page and page size (#347) -- but only
+		// when the referring list is that same tab; the posted status decides.
+		String carried = AdminReturnTo.query(request, PATH, 0L);
+		String tab = AdminReturnTo.parameter(carried, "status");
+		String list = !carried.isEmpty() && (back.equals(tab) || (tab == null && "pending".equals(back)))
+				? carried : "?status=" + back;
 
 		try {
 			switch (action) {
@@ -102,7 +108,7 @@ public class AdminJoinRequestsController {
 			}
 		}
 		catch (JoinRequestAdminService.RefusedException refused) {
-			return "redirect:" + PATH + "?status=" + back + "&error=" + messageFor(refused);
+			return "redirect:" + PATH + list + "&error=" + messageFor(refused);
 		}
 		switch (action) {
 			case "accept_join" -> AdminFlash.approved(redirect, model);
@@ -118,7 +124,7 @@ public class AdminJoinRequestsController {
 			return "redirect:" + PlatformAdminWebSecurityConfig.EMPLOYEES_PATH
 					+ "?action=edit&id=" + id;
 		}
-		return "redirect:" + PATH + "?status=" + back;
+		return "redirect:" + PATH + list;
 	}
 
 	/**

@@ -95,9 +95,9 @@ public class AdminComplaintsController {
 				case "delete" -> AdminFlash.deleted(redirect, model);
 				default -> AdminFlash.saved(redirect, model);
 			}
-			return "redirect:" + PATH;
+			return "redirect:" + PATH + AdminReturnTo.query(request, PATH, wrote);
 		} catch (ComplaintAdminService.RefusedException refused) {
-			return "redirect:" + PATH + "?error=" + messageKey(refused);
+			return "redirect:" + PATH + AdminReturnTo.queryWithError(request, PATH, messageKey(refused));
 		}
 	}
 
