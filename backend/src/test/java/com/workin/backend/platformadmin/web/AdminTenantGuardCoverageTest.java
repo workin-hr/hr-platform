@@ -245,6 +245,43 @@ class AdminTenantGuardCoverageTest {
 				"LegacyPayslipService.java: store.update()")) {
 			accounted.put(call, ROW_RESOLVED_AGAINST_THE_COMPANY_FIRST);
 		}
+		// The platform-admin device chain, and the company delete's controller. Each
+		// of these is a hop the resolver follows because the callee takes no
+		// DashboardSession -- which is true of this chain by design, since the actor
+		// is a platform administrator and the surface is deliberately cross-company.
+		for (String call : List.of(
+				"AdminDevicesController.java: actions.allocate()",
+				"AdminDevicesController.java: actions.importAttlog()",
+				"AdminDevicesController.java: actions.issueAgent()",
+				"AdminDevicesController.java: actions.setActive()",
+				"AdminDevicesController.java: actions.setAgentActive()",
+				"AdminDeviceActions.java: devices.allocate()",
+				"AdminDeviceActions.java: devices.importAttlog()",
+				"AdminDeviceActions.java: devices.issueAgent()",
+				"AdminDeviceActions.java: devices.setActive()",
+				"AdminDeviceActions.java: devices.setAgentActive()",
+				"DeviceAdministrationService.java: agents.issue()",
+				"DeviceAdministrationService.java: agents.setActive()",
+				"DeviceAdministrationService.java: fileImport.importAttlog()",
+				"DeviceAdministrationService.java: management.allocate()",
+				"PlatformAdminCompaniesController.java: companyService.delete()")) {
+			accounted.put(call, PLATFORM_ADMINISTRATOR_ONLY
+					+ " The whole chain is AdminDevicesController and PlatformAdminCompaniesController "
+					+ "on PlatformAdminWebSecurityConfig's paths, where `anyRequest().authenticated()` "
+					+ "and only the login page and the assets are public. Each action takes the "
+					+ "administrator's id rather than a session and writes an audit row naming them "
+					+ "-- AdminDeviceActions does so five times, once per action -- and the company "
+					+ "each write uses is read off the device, branch or company row the method "
+					+ "resolved first, not off the request. The one exception is issueAgent, whose "
+					+ "companyId is the posted form field, existence-checked in "
+					+ "DeviceAdministrationService.issueAgent and audited as posted, which "
+					+ "DeviceAgentStore's own entry states.");
+		}
+		accounted.put("DeviceFileImportService.java: ingestion.ingest()",
+				"Not a surface call: the argument is the device row the caller already resolved "
+						+ "(requireDevice on the admin path, the presented serial or agent token on "
+						+ "the device path), and DevicePunchIngestionService predicates every write "
+						+ "on device.companyId() taken from it. " + COMPANY_IS_AN_ARGUMENT_OF_THE_WRITE);
 		accounted.put("DeviceAgentService.java: agents.setActive()",
 				"`UPDATE device_agents SET is_active = ? WHERE id = ?`, with no company predicate "
 						+ "and no company resolved above it -- the one write here that is neither "
@@ -438,9 +475,11 @@ class AdminTenantGuardCoverageTest {
 							+ "enumerated -- `LegacyPayslipService.java: store.insert()`, "
 							+ "`store.delete()` and `store.update()` are three of the keys in "
 							+ "REACHED_WRITES_ACCOUNTED_FOR, each with the scoped read that precedes "
-							+ "it -- so a controller calling `create`, `update` or `delete` would "
-							+ "call a method whose row is already resolved against the companyId it "
-							+ "passes, and rule one is what asks where that companyId came from."),
+							+ "it -- and so is the controller's own call. That second half was "
+							+ "wrong here first: this said rule one would ask a controller where "
+							+ "its companyId came from, and rule one scans no controllers. What "
+							+ "asks is rule four, once it follows a field whose class holds no SQL "
+							+ "of its own, which is the hop `AdminPayrollController` sits on."),
 
 			Map.entry("LegacyPlatformAdminCompanyDirectory",
 					"create() makes a company and its first branch, so there is no prior owner to "
@@ -2780,10 +2819,8 @@ class AdminTenantGuardCoverageTest {
 		Set<String> tenantTables = tenantOwnedTables();
 		Map<String, String> entities = entityTables();
 		Map<String, Path> known = classesByName();
-		Map<String, Set<String>> writesByType = new HashMap<>();
-		java.util.function.Function<String, Set<String>> writesOf = type ->
-				writesByType.computeIfAbsent(type,
-						owner -> writeMethodsOf(known.get(owner), tenantTables, entities));
+		WriteResolver resolver = new WriteResolver(known, tenantTables, entities);
+		java.util.function.Function<String, Set<String>> writesOf = resolver::exportedBy;
 
 		Set<String> offenders = new TreeSet<>();
 		Set<String> accepted = new TreeSet<>();
@@ -2818,6 +2855,11 @@ class AdminTenantGuardCoverageTest {
 						+ "names the scope it belongs to, since the last three bare figures in "
 						+ "this class were each wrong after a widening")
 				.isGreaterThan(25);
+		assertThat(resolver.cycles())
+				.as("a cycle in the field graph would make what a class exports depend on where "
+						+ "the walk started, so the resolver records one rather than returning "
+						+ "less; there is none, and if one appears this is where it says so")
+				.isEmpty();
 
 		// The live half has nineteen subjects now that the scope is the reachable set
 		// rather than a directory, and every one of them is accounted for above. The
@@ -2940,10 +2982,8 @@ class AdminTenantGuardCoverageTest {
 		Set<String> tenantTables = tenantOwnedTables();
 		Map<String, String> entities = entityTables();
 		Map<String, Path> known = classesByName();
-		Map<String, Set<String>> writesByType = new HashMap<>();
-		java.util.function.Function<String, Set<String>> writesOf = type ->
-				writesByType.computeIfAbsent(type,
-						owner -> writeMethodsOf(known.get(owner), tenantTables, entities));
+		java.util.function.Function<String, Set<String>> writesOf =
+				new WriteResolver(known, tenantTables, entities)::exportedBy;
 
 		List<String> held = new ArrayList<>();
 		for (Path file : unscannedReachableFiles(known)) {
@@ -3085,16 +3125,350 @@ class AdminTenantGuardCoverageTest {
 				continue;
 			}
 			fieldsResolved++;
-			Matcher call = Pattern.compile(
-					"(?:this\\s*\\.\\s*)?" + Pattern.quote(name) + "\\s*\\.\\s*(\\w+)\\s*\\(")
-					.matcher(source);
-			while (call.find()) {
-				if (writes.contains(call.group(1))) {
-					calls.add(name + "." + call.group(1) + "()");
-				}
+			for (String write : fieldWriteCallsIn(source, name, writes)) {
+				calls.add(name + "." + write + "()");
 			}
 		}
 		return new StoreCalls(calls, fieldsResolved);
+	}
+
+	/**
+	 * A write two classes away, and the session that separates a hole from the
+	 * correct shape.
+	 *
+	 * <p>The rule below reported nothing when the field's own class held no SQL,
+	 * which is the ordinary arrangement: {@code AdminPayrollController} holds
+	 * {@code LegacyPayslipService}, that service holds the store, and the SQL is in
+	 * the store. Adding {@code this.payslipService.delete(1L, 2L)} to the real
+	 * controller passed all forty-four tests before this existed.
+	 *
+	 * <p>And the control that makes the rule usable rather than merely loud: the
+	 * twenty controllers that call {@code this.service.delete(session, adminId, id)}
+	 * reach a write too, and must not be reported, because that is the shape the
+	 * admin surface is supposed to use and rule one already asks it for a guard.
+	 */
+	@Test
+	void aWriteTwoClassesAwayIsReportedUnlessASessionVouchesForIt() {
+		Set<String> tenantTables = tenantOwnedTables();
+		Map<String, String> entities = entityTables();
+		Map<String, String> sources = new HashMap<>();
+		sources.put("PenaltyStore", """
+				class PenaltyStore {
+					public int delete(long id) {
+						return this.jdbcTemplate.update("DELETE FROM penalties WHERE id = ?", id);
+					}
+				}""");
+		sources.put("LegacyPenaltyService", """
+				class LegacyPenaltyService {
+					private final PenaltyStore store;
+
+					public void delete(long companyId, long id) {
+						this.store.delete(id);
+					}
+				}""");
+		sources.put("PenaltyAdminService", """
+				class PenaltyAdminService {
+					private final PenaltyStore store;
+
+					public void delete(DashboardSession session, long adminId, long id) {
+						this.store.delete(id);
+					}
+				}""");
+		WriteResolver resolver = new WriteResolver(sources::get, tenantTables, entities);
+
+		assertThat(resolver.exportedBy("LegacyPenaltyService"))
+				.as("the service holds no SQL of its own, and `delete(companyId, id)` is still a "
+						+ "way for a caller to delete a penalty. Resolve one hop only and this is "
+						+ "empty, which is what let the controller's call through")
+				.containsExactly("delete");
+		assertThat(resolver.exportedBy("PenaltyAdminService"))
+				.as("the same write behind a DashboardSession is rule one's subject, not this "
+						+ "rule's. Export it and every correctly written controller in the tree "
+						+ "becomes an offender, which is a gate nobody can keep")
+				.isEmpty();
+
+		java.util.function.Function<String, Set<String>> writesOf = resolver::exportedBy;
+		assertThat(storeWriteCallsIn("""
+				class AdminPenaltiesController {
+					private final LegacyPenaltyService legacy;
+
+					public String submit(long companyId, long id) {
+						this.legacy.delete(companyId, id);
+						return "ok";
+					}
+				}""", writesOf).calls())
+				.as("so the controller two hops from the SQL is reported, and the companyId it "
+						+ "passes is a number nobody asked it to justify")
+				.containsExactly("legacy.delete()");
+		assertThat(storeWriteCallsIn("""
+				class AdminPenaltiesController {
+					private final PenaltyAdminService service;
+
+					public String submit(DashboardSession session, long adminId, long id) {
+						this.service.delete(session, adminId, id);
+						return "ok";
+					}
+				}""", writesOf).calls())
+				.as("and the control: the shape twenty controllers already use is silent")
+				.isEmpty();
+	}
+
+	/**
+	 * The hops are a fixed point, not a number, and a cycle is named rather than
+	 * silently shortened.
+	 */
+	@Test
+	void theResolverFollowsEveryHopAndRefusesToGuessAtACycle() {
+		Set<String> tenantTables = tenantOwnedTables();
+		Map<String, String> entities = entityTables();
+
+		// Four classes deep. `pass < 4` was the bound this loop shipped with, and
+		// one pass is enough for every fixture that existed, so nothing pinned it:
+		// capping it at one pass killed no test.
+		Map<String, String> deep = new HashMap<>();
+		deep.put("PenaltyStore", """
+				class PenaltyStore {
+					public int purge(long id) {
+						return step(id);
+					}
+
+					private int step(long id) {
+						return again(id);
+					}
+
+					private int again(long id) {
+						return last(id);
+					}
+
+					private int last(long id) {
+						return this.jdbcTemplate.update("DELETE FROM penalties WHERE id = ?", id);
+					}
+				}""");
+		assertThat(new WriteResolver(deep::get, tenantTables, entities).exportedBy("PenaltyStore"))
+				.as("`purge` is four calls from the statement, and it is the only name a caller "
+						+ "can spell; a bound below four drops it and asks nobody for a guard")
+				.containsExactly("purge");
+
+		Map<String, String> circular = new HashMap<>();
+		circular.put("PenaltyStore", """
+				class PenaltyStore {
+					private final PenaltyRetry retry;
+
+					public int delete(long id) {
+						return this.jdbcTemplate.update("DELETE FROM penalties WHERE id = ?", id);
+					}
+				}""");
+		circular.put("PenaltyRetry", """
+				class PenaltyRetry {
+					private final PenaltyStore store;
+
+					public int again(long id) {
+						return this.store.delete(id);
+					}
+				}""");
+		WriteResolver walked = new WriteResolver(circular::get, tenantTables, entities);
+		walked.exportedBy("PenaltyStore");
+		assertThat(walked.cycles())
+				.as("A holding B holding A: what each exports would depend on which one the walk "
+						+ "reached first, so the resolver says so instead of returning the smaller "
+						+ "answer. The live tree has none, which is why this is a fixture")
+				.isNotEmpty();
+
+		Map<String, String> sentinel = new HashMap<>();
+		sentinel.put("OrgFilterCascade", """
+				class OrgFilterCascade {
+					public static final OrgFilterCascade NONE = new OrgFilterCascade();
+				}""");
+		WriteResolver itself = new WriteResolver(sentinel::get, tenantTables, entities);
+		itself.exportedBy("OrgFilterCascade");
+		assertThat(itself.cycles())
+				.as("the control, and four live classes: a sentinel constant of the class's own "
+						+ "type is not a cycle, and reporting it would make this assertion fail "
+						+ "for a shape that hides nothing")
+				.isEmpty();
+	}
+
+	/**
+	 * Which of a class's methods another class can call to reach a write, following
+	 * the fields it holds.
+	 *
+	 * <p><b>Why a hop further than the field's own type.</b> Resolving one hop
+	 * answers "does this field's class hold the SQL", which is the wrong question
+	 * once a service sits between the caller and the store. {@code AdminPayrollController}
+	 * holds {@code LegacyPayslipService}, whose own text contains no SQL at all, and
+	 * {@code this.payslipService.delete(companyId, payslipId)} deletes a payslip. One
+	 * hop resolves {@code LegacyPayslipService} to no writes and reports nothing --
+	 * verified as a survivor against the live tree before this existed.
+	 *
+	 * <p><b>Why the session is the seam.</b> Following hops without one would report
+	 * every correctly written controller in the tree:
+	 * {@code this.service.delete(session, adminId, id)} reaches a write too, and it
+	 * is the shape the admin surface is supposed to use. What separates the two is
+	 * not the depth, it is who vouches for the company. A method taking a
+	 * {@code DashboardSession} is rule one's subject and rule one asks it for a
+	 * guard; a method taking a bare {@code long companyId} is asked by nobody where
+	 * that number came from, and a controller is free to read it off the request. So
+	 * a class exports, to its callers, exactly the writes it can be asked for
+	 * <em>without</em> a session -- and a store, whose methods take none, exports
+	 * all of them, which is the behaviour this rule already had.
+	 *
+	 * <p>Overloads resolve in the unsafe-to-miss direction: a name is exported when
+	 * <em>any</em> overload of it lacks a session, since the call site names no
+	 * parameters. Private methods are never exported, whatever they reach.
+	 *
+	 * <p>A field graph with a cycle would make the answer depend on where the walk
+	 * started, so {@link #cycles} records one instead of silently returning less,
+	 * and rule four fails on it.
+	 */
+	private static final class WriteResolver {
+
+		private final java.util.function.Function<String, String> sourceOf;
+
+		private final Set<String> tenantTables;
+
+		private final Map<String, String> entities;
+
+		private final Map<String, Set<String>> memo = new HashMap<>();
+
+		private final Set<String> onStack = new java.util.LinkedHashSet<>();
+
+		private final List<String> cycles = new ArrayList<>();
+
+		/** Over the repository: a simple name resolves to the file's text. */
+		WriteResolver(Map<String, Path> known, Set<String> tenantTables,
+				Map<String, String> entities) {
+			this(type -> known.get(type) == null ? null : read(known.get(type)),
+					tenantTables, entities);
+		}
+
+		/**
+		 * Over any source at all, so the fixtures below can drive it. The live half
+		 * of a rule cannot demonstrate the rule: an accounted call proves nothing
+		 * about whether an unaccounted one would be reported.
+		 */
+		WriteResolver(java.util.function.Function<String, String> sourceOf,
+				Set<String> tenantTables, Map<String, String> entities) {
+			this.sourceOf = sourceOf;
+			this.tenantTables = tenantTables;
+			this.entities = entities;
+		}
+
+		/** The writes a caller can reach on this type, by method name. */
+		Set<String> exportedBy(String type) {
+			Set<String> done = this.memo.get(type);
+			if (done != null) {
+				return done;
+			}
+			String source = this.sourceOf.apply(type);
+			if (source == null) {
+				return Set.of();
+			}
+			if (!this.onStack.add(type)) {
+				// A self-typed field is not a cycle worth reporting: four classes
+				// hold a sentinel constant of their own type
+				// (`static final OrgFilterCascade NONE`), and such a field adds no
+				// path the class's own closure misses, because `callsAnyOf` matches
+				// a call by name whatever the receiver. A re-entry that is NOT the
+				// type just pushed is the real thing -- A holding B holding A --
+				// where what each exports would depend on which one the walk
+				// reached first.
+				String innermost = null;
+				for (String pushed : this.onStack) {
+					innermost = pushed;
+				}
+				if (!type.equals(innermost)) {
+					this.cycles.add(String.join(" -> ", this.onStack) + " -> " + type);
+				}
+				return Set.of();
+			}
+			Set<String> exported = exported(source);
+			this.onStack.remove(type);
+			this.memo.put(type, exported);
+			return exported;
+		}
+
+		private Set<String> exported(String source) {
+			Set<String> reaching = reaching(source);
+			Set<String> exported = new TreeSet<>();
+			for (Map.Entry<String, String> method : publicMethodBodies(source).entrySet()) {
+				String name = name(method.getKey());
+				if (reaching.contains(name) && !method.getKey().contains("DashboardSession")) {
+					exported.add(name);
+				}
+			}
+			return exported;
+		}
+
+		/** Every method of this class that reaches a write, public or not. */
+		private Set<String> reaching(String source) {
+			Set<String> writes =
+					new TreeSet<>(writeMethodsIn(source, this.tenantTables, this.entities));
+			String code = maskNonCode(source).code();
+			Map<String, Set<String>> throughFields = new LinkedHashMap<>();
+			Matcher field = FIELD_DECLARATION.matcher(code);
+			while (field.find()) {
+				Set<String> held = exportedBy(simpleName(field.group(1)));
+				if (!held.isEmpty()) {
+					throughFields.put(field.group(3), held);
+				}
+			}
+			Map<String, List<String>> bodies = methodBodies(source);
+			for (int pass = 0; pass <= bodies.size(); pass++) {
+				Set<String> more = new TreeSet<>();
+				for (Map.Entry<String, List<String>> method : bodies.entrySet()) {
+					if (writes.contains(method.getKey())) {
+						continue;
+					}
+					for (String overload : method.getValue()) {
+						if (callsAnyOf(overload, writes)
+								|| callsAFieldWrite(overload, throughFields)) {
+							more.add(method.getKey());
+							break;
+						}
+					}
+				}
+				if (!writes.addAll(more)) {
+					break;
+				}
+			}
+			return writes;
+		}
+
+		private static boolean callsAFieldWrite(
+				String body, Map<String, Set<String>> throughFields) {
+			String code = code(body);
+			for (Map.Entry<String, Set<String>> held : throughFields.entrySet()) {
+				if (!fieldWriteCallsIn(code, held.getKey(), held.getValue()).isEmpty()) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		List<String> cycles() {
+			return this.cycles;
+		}
+	}
+
+	/**
+	 * The writes this code calls on one named field, in source order.
+	 *
+	 * <p>One copy, read by the rule that reports these calls and by the resolver
+	 * that follows them. The two-copies mistake is the one this round opened with,
+	 * three lines apart, and it cost the gate a store.
+	 */
+	private static List<String> fieldWriteCallsIn(
+			String code, String field, Set<String> writes) {
+		List<String> found = new ArrayList<>();
+		Matcher call = Pattern.compile(
+				"(?:this\\s*\\.\\s*)?" + Pattern.quote(field) + "\\s*\\.\\s*(\\w+)\\s*\\(")
+				.matcher(code);
+		while (call.find()) {
+			if (writes.contains(call.group(1))) {
+				found.add(call.group(1));
+			}
+		}
+		return found;
 	}
 
 	/**
