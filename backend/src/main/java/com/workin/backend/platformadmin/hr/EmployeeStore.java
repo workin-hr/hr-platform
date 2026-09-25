@@ -479,11 +479,8 @@ public class EmployeeStore {
 	 */
 	public int setActive(long id, boolean active) {
 		return this.jdbcTemplate.update(
-				active
-						? "UPDATE employees SET is_active = 1 WHERE id = ?"
-						: "UPDATE employees SET is_active = 0, token_version = COALESCE(token_version, 0) + 1"
-								+ " WHERE id = ?",
-				id);
+				"UPDATE employees SET is_active = ?, token_version = token_version + ? WHERE id = ?",
+				active ? 1 : 0, active ? 0 : 1, id);
 	}
 
 	public int delete(long id) {
