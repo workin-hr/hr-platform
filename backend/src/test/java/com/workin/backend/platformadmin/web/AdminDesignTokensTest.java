@@ -751,6 +751,38 @@ class AdminDesignTokensTest {
 						+ "buttons twice over; pinned so a parser that stopped resolving cannot "
 						+ "pass this on nothing")
 				.isEqualTo(8);
+
+		// And every fill token on its own, which is what covers a hover. A `:hover`
+		// rule sets a background and no colour -- it inherits the label from the base
+		// selector -- so the declaration pass above skips it, and a mutant repointing
+		// a hover fill at `--ui-danger-strong` (`#f5a5a1` in dark, 1.95:1 under white)
+		// was caught only by the unrelated used-and-defined rule. A `-fill` token is
+		// by its name a surface a label sits on, so it is checked as one whether or
+		// not any single block pairs the two.
+		List<String> fills = new ArrayList<>();
+		for (Map.Entry<String, Map<String, String>> theme : Map.of(
+				"light", light, "dark", darkTheme).entrySet()) {
+			String label = theme.getValue().get("--ui-text-on-accent");
+			for (Map.Entry<String, String> token : new TreeMap<>(theme.getValue()).entrySet()) {
+				if (!token.getKey().matches("--ui-[\\w-]*-fill(-hover)?")) {
+					continue;
+				}
+				double ratio = contrast(label, token.getValue());
+				if (ratio < 4.5) {
+					fills.add(String.format("%s@%s: %s under %s is %.2f:1",
+							token.getKey(), theme.getKey(), token.getValue(), label, ratio));
+				}
+			}
+		}
+		assertThat(fills)
+				.as("a fill is named for the job of carrying a label, so it carries one at 4.5:1 "
+						+ "in both themes -- including the hover states, which set no colour of "
+						+ "their own and are therefore invisible to the pass above")
+				.isEmpty();
+		assertThat(light.keySet().stream().filter(t -> t.matches("--ui-[\\w-]*-fill(-hover)?")).count())
+				.as("the fill tokens found; pinned so renaming the convention cannot make the "
+						+ "check above iterate nothing")
+				.isEqualTo(8);
 	}
 
 	/** One declaration's value inside a rule block, or null when it sets none. */

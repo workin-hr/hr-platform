@@ -290,10 +290,12 @@ class AdminLayoutWiringTest {
 		// lose by load order and make the family depend on which link tag came last.
 		// Reversing the decision is one line only if there is one line.
 		int declarations = 0;
+		int sheetsRead = 0;
 		StringBuilder sheetsNaming = new StringBuilder();
 		try (var files = Files.list(ASSETS)) {
 			for (Path sheet : files.filter(path -> path.toString().endsWith(".css")).sorted()
 					.toList()) {
+				sheetsRead++;
 				int here = Files.readString(sheet, StandardCharsets.UTF_8)
 						.split("--ui-font\\s*:", -1).length - 1;
 				if (here > 0) {
@@ -306,6 +308,12 @@ class AdminLayoutWiringTest {
 				.as("the family is declared once in the whole admin stylesheet set, and it is "
 						+ "declared in " + sheetsNaming)
 				.isEqualTo(1);
+		assertThat(sheetsRead)
+				.as("the sheets this counted across. Pinned, because narrowing the glob back to "
+						+ "app-tokens.css alone kills no test on a clean tree -- only one sheet "
+						+ "declares the family, so the narrow count and the wide one agree until "
+						+ "the day they must not")
+				.isGreaterThan(14);
 		assertThat(Files.readString(ASSETS.resolve("style.css"), StandardCharsets.UTF_8))
 				.as("body reads the token rather than naming a family of its own")
 				.contains("font-family: " + token + ";")
