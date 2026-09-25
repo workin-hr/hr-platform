@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -276,7 +277,9 @@ class AdminDevicesEndToEndTest {
 	void pagingOneListCarriesTheOtherFourPagesForward() {
 		twelveOfEverything();
 
-		String html = body("/admin/devices?per_page=5&dev_page=2&sight_page=2&agent_page=2&punch_page=2");
+		// A different page for each list, so a carry that copied one list's page into
+		// another's key is told apart from one that carried the right number.
+		String html = body("/admin/devices?per_page=5&dev_page=2&sight_page=3&agent_page=1&punch_page=2");
 
 		Matcher devicesNext = Pattern.compile("href=\"(/admin/devices\\?dev_page=3[^\"]*)\"").matcher(html);
 		assertThat(devicesNext.find()).as("the device list's next-page link").isTrue();
@@ -286,14 +289,16 @@ class AdminDevicesEndToEndTest {
 			assertThat(countParameter(link, parameter))
 					.as("%s named exactly once in %s", parameter, link).isEqualTo(1);
 		}
-		assertThat(HtmlUtils.htmlUnescape(link))
-				.as("and the others keep the page they were on")
-				.contains("sight_page=2").contains("agent_page=2").contains("punch_page=2");
+		assertThat(parameterValue(link, "sight_page")).as("serials stay on page three: %s", link).isEqualTo("3");
+		assertThat(parameterValue(link, "agent_page")).as("agents stay on page one: %s", link).isEqualTo("1");
+		assertThat(parameterValue(link, "punch_page")).as("punches stay on page two: %s", link).isEqualTo("2");
 
 		Matcher sightingsFirst = Pattern.compile("href=\"(/admin/devices\\?sight_page=1[^\"]*)\"").matcher(html);
 		assertThat(sightingsFirst.find()).as("the unclaimed list's first-page link").isTrue();
-		assertThat(HtmlUtils.htmlUnescape(sightingsFirst.group(1)))
-				.as("it keeps the device list's page").contains("dev_page=2");
+		assertThat(parameterValue(sightingsFirst.group(1), "dev_page"))
+				.as("it keeps the device list's page").isEqualTo("2");
+		assertThat(parameterValue(sightingsFirst.group(1), "agent_page"))
+				.as("and the agents' page").isEqualTo("1");
 
 		// The size form re-submits the same map, and each pager skips its own
 		// there too -- so `dev_page` appears once per *other* pager that rendered.
@@ -309,7 +314,7 @@ class AdminDevicesEndToEndTest {
 		twelveOfEverything();
 
 		String first = body("/admin/devices?per_page=5");
-		String second = body("/admin/devices?per_page=5&dev_page=2&sight_page=2&agent_page=2");
+		String second = body("/admin/devices?per_page=5&dev_page=2&sight_page=2&agent_page=2&punch_page=2");
 
 		for (int index = 1; index <= 12; index++) {
 			// The name, not the serial: a punch row carries its device's serial.
@@ -318,8 +323,52 @@ class AdminDevicesEndToEndTest {
 					.as("Terminal %d is on one page, not both", index).isFalse();
 		}
 		assertThat(deviceRows(second)).isEqualTo(5);
-		assertThat(countOccurrences(second, "?serial=PSIG-")).isEqualTo(5);
-		assertThat(countOccurrences(second, ">PAgent-")).isEqualTo(5);
+		// The other three lists by name as well, not by count: an offset stuck at
+		// zero serves five rows on page two too, and five is all a count can see.
+		for (String[] list : new String[][] {
+				{"unclaimed serials", "\\?serial=(PSIG-\\d+)#"},
+				{"agents", ">(PAgent-\\d+)<"},
+				{"punches", "(?<![\\w-])(PPIN\\d+)(?!\\d)"}}) {
+			Set<String> one = matches(first, list[1]);
+			Set<String> two = matches(second, list[1]);
+			assertThat(one).as("page one of %s", list[0]).hasSize(5);
+			assertThat(two).as("page two of %s", list[0]).hasSize(5);
+			assertThat(two).as("page two of %s is the next rows", list[0]).doesNotContainAnyElementsOf(one);
+		}
+	}
+
+	/**
+	 * Unclaimed serials seen in the same second are each on exactly one page.
+	 *
+	 * <p>{@code last_seen_at} is a second-precision {@code DATETIME}; a heartbeat
+	 * burst leaves many serials on one value, and with only that column to sort
+	 * by, MariaDB ordered the tied rows differently on each page: twelve tied
+	 * serials at five a page showed ten distinct ones across three pages. The
+	 * serial is the tiebreaker, and the order is asserted rather than only the
+	 * disjointness, as D-283 argued for join requests -- a set can be complete by
+	 * accident on one run and not on the next.
+	 */
+	@Test
+	void serialsSeenInTheSameSecondAreEachOnExactlyOnePage() {
+		for (int index = 1; index <= 12; index++) {
+			this.jdbc.update("INSERT INTO unclaimed_device_sightings (serial_number, first_seen_at, last_seen_at,"
+					+ " last_seen_ip, hit_count) VALUES (?, NOW(), '2026-09-01 10:00:00', '10.0.0.9', 1)",
+					String.format("PTIE-%02d", index));
+		}
+
+		java.util.List<String> walked = new java.util.ArrayList<>();
+		for (int page = 1; page <= 3; page++) {
+			Matcher serial = Pattern.compile("\\?serial=(PTIE-\\d+)#")
+					.matcher(body("/admin/devices?per_page=5&sight_page=" + page));
+			while (serial.find()) {
+				walked.add(serial.group(1));
+			}
+		}
+		java.util.List<String> expected = new java.util.ArrayList<>();
+		for (int index = 12; index >= 1; index--) {
+			expected.add(String.format("PTIE-%02d", index));
+		}
+		assertThat(walked).as("every tied serial once, newest serial first").isEqualTo(expected);
 	}
 
 	/**
@@ -363,9 +412,29 @@ class AdminDevicesEndToEndTest {
 		assertThat(countOccurrences(html, "SELPIN")).as("three of seven punches").isEqualTo(3);
 		assertThat(countOccurrences(html, "SELJUNK")).as("three of seven unreadable lines").isEqualTo(3);
 		assertThat(countOccurrences(html, "<b>7</b>")).as("both report seven").isEqualTo(2);
-		assertThat(HtmlUtils.htmlUnescape(html))
-				.as("and both pagers keep the terminal being watched")
-				.contains("device=" + deviceId);
+		// The pager links themselves, not the page: the live start/stop button also
+		// names the terminal, so a page-wide `contains` passed with the carry gone.
+		String live = body("/admin/devices?device=" + deviceId + "&live=1&per_page=3&punch_page=2&mal_page=2");
+		Matcher pager = Pattern.compile("href=\"(/admin/devices\\?(?:punch_page|mal_page)=[^\"]*)\"").matcher(live);
+		int links = 0;
+		while (pager.find()) {
+			links++;
+			assertThat(parameterValue(pager.group(1), "device"))
+					.as("a pager link keeps the terminal being watched: %s", pager.group(1))
+					.isEqualTo(String.valueOf(deviceId));
+			assertThat(parameterValue(pager.group(1), "live"))
+					.as("and keeps the live refresh running: %s", pager.group(1)).isEqualTo("1");
+		}
+		assertThat(links).as("both pagers drew links to check").isGreaterThanOrEqualTo(4);
+
+		Set<String> punchesOne = matches(html, "(SELPIN\\d+)");
+		Set<String> punchesTwo = matches(live, "(SELPIN\\d+)");
+		assertThat(punchesTwo).as("page two of the terminal's punches").hasSize(3)
+				.doesNotContainAnyElementsOf(punchesOne);
+		Set<String> junkOne = matches(html, "(SELJUNK\\d+)");
+		Set<String> junkTwo = matches(live, "(SELJUNK\\d+)");
+		assertThat(junkTwo).as("page two of its unreadable lines").hasSize(3)
+				.doesNotContainAnyElementsOf(junkOne);
 	}
 
 	/**
@@ -460,6 +529,24 @@ class AdminDevicesEndToEndTest {
 	private static long countParameter(String url, String name) {
 		return Pattern.compile("[?&]" + Pattern.quote(name) + "=")
 				.matcher(HtmlUtils.htmlUnescape(url)).results().count();
+	}
+
+	/** The one value a URL gives a query parameter, read after unescaping. */
+	private static String parameterValue(String url, String name) {
+		Matcher value = Pattern.compile("[?&]" + Pattern.quote(name) + "=([^&#]*)")
+				.matcher(HtmlUtils.htmlUnescape(url));
+		assertThat(value.find()).as("%s is carried in %s", name, url).isTrue();
+		return value.group(1);
+	}
+
+	/** Every distinct first group a pattern finds in a page. */
+	private static Set<String> matches(String html, String regex) {
+		Set<String> found = new java.util.TreeSet<>();
+		Matcher match = Pattern.compile(regex).matcher(html);
+		while (match.find()) {
+			found.add(match.group(1));
+		}
+		return found;
 	}
 
 	/**

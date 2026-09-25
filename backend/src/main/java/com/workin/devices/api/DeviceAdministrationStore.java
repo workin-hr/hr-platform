@@ -102,11 +102,21 @@ public class DeviceAdministrationStore {
 		return sightings(limit, 0L);
 	}
 
+	/**
+	 * One page of unclaimed serials, most recently seen first.
+	 *
+	 * <p>{@code serial_number} breaks the tie. {@code last_seen_at} is a
+	 * second-precision {@code DATETIME} and not unique, and once a list is paged
+	 * MariaDB may order tied rows differently on each page -- so serials seen in
+	 * the same second repeated on one page and appeared on none, the defect D-283
+	 * fixed for join requests with {@code e.id DESC}. The primary key is the only
+	 * total order this table has.
+	 */
 	public List<Map<String, Object>> sightings(int limit, long offset) {
 		return jdbcTemplate.query("""
 				SELECT serial_number, first_seen_at, last_seen_at, last_seen_ip, push_version, device_type, hit_count
 				FROM unclaimed_device_sightings
-				ORDER BY last_seen_at DESC LIMIT ? OFFSET ?""",
+				ORDER BY last_seen_at DESC, serial_number DESC LIMIT ? OFFSET ?""",
 				LegacyJdbcValues.rowMapper(), limit, offset);
 	}
 
