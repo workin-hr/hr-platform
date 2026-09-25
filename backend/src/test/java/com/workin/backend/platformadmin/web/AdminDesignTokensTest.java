@@ -145,6 +145,24 @@ class AdminDesignTokensTest {
 				.as("an exemption whose literal is gone is a stale entry to delete, the same way "
 						+ "every other exemption in this repository self-polices")
 				.containsExactlyInAnyOrderElementsOf(LITERALS_THAT_ARE_NOT_COLOURS.keySet());
+
+		// The tree is clean, so narrowing COLOUR back to hex-only kills nothing here:
+		// a mutant reverting the pattern survived this rule and every other. The
+		// pattern is the fix, so the pattern is what needs a subject.
+		assertThat(COLOUR.matcher("box-shadow: 0 1px 2px rgba(15, 23, 42, .45);").find())
+				.as("the notation sixty-six literals used, and the one a hex-only pattern cannot "
+						+ "see. Tailwind's slate-900 shipped in exactly this form")
+				.isTrue();
+		assertThat(COLOUR.matcher("color: hsl(210 90% 40%);").find())
+				.as("and the other functional notation, before somebody reaches for it")
+				.isTrue();
+		assertThat(COLOUR.matcher("background: rgb(var(--ui-accent-rgb) / .12);").find())
+				.as("but a token carrying an alpha is not a literal -- it is the whole reason the "
+						+ "triples exist, and matching it would make the fix unusable")
+				.isFalse();
+		assertThat(COLOUR.matcher("border-color: #185fa5;").find())
+				.as("and the hex arm still matches, so widening took nothing away")
+				.isTrue();
 	}
 
 	@Test
