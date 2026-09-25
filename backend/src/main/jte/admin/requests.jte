@@ -143,7 +143,7 @@
 						!{String employeeName = EmployeeDisplay.displayName(row.employeeName(), "—");}
 						<tr>
 							<td>${result.from() + index}</td>
-							<td class="text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
+							<td class="nowrap text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
 							<td class="bold">${employeeName}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
@@ -154,8 +154,8 @@
 									<span class="badge badge-gray">${t.apply("deduct_balance")}</span>
 								@endif
 							</td>
-							<td>${row.fromDate() == null ? "—" : row.fromDate()}</td>
-							<td>${row.toDate() == null ? "—" : row.toDate()}</td>
+							<td class="nowrap">${row.fromDate() == null ? "—" : row.fromDate()}</td>
+							<td class="nowrap">${row.toDate() == null ? "—" : row.toDate()}</td>
 							<td class="text-muted" dir="ltr">${row.fromTime() == null || row.fromTime().isBlank()
 								? "—" : row.fromTime()}</td>
 							<td class="text-muted" dir="ltr">${row.toTime() == null || row.toTime().isBlank()

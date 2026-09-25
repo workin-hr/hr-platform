@@ -8,7 +8,7 @@
   margin: 0 0 14px;
   font-size: 22px;
   font-weight: 700;
-  color: #1a1d24;
+  color: var(--ui-text);
   letter-spacing: -.02em;
 }
 
@@ -32,13 +32,31 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* A fixed basis, not a content-derived one. A bare <input> is about twenty
+     characters wide in whatever font it is rendering, so this field's width
+     used to depend on the typeface: changing the family (D-284) took every one
+     of these from 200px to 306px, which wrapped the filter bar from two rows to
+     three and then squeezed the table's auto layout until its rows went from
+     52px to 125px. The max-width below covered only text and search inputs, so
+     the ones that grew were the ones it did not name. */
+  flex: 0 1 240px;
   min-width: 200px;
+  max-width: 280px;
+}
+/* Every control in the field, whatever its type: a control that keeps its own
+   intrinsic width puts the font back in charge of the layout. */
+.hr-page .filter-field > input,
+.hr-page .filter-field > select,
+.hr-page .filter-field > textarea {
+  min-width: 0;
+  max-width: none;
+  width: 100%;
 }
 .hr-page .filter-field__label {
   margin: 0;
   font-size: 14px;
   font-weight: 500;
-  color: #1a1d24;
+  color: var(--ui-text);
   line-height: 1.3;
 }
 .hr-page .filter-field select,
@@ -49,15 +67,15 @@
   max-width: 280px;
   padding: 10px 12px;
   font-size: 14px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--ui-border-soft);
   border-radius: 10px;
-  background: #fff;
-  color: #1a1d24;
+  background: var(--ui-surface);
+  color: var(--ui-text);
 }
 .hr-page .filter-field select {
   cursor: pointer;
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b6862' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: left 12px center;
   padding-inline-start: 12px;
@@ -71,7 +89,7 @@
 }
 
 .hr-page .data-table-card {
-  background: #fff;
+  background: var(--ui-surface);
   overflow: visible;
   margin-bottom: 20px;
 }
@@ -82,14 +100,14 @@
   gap: 12px;
   padding: 14px 16px;
 }
-.hr-page .data-table-title { margin: 0; font-size: 15px; font-weight: 600; color: #1e1e1c; }
+.hr-page .data-table-title { margin: 0; font-size: 15px; font-weight: 600; color: var(--ui-text); }
 .hr-page .data-table-head--stacked {
   align-items: flex-start;
 }
 .hr-page .data-table-subtitle {
   margin: 4px 0 0;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--ui-text-soft);
   line-height: 1.4;
 }
 .hr-page .data-table-card .table-wrap {
@@ -102,13 +120,13 @@
 .hr-page .data-table-empty {
   text-align: center !important;
   padding: 28px 16px !important;
-  color: #888780;
+  color: var(--ui-text-muted);
 }
 .hr-page .data-table-meta {
   padding: 10px 16px;
   font-size: 12px;
-  color: #888780;
-  border-top: 1px solid #f0ede8;
+  color: var(--ui-text-muted);
+  border-top: 1px solid var(--ui-neutral-3);
 }
 .hr-page .stats-grid.compact { margin-bottom: 16px; }
 .hr-page .tbl .actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; justify-content: center; }
@@ -117,11 +135,11 @@
   min-width: 120px;
   max-width: 160px;
   padding: 6px 8px;
-  border: 1px solid #e0ddd6;
+  border: 1px solid var(--ui-neutral-3);
   border-radius: 8px;
-  background: #fff;
+  background: var(--ui-surface);
   font-size: 12px;
-  color: #1e1e1c;
+  color: var(--ui-text);
 }
 .hr-page .complaint-status-form { margin: 0; }
 .hr-page .tbl-photo {
@@ -129,7 +147,7 @@
   height: 35px;
   border-radius: 50%;
   object-fit: cover;
-  border: 1px solid #e8e6e0;
+  border: 1px solid var(--ui-border-soft);
 }
 
 .hr-page .emp-tbl-avatar {
@@ -140,12 +158,12 @@
   width: 40px;
   height: 40px;
   border-radius: 8px;
-  background: #e6f1fb;
-  color: #185fa5;
+  background: var(--ui-info-weak);
+  color: var(--ui-accent-500);
   font-size: 13px;
   font-weight: 700;
   line-height: 1;
-  border: 1px solid #e8e6e0;
+  border: 1px solid var(--ui-border-soft);
   flex-shrink: 0;
   vertical-align: middle;
 }
@@ -237,10 +255,10 @@
   height: 34px;
   margin: 0;
   padding: 0;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--ui-border-soft);
   border-radius: 10px;
-  background: #fff;
-  color: #6b7280;
+  background: var(--ui-surface);
+  color: var(--ui-text-soft);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -253,10 +271,10 @@
 
 .row-actions__trigger:hover,
 .row-actions.is-open .row-actions__trigger {
-  background: #f3f4f6;
-  border-color: #d1d5db;
-  color: #111827;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  background: var(--ui-neutral-2);
+  border-color: var(--ui-border);
+  color: var(--ui-text);
+  box-shadow: 0 1px 3px rgb(var(--ui-ink-rgb) / 0.08);
 }
 
 .row-actions__menu {
@@ -291,7 +309,7 @@
   line-height: 1.35;
   text-align: start;
   text-decoration: none;
-  color: #374151;
+  color: var(--ui-neutral-10);
   cursor: pointer;
   white-space: nowrap;
   appearance: none;
@@ -303,26 +321,26 @@
 }
 
 .row-actions__item:hover {
-  background: #f3f4f6;
-  color: #111827;
+  background: var(--ui-neutral-2);
+  color: var(--ui-text);
 }
 
 .row-actions__item--danger {
-  color: #dc2626;
+  color: var(--ui-danger);
 }
 
 .row-actions__item--danger:hover {
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--ui-danger-weak);
+  color: var(--ui-danger-strong);
 }
 
 .row-actions__item--success {
-  color: #16a34a;
+  color: var(--ui-success);
 }
 
 .row-actions__item--success:hover {
-  background: #f0fdf4;
-  color: #15803d;
+  background: var(--ui-success-weak);
+  color: var(--ui-success);
 }
 
 /* سجل الأنشطة */
@@ -336,7 +354,7 @@
   min-width: 140px;
   white-space: nowrap;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--ui-text-soft);
   vertical-align: middle;
 }
 .activities-page .tbl th.col-center,
@@ -355,16 +373,16 @@
   white-space: nowrap;
 }
 .hr-activity-badge.departure {
-  background: #e6f4ea;
-  color: #137333;
+  background: var(--ui-success-weak);
+  color: var(--ui-success);
 }
 .hr-activity-badge.checkin {
-  background: #e8f1fc;
-  color: #185fa5;
+  background: var(--ui-info-weak);
+  color: var(--ui-accent-500);
 }
 .hr-activity-badge.request {
-  background: #faeeda;
-  color: #854f0b;
+  background: var(--ui-warning-weak);
+  color: var(--ui-warning);
 }
 
 /* Setting templates accordion panels */
@@ -389,8 +407,8 @@
   width: 8px;
   height: 8px;
   margin-top: 6px;
-  border-inline-end: 2px solid #6b7280;
-  border-bottom: 2px solid #6b7280;
+  border-inline-end: 2px solid var(--ui-text-soft);
+  border-bottom: 2px solid var(--ui-text-soft);
   transform: rotate(-45deg);
   transition: transform .15s ease;
   flex-shrink: 0;
@@ -422,7 +440,7 @@
   align-items: center;
 }
 .setting-templates-panel__body {
-  border-top: 1px solid #ececec;
+  border-top: 1px solid var(--ui-neutral-2);
 }
 
 /* Complaints: company→admin vs employee→company */
@@ -437,26 +455,26 @@
   align-items: center;
   padding: 8px 14px;
   border-radius: 8px;
-  border: 1px solid #e2e0da;
-  background: #fff;
-  color: #5c5a55;
+  border: 1px solid var(--ui-neutral-3);
+  background: var(--ui-surface);
+  color: var(--ui-text-soft);
   font-size: 13px;
   font-weight: 600;
   text-decoration: none;
   transition: background .15s ease, border-color .15s ease, color .15s ease;
 }
 .complaints-source-tabs__link:hover {
-  border-color: #c9c5bc;
-  color: #1e1e1c;
+  border-color: var(--ui-border-strong);
+  color: var(--ui-text);
 }
 .complaints-source-tabs__link.is-active {
-  background: #1a73e8;
-  border-color: #1a73e8;
-  color: #fff;
+  background: var(--ui-accent-500);
+  border-color: var(--ui-accent-500);
+  color: var(--ui-text-on-accent);
 }
 .complaints-source-hint {
   margin: 0 0 16px;
   font-size: 13px;
-  color: #6b6963;
+  color: var(--ui-text-muted);
   line-height: 1.45;
 }

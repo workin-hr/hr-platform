@@ -36,7 +36,7 @@
 /* The signed-in identity in the topbar, opposite the page title. */
 .topbar .who {
 	margin-inline-start: auto;
-	color: var(--muted, #5b6876);
+	color: var(--muted, var(--ui-text-soft));
 	font-size: .875rem;
 }
 
@@ -47,14 +47,14 @@
 	margin: 0;
 	margin-inline-start: auto;
 	padding-inline: 4px;
-	color: var(--app-text-muted, #6b7280);
+	color: var(--app-text-muted, var(--ui-text-soft));
 	font-size: 13px;
 	white-space: nowrap;
 	font-variant-numeric: tabular-nums;
 }
 
 .pager-summary b {
-	color: var(--app-text, #1a1d24);
+	color: var(--app-text, var(--ui-text));
 	font-weight: 600;
 }
 
@@ -78,24 +78,24 @@
 
 .home-stat-card--link:hover {
 	transform: translateY(-2px);
-	border-color: #c5d4e8;
-	box-shadow: var(--app-shadow, 0 12px 28px rgba(15, 35, 70, .07));
+	border-color: var(--ui-info-edge);
+	box-shadow: var(--app-shadow, 0 12px 28px rgb(var(--ui-ink-rgb) / .07));
 }
 
 .home-stat-card--link:focus-visible {
 	outline: none;
-	box-shadow: var(--app-focus-ring, 0 0 0 4px rgba(24, 95, 165, .12));
+	box-shadow: var(--app-focus-ring, 0 0 0 4px rgb(var(--ui-accent-rgb) / .12));
 }
 
 /* The tinted icon chip. Legacy writes these as inline `style` attributes on
    every card; naming them is what lets one card be a link and keeps the
    colours in a stylesheet rather than in the markup. */
-.home-stat-card .ico--blue   { background: #e6f1fb; color: #185fa5; }
-.home-stat-card .ico--green  { background: #eaf3de; color: #3b6d11; }
-.home-stat-card .ico--yellow { background: #faeeda; color: #854f0b; }
-.home-stat-card .ico--red    { background: #fcebeb; color: #a32d2d; }
-.home-stat-card .ico--violet { background: #f3e8ff; color: #7c3aed; }
-.home-stat-card .ico--gray   { background: #f1efe8; color: #5f5e5a; }
+.home-stat-card .ico--blue   { background: var(--ui-info-weak); color: var(--ui-accent-500); }
+.home-stat-card .ico--green  { background: var(--ui-success-weak); color: var(--ui-success); }
+.home-stat-card .ico--yellow { background: var(--ui-warning-weak); color: var(--ui-warning); }
+.home-stat-card .ico--red    { background: var(--ui-danger-weak); color: var(--ui-danger); }
+.home-stat-card .ico--violet { background: var(--ui-accent-purple-weak); color: var(--ui-accent-purple); }
+.home-stat-card .ico--gray   { background: var(--ui-neutral-2); color: var(--ui-text-soft); }
 
 /* A number is read, compared and scanned down a column of cards. */
 .home-stat-card .num {
@@ -121,7 +121,7 @@
    under the title, inside the space .modal h2 leaves below itself. */
 .modal .row-dialog__subject {
 	margin: -14px 0 16px;
-	color: var(--app-text-muted, #6b7280);
+	color: var(--app-text-muted, var(--ui-text-soft));
 	font-size: 13px;
 }
 
@@ -205,7 +205,7 @@
 	margin-inline: -28px;
 	margin-bottom: -26px;
 	padding: 14px 28px 26px;
-	background: var(--app-surface, #fff);
+	background: var(--app-surface, var(--ui-surface));
 }
 
 .modal .account-form__footer {
@@ -214,7 +214,7 @@
 	gap: 8px;
 	margin-top: 18px;
 	padding-top: 14px;
-	border-top: 1px solid var(--app-border, #e2e6ef);
+	border-top: 1px solid var(--app-border, var(--ui-border-soft));
 }
 
 /* The close button is positioned at the inline start, which is the left in
@@ -227,7 +227,7 @@
 .modal-close:focus-visible {
 	outline: none;
 	border-radius: 8px;
-	box-shadow: var(--app-focus-ring, 0 0 0 4px rgba(24, 95, 165, .12));
+	box-shadow: var(--app-focus-ring, 0 0 0 4px rgb(var(--ui-accent-rgb) / .12));
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -250,7 +250,7 @@
 .tbl-sub {
 	margin-top: 2px;
 	font-size: 11px;
-	color: var(--app-text-muted, #6b7280);
+	color: var(--app-text-muted, var(--ui-text-soft));
 	line-height: 1.4;
 }
 
@@ -267,8 +267,8 @@
 }
 
 .emp-tbl-avatar {
-	background: linear-gradient(135deg, #e6f1fb 0%, #dce9f8 100%);
-	color: #185fa5;
+	background: linear-gradient(135deg, var(--ui-info-weak) 0%, var(--ui-info-edge) 100%);
+	color: var(--ui-accent-500);
 	font-size: 12px;
 	font-weight: 700;
 	letter-spacing: .02em;
@@ -288,13 +288,13 @@
    `.admin-badge` is the dashboard's own (style.css); it has no warning
    variant because the PHP surface has no second factor to be missing. */
 .admin-badge--warn {
-	background: #fdf1dc;
-	color: #8a5b00;
+	background: var(--ui-warning-weak);
+	color: var(--ui-warning);
 	text-decoration: none;
 }
 
 .admin-badge--warn:hover {
-	background: #f8e4bd;
+	background: var(--ui-warning-edge);
 }
 
 /* —— Turnover rates ——
@@ -314,8 +314,8 @@
 	width: 64px;
 	height: 36px;
 	border-radius: 6px;
-	background: #f1f2f4;
-	color: var(--app-text-muted, #6b7280);
+	background: var(--ui-neutral-2);
+	color: var(--app-text-muted, var(--ui-text-soft));
 	font-size: 12px;
 }
 
@@ -340,8 +340,8 @@
    the class carries what it computes to. companies/detail.php:40 writes the same card. */
 .emp-detail-card,
 .company-detail-card {
-	background: #fff;
-	border: 1px solid #e8e6e0;
+	background: var(--ui-surface);
+	border: 1px solid var(--ui-border-soft);
 	border-radius: var(--app-radius-lg);
 	box-shadow: var(--app-shadow-sm);
 	padding: 20px;
@@ -361,17 +361,17 @@
 
 .emp-detail-photo {
 	object-fit: cover;
-	border: 1px solid #eee;
+	border: 1px solid var(--ui-neutral-2);
 }
 
 .emp-detail-avatar {
-	background: #E6F1FB;
+	background: var(--ui-info-weak);
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	font-size: 20px;
 	font-weight: 700;
-	color: #185FA5;
+	color: var(--ui-accent-500);
 	letter-spacing: 0.05em;
 }
 
@@ -387,7 +387,7 @@
 	gap: 6px;
 	margin-top: 8px;
 	font-size: 13px;
-	color: #5F5E5A;
+	color: var(--ui-text-soft);
 }
 
 .emp-detail-stats,
@@ -407,7 +407,7 @@
 .tbl td.emp-detail-empty {
 	text-align: center;
 	padding: 16px;
-	color: #888;
+	color: var(--ui-text-muted);
 }
 
 .tbl td.emp-detail-empty--tall {
@@ -419,8 +419,8 @@
 }
 
 .emp-detail-payslip {
-	background: #fff;
-	border: 1px solid #e8e6e0;
+	background: var(--ui-surface);
+	border: 1px solid var(--ui-border-soft);
 	border-radius: 12px;
 	padding: 20px;
 }
@@ -433,14 +433,14 @@
 }
 
 .emp-detail-net {
-	border-right: 3px solid #185FA5;
+	border-right: 3px solid var(--ui-accent-500);
 	padding-right: 10px;
 }
 
 .emp-detail-net-value {
 	font-size: 18px;
 	font-weight: 700;
-	color: #185FA5;
+	color: var(--ui-accent-500);
 }
 
 .emp-detail-docs {
@@ -452,8 +452,8 @@
 .emp-detail-doc {
 	display: inline-block;
 	padding: 6px 14px;
-	background: #E6F1FB;
-	color: #185FA5;
+	background: var(--ui-info-weak);
+	color: var(--ui-accent-500);
 	border-radius: 8px;
 	font-size: 12px;
 	text-decoration: none;
@@ -474,7 +474,7 @@
 	width: 72px;
 	height: 72px;
 	border-radius: 10px;
-	border: 1px solid #e8e6e0;
+	border: 1px solid var(--ui-border-soft);
 }
 
 .company-detail-logo {
@@ -484,13 +484,13 @@
 /* The port's own: legacy draws a ui-avatars.com image in the logo's box. The
    initials take the employee detail's colours instead. */
 .company-detail-avatar {
-	background: #E6F1FB;
+	background: var(--ui-info-weak);
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	font-size: 20px;
 	font-weight: 700;
-	color: #185FA5;
+	color: var(--ui-accent-500);
 	letter-spacing: 0.05em;
 }
 
@@ -505,7 +505,7 @@
 	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
 	gap: 6px;
 	font-size: 13px;
-	color: #5F5E5A;
+	color: var(--ui-text-soft);
 }
 
 .company-detail-reg {
@@ -520,7 +520,7 @@
 .tbl td.company-detail-more {
 	text-align: center;
 	padding: 10px;
-	color: #888;
+	color: var(--ui-text-muted);
 }
 
 /* Legacy keeps the four tables two across at every width, which leaves each a

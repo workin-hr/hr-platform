@@ -24,6 +24,14 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * revalidated on every load against an ETag of its content, and a browser holding the current
  * copy gets a 304.
  *
+ * <p>A font is cached for a year and marked immutable. The twelve {@code .woff2} files are 277 KB
+ * of third-party binary that changes when the typeface changes, which is not a deploy -- and they
+ * shipped in the revalidated bucket, so every page load spent a round trip per font asking whether
+ * a file that had not changed since it was vendored had changed. <b>The price of the year is that a
+ * font must be replaced under a new filename</b>, never overwritten in place; the names already
+ * carry the weight and the subset, so a different cut is a different name. An operator who
+ * overwrites one anyway will see the old glyphs until the max-age expires, with no error anywhere.
+ *
  * <p>Neither uses the file's timestamp. Gradle 9 builds reproducible archives, so every entry in
  * the production jar carries the same fixed time, and a browser revalidating with
  * {@code If-Modified-Since} would be told a copy from before the deploy is current.
@@ -41,6 +49,19 @@ class AdminAssetCaching implements WebMvcConfigurer {
 		registry.addResourceHandler(PlatformAdminWebSecurityConfig.PATH_PREFIX + "/_assets/*.png")
 			.addResourceLocations(LOCATION)
 			.setCacheControl(CacheControl.maxAge(Duration.ofDays(7)))
+			.setUseLastModified(false)
+			.setEtagGenerator(this::etag);
+		// LOCATION + "fonts/", not LOCATION. A handler resolves the part of the path its
+		// pattern matched with `*` against the location, so `/_assets/fonts/*.woff2`
+		// against `_assets/` looks for `_assets/<name>.woff2` and every font 404s --
+		// which is what this returned before the test below was written, and the page
+		// would have fallen back to the system font in silence. The catch-all it
+		// shadows is `/_assets/**`, where the matched part is `fonts/<name>.woff2`, so
+		// the same location works there and hid the difference.
+		registry.addResourceHandler(
+				PlatformAdminWebSecurityConfig.PATH_PREFIX + "/_assets/fonts/*.woff2")
+			.addResourceLocations(LOCATION + "fonts/")
+			.setCacheControl(CacheControl.maxAge(Duration.ofDays(365)).cachePublic().immutable())
 			.setUseLastModified(false)
 			.setEtagGenerator(this::etag);
 		registry.addResourceHandler(PlatformAdminWebSecurityConfig.ASSETS_PATTERN)

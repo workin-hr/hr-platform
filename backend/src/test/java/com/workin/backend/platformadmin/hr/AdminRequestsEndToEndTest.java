@@ -549,13 +549,13 @@ class AdminRequestsEndToEndTest {
 		long named = seedRequest(this.employeeA, this.plainTypeA, "2026-03-02", "2026-03-04");
 
 		String html = body("/admin/requests?company_id=" + this.companyA);
-		assertThat(row(html, blank)).containsPattern("<td class=\"text-muted\">A200</td>\\s*<td class=\"bold\">—</td>");
-		assertThat(row(html, tab)).containsPattern("<td class=\"text-muted\">A300</td>\\s*<td class=\"bold\">—</td>");
+		assertThat(row(html, blank)).containsPattern("<td class=\"nowrap text-muted\">A200</td>\\s*<td class=\"bold\">—</td>");
+		assertThat(row(html, tab)).containsPattern("<td class=\"nowrap text-muted\">A300</td>\\s*<td class=\"bold\">—</td>");
 		for (long id : new long[] {blank, tab}) {
 			assertThat(java.util.regex.Pattern.compile("data-dialog-subject=\"—\"").matcher(rowMenu(html, id))
 					.results().count()).as("approve and reject name the dash for request %s", id).isEqualTo(2);
 		}
-		assertThat(row(html, named)).containsPattern("<td class=\"text-muted\">A100</td>\\s*<td class=\"bold\">Aya Alpha</td>");
+		assertThat(row(html, named)).containsPattern("<td class=\"nowrap text-muted\">A100</td>\\s*<td class=\"bold\">Aya Alpha</td>");
 		assertThat(rowMenu(html, named)).contains("data-dialog-subject=\"Aya Alpha\"");
 	}
 

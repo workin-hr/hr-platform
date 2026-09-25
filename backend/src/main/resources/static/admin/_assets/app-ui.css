@@ -2,21 +2,26 @@
    app-ui.css — روح تصميم تسجيل الدخول على كل التطبيق
    ============================================================ */
 
+/*
+ * The --app-* vocabulary, re-pointed at app-tokens.css for the same reason
+ * style.css's is: it is what this sheet's own 990 lines already ask for.
+ * New rules read --ui-* directly.
+ */
 :root {
-  --app-bg: #f5f7fb;
-  --app-surface: #ffffff;
-  --app-border: #e2e6ef;
-  --app-border-soft: #e8e6e0;
-  --app-text: #1a1d24;
-  --app-text-muted: #6b7280;
-  --app-radius-sm: 8px;
-  --app-radius: 11px;
-  --app-radius-lg: 14px;
-  --app-radius-xl: 18px;
-  --app-shadow-sm: 0 2px 8px rgba(15, 35, 70, .06);
-  --app-shadow: 0 4px 6px rgba(15, 35, 70, .04), 0 12px 28px rgba(15, 35, 70, .07);
-  --app-focus-ring: 0 0 0 4px rgba(24, 95, 165, .12);
-  --app-ease: cubic-bezier(.22, 1, .36, 1);
+  --app-bg: var(--ui-bg);
+  --app-surface: var(--ui-surface);
+  --app-border: var(--ui-border);
+  --app-border-soft: var(--ui-border-soft);
+  --app-text: var(--ui-text);
+  --app-text-muted: var(--ui-text-muted);
+  --app-radius-sm: var(--ui-radius-sm);
+  --app-radius: var(--ui-radius);
+  --app-radius-lg: var(--ui-radius-lg);
+  --app-radius-xl: var(--ui-radius-xl);
+  --app-shadow-sm: var(--ui-shadow-sm);
+  --app-shadow: var(--ui-shadow);
+  --app-focus-ring: var(--ui-focus-ring-soft);
+  --app-ease: var(--ui-ease);
 }
 
 /* —— Layout & shell —— */
@@ -44,7 +49,7 @@ body:not(.login-body) {
 }
 
 .admin-badge {
-  background: linear-gradient(135deg, var(--blue-lt) 0%, #dce9f8 100%);
+  background: linear-gradient(135deg, var(--blue-lt) 0%, var(--ui-info-edge) 100%);
   color: var(--blue);
   padding: 5px 12px;
   border-radius: 99px;
@@ -73,7 +78,7 @@ body:not(.login-body) {
   padding: 10px 14px;
   border: 1.5px solid var(--app-border);
   border-radius: var(--app-radius);
-  background: #fafbfc;
+  background: var(--ui-neutral-1);
   color: var(--app-text);
   font-size: 13.5px;
   transition: border-color .2s, box-shadow .2s, background .2s;
@@ -86,7 +91,7 @@ body:not(.login-body) {
 .modal input:hover,
 .modal select:hover,
 .modal textarea:hover {
-  border-color: #c5d0e0;
+  border-color: var(--ui-info-edge);
 }
 
 .main input:focus,
@@ -97,14 +102,14 @@ body:not(.login-body) {
 .modal textarea:focus {
   outline: none;
   border-color: var(--blue);
-  background: #fff;
+  background: var(--ui-surface);
   box-shadow: var(--app-focus-ring);
 }
 
 .form-row label {
   font-size: 12px;
   font-weight: 600;
-  color: #374151;
+  color: var(--ui-neutral-10);
   margin-bottom: 6px;
 }
 
@@ -115,41 +120,43 @@ body:not(.login-body) {
   transition: transform .2s, box-shadow .2s, background .2s, opacity .2s;
 }
 
-.btn:hover {
-  opacity: 1;
-}
+/* Left deliberately without an opacity reset: style.css no longer fades a
+   button on hover, it darkens the surface, so there is nothing to undo. */
 
+/* Flat, not a gradient. Two of the four here were a solid colour written as a
+   gradient from itself to itself, and the two that really did shade switched to
+   flat under the pointer, because style.css's hover sets background-color and a
+   class-plus-pseudo-class beats a class. A gradient also makes the computed
+   background-color transparent, which is what any contrast tooling reads.
+   The fill itself is style.css's, from the --ui-*-fill tokens. These four blocks
+   painted it too, at the same specificity and later in the cascade, so theirs
+   was the one that shipped -- from the status foregrounds, which lift in dark:
+   white on #8fc95a at 1.97:1, the figure the -fill split existed to remove. */
 .btn-blue {
-  background: linear-gradient(135deg, #185FA5 0%, #1a6fc4 100%);
-  box-shadow: 0 3px 12px rgba(24, 95, 165, .3);
+  box-shadow: 0 3px 12px rgb(var(--ui-accent-rgb) / .3);
 }
 .btn-blue:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(24, 95, 165, .38);
+  box-shadow: 0 6px 18px rgb(var(--ui-accent-rgb) / .38);
 }
 .btn-blue:active {
   transform: translateY(0);
 }
 
 .btn-green {
-  background: linear-gradient(135deg, #4a7c1c 0%, #639922 100%);
-  box-shadow: 0 3px 10px rgba(74, 124, 28, .25);
+  box-shadow: 0 3px 10px rgb(var(--ui-success-rgb) / .25);
 }
 .btn-green:hover {
   transform: translateY(-1px);
 }
 
 .btn-red {
-  background: linear-gradient(135deg, #8f2828 0%, #a32d2d 100%);
-  box-shadow: 0 3px 10px rgba(163, 45, 45, .25);
+  box-shadow: 0 3px 10px rgb(var(--ui-danger-rgb) / .25);
 }
 .btn-red:hover {
   transform: translateY(-1px);
 }
 
-.btn-yellow {
-  background: linear-gradient(135deg, #9a6310 0%, #ba7517 100%);
-}
 .btn-yellow:hover {
   transform: translateY(-1px);
 }
@@ -159,12 +166,12 @@ body:not(.login-body) {
 }
 
 .btn-outline {
-  background: #fff;
-  border: 1.5px solid var(--blue);
-  color: var(--blue);
+  background: var(--ui-surface);
+  border: 1.5px solid var(--ui-accent-200);
+  color: var(--ui-accent-600);
 }
 .btn-outline:hover {
-  background: var(--blue-lt);
+  background: var(--ui-accent-50);
   transform: translateY(-1px);
 }
 
@@ -233,21 +240,34 @@ body:not(.login-body) {
   animation: appFadeUp .55s var(--app-ease) .1s both;
 }
 
+/* 10px, not 14px. Fourteen columns at 14px each side is 392px of padding on a
+   1119px table, and the typeface change (D-284) left the two text columns --
+   company and branch -- squeezed from 93px and 115px down to 76px and 75px,
+   where a branch name wraps to seven lines and a 52px row becomes 117px. The
+   four pixels back per side are 112px returned to the columns that hold words. */
 .tbl th {
-  background: #f8f9fc;
-  color: var(--app-text-muted);
-  font-size: 12px;
-  padding: 0 14px;
+  background: var(--ui-surface-sunk);
+  color: var(--ui-text-soft);
+  font-size: var(--ui-text-xs);
+  letter-spacing: var(--ui-tracking-caps);
+  padding: 0 10px;
   height: 44px;
-  border-bottom: 1px solid var(--app-border);
+  border-bottom: 1px solid var(--ui-border);
   vertical-align: middle;
   text-align: center;
+  /* No `position: sticky`. This sheet loads after style.css, so this was the
+     declaration that actually applied -- and it could not work either: see
+     app-responsive.css's `.table-wrap` note, which said so before this branch
+     existed, and style.css's `.tbl th` for the measurement. #338 owns the
+     header that does stick. */
 }
 
 .tbl td {
-  padding: 0 14px;
+  padding: 8px 10px;
+  /* A floor, not a fixed height: a row whose content fits stays at legacy's 52px
+     and one that wraps grows, which is what a table of names has to do. */
   height: 52px;
-  border-bottom: 1px solid #f0f2f6;
+  border-bottom: 1px solid var(--ui-border-soft);
   vertical-align: middle;
   text-align: center;
 }
@@ -257,7 +277,7 @@ body:not(.login-body) {
 }
 
 .tbl tbody tr:hover td {
-  background: #f8fafc;
+  background: var(--ui-neutral-1);
 }
 
 /* —— Row actions dropdown —— */
@@ -295,7 +315,7 @@ body:not(.login-body) {
   padding: 0;
   border: 1px solid var(--app-border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--ui-surface);
   color: var(--app-text-muted);
   display: inline-flex;
   align-items: center;
@@ -306,10 +326,10 @@ body:not(.login-body) {
 
 .row-actions__trigger:hover,
 .row-actions.is-open .row-actions__trigger {
-  background: #f8fafc;
-  border-color: #cbd5e1;
+  background: var(--ui-neutral-1);
+  border-color: var(--ui-border);
   color: var(--app-text);
-  box-shadow: 0 4px 12px rgba(15, 23, 42, .08);
+  box-shadow: 0 4px 12px rgb(var(--ui-ink-rgb) / .08);
 }
 
 .row-actions__menu {
@@ -337,7 +357,7 @@ body:not(.login-body) {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: #374151;
+  color: var(--ui-neutral-10);
   font: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -351,26 +371,26 @@ body:not(.login-body) {
 }
 
 .row-actions__item:hover {
-  background: #f3f4f6;
-  color: #111827;
+  background: var(--ui-neutral-2);
+  color: var(--ui-text);
 }
 
 .row-actions__item--danger {
-  color: #dc2626;
+  color: var(--ui-danger);
 }
 
 .row-actions__item--danger:hover {
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--ui-danger-weak);
+  color: var(--ui-danger-strong);
 }
 
 .row-actions__item--success {
-  color: #15803d;
+  color: var(--ui-success);
 }
 
 .row-actions__item--success:hover {
-  background: #f0fdf4;
-  color: #166534;
+  background: var(--ui-success-weak);
+  color: var(--ui-success-strong);
 }
 
 /* —— Data table cards (org / hr / payroll) —— */
@@ -392,7 +412,7 @@ body:not(.login-body) {
 }
 
 .data-table-head {
-  background: #f8f9fc;
+  background: var(--ui-neutral-2);
   border-bottom: 1px solid var(--app-border);
 }
 
@@ -425,8 +445,8 @@ body:not(.login-body) {
 
 .modal {
   border-radius: var(--app-radius-xl);
-  border: 1px solid rgba(24, 95, 165, .08);
-  box-shadow: 0 24px 48px rgba(15, 35, 70, .18);
+  border: 1px solid rgb(var(--ui-accent-rgb) / .08);
+  box-shadow: 0 24px 48px rgb(var(--ui-ink-rgb) / .18);
   padding: 26px 28px;
 }
 
@@ -445,7 +465,7 @@ body:not(.login-body) {
   transition: background .15s;
 }
 .modal-close:hover {
-  background: #f0f2f6;
+  background: var(--ui-neutral-2);
 }
 
 /* —— Pagination (موحّد لكل الجداول) —— */
@@ -490,9 +510,9 @@ body:not(.login-body) {
   font-weight: 500;
   line-height: 1;
   text-decoration: none;
-  border: 1px solid #e2e6ef;
-  background: #fff;
-  color: #374151;
+  border: 1px solid var(--ui-border-soft);
+  background: var(--ui-surface);
+  color: var(--ui-neutral-10);
   box-sizing: border-box;
   transition: background .15s, border-color .15s, color .15s, box-shadow .15s;
   cursor: pointer;
@@ -500,17 +520,17 @@ body:not(.login-body) {
 }
 
 a.pager-btn:hover {
-  background: #f3f6fb;
-  border-color: #c5d4e8;
-  color: #185fa5;
+  background: var(--ui-neutral-2);
+  border-color: var(--ui-info-edge);
+  color: var(--ui-accent-500);
 }
 
 .pager-btn.is-current {
-  background: linear-gradient(135deg, #185fa5 0%, #1a6fc4 100%);
-  border-color: #185fa5;
-  color: #fff;
+  background: var(--ui-accent-500);
+  border-color: var(--ui-accent-500);
+  color: var(--ui-text-on-accent);
   font-weight: 700;
-  box-shadow: 0 2px 10px rgba(24, 95, 165, .28);
+  box-shadow: 0 2px 10px rgb(var(--ui-accent-rgb) / .28);
   cursor: default;
 }
 
@@ -523,7 +543,7 @@ a.pager-btn:hover {
 .pager-btn--nav {
   font-size: 18px;
   font-weight: 600;
-  color: #6b7280;
+  color: var(--ui-text-soft);
 }
 
 .pager-dots {
@@ -533,7 +553,7 @@ a.pager-btn:hover {
   min-width: 28px;
   height: 40px;
   font-size: 15px;
-  color: #9ca3af;
+  color: var(--ui-text-faint);
   letter-spacing: .12em;
 }
 
@@ -549,11 +569,11 @@ a.pager-btn:hover {
   height: 40px !important;
   padding: 0 36px 0 14px !important;
   border-radius: 10px !important;
-  border: 1px solid #e2e6ef !important;
-  background: #fff !important;
+  border: 1px solid var(--ui-border-soft) !important;
+  background: var(--ui-surface) !important;
   font-size: 13px !important;
   font-weight: 500;
-  color: #374151;
+  color: var(--ui-neutral-10);
   cursor: pointer;
   appearance: auto;
 }
@@ -563,7 +583,7 @@ a.pager-btn:hover {
 .table-wrap + .pager-wrap {
   margin-top: 0;
   padding: 14px 16px 16px;
-  background: #fff;
+  background: var(--ui-surface);
   border-top: 1px solid var(--app-border);
 }
 
@@ -794,7 +814,7 @@ html[dir="ltr"] .home-topbar-menu {
 }
 .home-topbar-account:hover,
 .home-topbar-account[aria-expanded="true"] {
-  background: #f3f4f6;
+  background: var(--ui-neutral-2);
 }
 
 .home-topbar-chevron {
@@ -803,7 +823,7 @@ html[dir="ltr"] .home-topbar-menu {
   justify-content: center;
   width: 28px;
   height: 28px;
-  color: #6b7280;
+  color: var(--ui-text-soft);
   flex-shrink: 0;
   transition: transform .2s;
 }
@@ -818,10 +838,10 @@ html[dir="ltr"] .home-topbar-menu {
   left: 0;
   min-width: 200px;
   padding: 6px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border-soft);
   border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(15, 23, 42, .12);
+  box-shadow: 0 10px 40px rgb(var(--ui-ink-rgb) / .12);
   z-index: 100;
 }
 .home-topbar-account-wrap.is-open .home-topbar-menu {
@@ -836,7 +856,7 @@ html[dir="ltr"] .home-topbar-menu {
   border-radius: 8px;
   font-size: 14px;
   font-weight: 500;
-  color: #374151;
+  color: var(--ui-neutral-10);
   text-decoration: none;
   transition: background .15s, color .15s;
 }
@@ -845,15 +865,15 @@ html[dir="ltr"] .home-topbar-menu {
   opacity: .85;
 }
 .home-topbar-menu-item:hover {
-  background: #f3f4f6;
-  color: #111827;
+  background: var(--ui-neutral-2);
+  color: var(--ui-text);
 }
 .home-topbar-menu-item--logout {
-  color: #dc2626;
+  color: var(--ui-danger);
 }
 .home-topbar-menu-item--logout:hover {
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--ui-danger-weak);
+  color: var(--ui-danger-strong);
 }
 
 .home-topbar-text {
@@ -866,7 +886,7 @@ html[dir="ltr"] .home-topbar-menu {
 .home-topbar-company {
   font-size: 15px;
   font-weight: 700;
-  color: #111827;
+  color: var(--ui-text);
   line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
@@ -875,7 +895,7 @@ html[dir="ltr"] .home-topbar-menu {
 }
 .home-topbar-user {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--ui-text-soft);
   line-height: 1.3;
 }
 
@@ -885,11 +905,11 @@ html[dir="ltr"] .home-topbar-menu {
   border-radius: 50%;
   overflow: hidden;
   flex-shrink: 0;
-  background: linear-gradient(145deg, #4a5568, #2d3748);
+  background: linear-gradient(145deg, var(--ui-neutral-9), var(--ui-neutral-10));
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #e2e8f0;
+  color: var(--ui-neutral-3);
 }
 .home-topbar-avatar img {
   width: 100%;
@@ -912,14 +932,14 @@ html[dir="ltr"] .home-topbar-menu {
   border: none;
   border-radius: 10px;
   background: transparent;
-  color: #374151;
+  color: var(--ui-neutral-10);
   cursor: pointer;
   text-decoration: none;
   transition: background .2s, color .2s;
 }
 .home-topbar-icon-btn:hover {
-  background: #f3f4f6;
-  color: #111827;
+  background: var(--ui-neutral-2);
+  color: var(--ui-text);
 }
 
 .home-topbar-badge {
@@ -930,8 +950,8 @@ html[dir="ltr"] .home-topbar-menu {
   height: 18px;
   padding: 0 5px;
   border-radius: 999px;
-  background: #dc2626;
-  color: #fff;
+  background: var(--ui-danger-fill);
+  color: var(--ui-text-on-accent);
   font-size: 10px;
   font-weight: 700;
   line-height: 18px;
@@ -947,16 +967,16 @@ html[dir="ltr"] .home-topbar-menu {
   padding: 6px 8px;
   border-radius: 10px;
   text-decoration: none;
-  color: #111827;
+  color: var(--ui-text);
   font-weight: 700;
   font-size: 14px;
   transition: background .2s;
 }
 .home-topbar-lang:hover {
-  background: #f3f4f6;
+  background: var(--ui-neutral-2);
 }
 .home-topbar-lang svg {
-  color: #6b7280;
+  color: var(--ui-text-soft);
 }
 
 @media (max-width: 640px) {

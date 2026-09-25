@@ -33,6 +33,11 @@ public final class AdminIcons {
 		ICONS.put("attendance", "<rect x=\"3\" y=\"4\" width=\"18\" height=\"18\" rx=\"2\"/><path d=\"M16 2v4M8 2v4M3 10h18\"/>");
 		ICONS.put("banners", "<rect x=\"2\" y=\"3\" width=\"20\" height=\"18\" rx=\"2\"/><path d=\"M2 8h20M8 21h8\"/><circle cx=\"8\" cy=\"13\" r=\"2\"/><path d=\"M16 11l4 2-4 2z\"/>");
 		ICONS.put("branch", "<path d=\"M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z\"/><circle cx=\"12\" cy=\"10\" r=\"3\"/>");
+		ICONS.put("alert", "<path d=\"M12 9v4M12 17h.01\"/><path d=\"M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z\"/>");
+		ICONS.put("approved", "<path d=\"M22 11.08V12a10 10 0 1 1-5.93-9.14\"/><path d=\"M22 4L12 14.01l-3-3\"/>");
+		ICONS.put("awaiting", "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 6v6l4 2\"/>");
+		ICONS.put("money", "<rect x=\"2\" y=\"6\" width=\"20\" height=\"12\" rx=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"2.5\"/><path d=\"M6 12h.01M18 12h.01\"/>");
+		ICONS.put("trend", "<path d=\"M23 6l-9.5 9.5-5-5L1 18\"/><path d=\"M17 6h6v6\"/>");
 		ICONS.put("calculator", "<rect x=\"4\" y=\"2\" width=\"16\" height=\"20\" rx=\"2\"/><path d=\"M8 6h8M8 10h2M14 10h2M8 14h2M14 14h2M8 18h8\"/>");
 		ICONS.put("comms_group", "<path d=\"M4 11v4h4l5 5V6L8 11H4z\"/><path d=\"M15.54 8.46a5 5 0 0 1 0 7.07\"/><path d=\"M19.07 4.93a10 10 0 0 1 0 14.14\"/>");
 		ICONS.put("companies", "<path d=\"M3 21h18M5 21V7l7-4 7 4v14\"/><path d=\"M9 21v-6h6v6\"/>");
@@ -65,6 +70,19 @@ public final class AdminIcons {
 	}
 
 	private AdminIcons() {
+	}
+
+	/**
+	 * The same glyph under a different class, for a surface that is not the
+	 * sidebar.
+	 *
+	 * <p>{@code OPEN} names {@code nav-icon}, which the copied sidebar CSS sizes
+	 * and which means nothing on the home page's grid. The stroke attributes are
+	 * the part that must not change, so only the class is substituted.
+	 */
+	public static String of(String name, String className) {
+		String icon = of(name);
+		return icon.isEmpty() ? icon : icon.replace("class=\"nav-icon\"", "class=\"" + className + "\"");
 	}
 
 	/** @return the wrapped SVG for {@code name}, or an empty string when there is no such icon */

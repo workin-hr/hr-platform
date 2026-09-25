@@ -103,6 +103,56 @@ class PlatformAdminAssetsExposureTest extends AbstractIntegrationTest {
 	}
 
 	/**
+	 * Every font the stylesheet asks for is served, and kept for a year.
+	 *
+	 * <p>Both halves, because neither had a test. The twelve {@code .woff2} files were vendored and
+	 * referenced and nothing asserted that a single one of them answers -- a typo in a
+	 * {@code src: url(...)} would have fallen back to the system font silently, in Arabic, which is
+	 * where it would be least obvious. And they sat in the revalidated bucket, so each page load
+	 * spent a round trip per font asking about a file that changes when the typeface changes.
+	 *
+	 * <p>Driven from the stylesheet's own {@code @font-face} rules rather than from a list written
+	 * here: a list would go stale against the sheet, and the sheet is what the browser reads.
+	 */
+	@Test
+	void everyFontTheStylesheetAsksForIsServedAndKeptForAYear() {
+		String sheet = this.restTemplate.getForObject(url("/admin/_assets/app-tokens.css"), String.class);
+		java.util.List<String> sources = new java.util.ArrayList<>();
+		java.util.regex.Matcher source =
+				java.util.regex.Pattern.compile("src:\\s*url\\('([^']+)'\\)").matcher(sheet);
+		while (source.find()) {
+			sources.add(source.group(1));
+		}
+		assertThat(sources)
+				.as("the @font-face rules the sheet actually declares; read from the served sheet so "
+						+ "a list here cannot go stale against it")
+				.hasSize(12)
+				.allSatisfy(url -> assertThat(url).startsWith("fonts/").endsWith(".woff2"));
+
+		for (String relative : sources) {
+			ResponseEntity<byte[]> font = this.restTemplate.getForEntity(
+					url("/admin/_assets/" + relative), byte[].class);
+			assertThat(font.getStatusCode())
+					.as(relative + " is referenced by the stylesheet, so it must answer")
+					.isEqualTo(HttpStatus.OK);
+			assertThat(font.getBody())
+					.as(relative + " must be a woff2, not an error page: the magic number is wOF2")
+					.isNotNull()
+					.startsWith((byte) 'w', (byte) 'O', (byte) 'F', (byte) '2');
+			assertThat(font.getHeaders().getCacheControl())
+					.as(relative + " changes when the typeface changes, which is not a deploy. A "
+							+ "year, immutable -- and the price is that a replacement is a rename")
+					.isEqualTo("max-age=31536000, public, immutable");
+			assertThat(font.getHeaders().getETag())
+					.as("still content-addressed, so a rename is not the only protection")
+					.isEqualTo(contentEtag(font.getBody()));
+			assertThat(font.getHeaders().getLastModified())
+					.as("the jar's fixed timestamps cannot tell two deploys apart (D-266)")
+					.isEqualTo(-1);
+		}
+	}
+
+	/**
 	 * A stylesheet or script changes with a deploy under the same URL, so the browser revalidates it
 	 * on every load against its content, and gets a 304 while it is current. A matching
 	 * {@code If-Modified-Since} alone does not earn a 304: the jar's timestamps cannot tell two

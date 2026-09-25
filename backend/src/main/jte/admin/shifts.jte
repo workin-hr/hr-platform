@@ -175,7 +175,7 @@
 							<td>
 								@template.admin.statusBadge(status = row.active() ? "active" : "suspended", t = t)
 							</td>
-							<td>${row.createdDate()}</td>
+							<td class="nowrap">${row.createdDate()}</td>
 							<td class="col-actions">
 								@if(canManage)
 									@template.admin.rowActions(rowId = row.id(), t = t, items = @`

@@ -131,7 +131,7 @@
 								<td>
 									@template.admin.statusBadge(status = row.read() ? "1" : "0", t = t)
 								</td>
-								<td class="text-muted" dir="ltr">${row.createdAtDisplay()}</td>
+								<td class="nowrap text-muted" dir="ltr">${row.createdAtDisplay()}</td>
 								<td class="col-actions">
 									@if(canWrite)
 										@template.admin.rowActions(rowId = row.id(), t = t, items = @`

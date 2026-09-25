@@ -5,27 +5,38 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/*
+ * Legacy's vocabulary, kept as the name some sheets in here already use and
+ * re-pointed at app-tokens.css. A sheet asking for var(--blue) gets the design
+ * system's accent, and the hex literals that used to live here are now one ramp
+ * in one file. The rules below did change -- this sheet is where most of the
+ * conversion landed -- and the first version of this sentence said they had not,
+ * which is the kind of claim a reader checks once and then trusts.
+ *
+ * Do not add a colour here. New rules read --ui-* directly. These five are the
+ * ones with a referrer: --blue and --blue-lt in app-responsive.css, app-ui.css
+ * and this sheet, --red here, --gray in home.css, and --topbar-h here -- four
+ * sheets and twelve references in total. This block declared thirteen until
+ * review counted them, and the sentence here said "these twelve exist because
+ * 18 sheets already reference them", which was wrong about all three numbers
+ * and about eight aliases that had no referrer at all. They are deleted, and
+ * noLegacyAliasIsDeclaredWithoutAReferrer is what counts now, because a
+ * sentence does not.
+ */
 :root {
-  --blue:    #185FA5;
-  --blue-lt: #E6F1FB;
-  --green:   #3B6D11;
-  --green-lt:#EAF3DE;
-  --red:     #A32D2D;
-  --red-lt:  #FCEBEB;
-  --yellow:  #854F0B;
-  --yel-lt:  #FAEEDA;
-  --gray:    #5F5E5A;
-  --gray-lt: #F1EFE8;
-  --pink-lt: #FBEAF0;
-  --pink:    #993556;
-  --topbar-h:  60px;
+  --blue:    var(--ui-accent-500);
+  --blue-lt: var(--ui-info-weak);
+  --red:     var(--ui-danger);
+  --gray:    var(--ui-neutral-9);
+  --topbar-h: var(--ui-topbar-h);
 }
 
 body {
-  font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
-  font-size: 14px;
-  background: #f5f4f0;
-  color: #2c2c2a;
+  /* family, size and line-height come from app-tokens.css */
+  font-family: var(--ui-font);
+  font-size: var(--ui-text-base);
+  background: var(--ui-bg);
+  color: var(--ui-text);
   direction: rtl;
 }
 
@@ -34,26 +45,61 @@ html[dir="ltr"] body {
 }
 
 /* ===== LAYOUT ===== */
-.shell { display: flex; min-height: 100vh; }
+/*
+ * `height`, not `min-height`, and this one declaration decides three separate
+ * behaviours further down this sheet and the next.
+ *
+ * `.main` is `overflow: hidden` and `.content` is `overflow-y: auto`: that is an
+ * app shell, where the pane scrolls and the document does not. With
+ * `min-height` the shell grew to its content instead, so `.content` never
+ * overflowed, never produced a scrollbar, and never scrolled -- while still
+ * being a scroll container, which is what a sticky descendant anchors itself to.
+ * So the document scrolled and three things quietly did nothing:
+ *
+ *   - `.topbar`'s `position: sticky` (anchored to `.main`, which cannot scroll)
+ *   - `body.nav-locked .content { overflow: hidden }` in app-responsive.css,
+ *     whose own comment explains that `.content` is the scroller and locking
+ *     the body would do nothing -- which was the wrong way round
+ *
+ * Both hold now, measured in headless Chromium against this nesting at 1440x900,
+ * 1000x600 and 768x1024: `.content` reports `scrollable=true` and the topbar keeps
+ * `top=14` through a 600px scroll. `.tbl th` was on that list and is not any more;
+ * see the table rule below for why the same fix did not reach it.
+ *
+ * `dvh` second so a mobile browser's shrinking toolbar does not crop the pane;
+ * the `vh` line stays as the fallback, as `.sidebar` already does at 1024.
+ */
+.shell { display: flex; height: 100vh; height: 100dvh; }
 .main  { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
 /* ===== TOPBAR ===== */
-.topbar { height: var(--topbar-h); background: #fff; border-bottom: 1px solid #e0ded8;
+.topbar { height: var(--topbar-h); background: var(--ui-surface);
+          border-bottom: 1px solid var(--ui-border-soft);
           display: flex; align-items: center; justify-content: space-between;
-          padding: 0 24px; flex-shrink: 0; }
-.page-title  { font-size: 18px; font-weight: 600; color: #1e1e1c; }
+          padding: 0 var(--ui-space-6); flex-shrink: 0;
+          /* `relative` and not `sticky`: the app shell already pins this. `.main`
+             does not scroll -- only `.content` inside it does -- so measured at
+             1440x900 the topbar holds its viewport position through a 400px
+             scroll with `position: static` just as it does with `sticky`. A
+             declaration that changes nothing reads as if something needed
+             doing. `relative` is kept so the z-index still applies. */
+          position: relative; z-index: var(--ui-z-topbar); }
+.page-title  { font-size: var(--ui-text-lg); font-weight: var(--ui-weight-semibold);
+               line-height: var(--ui-leading-tight); color: var(--ui-text);
+               letter-spacing: -.01em; }
 .topbar-util {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 13px;
+  gap: var(--ui-space-3);
+  font-size: var(--ui-text-sm);
 }
 .topbar-util__lang {
-  color: var(--blue);
-  font-weight: 600;
+  color: var(--ui-link);
+  font-weight: var(--ui-weight-semibold);
   text-decoration: none;
-  padding: 4px 8px;
-  border-radius: 6px;
+  padding: var(--ui-space-1) var(--ui-space-2);
+  border-radius: var(--ui-radius-xs);
+  transition: background var(--ui-duration-fast) var(--ui-ease);
 }
 .topbar-util__lang:hover { background: var(--blue-lt); }
 .topbar-util__logout {
@@ -71,89 +117,171 @@ html[dir="ltr"] body {
 .topbar-util__logout:hover {
   text-decoration: underline;
 }
-.admin-badge { background: var(--blue-lt); color: var(--blue);
-               font-size: 11px; font-weight: 600; padding: 3px 10px;
-               border-radius: 99px; }
+.admin-badge { background: var(--ui-info-weak); color: var(--ui-accent-700);
+               font-size: var(--ui-text-xs); font-weight: var(--ui-weight-semibold);
+               padding: 3px var(--ui-space-3); border-radius: var(--ui-radius-pill);
+               border: 1px solid var(--ui-info-edge); white-space: nowrap; }
 
 /* ===== CONTENT ===== */
-.content { padding: 24px; flex: 1; overflow-y: auto; }
+.content { padding: var(--ui-space-6); flex: 1; overflow-y: auto; }
 
-/* ===== FLASH ===== */
-.flash { margin: 0 24px; padding: 12px 16px; border-radius: 8px;
-         font-size: 13px; font-weight: 500; }
-.flash-success { background: var(--green-lt); color: var(--green);
-                 border: 1px solid #97C459; }
-.flash-error   { background: var(--red-lt);   color: var(--red);
-                 border: 1px solid #F09595; }
-.flash-warning { background: var(--yel-lt);  color: var(--yellow);
-                 border: 1px solid #EF9F27; }
+/* ===== FLASH =====
+   A left/right accent bar rather than a full border: at 13px a four-sided
+   coloured box reads as a form field, and a message is not one. */
+.flash { margin: 0 var(--ui-space-6) var(--ui-space-4); padding: var(--ui-space-3) var(--ui-space-4);
+         border-radius: var(--ui-radius-sm); font-size: var(--ui-text-sm);
+         font-weight: var(--ui-weight-medium); line-height: var(--ui-leading);
+         border: 1px solid transparent; border-inline-start-width: 3px; }
+.flash-success { background: var(--ui-success-weak); color: var(--ui-success);
+                 border-color: var(--ui-success-edge); border-inline-start-color: var(--ui-success); }
+.flash-error   { background: var(--ui-danger-weak);  color: var(--ui-danger);
+                 border-color: var(--ui-danger-edge);  border-inline-start-color: var(--ui-danger); }
+.flash-warning { background: var(--ui-warning-weak); color: var(--ui-warning);
+                 border-color: var(--ui-warning-edge); border-inline-start-color: var(--ui-warning); }
 
 /* ===== STATS CARDS ===== */
-.stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-              gap: 16px; margin-bottom: 28px; }
-.stat-card  { background: #fff; border-radius: 12px; padding: 20px 16px;
-              border: 1px solid #e8e6e0; }
-.stat-num   { font-size: 28px; font-weight: 700; color: #1e1e1c; line-height: 1; }
-.stat-label { font-size: 12px; color: #888780; margin-top: 6px; }
-.stat-card.blue   { border-top: 3px solid var(--blue);  }
-.stat-card.green  { border-top: 3px solid #639922; }
-.stat-card.yellow { border-top: 3px solid #BA7517; }
-.stat-card.red    { border-top: 3px solid #E24B4A; }
-.stat-card.gray   { border-top: 3px solid #888780; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+              gap: var(--ui-space-4); margin-bottom: var(--ui-space-8); }
+.stat-card  { background: var(--ui-surface); border-radius: var(--ui-radius-lg);
+              padding: var(--ui-space-5) var(--ui-space-4);
+              border: 1px solid var(--ui-border-soft); box-shadow: var(--ui-shadow-xs);
+              /* The accent is a top rule, so a card with no colour class still
+                 has the border a card with one does -- otherwise the set jumps
+                 3px as soon as one figure is coloured. */
+              border-top: 3px solid var(--ui-border); }
+.stat-num   { font-size: var(--ui-text-xl); font-weight: var(--ui-weight-bold);
+              color: var(--ui-text); line-height: var(--ui-leading-tight);
+              font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.stat-label { font-size: var(--ui-text-xs); color: var(--ui-text-muted);
+              margin-top: var(--ui-space-1); font-weight: var(--ui-weight-medium); }
+.stat-card.blue   { border-top-color: var(--ui-accent-500); }
+.stat-card.green  { border-top-color: var(--ui-success); }
+.stat-card.yellow { border-top-color: var(--ui-warning); }
+.stat-card.red    { border-top-color: var(--ui-danger); }
+.stat-card.gray   { border-top-color: var(--ui-neutral-6); }
 
 /* ===== TOOLBAR (search + buttons) ===== */
-.toolbar { display: flex; align-items: center; gap: 10px;
-           margin-bottom: 16px; flex-wrap: wrap; }
-.toolbar form { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
+.toolbar { display: flex; align-items: center; gap: var(--ui-space-2);
+           margin-bottom: var(--ui-space-4); flex-wrap: wrap; }
+.toolbar form { display: flex; gap: var(--ui-space-2); flex-wrap: wrap; flex: 1;
+                align-items: flex-end; }
 
 /* ===== INPUTS & SELECTS ===== */
 input[type=text], input[type=email], input[type=password],
 input[type=number], input[type=date], input[type=tel], select, textarea {
-  padding: 8px 12px; border: 1px solid #d3d1c7; border-radius: 8px;
-  font-size: 13px; font-family: inherit; background: #fff; color: #2c2c2a;
-  outline: none; transition: border-color .15s; width: 100%; direction: rtl; }
-input:focus, select:focus, textarea:focus { border-color: var(--blue); }
-textarea { min-height: 80px; resize: vertical; }
+  /* One height for every control, so a row of a select, an input and a button
+     lines up without each page nudging its own. */
+  min-height: 36px;
+  padding: var(--ui-space-2) var(--ui-space-3);
+  border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-sm);
+  font-size: var(--ui-text-sm); font-family: inherit;
+  background: var(--ui-surface); color: var(--ui-text);
+  outline: none; width: 100%; direction: rtl;
+  transition: border-color var(--ui-duration-fast) var(--ui-ease),
+              box-shadow var(--ui-duration-fast) var(--ui-ease); }
+input:hover:not(:disabled), select:hover:not(:disabled), textarea:hover:not(:disabled) {
+  border-color: var(--ui-neutral-6); }
+/* A visible ring, not only a border-colour change: at 1px a recoloured border
+   is close to invisible against a warm surface, and it is the only thing a
+   keyboard user has to go on. */
+input:focus, select:focus, textarea:focus {
+  border-color: var(--ui-focus); box-shadow: var(--ui-focus-ring); }
+input:disabled, select:disabled, textarea:disabled {
+  background: var(--ui-surface-sunk); color: var(--ui-text-faint); cursor: not-allowed; }
+input::placeholder, textarea::placeholder { color: var(--ui-text-faint); opacity: 1; }
+input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"] {
+  border-color: var(--ui-danger); }
+input[aria-invalid="true"]:focus, select[aria-invalid="true"]:focus,
+textarea[aria-invalid="true"]:focus {
+  box-shadow: 0 0 0 3px rgb(var(--ui-danger-rgb) / .25); }
+select { cursor: pointer; }
+textarea { min-height: 88px; resize: vertical; line-height: var(--ui-leading); }
 .input-sm { max-width: 220px; }
 
-/* ===== BUTTONS ===== */
-.btn { display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
-       border: none; border-radius: 8px; padding: 8px 16px;
-       font-size: 13px; font-family: inherit; font-weight: 500;
-       text-decoration: none; transition: opacity .15s; }
-.btn:hover { opacity: .85; }
-.btn-blue   { background: var(--blue);  color: #fff; }
-.btn-green  { background: #639922;      color: #fff; }
-.btn-red    { background: var(--red);   color: #fff; }
-.btn-yellow { background: #BA7517;      color: #fff; }
-.btn-gray   { background: #888780;      color: #fff; }
-.btn-outline{ background: transparent;  color: var(--blue);
-              border: 1px solid var(--blue); }
-.btn-sm { padding: 5px 10px; font-size: 12px; border-radius: 6px; }
+/* ===== BUTTONS =====
+   Hover darkens the surface instead of fading the whole button. `opacity: .85`
+   fades the label with it, which on a coloured button drops the text contrast
+   below AA at exactly the moment the pointer is on it. */
+.btn { display: inline-flex; align-items: center; justify-content: center;
+       gap: var(--ui-space-2); cursor: pointer;
+       border: 1px solid transparent; border-radius: var(--ui-radius-sm);
+       min-height: 36px; padding: var(--ui-space-2) var(--ui-space-4);
+       font-size: var(--ui-text-sm); font-family: inherit;
+       font-weight: var(--ui-weight-medium); line-height: 1.2;
+       text-decoration: none; white-space: nowrap;
+       transition: background var(--ui-duration-fast) var(--ui-ease),
+                   border-color var(--ui-duration-fast) var(--ui-ease),
+                   box-shadow var(--ui-duration-fast) var(--ui-ease),
+                   transform var(--ui-duration-fast) var(--ui-ease); }
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: none; box-shadow: var(--ui-focus-ring); }
+.btn:disabled, .btn[aria-disabled="true"] {
+  cursor: not-allowed; opacity: .55; transform: none; box-shadow: none; }
+.btn-blue   { background: var(--ui-accent-fill); color: var(--ui-text-on-accent); }
+.btn-blue:hover:not(:disabled)   { background: var(--ui-accent-fill-hover); }
+.btn-green  { background: var(--ui-success-fill); color: var(--ui-text-on-accent); }
+.btn-green:hover:not(:disabled)  { background: var(--ui-success-fill-hover); }
+.btn-red    { background: var(--ui-danger-fill);  color: var(--ui-text-on-accent); }
+.btn-red:hover:not(:disabled)    { background: var(--ui-danger-fill-hover); }
+.btn-yellow { background: var(--ui-warning-fill); color: var(--ui-text-on-accent); }
+.btn-yellow:hover:not(:disabled) { background: var(--ui-warning-fill-hover); }
+.btn-gray   { background: var(--ui-neutral-3); color: var(--ui-text);
+              border-color: var(--ui-border); }
+.btn-gray:hover:not(:disabled)   { background: var(--ui-neutral-4); }
+.btn-outline{ background: var(--ui-surface); color: var(--ui-accent-600);
+              border-color: var(--ui-accent-200); }
+.btn-outline:hover:not(:disabled){ background: var(--ui-accent-50);
+                                   border-color: var(--ui-accent-300); }
+.btn-sm { min-height: 30px; padding: var(--ui-space-1) var(--ui-space-3);
+          font-size: var(--ui-text-xs); border-radius: var(--ui-radius-xs); }
 
 /* ===== TABLE ===== */
 .table-wrap {
   overflow-x: auto;
   max-width: 100%;
-  border-radius: 12px;
-  border: 1px solid #e8e6e0;
-  background: #fff;
+  border-radius: var(--ui-radius-lg);
+  border: 1px solid var(--ui-border-soft);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-xs);
 }
 .tbl {
   width: 100%;
   max-width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--ui-text-sm);
+  line-height: var(--ui-leading-table);
   table-layout: auto;
 }
-.tbl th { background: #f5f4f0; padding: 10px 14px; text-align: center;
-          font-weight: 600; color: #5F5E5A; border-bottom: 1px solid #e8e6e0;
+/* No `position: sticky` here, and the reason is a measurement rather than taste.
+   A sticky element is clamped by its *nearest* scroll container, and `.table-wrap`
+   above declares `overflow-x: auto`, which makes it one -- Chromium reports its
+   `overflow-y` as `hidden` -- on both axes. It has no height cap, so it never
+   scrolls vertically, and a header clamped to a box that does not scroll does not
+   move. Measured with the real nesting
+   (`.content > .data-table-card > .table-wrap > table.tbl`, 60 rows) at three
+   viewports: scrolling `.content` by 600px puts the `th` at `top=-478`, i.e. off
+   the screen, while the topbar above it holds. Fixing the app shell revived the
+   topbar and did not revive this, because the two anchor to different boxes.
+   A header that does stick needs the table region itself to be the scroller and
+   to end inside the pane -- a per-page layout change, since what sits above the
+   table varies from nothing to a filter card, and a fixed `max-height` guess is
+   right on one page and wrong on the next. That is #338, with the two candidate
+   designs and this measurement; `everyStickyRuleHasAScrollportThatCanScroll`
+   fails if one comes back here without one. */
+.tbl th { background: var(--ui-surface-sunk); padding: var(--ui-space-3) var(--ui-space-4);
+          text-align: center; font-weight: var(--ui-weight-semibold);
+          font-size: var(--ui-text-xs); letter-spacing: var(--ui-tracking-caps);
+          text-transform: none; color: var(--ui-text-soft);
+          border-bottom: 1px solid var(--ui-border);
           white-space: nowrap; }
-.tbl td { padding: 10px 14px; border-bottom: 1px solid #f0ede8;
-          vertical-align: middle; text-align: center; }
+.tbl td { padding: var(--ui-space-3) var(--ui-space-4);
+          border-bottom: 1px solid var(--ui-border-soft);
+          vertical-align: middle; text-align: center; color: var(--ui-text); }
 .tbl tr:last-child td { border-bottom: none; }
-.tbl tr:hover td { background: #fafaf8; }
-.tbl .actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; justify-content: center; }
+.tbl tbody tr { transition: background var(--ui-duration-fast) var(--ui-ease); }
+.tbl tbody tr:hover td { background: var(--ui-surface-hover); }
+.tbl .actions { display: flex; gap: var(--ui-space-2); flex-wrap: wrap;
+                align-items: center; justify-content: center; }
 .tbl .actions .inline-form { display: inline; margin: 0; }
 
 .sr-only {
@@ -168,58 +296,111 @@ textarea { min-height: 80px; resize: vertical; }
   border: 0;
 }
 
-/* ===== BADGES ===== */
-.badge { display: inline-block; font-size: 11px; font-weight: 600;
-         padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
-.badge-green  { background: var(--green-lt); color: var(--green); }
-.badge-red    { background: var(--red-lt);   color: var(--red); }
-.badge-yellow { background: var(--yel-lt);   color: var(--yellow); }
-.badge-blue   { background: var(--blue-lt);  color: var(--blue); }
-.badge-gray   { background: var(--gray-lt);  color: var(--gray); }
-.badge-pink   { background: var(--pink-lt);  color: var(--pink); }
+/* ===== BADGES =====
+   A hairline edge, because a tinted pill with no border disappears against the
+   warm row hover -- these sit inside table cells more often than anywhere else. */
+.badge { display: inline-block; font-size: var(--ui-text-xs);
+         font-weight: var(--ui-weight-semibold); line-height: 1.5;
+         padding: 1px var(--ui-space-2); border-radius: var(--ui-radius-pill);
+         white-space: nowrap; border: 1px solid transparent; }
+.badge-green  { background: var(--ui-success-weak); color: var(--ui-success);
+                border-color: var(--ui-success-edge); }
+.badge-red    { background: var(--ui-danger-weak);  color: var(--ui-danger);
+                border-color: var(--ui-danger-edge); }
+.badge-yellow { background: var(--ui-warning-weak); color: var(--ui-warning);
+                border-color: var(--ui-warning-edge); }
+.badge-blue   { background: var(--ui-info-weak);    color: var(--ui-accent-700);
+                border-color: var(--ui-info-edge); }
+.badge-gray   { background: var(--ui-neutral-2);    color: var(--ui-text-soft);
+                border-color: var(--ui-border); }
+.badge-pink   { background: var(--ui-accent-pink-weak); color: var(--ui-accent-pink);
+                border-color: var(--ui-accent-pink-edge); }
 
-/* ===== MODAL ===== */
+/* ===== MODAL =====
+   z-index stays 11000 rather than moving to --ui-z-modal: legacy's own overlays
+   and three page sheets already sit on that scale, and renumbering one of them
+   is how a dialog ends up under its own backdrop. The token records the intent
+   for new layers; this one keeps the number it has. */
 .modal-bg { display: none; position: fixed; inset: 0;
-            background: rgba(0,0,0,.45); z-index: 11000;
-            justify-content: center; align-items: center; }
+            background: rgb(var(--ui-ink-rgb) / .5); z-index: 11000;
+            justify-content: center; align-items: center;
+            padding: var(--ui-space-4);
+            -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
 .modal-bg.open { display: flex; }
-.modal { background: #fff; border-radius: 16px; padding: 28px;
-         width: min(520px, 92vw); max-height: 90vh; overflow-y: auto;
-         position: relative; }
-.modal h2 { font-size: 16px; margin-bottom: 20px; color: #1e1e1c; }
-.modal-close { position: absolute; top: 16px; left: 16px; background: none;
-               border: none; font-size: 20px; cursor: pointer; color: #888; }
-.form-row { margin-bottom: 14px; }
-.form-row label { display: block; font-size: 12px; font-weight: 600;
-                  color: #5F5E5A; margin-bottom: 4px; }
-.form-footer { display: flex; gap: 10px; justify-content: flex-end;
-               margin-top: 20px; padding-top: 16px;
-               border-top: 1px solid #e8e6e0; }
+.modal { background: var(--ui-surface); border-radius: var(--ui-radius-xl);
+         padding: var(--ui-space-6); width: min(520px, 92vw); max-height: 88vh;
+         overflow-y: auto; position: relative; box-shadow: var(--ui-shadow-lg);
+         border: 1px solid var(--ui-border-soft); }
+.modal h2 { font-size: var(--ui-text-md); font-weight: var(--ui-weight-semibold);
+            margin-bottom: var(--ui-space-5); color: var(--ui-text);
+            padding-inline-end: var(--ui-space-8); }
+.modal-close { position: absolute; top: var(--ui-space-4); left: var(--ui-space-4);
+               background: none; border: none; font-size: var(--ui-text-lg);
+               line-height: 1; cursor: pointer; color: var(--ui-text-muted);
+               width: 28px; height: 28px; border-radius: var(--ui-radius-xs);
+               display: inline-flex; align-items: center; justify-content: center;
+               transition: background var(--ui-duration-fast) var(--ui-ease); }
+.modal-close:hover { background: var(--ui-surface-hover); color: var(--ui-text); }
+.modal-close:focus-visible { outline: none; box-shadow: var(--ui-focus-ring); }
+.form-row { margin-bottom: var(--ui-space-4); }
+.form-row label { display: block; font-size: var(--ui-text-xs);
+                  font-weight: var(--ui-weight-semibold); color: var(--ui-text-soft);
+                  margin-bottom: var(--ui-space-1); }
+/* Sticky, so the confirm button of a long form is reachable without scrolling
+   to the bottom of a dialog that is already at 88vh. */
+.form-footer { display: flex; gap: var(--ui-space-2); justify-content: flex-end;
+               margin-top: var(--ui-space-5); padding-top: var(--ui-space-4);
+               border-top: 1px solid var(--ui-border-soft);
+               position: sticky; bottom: calc(var(--ui-space-6) * -1);
+               background: var(--ui-surface);
+               padding-bottom: var(--ui-space-6);
+               margin-bottom: calc(var(--ui-space-6) * -1); }
 
 /* ===== SECTION HEADING ===== */
 .section-head { display: flex; align-items: center; justify-content: space-between;
-                margin-bottom: 16px; }
-.section-head h2 { font-size: 15px; font-weight: 600; color: #1e1e1c; }
+                gap: var(--ui-space-3); margin-bottom: var(--ui-space-4);
+                flex-wrap: wrap; }
+.section-head h2 { font-size: var(--ui-text-md); font-weight: var(--ui-weight-semibold);
+                   color: var(--ui-text); line-height: var(--ui-leading-tight); }
 
 /* ===== DETAIL CARD ===== */
-.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.detail-item label { font-size: 11px; color: #888780; display: block; margin-bottom: 2px; }
-.detail-item span  { font-size: 14px; font-weight: 500; }
+.detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+               gap: var(--ui-space-4) var(--ui-space-5); }
+.detail-item label { font-size: var(--ui-text-xs); color: var(--ui-text-muted);
+                     display: block; margin-bottom: 2px;
+                     font-weight: var(--ui-weight-medium); }
+.detail-item span  { font-size: var(--ui-text-base); font-weight: var(--ui-weight-medium);
+                     color: var(--ui-text); }
 
 /* ===== LOGIN PAGE ===== */
 .login-page { min-height: 100vh; display: flex; align-items: center;
-              justify-content: center; background: #f5f4f0; }
-.login-box  { background: #fff; border-radius: 16px; padding: 36px 32px;
-              width: min(380px, 92vw); border: 1px solid #e8e6e0; }
-.login-box h1 { font-size: 20px; margin-bottom: 6px; text-align: center; }
-.login-box p  { font-size: 13px; color: #888780; margin-bottom: 24px; text-align: center; }
+              justify-content: center; background: var(--ui-bg);
+              padding: var(--ui-space-4); }
+.login-box  { background: var(--ui-surface); border-radius: var(--ui-radius-xl);
+              padding: var(--ui-space-10) var(--ui-space-8);
+              width: min(380px, 92vw); border: 1px solid var(--ui-border-soft);
+              box-shadow: var(--ui-shadow-sm); }
+.login-box h1 { font-size: var(--ui-text-lg); font-weight: var(--ui-weight-semibold);
+                margin-bottom: var(--ui-space-1); text-align: center;
+                color: var(--ui-text); }
+.login-box p  { font-size: var(--ui-text-sm); color: var(--ui-text-muted);
+                margin-bottom: var(--ui-space-6); text-align: center; }
 
 /* ===== UTILS ===== */
-.mt-20 { margin-top: 20px; }
-.mb-16 { margin-bottom: 16px; }
-.text-muted { color: #888780; font-size: 12px; }
-.text-red   { color: var(--red); }
-.text-green { color: var(--green); }
+.mt-20 { margin-top: var(--ui-space-5); }
+.mb-16 { margin-bottom: var(--ui-space-4); }
+/* An atomic value must not break in the middle of itself. A date splits at its
+   hyphen and a phone number at its space, so a squeezed column renders
+   "2026-09-" above "04". `.tbl th` has said `nowrap` since the copy; `.tbl td`
+   never did, and the cells that hold one indivisible value are the ones that
+   need it -- not every cell, because an address or a branch's meta line is
+   meant to wrap. The table already scrolls sideways when it must, with the
+   shading `.table-wrap` paints, so the cost of a wider table is paid for. */
+.nowrap { white-space: nowrap; }
+
+.text-muted { color: var(--ui-text-muted); font-size: var(--ui-text-xs); }
+.text-red   { color: var(--ui-danger); }
+.text-green { color: var(--ui-success); }
 .bold { font-weight: 600; }
 .full-w { width: 100%; }
 

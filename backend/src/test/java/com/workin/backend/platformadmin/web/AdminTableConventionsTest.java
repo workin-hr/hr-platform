@@ -275,6 +275,126 @@ class AdminTableConventionsTest {
 		return text.length() - 1;
 	}
 
+	/**
+	 * The accessors whose value is one indivisible token.
+	 *
+	 * <p>A closed, declared set rather than a pattern over the rendered text: what this rule is
+	 * about is the shape of the value a cell holds, and the only place that is knowable from the
+	 * template is the call that produces it. Matching a date-looking string instead would read
+	 * {@code "2026-09-04"} out of a notes column and miss a date a formatter spells differently.
+	 */
+	private static final List<String> ATOMIC = List.of(
+			"createdDate()", "penaltyDate()", "requestDate()", "assetDate()", "assetEndDate()",
+			"createdAtDisplay()", "employeeCode()", "phoneLabel()", "hireDateLabel()",
+			"periodFrom()", "periodTo()", "workTenure(", "EmployeeDisplay.date(",
+			"AttendanceDisplay.date(", "HomeDisplay.dateTime(", "createdAt().toString()",
+			"lastAccessedAt().toString()",
+			// A list assembled by reading the templates is a list that stops where the
+			// reading stopped. These three were cells this rule never asked about: two
+			// date bounds and a code, in the same shapes as the accessors beside them.
+			// `employeeCode()` was listed and `empCode()` was not, which is the whole
+			// argument for adding the pair together.
+			"fromDate()", "toDate()", "empCode()");
+
+	/**
+	 * The cells that hold an atomic value and still wrap, with the reason.
+	 *
+	 * <p>Keyed by template and accessor rather than by line, because a line number is not a fact
+	 * about the cell and goes stale on the next edit above it.
+	 */
+	private static final Map<String, String> WRAPS_ON_PURPOSE = Map.of(
+			"employees.jte:employeeCode()",
+			"the second line of the name cell, whose first line is a name that must be free to wrap");
+
+	/**
+	 * A cell holding one indivisible value says so.
+	 *
+	 * <p>A date breaks at its hyphen and a phone number at its space, so a column squeezed by the
+	 * fourteen the employees list carries renders {@code 2026-09-} above {@code 04}. Legacy's
+	 * {@code .tbl th} has carried {@code nowrap} since the copy and {@code .tbl td} never has, so
+	 * every one of these wrapped, on every list, for as long as the port has existed -- and a
+	 * page's own test cannot see it, because the text is all there.
+	 *
+	 * <p>Not every cell: an address and a branch's meta line are meant to wrap, and forcing the
+	 * whole table would trade one defect for a wider one. The count is pinned so a template that
+	 * stops calling an accessor cannot quietly empty the rule.
+	 */
+	@Test
+	void everyCellHoldingOneIndivisibleValueSaysSo() throws IOException {
+		Pattern cell = Pattern.compile("<td\\b([^>]*)>(.*?)</td>", Pattern.DOTALL);
+		List<String> wrapping = new ArrayList<>();
+		int examined = 0;
+		try (var templates = Files.list(TEMPLATES)) {
+			for (Path template : templates.filter(path -> path.toString().endsWith(".jte")).sorted().toList()) {
+				String source = Files.readString(template, StandardCharsets.UTF_8);
+				Matcher match = cell.matcher(source);
+				while (match.find()) {
+					String attributes = match.group(1);
+					String body = match.group(2);
+					if (attributes.contains("col-actions")) {
+						continue;
+					}
+					String accessor = ATOMIC.stream().filter(body::contains).findFirst().orElse(null);
+					if (accessor == null) {
+						continue;
+					}
+					String key = template.getFileName() + ":" + accessor;
+					if (WRAPS_ON_PURPOSE.containsKey(key)) {
+						continue;
+					}
+					examined++;
+					if (!attributes.contains("nowrap")) {
+						wrapping.add(key + " -- " + body.replaceAll("\\s+", " ").trim());
+					}
+				}
+			}
+		}
+		assertThat(wrapping)
+				.as("a cell whose value cannot be broken in half must carry .nowrap")
+				.isEmpty();
+		assertThat(examined)
+				.as("cells holding an atomic value; pinned so the rule cannot measure nothing, "
+						+ "and so adding a list page is a decision about its columns")
+				.isEqualTo(38);
+	}
+
+	/**
+	 * Every icon a card asks for is one the registry draws.
+	 *
+	 * <p>{@code AdminIcons.of} answers an empty string for a name it does not know, which is the
+	 * right call for a sidebar that must not go down over a glyph -- and it means a typo in a
+	 * template shows a coloured tile with nothing in it, on the first page an administrator sees,
+	 * with nothing in a log. The home grid's nineteen cards name their glyph now rather than
+	 * carrying an emoji, so the silent fallback became reachable the moment they did.
+	 */
+	@Test
+	void everyStatCardNamesAnIconTheRegistryDefines() throws IOException {
+		Pattern named = Pattern.compile("icon\\s*=\\s*\"([^\"]*)\"");
+		List<String> missing = new ArrayList<>();
+		int asked = 0;
+		try (var templates = Files.list(TEMPLATES)) {
+			for (Path template : templates.filter(path -> path.toString().endsWith(".jte")).sorted().toList()) {
+				Matcher match = named.matcher(Files.readString(template, StandardCharsets.UTF_8));
+				while (match.find()) {
+					asked++;
+					if (AdminIcons.of(match.group(1)).isEmpty()) {
+						missing.add(template.getFileName() + ": " + match.group(1));
+					}
+				}
+			}
+		}
+		assertThat(missing).as("an icon name the registry cannot draw renders an empty tile").isEmpty();
+		assertThat(Files.readString(TEMPLATES.resolve("statCard.jte"), StandardCharsets.UTF_8))
+				.as("the card's glyph is not the sidebar's: `nav-icon` carries the copied sidebar's "
+						+ "sizing and leaves the tile's own rule matching nothing, so the SVG falls "
+						+ "back to its 18px attributes and to inline alignment inside a flex tile")
+				.contains("AdminIcons.of(icon, \"stat-icon\")");
+		assertThat(asked)
+				.as("icon arguments across the admin templates; pinned so the rule cannot pass "
+						+ "by finding none")
+				.isEqualTo(19);
+	}
+
 	/** Legacy closes the table card and only then draws the pager ({@code requests/page.php:137-140}). */
 	@Test
 	void noPagerSitsInsideItsTableCard() throws IOException {

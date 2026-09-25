@@ -42,8 +42,8 @@
 					<tbody>
 						@for(BrowserSession session : sessions)
 							<tr>
-								<td>${session.createdAt().toString()}</td>
-								<td>${session.lastAccessedAt().toString()}
+								<td class="nowrap">${session.createdAt().toString()}</td>
+								<td class="nowrap">${session.lastAccessedAt().toString()}
 									@if(session.current())<span class="badge">${t.apply("this_session")}</span>@endif
 								</td>
 								<td>

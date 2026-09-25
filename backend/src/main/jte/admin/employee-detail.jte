@@ -133,7 +133,7 @@
 						<th>${t.apply("to_date")}</th><th>${t.apply("status")}</th></tr></thead>
 					<tbody>
 						@for(EmployeeDetail.Request row : detail.requests())
-							<tr><td>${row.typeName()}</td><td>${row.fromDate()}</td><td>${row.toDate()}</td>
+							<tr><td>${row.typeName()}</td><td class="nowrap">${row.fromDate()}</td><td class="nowrap">${row.toDate()}</td>
 								<td>@template.admin.statusBadge(status = row.status(), t = t)</td></tr>
 						@endfor
 						@if(detail.requests().isEmpty())
@@ -151,7 +151,7 @@
 						@for(EmployeeDetail.Penalty row : detail.penalties())
 							<tr><td>${row.penaltyType()}</td>
 								<td class="text-red">${row.penaltyDays() == null ? "" : row.penaltyDays().toPlainString()}</td>
-								<td>${row.penaltyDate()}</td>
+								<td class="nowrap">${row.penaltyDate()}</td>
 								<td>@template.admin.statusBadge(status = row.appliedToPayroll() ? "1" : "0", t = t)</td></tr>
 						@endfor
 						@if(detail.penalties().isEmpty())

@@ -142,14 +142,14 @@
 						!{boolean canEdit = row.isPending() || (row.isApproved() && !row.isSettled());}
 						<tr>
 							<td>${result.from() + index}</td>
-							<td class="text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
+							<td class="nowrap text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
 							<td class="bold">${employeeName}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
 							<td class="bold">${row.amountDisplay()}</td>
 							<td class="${row.stillOwed() ? "text-red" : "text-green"}">${row.remainingDisplay()}</td>
-							<td>${row.requestDate() == null ? "—" : row.requestDate()}</td>
+							<td class="nowrap">${row.requestDate() == null ? "—" : row.requestDate()}</td>
 							<%-- Both reasons are free text and can be long; the cell
 							     shows the start and the title carries the whole of it,
 							     as legacy does. --%>

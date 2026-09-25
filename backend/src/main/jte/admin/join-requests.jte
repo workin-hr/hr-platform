@@ -102,7 +102,7 @@
 					</td>
 					<%-- page.php:57: home_format_datetime(), the same cell the home
 					     page's panels print. --%>
-					<td>${HomeDisplay.dateTime(
+					<td class="nowrap">${HomeDisplay.dateTime(
 						row.createdAt() == null ? null : row.createdAt().toString(),
 						"ar".equals(lang))}</td>
 					<td class="col-actions">

@@ -30,7 +30,7 @@
   padding: 10px 16px;
   border-radius: var(--app-radius-sm);
   background: var(--blue);
-  color: #fff;
+  color: var(--ui-text-on-accent);
   font-weight: 600;
   text-decoration: none;
   transform: translateY(-150%);
@@ -101,7 +101,7 @@
   position: fixed;
   inset: 0;
   z-index: var(--app-backdrop-z);
-  background: rgba(15, 23, 42, .45);
+  background: rgb(var(--ui-ink-rgb) / .45);
   opacity: 0;
   pointer-events: none;
   transition: opacity .25s var(--app-ease);
@@ -147,10 +147,10 @@
    on a table that already fits. */
 .table-wrap {
   background:
-    linear-gradient(to right, var(--app-surface, #fff) 30%, rgba(255, 255, 255, 0)),
-    linear-gradient(to left, var(--app-surface, #fff) 30%, rgba(255, 255, 255, 0)) 100% 0,
-    linear-gradient(to right, rgba(15, 35, 70, .10), rgba(255, 255, 255, 0)),
-    linear-gradient(to left, rgba(15, 35, 70, .10), rgba(255, 255, 255, 0)) 100% 0;
+    linear-gradient(to right, var(--app-surface, var(--ui-surface)) 30%, rgb(var(--ui-white-rgb) / 0)),
+    linear-gradient(to left, var(--app-surface, var(--ui-surface)) 30%, rgb(var(--ui-white-rgb) / 0)) 100% 0,
+    linear-gradient(to right, rgb(var(--ui-ink-rgb) / .10), rgb(var(--ui-white-rgb) / 0)),
+    linear-gradient(to left, rgb(var(--ui-ink-rgb) / .10), rgb(var(--ui-white-rgb) / 0)) 100% 0;
   background-repeat: no-repeat;
   background-size: 36px 100%, 36px 100%, 14px 100%, 14px 100%;
   background-attachment: local, local, scroll, scroll;
@@ -161,7 +161,13 @@
    with no height, so the vertical scroller is `.content` further out and a
    `position: sticky` thead inside the wrap could never stick to anything.
    Giving the wrap its own height to make that work would change how every
-   list page scrolls, which is a parity question, not a styling one. */
+   list page scrolls, which is a parity question, not a styling one.
+
+   This branch added exactly that sticky thead anyway, in two sheets, and a
+   browser measured it doing nothing at three viewports. The paragraph above was
+   already right and already in the tree; nothing failed when a later sheet
+   contradicted it, which is why `everyStickyRuleHasAScrollportThatCanScroll`
+   now exists and why #338 carries the design rather than a guess. */
 .table-wrap {
   scrollbar-width: thin;
   overscroll-behavior-x: contain;
@@ -186,7 +192,7 @@
     inset-inline-start: 0;
     height: 100dvh;
     z-index: var(--app-drawer-z);
-    box-shadow: 0 0 40px rgba(0, 0, 0, .35);
+    box-shadow: 0 0 40px rgb(var(--ui-ink-rgb) / .35);
     transform: translateX(-100%);
     transition: transform .28s var(--app-ease);
     visibility: hidden;
@@ -387,4 +393,18 @@
   .nav-toggle-bars::after {
     transition: none !important;
   }
+}
+
+/* Printing: the page is the viewport, so a shell fixed to it would clip every
+   printed list to its first screenful. In print the document scrolls again and
+   the navigation, which prints as a column of links, is left out.
+   Here, and `!important`, because it must win the cascade and not merely be
+   written: the per-page sheets load after this one, `sidebar.css` sets
+   `.sidebar { display: flex }` and `style.css` sets `.content`'s overflow later
+   than the first version of this block, which sat in style.css and lost two of
+   its three declarations. */
+@media print {
+  .shell { height: auto !important; }
+  .main, .content { overflow: visible !important; }
+  .sidebar { display: none !important; }
 }

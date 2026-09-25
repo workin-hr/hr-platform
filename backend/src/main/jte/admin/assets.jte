@@ -119,14 +119,14 @@
 						!{String employeeName = EmployeeDisplay.displayName(row.employeeName(), "—");}
 						<tr>
 							<td>${result.from() + index}</td>
-							<td class="text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
+							<td class="nowrap text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
 							<td class="bold">${employeeName}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
 							<td class="bold" title="${row.assetText() == null ? "" : row.assetText()}">${ListDisplay.notes(row.assetText(), 60)}</td>
-							<td>${row.assetDate() == null ? "—" : row.assetDate()}</td>
-							<td>${row.assetEndDate() == null ? "—" : row.assetEndDate()}</td>
+							<td class="nowrap">${row.assetDate() == null ? "—" : row.assetDate()}</td>
+							<td class="nowrap">${row.assetEndDate() == null ? "—" : row.assetEndDate()}</td>
 							<td>
 								@template.admin.statusBadge(status = row.returned() ? "1" : "0", t = t)
 							</td>

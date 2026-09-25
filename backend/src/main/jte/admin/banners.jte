@@ -98,7 +98,7 @@
 								</td>
 								<td>${banner.sortOrder()}</td>
 								<td>@template.admin.statusBadge(status = banner.active() ? "active" : "inactive", t = t)</td>
-								<td class="text-muted">${banner.createdDate()}</td>
+								<td class="nowrap text-muted">${banner.createdDate()}</td>
 								<td class="col-actions">
 									<%-- A trigger with nothing behind it opens an empty popover,
 									     so the trigger takes the same guard its only item has. --%>

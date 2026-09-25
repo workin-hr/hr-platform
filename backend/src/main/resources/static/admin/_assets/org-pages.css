@@ -7,7 +7,7 @@
 .org-page .page-toolbar .toolbar-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
 .org-page .data-table-card {
-  background: #fff;
+  background: var(--ui-surface);
   overflow: hidden;
   margin-bottom: 20px;
 }
@@ -22,7 +22,7 @@
   margin: 0;
   font-size: 15px;
   font-weight: 600;
-  color: #1e1e1c;
+  color: var(--ui-text);
 }
 .org-page .data-table-card .table-wrap {
   border: none;
@@ -33,14 +33,14 @@
 .org-page .data-table-empty {
   text-align: center !important;
   padding: 28px 16px !important;
-  color: #888780;
+  color: var(--ui-text-muted);
 }
 .org-page .data-table-empty-state {
   padding: 48px 24px;
   text-align: center;
-  color: #888780;
-  background: #fff;
-  border: 1px solid #e8e6e0;
+  color: var(--ui-text-muted);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border-soft);
   border-radius: 12px;
 }
 

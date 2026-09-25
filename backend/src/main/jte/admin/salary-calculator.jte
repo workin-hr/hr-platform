@@ -92,7 +92,7 @@
 				<li><span>${t.apply("salary_martyrs")}</span><span class="deduct">- ${result.martyrsFundLabel()} ${t.apply("egp")}</span></li>
 				<li><span>${t.apply("salary_employer_si")}</span><span>${result.employerSiLabel()} ${t.apply("egp")}</span></li>
 			</ul>
-			<p class="hint" style="margin-top:12px;font-size:12px;color:#888780">${t.apply("salary_employer_si_hint")}</p>
+			<p class="hint salary-breakdown-hint">${t.apply("salary_employer_si_hint")}</p>
 			@else
 			<div class="salary-breakdown-empty">${t.apply("salary_calc_btn")} — ${t.apply("salary_gross_monthly")}</div>
 			@endif
