@@ -3073,26 +3073,30 @@ class AdminTenantGuardCoverageTest {
 						+ "positional backstop the way there is on a method")
 				.containsExactly("store.delete()");
 
-		// Two writer-typed fields whose names are suffixes of one another. Without a
-		// left boundary the shorter name matches inside the longer receiver, so a
-		// single call is attributed to both -- and the wrong one names a field that
-		// was never called. It over-reports rather than hides, which is why no live
-		// class showed it, and why removing the boundary killed nothing until this.
+		// Two writer-typed fields, one name a suffix of the other. Without a left
+		// boundary the shorter name matches inside the longer receiver, so one call
+		// is attributed to two fields and the extra one names a field nobody called.
+		// It over-reports rather than hides, which is the safe direction, and it
+		// fires on nothing today -- camelCase is why: `backupStore` contains
+		// `Store`, not `store`, so the first fixture written for this proved nothing
+		// and the mutant survived it. A lowercase suffix is unidiomatic and legal,
+		// which is exactly the kind of name a gate should not depend on the absence
+		// of.
 		java.util.function.Function<String, Set<String>> twoWriters = type ->
 				"PenaltyStore".equals(type) || "BackupStore".equals(type)
 						? penaltyWrites : Set.of();
 		assertThat(storeWriteCallsIn("""
 				class AdminPenaltiesController {
 					private final PenaltyStore store;
-					private final BackupStore backupStore;
+					private final BackupStore mystore;
 
 					public String submit(long id) {
-						this.backupStore.delete(id);
+						this.mystore.delete(id);
 						return "ok";
 					}
 				}""", twoWriters).calls())
 				.as("one call, on the field that was actually called")
-				.containsExactly("backupStore.delete()");
+				.containsExactly("mystore.delete()");
 
 		String local = """
 				class AdminPenaltiesController {
