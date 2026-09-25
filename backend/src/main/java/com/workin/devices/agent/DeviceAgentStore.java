@@ -62,14 +62,33 @@ public class DeviceAgentStore {
 				"SELECT " + COLUMNS + " FROM device_agents WHERE id = ?", LegacyJdbcValues.rowMapper(), id));
 	}
 
-	/** Newest first; every company when {@code companyId} is null. */
-	public List<DeviceAgent> list(Long companyId) {
+	/**
+	 * Newest first; every company when {@code companyId} is null.
+	 *
+	 * <p>One page, always: this read had no {@code LIMIT} at all, so the
+	 * administrator's page grew a row per agent ever issued with nothing to stop
+	 * it. A caller wanting all of them asks for a page big enough and can tell
+	 * from {@link #count(Long)} whether it got them.
+	 */
+	public List<DeviceAgent> list(Long companyId, int limit, long offset) {
 		List<Map<String, Object>> rows = companyId == null
-				? jdbcTemplate.query("SELECT " + COLUMNS + " FROM device_agents ORDER BY id DESC",
-						LegacyJdbcValues.rowMapper())
-				: jdbcTemplate.query("SELECT " + COLUMNS + " FROM device_agents WHERE company_id = ? ORDER BY id DESC",
-						LegacyJdbcValues.rowMapper(), companyId);
+				? jdbcTemplate.query(
+						"SELECT " + COLUMNS + " FROM device_agents ORDER BY id DESC LIMIT ? OFFSET ?",
+						LegacyJdbcValues.rowMapper(), limit, offset)
+				: jdbcTemplate.query(
+						"SELECT " + COLUMNS + " FROM device_agents WHERE company_id = ?"
+								+ " ORDER BY id DESC LIMIT ? OFFSET ?",
+						LegacyJdbcValues.rowMapper(), companyId, limit, offset);
 		return rows.stream().map(DeviceAgentStore::toAgent).toList();
+	}
+
+	/** How many agents that same filter matches, ignoring the page. */
+	public int count(Long companyId) {
+		Integer total = companyId == null
+				? jdbcTemplate.queryForObject("SELECT COUNT(*) FROM device_agents", Integer.class)
+				: jdbcTemplate.queryForObject(
+						"SELECT COUNT(*) FROM device_agents WHERE company_id = ?", Integer.class, companyId);
+		return total == null ? 0 : total;
 	}
 
 	public boolean setActive(long id, boolean active, LocalDateTime now) {

@@ -67,7 +67,8 @@ public class AdminJoinRequestsController {
 		model.addAttribute("filters", filters);
 		model.addAttribute("status", selected);
 		model.addAttribute("statuses", STATUSES);
-		model.addAttribute("items", this.store.list(filters.companyId(), selected));
+		model.addAttribute("result",
+				this.store.paginate(filters.companyId(), selected, filters.page(), filters.perPage()));
 		model.addAttribute("canManage", true);
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
 		model.addAttribute("errorKey", error);
