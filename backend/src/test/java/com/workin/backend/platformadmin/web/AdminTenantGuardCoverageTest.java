@@ -225,7 +225,6 @@ class AdminTenantGuardCoverageTest {
 		Map<String, String> accounted = new LinkedHashMap<>();
 		for (String call : List.of(
 				"DeviceAdministrationService.java: devices.update()",
-				"DeviceAgentService.java: agents.create()",
 				"DeviceFileImportService.java: malformedPunches.quarantine()",
 				"DeviceManagementService.java: devices.claimWithHistory()",
 				"DeviceManagementService.java: devices.update()",
@@ -236,6 +235,18 @@ class AdminTenantGuardCoverageTest {
 				"DevicePunchIngestionService.java: punches.adoptUnmatched()")) {
 			accounted.put(call, COMPANY_IS_AN_ARGUMENT_OF_THE_WRITE);
 		}
+		// Taken out of the group above by the twentieth round. Its company IS an
+		// argument of the INSERT, so half of that group's sentence holds; the other
+		// half -- "never from a request parameter" -- is false here, since the only
+		// caller is AdminDevicesController's posted `company_id`, and DeviceAgentStore's
+		// entry and the platform-admin group below both already said so.
+		accounted.put("DeviceAgentService.java: agents.create()",
+				"The company is an argument of this INSERT, so a wrong company creates an agent "
+						+ "row for that company rather than writing another tenant's row. It is the "
+						+ "posted `company_id` -- AdminDevicesController.issueAgent -> "
+						+ "AdminDeviceActions -> DeviceAdministrationService.issueAgent, the only "
+						+ "caller -- existence-checked there and audited as posted, as "
+						+ "DeviceAgentStore's own entry states. " + PLATFORM_ADMINISTRATOR_ONLY);
 		// `store.insert()` was in the group below until review read its call site:
 		// `LegacyPayrollBatchService.create` calls
 		// `store.insert(companyId, month, year, ...)`, an INSERT whose company_id is
@@ -1035,10 +1046,18 @@ class AdminTenantGuardCoverageTest {
 	/**
 	 * A call to a name, however it is spelled: {@code name(} or {@code ::name}.
 	 *
-	 * <p>One copy, used by every walk of a call graph in this class. It was two
+	 * <p>One copy, used by every walk that follows a callee by name alone. It was two
 	 * copies for one round, and the copy that lacked the {@code ::} arm lost a store
 	 * that handed its own write to a stream. A shared constant cannot drift; a
 	 * second literal can, and did.
+	 *
+	 * <p>Two walks also need the receiver, so they cannot use this, and each carries
+	 * its own spelling. {@link #fieldWriteCallsIn} matches a call on one named field
+	 * and has both arms -- it had only the {@code .name(} one until the twentieth
+	 * round, while this javadoc said every walk read this constant, and
+	 * {@code ids.forEach(this.store::delete)} in a controller passed every test.
+	 * {@link #OWN_CALL} has only the call arm: it walks a guard's helpers, where a
+	 * missed {@code this::helper} can only report a guarded method as unguarded.
 	 */
 	private static final Pattern CALL_OR_REFERENCE =
 			Pattern.compile("\\b(\\w+)\\s*\\(|::\\s*(\\w+)");
@@ -1048,9 +1067,29 @@ class AdminTenantGuardCoverageTest {
 		return call.group(1) != null ? call.group(1) : call.group(2);
 	}
 
-	/** A call that resolves or enforces the session's company. */
+	/**
+	 * A call that resolves or enforces the session's company.
+	 *
+	 * <p><b>{@code companyId()} counts only on the session.</b> Until the twentieth
+	 * round it matched on any receiver, so {@code row.companyId()} in an audit
+	 * string -- "join request accepted for company " + row.companyId() -- satisfied
+	 * rule one outright. That is this surface's own audit idiom, and five live
+	 * methods were passing on it without their real guard ever being read (they
+	 * reach one through a helper, which is why tightening this changed no result).
+	 * Deleting {@code JoinRequestAdminService.accept}'s guard and keeping the audit
+	 * line passed every test. It is the fifteenth round's defect -- a callee
+	 * matched by name and not by receiver -- on the guard side.
+	 *
+	 * <p>The receiver is the parameter name {@code session}, which every
+	 * session-taking method and guard helper on this surface uses. A method that
+	 * names it anything else is reported unguarded: that fails closed, and renaming
+	 * the parameter is the fix. {@code isScopedToOneCompany} and {@code canOpenRow}
+	 * exist only on the session and on {@code DashboardOrgScope}, so their names
+	 * alone are enough.
+	 */
 	private static final Pattern TENANT_GUARD = Pattern.compile(
-			"\\bcompanyId\\s*\\(\\s*\\)|\\bisScopedToOneCompany\\s*\\(|\\bcanOpenRow\\s*\\(");
+			"\\bsession\\s*\\.\\s*companyId\\s*\\(\\s*\\)"
+					+ "|\\bisScopedToOneCompany\\s*\\(|\\bcanOpenRow\\s*\\(");
 
 	/**
 	 * A parameter list, which may itself contain a parenthesis.
@@ -2870,6 +2909,67 @@ class AdminTenantGuardCoverageTest {
 				.isEmpty();
 	}
 
+	@Test
+	void aCompanyIdReadOffAnythingButTheSessionIsNotAGuard() {
+		// The twentieth round's exploit, as it was run against the live tree: the
+		// guard deleted, the audit line kept. Every word of it is this surface's
+		// idiom, and `row.companyId()` is the only thing that made it pass.
+		String auditOnly = """
+				class Example {
+					public long accept(DashboardSession session, long adminId, long id) {
+						JoinRequest row = this.store.find(id);
+						this.store.accept(row.id());
+						this.auditService.recordAction(adminId, ORG_UPDATED, "employees",
+								String.valueOf(row.id()),
+								"join request accepted for company " + row.companyId());
+						return row.id();
+					}
+				}""";
+		assertThat(scan(auditOnly).unguarded())
+				.as("the row's own company, named in an audit string, compares it against nobody")
+				.containsExactly("accept");
+
+		String commandCompany = """
+				class Example {
+					public long add(DashboardSession session, EmployeeCommand command) {
+						return this.store.insert(command.companyId(), command.name());
+					}
+				}""";
+		assertThat(scan(commandCompany).unguarded())
+				.as("nor does the company a form posted")
+				.containsExactly("add");
+
+		String renamed = """
+				class Example {
+					public long delete(DashboardSession current, long id) {
+						if (this.store.companyOf(id) != current.companyId()) {
+							throw new IllegalStateException("other company");
+						}
+						this.store.delete(id);
+						return 1L;
+					}
+				}""";
+		assertThat(scan(renamed).unguarded())
+				.as("a real comparison on a session named otherwise fails closed, which is what "
+						+ "TENANT_GUARD's javadoc promises; the fix is the parameter's name")
+				.containsExactly("delete");
+
+		String guarded = """
+				class Example {
+					public long accept(DashboardSession session, long adminId, long id) {
+						JoinRequest row = this.store.find(id);
+						if (row.companyId() != session.companyId()) {
+							throw new IllegalStateException("other company");
+						}
+						this.store.accept(row.id());
+						return row.id();
+					}
+				}""";
+		assertThat(scan(guarded).unguarded())
+				.as("the control: the same method comparing the row against the session")
+				.isEmpty();
+	}
+
 	/**
 	 * Nothing outside the two rules calls a store's write.
 	 *
@@ -3098,6 +3198,34 @@ class AdminTenantGuardCoverageTest {
 				.as("one call, on the field that was actually called")
 				.containsExactly("mystore.delete()");
 
+		// The twentieth round's exploit. `id -> this.store.delete(id)` was reported
+		// and `this.store::delete` was not, so the operator was the only difference
+		// between a finding and silence -- in the walk that decides what a class
+		// exports as well as in this rule, so every caller of such a class went quiet
+		// too.
+		assertThat(storeWriteCallsIn("""
+				class AdminPenaltiesController {
+					private final PenaltyStore store;
+
+					public String bulkDelete(List<Long> ids) {
+						ids.forEach(this.store::delete);
+						return "ok";
+					}
+				}""", fixtureWrites).calls())
+				.as("a write handed to a stream as a method reference")
+				.containsExactly("store.delete()");
+		assertThat(storeWriteCallsIn("""
+				class AdminPenaltiesController {
+					private final PenaltyStore store;
+
+					public String exportAll(List<Long> ids) {
+						ids.forEach(this.store::paginate);
+						return "ok";
+					}
+				}""", fixtureWrites).calls())
+				.as("the control: a reference to a method that writes nothing")
+				.isEmpty();
+
 		String local = """
 				class AdminPenaltiesController {
 					public String submit(long id) {
@@ -3277,6 +3405,130 @@ class AdminTenantGuardCoverageTest {
 				.as("the control: a writer held plainly is the other rule's subject, and a "
 						+ "container of anything else is not this rule's business")
 				.isEmpty();
+	}
+
+	/**
+	 * No class outside the two rules inherits a writer.
+	 *
+	 * <p>The twentieth round's finding, and the same honest half as the container
+	 * rule above. {@link #noClassOutsideTheTwoRulesCallsAStoreWrite} resolves the
+	 * fields a file declares; a subclass calling {@code this.store.delete(id)} on a
+	 * field its base class declares resolves nothing in its own text, and the base
+	 * class holds the field but makes no call. A base controller holding a shared
+	 * collaborator is ordinary Spring. No reachable class inherits a writer today,
+	 * which is what the live half below asserts, so this refuses the shape rather
+	 * than modelling it, and whoever writes the first one decides whether the rule
+	 * learns to walk a class's supertypes for its fields.
+	 */
+	@Test
+	void noUnscannedClassInheritsAWriter() {
+		Set<String> tenantTables = tenantOwnedTables();
+		Map<String, String> entities = entityTables();
+		Map<String, Path> known = classesByName();
+		WriteResolver resolver = new WriteResolver(known, tenantTables, entities);
+		java.util.function.Function<String, Set<String>> writesOf = resolver::exportedBy;
+		java.util.function.Function<String, String> sourceOf = type -> {
+			Path file = known.get(type);
+			return file == null ? null : read(file);
+		};
+
+		List<String> inherited = new ArrayList<>();
+		for (Path file : unscannedReachableFiles(known)) {
+			for (String found : writersInheritedBy(read(file), sourceOf, writesOf)) {
+				inherited.add(file.getFileName() + ": " + found);
+			}
+		}
+		assertThat(inherited)
+				.as("a writer declared by a supertype is called through a field the subclass's "
+						+ "own text never declares, so the rule that reads declarations would pass "
+						+ "on it while meaning nothing")
+				.isEmpty();
+		assertThat(resolver.cycles()).isEmpty();
+
+		Set<String> penaltyWrites = Set.of("delete", "insert");
+		java.util.function.Function<String, Set<String>> fixtureWrites = type ->
+				"PenaltyStore".equals(type) ? penaltyWrites : Set.of();
+		Map<String, String> fixtureSources = Map.of(
+				"AdminPenaltiesBase", """
+						abstract class AdminPenaltiesBase {
+							protected final PenaltyStore store;
+						}""",
+				"AdminReportsBase", """
+						abstract class AdminReportsBase extends AdminPenaltiesBase {
+							protected final List<String> names;
+						}""",
+				"AdminNamesBase", """
+						abstract class AdminNamesBase {
+							protected final List<String> names;
+						}""");
+		String subclass = """
+				class AdminPenaltiesController extends AdminPenaltiesBase {
+					public String bulkDelete(long id) {
+						this.store.delete(id);
+						return "ok";
+					}
+				}""";
+		assertThat(storeWriteCallsIn(subclass, fixtureWrites).calls())
+				.as("the exploit, as the rule beside this one sees it: nothing")
+				.isEmpty();
+		assertThat(writersInheritedBy(subclass, fixtureSources::get, fixtureWrites))
+				.as("so this one refuses the class")
+				.containsExactly("store (PenaltyStore) from AdminPenaltiesBase");
+		assertThat(writersInheritedBy("""
+				class AdminReportsController extends AdminReportsBase {
+				}""", fixtureSources::get, fixtureWrites))
+				.as("two levels up is the same shape")
+				.containsExactly("store (PenaltyStore) from AdminPenaltiesBase");
+		assertThat(writersInheritedBy("""
+				class AdminNamesController extends AdminNamesBase {
+				}""", fixtureSources::get, fixtureWrites))
+				.as("the control: a supertype holding no writer")
+				.isEmpty();
+		assertThat(writersInheritedBy("""
+				class Filter<T extends AdminPenaltiesBase> extends OncePerRequestFilter {
+				}""", fixtureSources::get, fixtureWrites))
+				.as("and a type parameter's bound is not a supertype, nor is a class the index "
+						+ "does not hold")
+				.isEmpty();
+	}
+
+	/** A class's declaration of its superclass, past any type parameters. */
+	private static final Pattern CLASS_EXTENDS = Pattern.compile(
+			"\\bclass\\s+\\w+\\s*(?:<[^{]*?>)?\\s*extends\\s+([\\w.]+)");
+
+	/**
+	 * Writer-typed fields a class inherits from indexed supertypes, as
+	 * {@code <name> (<type>) from <supertype>}.
+	 */
+	private static List<String> writersInheritedBy(
+			String rawSource, java.util.function.Function<String, String> sourceOf,
+			java.util.function.Function<String, Set<String>> writesOf) {
+		List<String> inherited = new ArrayList<>();
+		java.util.Deque<String> pending = new java.util.ArrayDeque<>();
+		pending.add(rawSource);
+		Set<String> seen = new java.util.HashSet<>();
+		while (!pending.isEmpty()) {
+			Matcher parent = CLASS_EXTENDS.matcher(maskNonCode(pending.poll()).code());
+			while (parent.find()) {
+				String type = simpleName(parent.group(1));
+				String source = seen.add(type) ? sourceOf.apply(type) : null;
+				if (source == null) {
+					continue;
+				}
+				Matcher field = FIELD_DECLARATION.matcher(maskNonCode(source).code());
+				while (field.find()) {
+					String held = simpleName(field.group(1));
+					if (field.group(2).isBlank() && !writesOf.apply(held).isEmpty()) {
+						inherited.add(field.group(3) + " (" + held + ") from " + type);
+					}
+				}
+				for (String held : writersHeldInContainersIn(source, writesOf)) {
+					inherited.add(held + " from " + type);
+				}
+				pending.add(source);
+			}
+		}
+		return inherited;
 	}
 
 	/**
@@ -3819,13 +4071,16 @@ class AdminTenantGuardCoverageTest {
 		// accounting -- but it also meant a mutant deleting the optional `this.`
 		// changed no behaviour, so the boundary is what makes that mutant mean
 		// something.
+		// Both spellings of reaching a method, as CALL_OR_REFERENCE has: a write
+		// handed to a stream -- `ids.forEach(this.store::delete)` -- is a write.
 		Matcher call = Pattern.compile(
 				"(?<![\\w.])(?:this\\s*\\.\\s*)?" + Pattern.quote(field)
-						+ "\\s*\\.\\s*(\\w+)\\s*\\(")
+						+ "(?:\\s*\\.\\s*(\\w+)\\s*\\(|\\s*::\\s*(\\w+))")
 				.matcher(code);
 		while (call.find()) {
-			if (writes.contains(call.group(1))) {
-				found.add(call.group(1));
+			String name = calledName(call);
+			if (writes.contains(name)) {
+				found.add(name);
 			}
 		}
 		return found;
