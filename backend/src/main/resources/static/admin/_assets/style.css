@@ -211,14 +211,14 @@ textarea { min-height: 88px; resize: vertical; line-height: var(--ui-leading); }
 .btn:focus-visible { outline: none; box-shadow: var(--ui-focus-ring); }
 .btn:disabled, .btn[aria-disabled="true"] {
   cursor: not-allowed; opacity: .55; transform: none; box-shadow: none; }
-.btn-blue   { background: var(--ui-accent-500); color: var(--ui-text-on-accent); }
-.btn-blue:hover:not(:disabled)   { background: var(--ui-accent-600); }
-.btn-green  { background: var(--ui-success); color: var(--ui-text-on-accent); }
-.btn-green:hover:not(:disabled)  { background: var(--ui-success-strong); }
-.btn-red    { background: var(--ui-danger);  color: var(--ui-text-on-accent); }
-.btn-red:hover:not(:disabled)    { background: var(--ui-danger-strong); }
-.btn-yellow { background: var(--ui-warning); color: var(--ui-text-on-accent); }
-.btn-yellow:hover:not(:disabled) { background: var(--ui-warning-strong); }
+.btn-blue   { background: var(--ui-accent-fill); color: var(--ui-text-on-accent); }
+.btn-blue:hover:not(:disabled)   { background: var(--ui-accent-fill-hover); }
+.btn-green  { background: var(--ui-success-fill); color: var(--ui-text-on-accent); }
+.btn-green:hover:not(:disabled)  { background: var(--ui-success-fill-hover); }
+.btn-red    { background: var(--ui-danger-fill);  color: var(--ui-text-on-accent); }
+.btn-red:hover:not(:disabled)    { background: var(--ui-danger-fill-hover); }
+.btn-yellow { background: var(--ui-warning-fill); color: var(--ui-text-on-accent); }
+.btn-yellow:hover:not(:disabled) { background: var(--ui-warning-fill-hover); }
 .btn-gray   { background: var(--ui-neutral-3); color: var(--ui-text);
               border-color: var(--ui-border); }
 .btn-gray:hover:not(:disabled)   { background: var(--ui-neutral-4); }

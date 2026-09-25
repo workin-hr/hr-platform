@@ -284,8 +284,27 @@ class AdminLayoutWiringTest {
 		assertThat(tokens)
 				.as("the family is named once, so reversing this decision a third time is one line")
 				.contains("--ui-font: " + family + ";");
-		assertThat(tokens.split("--ui-font\\s*:", -1).length - 1)
-				.as("named once, not twice")
+		// Across every sheet, not just this one. Counting inside app-tokens.css alone
+		// answered "is it named twice here", and the failure worth catching is a
+		// second `:root { --ui-font: ... }` in another sheet -- which would win or
+		// lose by load order and make the family depend on which link tag came last.
+		// Reversing the decision is one line only if there is one line.
+		int declarations = 0;
+		StringBuilder sheetsNaming = new StringBuilder();
+		try (var files = Files.list(ASSETS)) {
+			for (Path sheet : files.filter(path -> path.toString().endsWith(".css")).sorted()
+					.toList()) {
+				int here = Files.readString(sheet, StandardCharsets.UTF_8)
+						.split("--ui-font\\s*:", -1).length - 1;
+				if (here > 0) {
+					declarations += here;
+					sheetsNaming.append(sheet.getFileName()).append('(').append(here).append(')');
+				}
+			}
+		}
+		assertThat(declarations)
+				.as("the family is declared once in the whole admin stylesheet set, and it is "
+						+ "declared in " + sheetsNaming)
 				.isEqualTo(1);
 		assertThat(Files.readString(ASSETS.resolve("style.css"), StandardCharsets.UTF_8))
 				.as("body reads the token rather than naming a family of its own")

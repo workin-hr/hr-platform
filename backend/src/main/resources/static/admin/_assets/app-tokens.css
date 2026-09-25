@@ -179,7 +179,6 @@
   --ui-danger-weak:  #fceceb;
   --ui-danger-edge:  #f0cdcb;
   --ui-warning:      #854f0b;
-  --ui-warning-strong: #6f4109;
   --ui-warning-weak: #fbf0dc;
   --ui-warning-edge: #ecd6ab;
   --ui-info-weak:    #eaf2fb;
@@ -234,6 +233,29 @@
   --ui-text-muted:    var(--ui-neutral-9);
   --ui-text-faint:    var(--ui-neutral-8);
   --ui-text-on-accent:#ffffff;
+
+  /* ── STATUS AS A FILL, WHICH IS NOT STATUS AS A FOREGROUND ─────────────
+     A filled button's surface and a status word's colour are two jobs, and
+     --ui-success was doing both. As a foreground it has to LIFT in dark to
+     read on a dark page (#3b6d11 on #17161a is 1.5:1); as the surface under a
+     white label it has to STAY DARK. Reusing one token for both made the dark
+     theme's filled buttons white-on-#8fc95a -- 1.97:1 -- and the same for
+     danger (2.42), warning (2.11) and all three hovers (1.62, 1.95, 1.74).
+     The exemption saying --ui-text-on-accent is "correct in both themes"
+     described the intent and not the cascade.
+
+     A fill does not need to invert: a filled chip is its own dark surface in
+     either theme, which is why these carry no dark override and why white on
+     them is 6.2 to 8.7 to one throughout. everyFilledLabelIsReadableOnItsFill
+     is what checks that rather than this comment. */
+  --ui-accent-fill:         var(--ui-accent-500);
+  --ui-accent-fill-hover:   var(--ui-accent-600);
+  --ui-success-fill:        #3b6d11;
+  --ui-success-fill-hover:  #325d0e;
+  --ui-danger-fill:         #a32d2d;
+  --ui-danger-fill-hover:   #8c2626;
+  --ui-warning-fill:        #854f0b;
+  --ui-warning-fill-hover:  #6f4109;
   --ui-link:          var(--ui-accent-600);
 
   /* ---- Type. The family is one token so reversing it is one line, which is
@@ -373,7 +395,6 @@
   --ui-danger:        #f08a86;
   --ui-danger-strong: #f5a5a1;
   --ui-warning:       #e0a951;
-  --ui-warning-strong: #ecbd72;
   --ui-accent-pink:   #e08aa5;
   --ui-accent-purple: #b98af5;
   --ui-focus:         var(--ui-accent-300);

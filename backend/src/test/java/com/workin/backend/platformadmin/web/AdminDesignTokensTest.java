@@ -387,8 +387,25 @@ class AdminDesignTokensTest {
 	 * colour, or gains a dark value, fails rather than sitting unread.
 	 */
 	private static final Map<String, String> CORRECT_IN_BOTH_THEMES = Map.ofEntries(
+			// True now, and it was not. This said "white on a filled accent surface,
+			// which is filled in either theme", describing the intent; the cascade
+			// had the buttons painted from --ui-success and friends, which LIFT in
+			// dark so they can be read as text, so the dark theme's filled buttons
+			// were white on #8fc95a at 1.97:1 and five more like it. A fill is a
+			// separate job from a foreground and now has its own tokens, which are
+			// theme-invariant because a filled chip is its own dark surface either
+			// way. everyFilledLabelIsReadableOnItsFill is what makes this true.
 			Map.entry("--ui-text-on-accent",
-					"white on a filled accent surface, which is filled in either theme"),
+					"white on a filled surface, and every fill it is paired with is one of the "
+							+ "theme-invariant --ui-*-fill tokens"),
+			Map.entry("--ui-accent-fill", "a filled chip is its own dark surface in either theme"),
+			Map.entry("--ui-accent-fill-hover", "a filled chip is its own dark surface in either theme"),
+			Map.entry("--ui-success-fill", "a filled chip is its own dark surface in either theme"),
+			Map.entry("--ui-success-fill-hover", "a filled chip is its own dark surface in either theme"),
+			Map.entry("--ui-danger-fill", "a filled chip is its own dark surface in either theme"),
+			Map.entry("--ui-danger-fill-hover", "a filled chip is its own dark surface in either theme"),
+			Map.entry("--ui-warning-fill", "a filled chip is its own dark surface in either theme"),
+			Map.entry("--ui-warning-fill-hover", "a filled chip is its own dark surface in either theme"),
 			// The navigation is the one dark surface in a light dashboard. In a
 			// dark theme it is still that surface, so its ramp does not invert --
 			// it is the only part of the page that already looked the way the rest
@@ -654,6 +671,106 @@ class AdminDesignTokensTest {
 			"The dark shadows are pure black rather than the warm neutral -- "
 					+ "--ui-shadow-sm is `rgba(0, 0, 0, .45)` there -- and the ink follows the "
 					+ "shadows it is the base of, not the ramp step it matches in light.");
+
+	/**
+	 * A label on a filled surface is readable on it, in both themes.
+	 *
+	 * <p>The rule {@code --ui-text-on-accent}'s exemption needed. That entry said the
+	 * token is "correct in both themes" because the surface under it is filled either
+	 * way -- which described the intent. The cascade painted those surfaces from
+	 * {@code --ui-success}, {@code --ui-danger} and {@code --ui-warning}, and those
+	 * <em>lift</em> in the dark theme so they can be read as text on a dark page. So
+	 * the dark theme's filled buttons were white on {@code #8fc95a} at <b>1.97:1</b>,
+	 * white on {@code #f08a86} at 2.42, white on {@code #e0a951} at 2.11, and their
+	 * three hover states at 1.62, 1.95 and 1.74. Six failures, all below AA, none of
+	 * them visible to the readability rule, which pairs text tokens against
+	 * <em>surface</em> tokens and never against a status hue.
+	 *
+	 * <p>One token was doing two jobs. A status as a foreground must lift; a status as
+	 * the surface under a white label must not. The fills are their own tokens now, and
+	 * they carry no dark override because a filled chip is its own dark surface in
+	 * either theme -- which is why white on them is 6.2 to 8.7 to one throughout.
+	 *
+	 * <p>Read from the sheet, not from a list: every rule that sets a background and a
+	 * colour in the same declaration block is measured, so a new filled variant is
+	 * checked without anyone remembering to add it.
+	 */
+	@Test
+	void everyFilledLabelIsReadableOnItsFill() throws IOException {
+		String tokens = Files.readString(ASSETS.resolve(TOKEN_SHEET), StandardCharsets.UTF_8);
+		int dark = indexOfDark(tokens);
+		Map<String, String> light = resolve(tokens.substring(0, dark), -1);
+		Map<String, String> overlay = new java.util.LinkedHashMap<>(light);
+		overlay.putAll(valuesIn(tokens.substring(dark)));
+		Map<String, String> darkTheme = new java.util.LinkedHashMap<>();
+		overlay.forEach((token, value) -> darkTheme.put(token, follow(value, overlay, 0)));
+
+		List<String> unreadable = new ArrayList<>();
+		int measured = 0;
+		for (Path sheet : sheets()) {
+			String css = Files.readString(sheet, StandardCharsets.UTF_8);
+			for (String block : ruleBlocks(css)) {
+				String background = valueOf(block, "background");
+				String colour = valueOf(block, "color");
+				// Only a label that DECLARES itself as sitting on a fill. Measuring
+				// every background/colour pair instead reports something real and much
+				// larger: the sheets paint backgrounds from raw ramp steps, which are
+				// theme-invariant, so a dark theme would put light grey text on
+				// `--ui-neutral-2`. That is the dark theme not being implemented -- it
+				// is defined and not shipped, and nothing sets `data-theme` -- and it
+				// is a project rather than a rule. This rule is about the one pairing
+				// that claims to be correct in both themes, which is the claim that
+				// was false.
+				if (background == null || colour == null
+						|| !colour.contains("--ui-text-on-accent")) {
+					continue;
+				}
+				for (Map.Entry<String, Map<String, String>> theme : Map.of(
+						"light", light, "dark", darkTheme).entrySet()) {
+					String fill = tokenValue(background, theme.getValue());
+					String label = tokenValue(colour, theme.getValue());
+					if (fill == null || label == null) {
+						continue;
+					}
+					measured++;
+					double ratio = contrast(label, fill);
+					if (ratio < 4.5) {
+						unreadable.add(String.format("%s@%s: %s on %s is %.2f:1 (%s on %s)",
+								sheet.getFileName(), theme.getKey(), colour.trim(),
+								background.trim(), ratio, label, fill));
+					}
+				}
+			}
+		}
+		assertThat(unreadable)
+				.as("a label on a fill it cannot be read on is unreadable in exactly the place a "
+						+ "reader is most certain of what it says -- a button")
+				.isEmpty();
+		assertThat(measured)
+				.as("the label-on-fill pairs measured, across both themes -- the four filled "
+						+ "buttons twice over; pinned so a parser that stopped resolving cannot "
+						+ "pass this on nothing")
+				.isEqualTo(8);
+	}
+
+	/** One declaration's value inside a rule block, or null when it sets none. */
+	private static @org.jspecify.annotations.Nullable String valueOf(String block, String property) {
+		Matcher declaration = Pattern.compile(
+				"(?:^|;)\\s*" + Pattern.quote(property) + "\\s*:\\s*([^;}]+)").matcher(block);
+		return declaration.find() ? declaration.group(1) : null;
+	}
+
+	/** An opaque hex for a single {@code var(--x)} value, or null for anything else. */
+	private static @org.jspecify.annotations.Nullable String tokenValue(
+			String value, Map<String, String> theme) {
+		Matcher single = Pattern.compile("^\\s*var\\(\\s*(--[\\w-]+)\\s*\\)\\s*$").matcher(value);
+		if (!single.find()) {
+			return null;
+		}
+		String resolved = follow("var(" + single.group(1) + ")", theme, 0);
+		Matcher hex = Pattern.compile("^#[0-9a-fA-F]{6}$").matcher(resolved.trim());
+		return hex.find() ? resolved.trim().toLowerCase(Locale.ROOT) : null;
+	}
 
 	/**
 	 * A tint is its token at an opacity, not a fourth colour.
