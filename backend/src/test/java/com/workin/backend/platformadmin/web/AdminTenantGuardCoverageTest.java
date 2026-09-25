@@ -1205,13 +1205,17 @@ class AdminTenantGuardCoverageTest {
 	 * carry only {@code final}, which errs toward reporting. The declarator list is
 	 * captured whole, so {@code private final PenaltyStore a, b;} declares both
 	 * names ({@link #declaredNames}); the twenty-second round found reversed
-	 * modifiers ({@code final private}) and a declarator list both unmatched.
+	 * modifiers ({@code final private}) and a declarator list both unmatched, and
+	 * the twenty-third an annotation between two modifiers, which Java allows
+	 * anywhere among them ({@code private @Lazy final PenaltyStore purger;}).
 	 *
 	 * <p>What is still not matched, none of it house style and none of it in the
 	 * tree: a package-private, non-final, non-static field, {@code PenaltyStore
 	 * store;}, indistinguishable from a local by its line; a C-style array,
 	 * {@code PenaltyStore stores[];}; a field sharing its line with another member;
-	 * and an annotation whose arguments nest parentheses. Matching by brace depth
+	 * an annotation whose arguments nest parentheses; and a declarator list whose
+	 * initialiser has a comma inside parentheses, {@code a = new S(x, y), b;},
+	 * which yields {@code a} alone. Matching by brace depth
 	 * rather than by line would close all four, and is a rewrite of every rule that
 	 * reads declarations, so it is not done here.
 	 *
@@ -1226,7 +1230,8 @@ class AdminTenantGuardCoverageTest {
 	 */
 	private static final Pattern FIELD_DECLARATION = Pattern.compile(
 			"(?m)^[ \\t]*(?:@[\\w.]+(?:\\([^)]*\\))?\\s+)*"
-					+ "(?:(?:private|protected|public|static|final|transient|volatile)\\s+)+"
+					+ "(?:(?:private|protected|public|static|final|transient|volatile)\\s+"
+					+ "(?:@[\\w.]+(?:\\([^)]*\\))?\\s+)*)+"
 					+ TYPE_ANNOTATIONS
 					+ "([\\w.]+)((?:\\s*<[^;=]*>)?(?:\\s*\\[\\s*\\])*)\\s+"
 					+ "(\\w+(?:\\s*(?:=[^,;]*)?,\\s*\\w+)*)\\s*[;=]");
@@ -2915,6 +2920,18 @@ class AdminTenantGuardCoverageTest {
 				.unguarded())
 				.as("spaced the way TENANT_GUARD itself allows, still thrown away")
 				.containsExactly("delete");
+		// The twenty-third round: narrowing the discard pattern to keep `return` a
+		// use also let these through as uses. An assertion is off in production, and
+		// an `else` or `do` only introduces the statement that throws the answer away.
+		for (String discarded : List.of(
+				"assert session.isScopedToOneCompany();",
+				"assert this.store.companyOf(id) == session.companyId();",
+				"if (id < 0) { throw new IllegalStateException(); } else session.companyId();",
+				"do session.companyId(); while (false);")) {
+			assertThat(scan(source.replace("session.companyId();", discarded)).unguarded())
+					.as("%s enforces nothing", discarded)
+					.containsExactly("delete");
+		}
 
 		// The form this repository actually writes. `canOpenRow`'s third argument is
 		// a resolved company at every live call site -- `row.companyId()`,
@@ -3290,16 +3307,19 @@ class AdminTenantGuardCoverageTest {
 				class AdminPenaltiesController {
 					final private PenaltyStore purger;
 					private final PenaltyStore store, spare;
+					private @Lazy final PenaltyStore lazy;
 
 					public String submit(long id) {
 						this.purger.delete(id);
 						this.spare.delete(id);
+						this.lazy.delete(id);
 						return "ok";
 					}
 				}""", fixtureWrites).calls())
 				.as("the twenty-second round's shapes: modifiers in reverse order, and the "
-						+ "second name of a declarator list")
-				.containsExactly("purger.delete()", "spare.delete()");
+						+ "second name of a declarator list; and the twenty-third's, an "
+						+ "annotation between two modifiers")
+				.containsExactly("purger.delete()", "spare.delete()", "lazy.delete()");
 		assertThat(storeWriteCallsIn("""
 				class AdminPenaltiesController {
 					private final PenaltyStore store;
@@ -4968,9 +4988,17 @@ class AdminTenantGuardCoverageTest {
 				code.lastIndexOf('}', start)) + 1;
 		int semicolon = code.indexOf(';', end);
 		String statement = code.substring(from, semicolon < 0 ? code.length() : semicolon).trim();
+		// A guard that exists only inside an `assert` enforces nothing: assertions
+		// are off in production without -ea. Whatever it compares, it is discarded.
+		if (statement.matches("(?s)assert\\b.*")) {
+			return false;
+		}
 		// Whitespace only around a dot in an identifier chain: `[\\w.\\s]*` also took
-		// in a leading `return`, and read a returned guard as a discarded one.
-		return !statement.matches("(?:\\w+(?:\\s*\\.\\s*\\w+)*\\s*\\.\\s*)?"
+		// in a leading `return`, and read a returned guard as a discarded one. The
+		// keywords that only introduce a statement -- `else`, `do` -- are let
+		// through, since `} else session.companyId();` throws its answer away too;
+		// `return` and `yield` hand it on, so they stay out.
+		return !statement.matches("(?:(?:else|do)\\s+)?(?:\\w+(?:\\s*\\.\\s*\\w+)*\\s*\\.\\s*)?"
 				+ "(?:companyId|isScopedToOneCompany|canOpenRow)"
 				+ "\\s*" + BALANCED_ARGUMENTS);
 	}
