@@ -113,7 +113,8 @@ class AdminDesignTokensTest {
 	 * sent its author to make a token for a token.
 	 */
 	private static final Pattern COLOUR = Pattern.compile(
-			"#([0-9a-fA-F]{3,8})\\b|(?:rgba?|hsla?)\\((?!\\s*var\\()\\s*([^)]*)\\)");
+			"#([0-9a-fA-F]{3,8})\\b|(?:rgba?|hsla?)\\((?!\\s*var\\()\\s*([^)]*)\\)"
+					+ "|%23([0-9a-fA-F]{3,8})\\b");
 
 	/**
 	 * A colour written as its CSS name.
@@ -156,7 +157,7 @@ class AdminDesignTokensTest {
 	private static final Pattern FILL_TOKEN = Pattern.compile("--ui-[\\w-]*-fill(-hover)?");
 
 	private static final Pattern DECLARATION =
-			Pattern.compile("(?m)([a-z-]+)\\s*:\\s*([^;{}]+)");
+			Pattern.compile("(?im)([a-z-]+)\\s*:\\s*([^;{}]+)");
 
 	private static final Pattern TOKEN_USE = Pattern.compile("var\\(\\s*(--ui-[\\w-]+)");
 
@@ -172,7 +173,7 @@ class AdminDesignTokensTest {
 
 	/** {@code position: sticky}, on a declaration boundary for the same reason. */
 	private static final Pattern STICKY =
-			Pattern.compile("(?m)(?:^|[;{])\\s*position\\s*:\\s*sticky");
+			Pattern.compile("(?im)(?:^|[;{])\\s*position\\s*:\\s*sticky");
 
 	private static final Pattern TOKEN_DEFINITION = Pattern.compile("(?m)^\\s*(--ui-[\\w-]+)\\s*:");
 
@@ -196,6 +197,14 @@ class AdminDesignTokensTest {
 
 	@Test
 	void everyColourInTheAdminSheetsComesFromTheTokenSheet() throws IOException {
+		String tokenSheet = Files.readString(ASSETS.resolve(TOKEN_SHEET), StandardCharsets.UTF_8);
+		Set<String> tokenValues = new TreeSet<>();
+		for (String value : resolve(tokenSheet.substring(0, indexOfDark(tokenSheet)), -1).values()) {
+			if (value.trim().matches("#[0-9a-fA-F]{3}|#[0-9a-fA-F]{6}")) {
+				tokenValues.add(sixDigit(value.trim().substring(1)));
+			}
+		}
+		int dataUriColours = 0;
 		List<String> literals = new ArrayList<>();
 		Set<String> exemptionsUsed = new LinkedHashSet<>();
 		int sheets = 0;
@@ -212,6 +221,19 @@ class AdminDesignTokensTest {
 			Matcher colour = COLOUR.matcher(
 					withoutComments(Files.readString(sheet, StandardCharsets.UTF_8)));
 			while (colour.find()) {
+				if (colour.group(3) != null) {
+					// Inside a `data:` SVG, where `#` is written `%23` and a custom
+					// property cannot reach: the colour cannot be a token, so it must
+					// be a token's value. Eighteen such literals shipped invisible to
+					// this rule, one of them the Tailwind grey the conversion removed.
+					String hex = sixDigit(colour.group(3));
+					dataUriColours++;
+					if (!tokenValues.contains(hex)) {
+						literals.add(name + "%23" + colour.group(3) + " -- a colour in a data: URI "
+								+ "cannot be var(), so it must be a token's value; " + hex + " is none");
+					}
+					continue;
+				}
 				String written = colour.group(1) != null
 						? "#" + colour.group(1).toLowerCase(Locale.ROOT)
 						: colour.group().replaceAll("\\s+", "");
@@ -231,6 +253,10 @@ class AdminDesignTokensTest {
 		assertThat(sheets)
 				.as("the sheets checked; a glob that stopped matching would pass by checking nothing")
 				.isGreaterThan(14);
+		assertThat(dataUriColours)
+				.as("the colours read inside data: URIs, every one a token's value; pinned so the "
+						+ "arm that reads them cannot stop matching unnoticed")
+				.isEqualTo(18);
 		assertThat(literals).isEmpty();
 		assertThat(exemptionsUsed)
 				.as("an exemption whose literal is gone is a stale entry to delete, the same way "
@@ -255,6 +281,10 @@ class AdminDesignTokensTest {
 				.as("and the hex arm still matches, so widening took nothing away")
 				.isTrue();
 
+		Matcher escaped = COLOUR.matcher("url(\"data:image/svg+xml,%3Csvg stroke='%236b7280'%3E\")");
+		assertThat(escaped.find() && escaped.group(3) != null)
+				.as("a hex inside a data: URI, where # is %23 -- the spelling eighteen shipped in")
+				.isTrue();
 		assertThat(COLOUR.matcher("background: rgb( var(--ui-accent-rgb) / .12);").find())
 				.as("nor is the same token with a space inside the parenthesis")
 				.isFalse();
@@ -924,37 +954,70 @@ class AdminDesignTokensTest {
 						+ "are found from, so an empty set would check nothing")
 				.hasSize(4);
 
+		// Any rule naming the class as a compound -- `.btn.btn-green`, a hover, a
+		// `:not()` -- in any sheet, painting with either spelling of a background,
+		// reached through any alias layer. Each of the three narrower readings let
+		// round two's defect back in one ordinary edit: `background-color`, a
+		// `.btn.btn-green` compound, or `var(--red)`, style.css's alias of
+		// `--ui-danger`. And a fill this cannot resolve is a failure, not a skip:
+		// skipping is how a pattern that stopped matching passed on a clean tree.
+		Map<String, String> definitions = allTokenDefinitions();
 		List<String> states = new ArrayList<>();
+		List<String> unresolved = new ArrayList<>();
 		Set<String> statesReadIn = new TreeSet<>();
+		int statesMeasured = 0;
 		for (Path sheet : sheets()) {
-			String css = Files.readString(sheet, StandardCharsets.UTF_8);
-			for (String selector : filled) {
-				Matcher rule = Pattern.compile("(?m)^" + Pattern.quote(selector)
-						+ "[\\w\\s:().,\\[\\]=\"-]*\\{([^}]*)\\}").matcher(css);
-				while (rule.find()) {
+			String css = withoutComments(Files.readString(sheet, StandardCharsets.UTF_8));
+			Matcher rule = Pattern.compile("([^{}]+)\\{([^{}]*)\\}").matcher(css);
+			while (rule.find()) {
+				for (String selector : filled) {
+					if (!Pattern.compile(Pattern.quote(selector) + "(?![\\w-])").matcher(rule.group(1)).find()) {
+						continue;
+					}
 					statesReadIn.add(sheet.getFileName().toString());
 					Matcher background = Pattern.compile(
-							"background:\\s*var\\(\\s*(--[\\w-]+)\\s*\\)").matcher(rule.group(1));
+							"(?i)(?:^|[;{\\s])background(?:-color)?\\s*:\\s*([^;]+)").matcher(rule.group(2));
 					while (background.find()) {
-						String token = background.group(1);
+						String value = background.group(1).trim();
+						if (value.matches("(?i)none|transparent|inherit|initial|unset")) {
+							continue;
+						}
+						Matcher single = Pattern.compile("^var\\(\\s*(--[\\w-]+)\\s*\\)$").matcher(value);
+						if (!single.find()) {
+							unresolved.add(sheet.getFileName() + " " + rule.group(1).trim() + ": " + value);
+							continue;
+						}
+						String token = roleTokenFor(single.group(1), definitions);
 						for (Map.Entry<String, Map<String, String>> theme : Map.of(
 								"light", light, "dark", darkTheme).entrySet()) {
 							String fill = theme.getValue().get(token);
 							String label = theme.getValue().get("--ui-text-on-accent");
 							if (fill == null || !fill.startsWith("#")) {
+								unresolved.add(sheet.getFileName() + " " + rule.group(1).trim() + "@"
+										+ theme.getKey() + ": " + value + " -> " + token);
 								continue;
 							}
+							statesMeasured++;
 							double ratio = contrast(label, fill);
 							if (ratio < 4.5) {
 								states.add(String.format("%s %s@%s: a state of %s paints %s (%s), %.2f:1 "
-										+ "under the label %s inherits", sheet.getFileName(), selector,
-										theme.getKey(), selector, token, fill, ratio, selector));
+										+ "under the label %s inherits", sheet.getFileName(),
+										rule.group(1).trim(), theme.getKey(), selector, value, fill, ratio,
+										selector));
 							}
 						}
 					}
 				}
 			}
 		}
+		assertThat(unresolved)
+				.as("a filled button's state painted with something this cannot resolve to a "
+						+ "token's colour is a state nobody measured")
+				.isEmpty();
+		assertThat(statesMeasured)
+				.as("the state-by-theme fills measured; exact, so a pattern that stops matching "
+						+ "fails on a clean tree rather than only when the defect returns")
+				.isEqualTo(16);
 		assertThat(statesReadIn)
 				.as("the sheets a filled button's states were read from. app-ui.css holds their "
 						+ "hovers and loads last, and it is the sheet whose background shipped while "
@@ -1254,7 +1317,7 @@ class AdminDesignTokensTest {
 	}
 
 	/** The sheets whose {@code :root} is a layer of aliases onto the design system. */
-	private static final Set<String> ALIAS_LAYERS = Set.of("style.css", "app-ui.css");
+	private static final Set<String> ALIAS_LAYERS = Set.of("style.css", "app-ui.css", "login.css");
 
 	/**
 	 * Every legacy alias still has a referrer, and points at the design system.
@@ -1279,11 +1342,14 @@ class AdminDesignTokensTest {
 		// app-ui.css declares its own `--app-*` layer of exactly the same kind, and
 		// `everyTokenUsedIsDefinedAndEveryTokenDefinedIsUsed` reads `--ui-` names only,
 		// so that layer was the sibling of the defect above with nothing gating it.
-		// Three more sheets keep a `:root` of sheet-local constants -- a width, a tap
-		// size, two z-indices -- which are not aliases and need not point at `--ui-*`,
-		// but a dead one is dead all the same, so every block is read for referrers.
+		// login.css keeps a third alias layer of three colours beside one radius; the
+		// radius is its only non-alias. Two more sheets keep a `:root` of sheet-local
+		// constants -- a width, a tap size, two z-indices -- which are not aliases and
+		// need not point at `--ui-*`, but a dead one is dead all the same, so every
+		// block is read for referrers.
 		List<String> aliases = new ArrayList<>();
 		List<String> notAnAlias = new ArrayList<>();
+		int shapeChecked = 0;
 		Set<String> sheetsWithAliases = new TreeSet<>();
 		for (Path sheet : sheets()) {
 			String name = sheet.getFileName().toString();
@@ -1299,9 +1365,12 @@ class AdminDesignTokensTest {
 				while (declaration.find()) {
 					String alias = declaration.group(1);
 					aliases.add(alias);
-					if (ALIAS_LAYERS.contains(name)
-							&& !declaration.group(2).trim().startsWith("var(--ui-")) {
-						notAnAlias.add(name + ": " + alias + " = " + declaration.group(2).trim());
+					String value = declaration.group(2).trim();
+					if (ALIAS_LAYERS.contains(name)) {
+						shapeChecked++;
+						if (!value.startsWith("var(--ui-") && !value.matches("-?[\\d.]+(?:px|rem|em|%)?")) {
+							notAnAlias.add(name + ": " + alias + " = " + value);
+						}
 					}
 				}
 			}
@@ -1312,9 +1381,14 @@ class AdminDesignTokensTest {
 				.containsExactlyInAnyOrder("app-responsive.css", "app-ui.css", "login.css",
 						"sidebar.css", "style.css");
 		assertThat(notAnAlias)
-				.as("an entry here that is not `var(--ui-...)` is a colour living in this sheet "
-						+ "again, which is the thing the block exists to have removed")
+				.as("an entry in an alias layer that is neither `var(--ui-...)` nor a plain length "
+						+ "is a value living in this sheet again, which is the thing the block exists "
+						+ "to have removed")
 				.isEmpty();
+		assertThat(shapeChecked)
+				.as("the alias-layer declarations whose shape was checked; exact, so a layer "
+						+ "dropped from ALIAS_LAYERS fails here on a clean tree")
+				.isEqualTo(23);
 		assertThat(aliases)
 				.as("the aliases read; pinned so a pattern that stopped matching cannot pass")
 				.hasSizeGreaterThan(3);
@@ -1323,9 +1397,10 @@ class AdminDesignTokensTest {
 		for (String alias : aliases) {
 			int references = 0;
 			for (Path sheet : sheets()) {
-				String css = Files.readString(sheet, StandardCharsets.UTF_8);
+				// A mention in a comment refers to nothing.
+				String css = withoutComments(Files.readString(sheet, StandardCharsets.UTF_8));
 				Matcher use = Pattern.compile(
-						"var\\(\\s*" + Pattern.quote(alias) + "\\s*\\)").matcher(css);
+						"var\\(\\s*" + Pattern.quote(alias) + "\\s*[,)]").matcher(css);
 				while (use.find()) {
 					references++;
 				}
@@ -1367,7 +1442,7 @@ class AdminDesignTokensTest {
 		List<String> repeated = new ArrayList<>();
 		int blocks = 0;
 		for (Path sheet : sheets()) {
-			String css = Files.readString(sheet, StandardCharsets.UTF_8);
+			String css = withoutComments(Files.readString(sheet, StandardCharsets.UTF_8));
 			for (String block : ruleBlocks(css)) {
 				blocks++;
 				Map<String, Integer> counts = declarationCounts(block);
@@ -1416,6 +1491,23 @@ class AdminDesignTokensTest {
 				.as("and the same duplicate written on one line, which is how style.css writes "
 						+ "most of its blocks and which a line-anchored count read as one")
 				.containsEntry("--topbar-h", 2);
+		assertThat(declarationCounts(ruleBlocks(withoutComments("""
+						:root {
+						  --red: var(--ui-danger); /* legacy */ --red: var(--ui-accent-500);
+						}""")).get(0)))
+				.as("and after a comment on the same line, which the rule reads as it reads "
+						+ "every sheet: with its comments removed first")
+				.containsEntry("--red", 2);
+	}
+
+	/** A hex colour without its {@code #}, as six lower-case digits. */
+	private static String sixDigit(String hex) {
+		String digits = hex.toLowerCase(Locale.ROOT);
+		if (digits.length() == 3) {
+			digits = "" + digits.charAt(0) + digits.charAt(0) + digits.charAt(1) + digits.charAt(1)
+					+ digits.charAt(2) + digits.charAt(2);
+		}
+		return "#" + digits;
 	}
 
 	/** Every colour a sheet's declarations name, as {@code <property>: <name>}. */
@@ -1517,8 +1609,8 @@ class AdminDesignTokensTest {
 		Map<String, String> tokens = new java.util.LinkedHashMap<>();
 		for (Path sheet : sheets()) {
 			String css = Files.readString(sheet, StandardCharsets.UTF_8);
-			String light = css.substring(0, indexOfDark(css));
-			Matcher definition = Pattern.compile("(?m)^\\s*(--[\\w-]+)\\s*:\\s*([^;]+);").matcher(light);
+			String light = withoutComments(css.substring(0, indexOfDark(css)));
+			Matcher definition = DECLARED_PROPERTY.matcher(light);
 			while (definition.find()) {
 				tokens.putIfAbsent(definition.group(1), definition.group(2).trim());
 			}
