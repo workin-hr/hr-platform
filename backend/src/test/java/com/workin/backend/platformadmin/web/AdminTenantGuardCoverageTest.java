@@ -3401,37 +3401,16 @@ class AdminTenantGuardCoverageTest {
 
 		/** Every method of this class that reaches a write, public or not. */
 		private Set<String> reaching(String source) {
-			Set<String> writes =
-					new TreeSet<>(writeMethodsIn(source, this.tenantTables, this.entities));
-			String code = maskNonCode(source).code();
 			Map<String, Set<String>> throughFields = new LinkedHashMap<>();
-			Matcher field = FIELD_DECLARATION.matcher(code);
+			Matcher field = FIELD_DECLARATION.matcher(maskNonCode(source).code());
 			while (field.find()) {
 				Set<String> held = exportedBy(simpleName(field.group(1)));
 				if (!held.isEmpty()) {
 					throughFields.put(field.group(3), held);
 				}
 			}
-			Map<String, List<String>> bodies = methodBodies(source);
-			for (int pass = 0; pass <= bodies.size(); pass++) {
-				Set<String> more = new TreeSet<>();
-				for (Map.Entry<String, List<String>> method : bodies.entrySet()) {
-					if (writes.contains(method.getKey())) {
-						continue;
-					}
-					for (String overload : method.getValue()) {
-						if (callsAnyOf(overload, writes)
-								|| callsAFieldWrite(overload, throughFields)) {
-							more.add(method.getKey());
-							break;
-						}
-					}
-				}
-				if (!writes.addAll(more)) {
-					break;
-				}
-			}
-			return writes;
+			return reachingWrites(source, this.tenantTables, this.entities,
+					body -> callsAFieldWrite(body, throughFields));
 		}
 
 		private static boolean callsAFieldWrite(
@@ -4057,6 +4036,25 @@ class AdminTenantGuardCoverageTest {
 	/** The same, over source text, so a fixture can drive it. */
 	private static Set<String> writeMethodsIn(
 			String source, Set<String> tenantTables, Map<String, String> entities) {
+		return reachingWrites(source, tenantTables, entities, body -> false);
+	}
+
+	/**
+	 * Every method of one class that reaches a write, by name.
+	 *
+	 * <p>One closure, with a seam. {@link WriteResolver} needs the same walk plus one
+	 * extra way for a body to count -- a write called on a field it holds -- and
+	 * wrote its own copy of the loop to get it. Two copies of a walk is what this
+	 * round opened with, three lines apart, and the copy that drifted cost the gate
+	 * a store; the mutant runner refusing an ambiguous substitution is how the second
+	 * copy was noticed.
+	 *
+	 * @param alsoWrites a further reason a body reaches a write, beyond calling a
+	 *        name already known to
+	 */
+	private static Set<String> reachingWrites(
+			String source, Set<String> tenantTables, Map<String, String> entities,
+			java.util.function.Predicate<String> alsoWrites) {
 		Set<String> writes = new TreeSet<>();
 		Map<String, List<String>> bodies = methodBodies(source);
 		for (Map.Entry<String, List<String>> method : bodies.entrySet()) {
@@ -4092,7 +4090,7 @@ class AdminTenantGuardCoverageTest {
 					continue;
 				}
 				for (String overload : method.getValue()) {
-					if (callsAnyOf(overload, writes)) {
+					if (callsAnyOf(overload, writes) || alsoWrites.test(overload)) {
 						reaching.add(method.getKey());
 						break;
 					}
