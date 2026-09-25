@@ -55,8 +55,12 @@ public class DeviceAgentService {
 		return agents.findActiveByTokenSha256(DeviceAgentTokens.sha256(token));
 	}
 
-	public List<DeviceAgent> list(Long companyId) {
-		return agents.list(companyId);
+	public List<DeviceAgent> list(Long companyId, int limit, long offset) {
+		return agents.list(companyId, limit, offset);
+	}
+
+	public int count(Long companyId) {
+		return agents.count(companyId);
 	}
 
 	public Optional<DeviceAgent> find(long id) {

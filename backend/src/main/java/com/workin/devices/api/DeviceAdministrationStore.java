@@ -43,7 +43,40 @@ public class DeviceAdministrationStore {
 		return rows.isEmpty() ? Map.of() : rows.get(0);
 	}
 
+	/**
+	 * How many devices the same filters match, ignoring the page.
+	 *
+	 * <p>Built from the same WHERE clause the read uses, by the same method, so
+	 * the two cannot disagree about what "matching" means -- a count assembled
+	 * separately drifts the moment a filter is added to one and not the other.
+	 */
+	public int deviceCount(Long companyId) {
+		List<Object> args = new ArrayList<>();
+		String where = deviceWhere(companyId, null, args);
+		Integer total = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM attendance_devices d" + where, Integer.class, args.toArray());
+		return total == null ? 0 : total;
+	}
+
+	/** The filters, once, for both the count and the read. */
+	private static String deviceWhere(Long companyId, Long deviceId, List<Object> args) {
+		StringBuilder where = new StringBuilder(" WHERE 1 = 1");
+		if (companyId != null) {
+			where.append(" AND d.company_id = ?");
+			args.add(companyId);
+		}
+		if (deviceId != null) {
+			where.append(" AND d.id = ?");
+			args.add(deviceId);
+		}
+		return where.toString();
+	}
+
 	private List<Map<String, Object>> devices(Long companyId, Long deviceId, int limit) {
+		return devices(companyId, deviceId, limit, 0L);
+	}
+
+	private List<Map<String, Object>> devices(Long companyId, Long deviceId, int limit, long offset) {
 		List<Object> args = new ArrayList<>();
 		StringBuilder sql = new StringBuilder("""
 				SELECT d.id, d.company_id, c.company_name, d.branch_id, b.name AS branch_name, d.vendor,
@@ -53,29 +86,44 @@ public class DeviceAdministrationStore {
 				FROM attendance_devices d
 				LEFT JOIN companies c ON c.id = d.company_id
 				LEFT JOIN branches b ON b.id = d.branch_id""");
-		sql.append(" WHERE 1 = 1");
-		if (companyId != null) {
-			sql.append(" AND d.company_id = ?");
-			args.add(companyId);
-		}
-		if (deviceId != null) {
-			sql.append(" AND d.id = ?");
-			args.add(deviceId);
-		}
-		sql.append(" ORDER BY d.last_seen_at IS NULL, d.last_seen_at DESC, d.id DESC LIMIT ?");
+		sql.append(deviceWhere(companyId, deviceId, args));
+		sql.append(" ORDER BY d.last_seen_at IS NULL, d.last_seen_at DESC, d.id DESC LIMIT ? OFFSET ?");
 		args.add(limit);
+		args.add(offset);
 		return jdbcTemplate.query(sql.toString(), LegacyJdbcValues.rowMapper(), args.toArray());
 	}
 
-	public List<Map<String, Object>> sightings(int limit) {
+	/** One page of devices; {@link #deviceCount} is its total. */
+	public List<Map<String, Object>> devicePage(Long companyId, int limit, long offset) {
+		return devices(companyId, null, limit, offset);
+	}
+
+	/**
+	 * One page of unclaimed serials, most recently seen first.
+	 *
+	 * <p>{@code serial_number} breaks the tie. {@code last_seen_at} is a
+	 * second-precision {@code DATETIME} and not unique, and once a list is paged
+	 * MariaDB may order tied rows differently on each page -- so serials seen in
+	 * the same second repeated on one page and appeared on none, the defect D-283
+	 * fixed for join requests with {@code e.id DESC}. The primary key is the only
+	 * total order this table has.
+	 */
+	public List<Map<String, Object>> sightings(int limit, long offset) {
 		return jdbcTemplate.query("""
 				SELECT serial_number, first_seen_at, last_seen_at, last_seen_ip, push_version, device_type, hit_count
 				FROM unclaimed_device_sightings
-				ORDER BY last_seen_at DESC LIMIT ?""", LegacyJdbcValues.rowMapper(), limit);
+				ORDER BY last_seen_at DESC, serial_number DESC LIMIT ? OFFSET ?""",
+				LegacyJdbcValues.rowMapper(), limit, offset);
+	}
+
+	public int sightingCount() {
+		Integer total = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM unclaimed_device_sightings", Integer.class);
+		return total == null ? 0 : total;
 	}
 
 	/** Newest received first. */
-	public List<Map<String, Object>> punches(Long companyId, Long deviceId, int limit) {
+	public List<Map<String, Object>> punches(Long companyId, Long deviceId, int limit, long offset) {
 		List<Object> args = new ArrayList<>();
 		StringBuilder sql = new StringBuilder("""
 				SELECT p.id, p.device_id, d.serial_number, d.name AS device_name, p.company_id, c.company_name,
@@ -85,19 +133,51 @@ public class DeviceAdministrationStore {
 				FROM device_punches p
 				JOIN attendance_devices d ON d.id = p.device_id
 				LEFT JOIN companies c ON c.id = p.company_id
-				LEFT JOIN employees e ON e.id = p.employee_id AND e.company_id = p.company_id
-				WHERE 1 = 1""");
+				LEFT JOIN employees e ON e.id = p.employee_id AND e.company_id = p.company_id""");
+		sql.append(punchWhere(companyId, deviceId, args));
+		sql.append(" ORDER BY p.id DESC LIMIT ? OFFSET ?");
+		args.add(limit);
+		args.add(offset);
+		return jdbcTemplate.query(sql.toString(), LegacyJdbcValues.rowMapper(), args.toArray());
+	}
+
+	/**
+	 * How many punches the same filters match, ignoring the page.
+	 *
+	 * <p>Same WHERE clause as the read, by the same method, for the reason
+	 * {@link #deviceWhere} gives: a filter added to one and not the other makes
+	 * the pager count a different set from the one it pages through.
+	 *
+	 * <p>It carries the read's inner join and not its outer ones. The joins to
+	 * {@code companies} and {@code employees} are {@code LEFT}, so they add no row
+	 * and remove none. The join to {@code attendance_devices} is a filter:
+	 * {@code device_punches.device_id} is {@code NOT NULL} but is deliberately
+	 * <em>not</em> a foreign key, so a punch can name a device row that is not
+	 * there and the read drops it. Counting without the join would report a total
+	 * the pages cannot show.
+	 */
+	public int punchCount(Long companyId, Long deviceId) {
+		List<Object> args = new ArrayList<>();
+		String where = punchWhere(companyId, deviceId, args);
+		Integer total = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM device_punches p"
+						+ " JOIN attendance_devices d ON d.id = p.device_id" + where,
+				Integer.class, args.toArray());
+		return total == null ? 0 : total;
+	}
+
+	/** The filters, once, for both the count and the read. */
+	private static String punchWhere(Long companyId, Long deviceId, List<Object> args) {
+		StringBuilder where = new StringBuilder(" WHERE 1 = 1");
 		if (companyId != null) {
-			sql.append(" AND p.company_id = ?");
+			where.append(" AND p.company_id = ?");
 			args.add(companyId);
 		}
 		if (deviceId != null) {
-			sql.append(" AND p.device_id = ?");
+			where.append(" AND p.device_id = ?");
 			args.add(deviceId);
 		}
-		sql.append(" ORDER BY p.id DESC LIMIT ?");
-		args.add(limit);
-		return jdbcTemplate.query(sql.toString(), LegacyJdbcValues.rowMapper(), args.toArray());
+		return where.toString();
 	}
 
 	/** Counts by state and by how they arrived, for one device. */
@@ -109,10 +189,18 @@ public class DeviceAdministrationStore {
 				ORDER BY processing_state, delivered_via""", LegacyJdbcValues.rowMapper(), deviceId);
 	}
 
-	public List<Map<String, Object>> malformed(long deviceId, int limit) {
+	public List<Map<String, Object>> malformed(long deviceId, int limit, long offset) {
 		return jdbcTemplate.query("""
 				SELECT id, received_at, raw_line FROM device_malformed_punches
-				WHERE device_id = ? ORDER BY id DESC LIMIT ?""", LegacyJdbcValues.rowMapper(), deviceId, limit);
+				WHERE device_id = ? ORDER BY id DESC LIMIT ? OFFSET ?""",
+				LegacyJdbcValues.rowMapper(), deviceId, limit, offset);
+	}
+
+	public int malformedCount(long deviceId) {
+		Integer total = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM device_malformed_punches WHERE device_id = ?",
+				Integer.class, deviceId);
+		return total == null ? 0 : total;
 	}
 
 	public boolean companyExists(long companyId) {

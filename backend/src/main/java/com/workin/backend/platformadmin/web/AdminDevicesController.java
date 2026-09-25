@@ -20,10 +20,12 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.devices.AdminDeviceActions;
 import com.workin.backend.platformadmin.org.ActiveCompanies;
+import com.workin.devices.agent.DeviceAgent;
 import com.workin.devices.agent.DeviceAgentService;
 import com.workin.devices.api.DeviceAdministrationService;
 import com.workin.devices.ingest.DeviceFileImportService;
 import com.workin.devices.registry.AttendanceDevice;
+import com.workin.legacy.PhpCast;
 
 /**
  * Attendance terminals across every company: what has reached the platform,
@@ -86,6 +88,25 @@ public class AdminDevicesController {
 		model.addAttribute("issuedAgent", model.getAttribute("issuedAgent"));
 		model.addAttribute("allocateSerial", serial == null ? "" : serial.strip());
 
+		// One page number per list, because they are on one screen and paging
+		// one must not move the others. `per_page` is shared, as it is on
+		// attendance: one size control, whichever table it sits under.
+		int perPage = filters.perPage();
+		int devPage = pageOf(request, "dev_page");
+		int sightPage = pageOf(request, "sight_page");
+		int agentPage = pageOf(request, "agent_page");
+		int punchPage = pageOf(request, "punch_page");
+		int malPage = pageOf(request, "mal_page");
+		// The requested numbers, not the clamped ones: a pager link carries the
+		// other pagers' pages, and carrying a clamped value would rewrite a
+		// bookmarked page the moment another table is turned (attendance.jte
+		// records the same reason).
+		model.addAttribute("devPage", devPage);
+		model.addAttribute("sightPage", sightPage);
+		model.addAttribute("agentPage", agentPage);
+		model.addAttribute("punchPage", punchPage);
+		model.addAttribute("malPage", malPage);
+
 		Optional<AttendanceDevice> selected = device == null ? Optional.empty() : devices.device(device)
 				.filter(found -> DashboardOrgScope.canOpenRow(current, filters, found.companyId()));
 		model.addAttribute("selected", selected.orElse(null));
@@ -93,25 +114,58 @@ public class AdminDevicesController {
 			long id = selected.get().id();
 			model.addAttribute("selectedRow", devices.deviceRow(id));
 			model.addAttribute("counts", devices.punchCounts(id));
-			model.addAttribute("punches", devices.punches(null, id, 200));
-			model.addAttribute("malformed", devices.malformed(id));
-			model.addAttribute("deviceRows", List.of());
-			model.addAttribute("sightings", List.of());
-			model.addAttribute("agents", List.of());
+			model.addAttribute("punchResult", DashboardPage.of(
+					devices.punches(null, id, perPage, DashboardPage.offsetFor(punchPage, perPage)),
+					devices.punchCount(null, id), punchPage, perPage));
+			model.addAttribute("malformedResult", DashboardPage.of(
+					devices.malformed(id, perPage, DashboardPage.offsetFor(malPage, perPage)),
+					devices.malformedCount(id), malPage, perPage));
+			// The lists this half of the page does not render. An empty page
+			// rather than an empty list, so the template takes one type for a
+			// table whichever half it is in, and the pager draws nothing at
+			// total 0.
+			model.addAttribute("deviceResult", emptyPage(perPage));
+			model.addAttribute("sightingResult", emptyPage(perPage));
+			model.addAttribute("agentResult", DashboardPage.<DeviceAgent>of(List.of(), 0, 1, perPage));
 			model.addAttribute("branches", List.of());
 			model.addAttribute("companyOptions", List.of());
 		} else {
 			model.addAttribute("selectedRow", java.util.Map.of());
 			model.addAttribute("counts", List.of());
-			model.addAttribute("punches", devices.punches(companyId, null, 50));
-			model.addAttribute("malformed", List.of());
-			model.addAttribute("deviceRows", devices.devices(companyId));
-			model.addAttribute("sightings", devices.sightings());
-			model.addAttribute("agents", devices.agents(companyId));
+			model.addAttribute("punchResult", DashboardPage.of(
+					devices.punches(companyId, null, perPage, DashboardPage.offsetFor(punchPage, perPage)),
+					devices.punchCount(companyId, null), punchPage, perPage));
+			model.addAttribute("malformedResult", emptyPage(perPage));
+			model.addAttribute("deviceResult", DashboardPage.of(
+					devices.devices(companyId, perPage, DashboardPage.offsetFor(devPage, perPage)),
+					devices.deviceCount(companyId), devPage, perPage));
+			model.addAttribute("sightingResult", DashboardPage.of(
+					devices.sightings(perPage, DashboardPage.offsetFor(sightPage, perPage)),
+					devices.sightingCount(), sightPage, perPage));
+			model.addAttribute("agentResult", DashboardPage.of(
+					devices.agents(companyId, perPage, DashboardPage.offsetFor(agentPage, perPage)),
+					devices.agentCount(companyId), agentPage, perPage));
 			model.addAttribute("branches", devices.branches(companyId));
 			model.addAttribute("companyOptions", companyId == null ? companies.all() : List.of());
 		}
 		return VIEW;
+	}
+
+	private static DashboardPage<java.util.Map<String, Object>> emptyPage(int perPage) {
+		return DashboardPage.of(List.of(), 0, 1, perPage);
+	}
+
+	/**
+	 * {@code max(1, (int) ($_GET[$name] ?? 1))}, read with {@link PhpCast#intval}
+	 * so that {@code ?dev_page=abc} is page 1 rather than a 400 -- the rule every
+	 * other dashboard page number follows.
+	 */
+	private static int pageOf(HttpServletRequest request, String name) {
+		String raw = request.getParameter(name);
+		if (raw == null || raw.isEmpty()) {
+			return 1;
+		}
+		return (int) Math.clamp(PhpCast.intval(raw), 1, Integer.MAX_VALUE);
 	}
 
 	@AuthenticatedUseCase(reason = "Allocates a terminal to a company, switches one on or off, imports "
