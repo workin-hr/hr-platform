@@ -118,7 +118,8 @@ process to have write access to its own source tree. Do not port.
 validated live by `apis/api/attendance/check_in_qr.php` as a
 shared secret — is rendered by sending it in cleartext as a URL
 query parameter to `https://api.qrserver.com` every time an admin
-opens the QR modal. Should be self-hosted in the rewrite. No
+opens the QR modal. Should be self-hosted in the rewrite -- done in
+the port by D-285, which draws the code locally and sends it nowhere. No
 upper bound on QR expiry; no replay protection beyond expiry.
 
 ### Finding 4 — Session-scoped login lockout is bypassable

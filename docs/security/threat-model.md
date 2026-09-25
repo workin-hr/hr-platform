@@ -96,7 +96,8 @@ Two further findings from the same pass (detail in the completion doc):
 the admin `change_password` flow stores plaintext credentials by
 rewriting `constants.php` source (Finding 2 — do not port); the branch
 attendance-QR secret is leaked to the third-party `api.qrserver.com`
-render URL (Finding 3).
+render URL (Finding 3). The port draws the QR on its own host instead
+(D-285); legacy still leaks it.
 
 ## Specific Areas Requiring Coverage Once Discovery Exists
 

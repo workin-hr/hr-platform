@@ -6,7 +6,9 @@ import java.net.http.HttpClient;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -401,9 +403,119 @@ class AdminBranchesEndToEndTest {
 				"SELECT qr_code, expires_at FROM branches WHERE id = " + id);
 		assertThat((String) row.get("qr_code")).matches("[0-9a-f]{32}");
 		assertThat(row.get("expires_at")).isNotNull();
-		assertThat(body("/admin/branches?action=qr&id=" + id))
-				.as("the panel now renders the code through legacy's own third-party renderer")
-				.contains("api.qrserver.com");
+		String panel = body("/admin/branches?action=qr&id=" + id);
+		assertThat(panel)
+				.as("the panel draws the code on this host (D-285, #298): legacy's renderer sent "
+						+ "the check-in code and the viewer's address to api.qrserver.com")
+				.contains("<img src=\"data:image/svg+xml;base64,")
+				.doesNotContain("qrserver");
+		assertThat(remoteLoadsIn(panel))
+				.as("and nothing the page or its stylesheets load comes from another host, which "
+						+ "is the class #298 was one instance of")
+				.isEmpty();
+	}
+
+	@Test
+	void theRemoteLoadDetectorSeesEverySpellingAPageCouldUse() {
+		// Pinned against synthetic markup, because the live page has none of these
+		// and a detector that sees nothing would pass it just as well.
+		String page = "<img src=\"https://a.example/1.png\">"
+				+ "<img srcset=\"/local.png 1x, //b.example/2.png 2x\">"
+				+ "<video poster='http://c.example/3.png'></video>"
+				+ "<object data=\"https://d.example/4.svg\"></object>"
+				+ "<link rel=\"stylesheet\" href=\"https://e.example/5.css\">"
+				+ "<svg><image href=\"//f.example/6.png\"/></svg>"
+				+ "<div style=\"background:url( 'https://g.example/7.png')\"></div>"
+				+ "<style>@import \"https://h.example/8.css\";</style>"
+				+ "<a href=\"https://i.example/\">a link is a navigation, not a load</a>"
+				+ "<img src=\"data:image/svg+xml;base64,Ly8vLw==\">";
+		assertThat(remoteLoadsIn(page)).hasSize(8).noneMatch(load -> load.contains("i.example"))
+				.noneMatch(load -> load.startsWith("data:"));
+	}
+
+	private static final Pattern TAG = Pattern.compile("<([a-zA-Z][\\w-]*)\\b([^>]*)>");
+
+	private static final Pattern ATTRIBUTE =
+			Pattern.compile("([\\w:-]+)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')");
+
+	private static final Pattern STYLE_ELEMENT = Pattern.compile("(?is)<style\\b[^>]*>(.*?)</style>");
+
+	private static final Pattern CSS_LOAD =
+			Pattern.compile("(?i)(?:url\\(\\s*[\"']?|@import\\s+[\"'])\\s*((?:https?:)?//[^\"')\\s]*)");
+
+	/**
+	 * Every URL on another host that the page would fetch: an element's source
+	 * attributes, every {@code srcset} candidate, a {@code <link>}, SVG
+	 * {@code <image>} or {@code <use>} reference, and {@code url()} or
+	 * {@code @import} in a {@code style} attribute, a {@code <style>} element or a
+	 * stylesheet this host serves the page. An {@code <a href>} is a navigation,
+	 * not a load, and is left alone. Scripts' own fetches are not read.
+	 */
+	private List<String> remoteLoadsIn(String html) {
+		List<String> loads = remoteLoadsInMarkup(html);
+		Matcher tag = TAG.matcher(html);
+		while (tag.find()) {
+			if (tag.group(1).equalsIgnoreCase("link") && tag.group(2).contains("stylesheet")) {
+				Matcher attribute = ATTRIBUTE.matcher(tag.group(2));
+				while (attribute.find()) {
+					String value = attribute.group(2) != null ? attribute.group(2) : attribute.group(3);
+					if (attribute.group(1).equalsIgnoreCase("href") && value.startsWith("/")
+							&& !value.startsWith("//")) {
+						loads.addAll(remoteLoadsInCss(body(value)));
+					}
+				}
+			}
+		}
+		return loads;
+	}
+
+	private static List<String> remoteLoadsInMarkup(String html) {
+		List<String> loads = new ArrayList<>();
+		Matcher tag = TAG.matcher(html);
+		while (tag.find()) {
+			String element = tag.group(1).toLowerCase(Locale.ROOT);
+			Matcher attribute = ATTRIBUTE.matcher(tag.group(2));
+			while (attribute.find()) {
+				String name = attribute.group(1).toLowerCase(Locale.ROOT);
+				String value = attribute.group(2) != null ? attribute.group(2) : attribute.group(3);
+				switch (name) {
+					case "src", "poster", "data", "xlink:href" -> addIfRemote(loads, value);
+					case "href" -> {
+						if (List.of("link", "image", "use").contains(element)) {
+							addIfRemote(loads, value);
+						}
+					}
+					case "srcset" -> {
+						for (String candidate : value.split(",")) {
+							addIfRemote(loads, candidate.strip().split("\\s+")[0]);
+						}
+					}
+					case "style" -> loads.addAll(remoteLoadsInCss(value));
+					default -> {
+					}
+				}
+			}
+		}
+		Matcher style = STYLE_ELEMENT.matcher(html);
+		while (style.find()) {
+			loads.addAll(remoteLoadsInCss(style.group(1)));
+		}
+		return loads;
+	}
+
+	private static List<String> remoteLoadsInCss(String css) {
+		List<String> loads = new ArrayList<>();
+		Matcher load = CSS_LOAD.matcher(css);
+		while (load.find()) {
+			loads.add(load.group(1));
+		}
+		return loads;
+	}
+
+	private static void addIfRemote(List<String> loads, String value) {
+		if (value.strip().matches("(?is)(?:https?:)?//.*")) {
+			loads.add(value.strip());
+		}
 	}
 
 	@Test
