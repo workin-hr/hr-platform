@@ -208,7 +208,7 @@ class AdminDesignTokensTest {
 			"--ui-nav-bg", "--ui-nav-bg-raised", "--ui-nav-bg-hover", "--ui-hero-bg");
 
 	/** A border or a {@code -weak} tint: a colour for a line or a wash, never for text. */
-	private static final Pattern TINT_OR_BORDER = Pattern.compile("--ui-(?:border[\\w-]*|[\\w-]+-weak)");
+	private static final Pattern TINT_OR_BORDER = Pattern.compile("--ui-(?:border[\\w-]*|[\\w-]+-(?:weak|edge))");
 
 	/**
 	 * States painted with a translucent wash, which no single token resolves, over
@@ -288,16 +288,17 @@ class AdminDesignTokensTest {
 		int styledAttributes = 0;
 		try (var templates = Files.walk(Path.of("src/main/jte/admin"))) {
 			for (Path template : templates.filter(path -> path.toString().endsWith(".jte")).toList()) {
-				Matcher style = Pattern.compile("\\bstyle\\s*=\\s*\"([^\"]*)\"")
+				Matcher style = Pattern.compile("\\bstyle\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')")
 						.matcher(Files.readString(template, StandardCharsets.UTF_8));
 				while (style.find()) {
 					styledAttributes++;
-					Matcher colour = COLOUR.matcher(style.group(1));
+					String inline = style.group(1) != null ? style.group(1) : style.group(2);
+					Matcher colour = COLOUR.matcher(inline);
 					while (colour.find()) {
 						literals.add(template.getFileName() + " style=\"" + colour.group()
 								+ "\" -- a colour in a template belongs in its sheet");
 					}
-					for (String named : namedColoursIn(".x { " + style.group(1) + " }")) {
+					for (String named : namedColoursIn(".x { " + inline + " }")) {
 						literals.add(template.getFileName() + " style: " + named
 								+ " -- a colour in a template belongs in its sheet");
 					}
@@ -1264,13 +1265,27 @@ class AdminDesignTokensTest {
 
 		// A shell fixed to the viewport prints one screenful: in print the page is
 		// the viewport. Measured in headless Chrome, a 200-row list printed 1 page
-		// and 17 rows without this block and 11 pages and 191 rows with it.
+		// and 17 rows without the print block and 11 pages and 191 rows with it.
+		// The block must win the cascade, not merely be written: its first version
+		// sat in style.css and lost `.sidebar` to sidebar.css and `.content` to a
+		// later rule in its own sheet. So it lives in the last layout sheet and
+		// every declaration is `!important` -- the per-page sheets load later still.
+		String responsive = withoutComments(
+				Files.readString(ASSETS.resolve("app-responsive.css"), StandardCharsets.UTF_8));
 		Matcher print = Pattern.compile("@media\\s+print\\s*\\{((?:[^{}]|\\{[^{}]*\\})*)\\}")
-				.matcher(withoutComments(style));
-		assertThat(print.find()).as("style.css releases the shell for print").isTrue();
-		assertThat(declarationsOf(print.group(1), ".shell")).containsEntry("height", "auto");
+				.matcher(responsive);
+		assertThat(print.find()).as("app-responsive.css releases the shell for print").isTrue();
+		assertThat(declarationsOf(print.group(1), ".shell")).containsEntry("height", "auto !important");
 		assertThat(declarationsOf(print.group(1), ".main, .content"))
-				.containsEntry("overflow", "visible");
+				.containsEntry("overflow", "visible !important");
+		assertThat(declarationsOf(print.group(1), ".sidebar")).containsEntry("display", "none !important");
+		for (Path sheet : sheets()) {
+			assertThat(Pattern.compile("\\.shell\\b[^{}]*\\{[^}]*height\\s*:[^;}]*!important")
+					.matcher(withoutComments(Files.readString(sheet, StandardCharsets.UTF_8))).results()
+					.count())
+					.as("%s: only the print block may force the shell's height", sheet.getFileName())
+					.isEqualTo(sheet.getFileName().toString().equals("app-responsive.css") ? 1 : 0);
+		}
 	}
 
 	/**

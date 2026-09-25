@@ -72,15 +72,6 @@ html[dir="ltr"] body {
 .shell { display: flex; height: 100vh; height: 100dvh; }
 .main  { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
-/* Printing: the page is the viewport, so a shell fixed to it would clip every
-   printed list to its first screenful. In print the document scrolls again and
-   the navigation, which prints as a column of links, is left out. */
-@media print {
-  .shell { height: auto; }
-  .main, .content { overflow: visible; }
-  .sidebar { display: none; }
-}
-
 /* ===== TOPBAR ===== */
 .topbar { height: var(--topbar-h); background: var(--ui-surface);
           border-bottom: 1px solid var(--ui-border-soft);

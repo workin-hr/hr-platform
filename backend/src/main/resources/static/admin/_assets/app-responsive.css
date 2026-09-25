@@ -394,3 +394,17 @@
     transition: none !important;
   }
 }
+
+/* Printing: the page is the viewport, so a shell fixed to it would clip every
+   printed list to its first screenful. In print the document scrolls again and
+   the navigation, which prints as a column of links, is left out.
+   Here, and `!important`, because it must win the cascade and not merely be
+   written: the per-page sheets load after this one, `sidebar.css` sets
+   `.sidebar { display: flex }` and `style.css` sets `.content`'s overflow later
+   than the first version of this block, which sat in style.css and lost two of
+   its three declarations. */
+@media print {
+  .shell { height: auto !important; }
+  .main, .content { overflow: visible !important; }
+  .sidebar { display: none !important; }
+}

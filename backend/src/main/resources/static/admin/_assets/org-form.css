@@ -254,7 +254,7 @@
 .dept-branches-picker__empty-icon {
   font-size: 28px;
   line-height: 1;
-  color: var(--ui-info-edge);
+  color: var(--ui-accent-200);
 }
 
 @media (max-width: 520px) {
