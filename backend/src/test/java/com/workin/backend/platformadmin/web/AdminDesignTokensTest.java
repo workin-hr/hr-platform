@@ -517,6 +517,118 @@ class AdminDesignTokensTest {
 		return 0.2126 * channel[0] + 0.7152 * channel[1] + 0.0722 * channel[2];
 	}
 
+	/**
+	 * No token is declared twice inside one rule block.
+	 *
+	 * <p>The rule that would have caught the defect this round found. Three tokens --
+	 * {@code --ui-success-strong}, {@code --ui-danger-strong} and
+	 * {@code --ui-warning-strong} -- were each declared twice in the dark block, ten
+	 * lines apart. CSS takes the later one, so the shipped dark values were the light
+	 * ramp's dark ends at <b>3.92</b>, <b>3.25</b> and <b>3.67</b> to one on
+	 * {@code #1f1e23}, while the lifted values written for exactly that surface
+	 * (10.25, 8.50, 9.53) sat above them as dead lines. A comment beside them claimed
+	 * the token gate required the lift; no rule looked.
+	 *
+	 * <p>Nothing else could have caught it. The readability rule treats
+	 * {@code -strong} as a fill rather than as text, and {@link #resolve} builds a map
+	 * with {@code put}, so a duplicate is not a conflict there -- it is silently the
+	 * last one, which is the browser's answer and therefore not something a resolver
+	 * can flag. A duplicate declaration is only visible while the block is still
+	 * text.
+	 *
+	 * <p>Per block, not per sheet: redefining a token in the dark block is the whole
+	 * mechanism, so only a repeat <em>within</em> one block is the defect.
+	 */
+	@Test
+	void noTokenIsDeclaredTwiceInTheSameBlock() throws IOException {
+		List<String> repeated = new ArrayList<>();
+		int blocks = 0;
+		for (Path sheet : sheets()) {
+			String css = Files.readString(sheet, StandardCharsets.UTF_8);
+			for (String block : ruleBlocks(css)) {
+				blocks++;
+				Map<String, Integer> counts = new java.util.LinkedHashMap<>();
+				Matcher definition = Pattern.compile("(?m)^\\s*(--[\\w-]+)\\s*:").matcher(block);
+				while (definition.find()) {
+					counts.merge(definition.group(1), 1, Integer::sum);
+				}
+				counts.forEach((token, count) -> {
+					if (count > 1) {
+						repeated.add(sheet.getFileName() + ": " + token + " declared " + count
+								+ " times in one block; CSS keeps the last, so the others are dead "
+								+ "lines that read as if they shipped");
+					}
+				});
+			}
+		}
+		assertThat(repeated)
+				.as("a token declared twice in one block ships whichever came last, and the other "
+						+ "is a value somebody wrote, reviewed and believed")
+				.isEmpty();
+		assertThat(blocks)
+				.as("the blocks read; pinned above zero so a splitter that stopped matching "
+						+ "cannot make this pass by looking at nothing")
+				.isGreaterThan(20);
+
+		// The defect itself, so the rule is pinned by a subject rather than by the
+		// tree happening to be clean.
+		assertThat(ruleBlocks("""
+				:root[data-theme="dark"] {
+				  --ui-success-strong: #a6db73;
+				  --ui-danger-strong: #f5a5a1;
+				  --ui-success-strong: #4d8a1a;
+				}"""))
+				.as("one block")
+				.hasSize(1);
+		Map<String, Integer> counted = new java.util.LinkedHashMap<>();
+		Matcher definition = Pattern.compile("(?m)^\\s*(--[\\w-]+)\\s*:").matcher(
+				ruleBlocks("""
+						:root[data-theme="dark"] {
+						  --ui-success-strong: #a6db73;
+						  --ui-danger-strong: #f5a5a1;
+						  --ui-success-strong: #4d8a1a;
+						}""").get(0));
+		while (definition.find()) {
+			counted.merge(definition.group(1), 1, Integer::sum);
+		}
+		assertThat(counted)
+				.as("the shape this rule exists for, counted: the token declared twice and the "
+						+ "one declared once")
+				.containsEntry("--ui-success-strong", 2)
+				.containsEntry("--ui-danger-strong", 1);
+	}
+
+	/**
+	 * The bodies of every brace-delimited rule in a sheet, one level deep.
+	 *
+	 * <p>Nested by design: an {@code @media} wrapper's own body is returned as well as
+	 * each rule inside it, so a token declared twice inside a rule and a token
+	 * declared once in two sibling rules are told apart.
+	 */
+	private static List<String> ruleBlocks(String css) {
+		List<String> blocks = new ArrayList<>();
+		for (int index = 0; index < css.length(); index++) {
+			if (css.charAt(index) != '{') {
+				continue;
+			}
+			int depth = 0;
+			for (int scan = index; scan < css.length(); scan++) {
+				char character = css.charAt(scan);
+				if (character == '{') {
+					depth++;
+				}
+				else if (character == '}') {
+					depth--;
+					if (depth == 0) {
+						blocks.add(css.substring(index + 1, scan));
+						break;
+					}
+				}
+			}
+		}
+		return blocks;
+	}
+
 	private static Map<String, String> valuesIn(String block) {
 		Map<String, String> values = new java.util.LinkedHashMap<>();
 		Matcher definition = Pattern.compile("(?m)^\\s*(--ui-[\\w-]+)\\s*:\\s*([^;]+);").matcher(block);

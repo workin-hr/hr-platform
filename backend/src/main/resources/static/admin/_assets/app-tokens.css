@@ -333,8 +333,16 @@
   --ui-info-edge:     #24405f;
   /* The foreground hues have to lift, not just their tints: #3b6d11 on #17161a
      is 1.5:1. These are the same hues at a luminance that reads on a dark
-     surface, which the token gate now requires rather than leaving to whoever
-     first turns a toggle on. */
+     surface -- 10.25, 8.50 and 9.53 to one on --ui-surface.
+
+     These three -strong values were declared a second time ten lines below and
+     CSS keeps the last, so what shipped was the light ramp's dark ends at
+     3.92, 3.25 and 3.67 to one while these sat above them as dead lines. The
+     comment here claimed the token gate required the lift; no rule looked,
+     because the readability rule treats -strong as a fill and the resolver
+     builds its map with put, where a duplicate is silently the last one. The
+     rule that looks is noTokenIsDeclaredTwiceInTheSameBlock, and it reads the
+     block as text, which is the only place a duplicate is still visible. */
   --ui-success:       #8fc95a;
   --ui-success-strong: #a6db73;
   --ui-danger:        #f08a86;
@@ -346,9 +354,6 @@
   --ui-focus:         var(--ui-accent-300);
   --ui-focus-ring:      0 0 0 3px rgba(140, 179, 224, .45);
   --ui-focus-ring-soft: 0 0 0 4px rgba(140, 179, 224, .20);
-  --ui-success-strong: #4d8a1a;
-  --ui-danger-strong: #c24141;
-  --ui-warning-strong: #a8681a;
   --ui-accent-pink-weak: #2d1620;
   --ui-accent-pink-edge: #4a2436;
   --ui-accent-purple-weak: #2a1a3d;
