@@ -399,12 +399,18 @@ class LegacyProfileEndToEndTest {
 				.contains("Lee Leaver");
 	}
 
-	/** A second logout notifies nothing: the row was already inactive. */
+	/**
+	 * A second logout notifies nothing. Legacy answers it 200 and skips the
+	 * notification because the row was already inactive; since D-289 the
+	 * guard refuses an inactive row's token before the logout runs at all. The
+	 * token here is minted at the current version, which no client can obtain
+	 * for an inactive account -- the login refuses it.
+	 */
 	@Test
 	@Order(21)
 	void aSecondLogoutDoesNotNotifyAgain() throws Exception {
 		assertThat(send(LOGOUT, HttpMethod.POST, employeeToken(LEAVER), "{}")
-				.getStatusCode().value()).isEqualTo(200);
+				.getStatusCode().value()).isEqualTo(401);
 		assertThat(companyNotifications()).hasSize(1);
 	}
 

@@ -261,7 +261,9 @@ public final class LegacySimpleXlsReader {
 		// forged one sized the grid at will (D-289). Clamped to BIFF8's limits,
 		// and never past the last row that exists: every row beyond it would
 		// be blank, and xlsAssoc drops a row with fewer than two filled cells.
-		int numRows = Math.max(0, Math.min(rowCount(sheet), Math.min(MAX_ROWS, sheet.getLastRowNum() + 1)));
+		// At least one, because an empty sheet reads as one empty cell in PHP.
+		int present = Math.max(1, sheet.getLastRowNum() + 1);
+		int numRows = Math.max(0, Math.min(rowCount(sheet), Math.min(MAX_ROWS, present)));
 		int numCols = Math.max(0, Math.min(columnCount(sheet), MAX_COLUMNS));
 		Map<Integer, String> formats = formatRecords(workbook);
 		boolean nineteenFour = workbook.getInternalWorkbook().isUsing1904DateWindowing();
