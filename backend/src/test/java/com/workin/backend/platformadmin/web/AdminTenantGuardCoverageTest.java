@@ -1085,7 +1085,10 @@ class AdminTenantGuardCoverageTest {
 	 * names it anything else is reported unguarded: that fails closed, and renaming
 	 * the parameter is the fix. {@code isScopedToOneCompany} and {@code canOpenRow}
 	 * exist only on the session and on {@code DashboardOrgScope}, so their names
-	 * alone are enough.
+	 * alone are enough. The converse is a name too: anything else called
+	 * {@code session} -- a field, a local, a helper's parameter of another type --
+	 * would count. Nothing on this surface declares one; every {@code session} in
+	 * an admin service is a {@code DashboardSession}.
 	 */
 	private static final Pattern TENANT_GUARD = Pattern.compile(
 			"\\bsession\\s*\\.\\s*companyId\\s*\\(\\s*\\)"
@@ -1182,13 +1185,27 @@ class AdminTenantGuardCoverageTest {
 	 * eleventh round's finding a third time -- it found it on a method, where
 	 * {@code ANY_METHOD} has a positional backstop; a field has none. There is no
 	 * such field today, which is why it is driven by a fixture.
+	 * <li><b>an access modifier with no other.</b> The pattern demanded one of
+	 * {@code static|final|transient|volatile} even after {@code private}, so
+	 * {@code @Autowired private PenaltyStore purger;} -- field injection, ordinary
+	 * Spring -- and a base class's {@code protected PenaltyStore store;} matched
+	 * nothing, and every rule that reads declarations failed open at once: rule
+	 * four, the resolver's exports and both refusals. The twentieth round's
+	 * inheritance refusal was written against a base class holding exactly that
+	 * second field and could not see it. So could a leading annotation on the
+	 * field's own line, {@code @Lazy private final PenaltyStore store;}. The
+	 * twenty-first round found all three; the tree uses constructor injection
+	 * throughout and has none of them.
 	 * </ul>
 	 *
-	 * <p>Anchored at a line start and requiring at least one of
-	 * {@code static|final|transient|volatile}, because dropping the access modifier
-	 * without either would match a bare statement inside a method body --
-	 * {@code Row row = ...} is not a field, and treating it as one would report the
-	 * write it leads to against whatever local happened to be named.
+	 * <p>Anchored at a line start, and requiring an access modifier <em>or</em> at
+	 * least one of {@code static|final|transient|volatile}, because a line with
+	 * neither may be a bare statement inside a method body -- {@code Row row = ...}
+	 * is not a field, and treating it as one would report the write it leads to
+	 * against whatever local happened to be named. A local can never carry an
+	 * access modifier, so one alone is enough. The price is the one shape left:
+	 * a package-private, non-final, non-static field, {@code PenaltyStore store;},
+	 * is indistinguishable from a local by its line and is not matched.
 	 *
 	 * <p>The type expression is captured whole and narrowed by {@link #simpleName},
 	 * because the index this is resolved against is keyed on the simple name. A
@@ -1200,8 +1217,9 @@ class AdminTenantGuardCoverageTest {
 	 * decoration, captured for it.
 	 */
 	private static final Pattern FIELD_DECLARATION = Pattern.compile(
-			"(?m)^[ \\t]*(?:(?:private|protected|public)\\s+)?"
-					+ "(?:(?:static|final|transient|volatile)\\s+)+"
+			"(?m)^[ \\t]*(?:@[\\w.]+(?:\\([^)]*\\))?\\s+)*"
+					+ "(?:(?:private|protected|public)\\s+(?:(?:static|final|transient|volatile)\\s+)*"
+					+ "|(?:(?:static|final|transient|volatile)\\s+)+)"
 					+ TYPE_ANNOTATIONS
 					+ "([\\w.]+)((?:\\s*<[^;=]*>)?(?:\\s*\\[\\s*\\])*)\\s+(\\w+)\\s*[;=]");
 
@@ -2875,6 +2893,10 @@ class AdminTenantGuardCoverageTest {
 					}
 				}""";
 		assertThat(scan(source).unguarded()).containsExactly("delete");
+		assertThat(scan(source.replace("session.companyId();", "session . companyId();"))
+				.unguarded())
+				.as("spaced the way TENANT_GUARD itself allows, still thrown away")
+				.containsExactly("delete");
 
 		// The form this repository actually writes. `canOpenRow`'s third argument is
 		// a resolved company at every live call site -- `row.companyId()`,
@@ -3226,6 +3248,43 @@ class AdminTenantGuardCoverageTest {
 				.as("the control: a reference to a method that writes nothing")
 				.isEmpty();
 
+		// The twenty-first round's two shapes. A field needs an access modifier or
+		// one of static/final/transient/volatile, not both, and may carry an
+		// annotation on its own line -- field injection is ordinary Spring, and a
+		// base class's `protected` field is where the inheritance refusal looks.
+		assertThat(storeWriteCallsIn("""
+				class AdminPenaltiesController {
+					@org.springframework.beans.factory.annotation.Autowired private PenaltyStore purger;
+					protected PenaltyStore store;
+					@Lazy private final PenaltyStore archive;
+
+					public String submit(long id) {
+						this.purger.delete(id);
+						this.store.delete(id);
+						this.archive.insert(id);
+						return "ok";
+					}
+				}""", fixtureWrites).calls())
+				.as("a field injected by annotation, a non-final protected field, and an "
+						+ "annotation on the declaration's own line")
+				.containsExactly("purger.delete()", "store.delete()", "archive.insert()");
+		assertThat(storeWriteCallsIn("""
+				class AdminPenaltiesController {
+					private final PenaltyStore store;
+
+					public String submit(List<Long> ids) {
+						new Runnable() {
+							public void run() {
+								AdminPenaltiesController.this.store.delete(ids.get(0));
+								ids.forEach(AdminPenaltiesController.this.store::delete);
+							}
+						}.run();
+						return "ok";
+					}
+				}""", fixtureWrites).calls())
+				.as("an outer field reached from an anonymous class, called and referenced")
+				.containsExactly("store.delete()", "store.delete()");
+
 		String local = """
 				class AdminPenaltiesController {
 					public String submit(long id) {
@@ -3460,6 +3519,11 @@ class AdminTenantGuardCoverageTest {
 				"AdminNamesBase", """
 						abstract class AdminNamesBase {
 							protected final List<String> names;
+						}""",
+				"AdminInjectedBase", """
+						abstract class AdminInjectedBase {
+							@Autowired
+							protected PenaltyStore store;
 						}""");
 		String subclass = """
 				class AdminPenaltiesController extends AdminPenaltiesBase {
@@ -3479,6 +3543,12 @@ class AdminTenantGuardCoverageTest {
 				}""", fixtureSources::get, fixtureWrites))
 				.as("two levels up is the same shape")
 				.containsExactly("store (PenaltyStore) from AdminPenaltiesBase");
+		assertThat(writersInheritedBy("""
+				class AdminInjectedController extends AdminInjectedBase {
+				}""", fixtureSources::get, fixtureWrites))
+				.as("and a base that injects its field rather than taking it in a constructor, "
+						+ "which is the usual reason a base class holds one")
+				.containsExactly("store (PenaltyStore) from AdminInjectedBase");
 		assertThat(writersInheritedBy("""
 				class AdminNamesController extends AdminNamesBase {
 				}""", fixtureSources::get, fixtureWrites))
@@ -4067,6 +4137,10 @@ class AdminTenantGuardCoverageTest {
 			String code, String field, Set<String> writes) {
 		List<String> found = new ArrayList<>();
 		// `(?<![\w.])` so a field named `store` does not match `backupStore.delete(`.
+		// It sits before the whole receiver, so a qualified `Outer.this.store` --
+		// the house spelling inside an anonymous class, as AdminViewModelAdvice
+		// writes it -- is still a call on the field; with the boundary directly
+		// before `this`, that spelling was invisible for a round.
 		// That over-reported rather than hid anything -- it can only demand an
 		// accounting -- but it also meant a mutant deleting the optional `this.`
 		// changed no behaviour, so the boundary is what makes that mutant mean
@@ -4074,7 +4148,7 @@ class AdminTenantGuardCoverageTest {
 		// Both spellings of reaching a method, as CALL_OR_REFERENCE has: a write
 		// handed to a stream -- `ids.forEach(this.store::delete)` -- is a write.
 		Matcher call = Pattern.compile(
-				"(?<![\\w.])(?:this\\s*\\.\\s*)?" + Pattern.quote(field)
+				"(?<![\\w.])(?:(?:\\w+\\s*\\.\\s*)?this\\s*\\.\\s*)?" + Pattern.quote(field)
 						+ "(?:\\s*\\.\\s*(\\w+)\\s*\\(|\\s*::\\s*(\\w+))")
 				.matcher(code);
 		while (call.find()) {
@@ -4847,7 +4921,7 @@ class AdminTenantGuardCoverageTest {
 				code.lastIndexOf('}', start)) + 1;
 		int semicolon = code.indexOf(';', end);
 		String statement = code.substring(from, semicolon < 0 ? code.length() : semicolon).trim();
-		return !statement.matches("(?:[\\w.]*\\.)?(?:companyId|isScopedToOneCompany|canOpenRow)"
+		return !statement.matches("(?:[\\w.\\s]*\\.\\s*)?(?:companyId|isScopedToOneCompany|canOpenRow)"
 				+ "\\s*" + BALANCED_ARGUMENTS);
 	}
 
