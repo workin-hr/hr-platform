@@ -29,6 +29,9 @@
       altInput: true,
       allowInput: true,
       disableMobile: false,
+      // The month as text beside the arrows: the dropdown sized itself to Latin
+      // names and clipped the Arabic ones ("سبتمبر" read "ستمبر").
+      monthSelectorType: 'static',
       minDate: input.min || null,
       maxDate: input.max || null,
       onReady: function (_, __, instance) {

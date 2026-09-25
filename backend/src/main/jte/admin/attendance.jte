@@ -204,7 +204,7 @@
 						!{String employeeName = EmployeeDisplay.displayName(row.employeeName(), "—");}
 						<tr>
 							<td>${result.from() + index}</td>
-							<td class="text-muted nowrap">${row.empCode() == null ? "—" : row.empCode()}</td>
+							<td class="text-muted nowrap"><span data-copy dir="ltr">${row.empCode() == null ? "—" : row.empCode()}</span></td>
 							<td class="bold">${employeeName}</td>
 							<%-- page.php:202-206. Whether a punch fell on a Friday is the
 							     difference between an absence and a weekend; legacy puts it in
