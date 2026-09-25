@@ -15,10 +15,11 @@ import io.nayuki.qrcodegen.QrCode;
  * mobile client scans to check in at the branch, which makes it the one value on
  * that page least worth disclosing.
  *
- * <p>The image is an SVG in a {@code data:} URI rather than inline markup, for
- * two reasons: it stays an {@code <img>}, so an operator can still save or print
- * it as they could the remote one, and the template needs no raw-HTML output --
- * no admin template has one. The encoded text is the stored code exactly, as
+ * <p>The image is an SVG in a {@code data:} URI rather than inline markup so
+ * that it stays an {@code <img>}, which an operator can still save or print as
+ * they could the remote one; it also keeps the page's one user-derived image out
+ * of raw-HTML output, which the sidebar uses only for its fixed icons. The
+ * encoded text is the stored code exactly, as
  * legacy's {@code data=} parameter carried it, so every client that scanned the
  * old image scans this one.
  */
@@ -50,8 +51,9 @@ public final class BranchQrImage {
 	 * The SVG itself: one square per dark module, on a white ground that
 	 * includes the quiet zone, scaled by the viewer rather than by the markup.
 	 *
-	 * <p>Medium error correction: a printed code on a wall gets scuffed, and a
-	 * 32-character code still fits a small symbol at that level.
+	 * <p>At least medium error correction: a printed code on a wall gets scuffed.
+	 * qrcodegen raises the level while the symbol keeps its version, so a 32-byte
+	 * {@code generate_qr} code is drawn at quartile in a version-3 symbol.
 	 */
 	static String svg(String code) {
 		QrCode qr = QrCode.encodeText(code, QrCode.Ecc.MEDIUM);
