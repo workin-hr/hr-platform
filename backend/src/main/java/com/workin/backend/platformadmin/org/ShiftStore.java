@@ -81,8 +81,10 @@ public class ShiftStore {
 	 *
 	 * <p>Not an authorisation check -- {@link #belongsTo} is that. This answers
 	 * "whose row is this", which is what an audit entry has to record when the
-	 * administrator writes across companies (R-061): the posted company is where
-	 * the operator was standing, and this is what they touched.
+	 * administrator writes across companies: the company the request named
+	 * need not be the row's (R-047, D-281), and this is the row's. Also
+	 * {@code null} for a shift whose {@code company_id} is NULL, which the
+	 * vendored schema allows here and nowhere else in the org tables.
 	 */
 	public Long companyOf(long id) {
 		if (id <= 0) {

@@ -639,13 +639,13 @@ class AdminDepartmentsEndToEndTest {
 
 	/**
 	 * When the administrator deletes across companies, the audit row says whose row
-	 * it was -- not where the operator was standing.
+	 * it was -- not only the company the request named.
 	 *
 	 * <p>`saveEdit` on this page already resolves `ownerOf(id)` and audits that, so
 	 * it never had this defect; `delete` audits `assertWritable`'s value, which for
 	 * an unscoped administrator is the posted field, checked against nothing
-	 * (R-061, ruled-on parity). The write is correct and is left alone. What was
-	 * wrong is what it recorded.
+	 * (D-281: the owner's ruling; the mismatch itself is R-047). The write is
+	 * correct and is left alone. What was wrong is what it recorded.
 	 */
 	@Test
 	void anAdministratorsCrossCompanyDeleteIsAuditedAgainstTheRowsOwnCompany() {
@@ -654,10 +654,6 @@ class AdminDepartmentsEndToEndTest {
 		long beta = this.jdbc.queryForObject(
 				"SELECT id FROM departments WHERE company_id = ? AND name = 'Beta Owned'",
 				Long.class, this.companyB);
-		// The scenario is an UNSCOPED administrator, so say so rather than
-		// inheriting whatever company the session was last filtered to.
-		body("/admin/departments?company_id=");
-
 		post("/admin/departments", this.cookie, page("/admin/departments", this.cookie).csrf(),
 				"action", "delete", "id", String.valueOf(beta),
 				"company_id", String.valueOf(this.companyA));
@@ -680,7 +676,7 @@ class AdminDepartmentsEndToEndTest {
 				.contains("in company " + this.companyB);
 		assertThat(detail)
 				.as("and the posted company is named as the administrator's, not as the subject")
-				.contains("the administrator posted company " + this.companyA);
+				.contains("made against company " + this.companyA);
 	}
 
 }

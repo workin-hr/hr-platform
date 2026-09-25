@@ -580,30 +580,23 @@ class AdminBranchesEndToEndTest {
 
 	/**
 	 * When the administrator writes across companies, the audit row says whose row
-	 * it was -- not where the operator was standing.
+	 * it was -- not only the company the request named.
 	 *
 	 * <p>`assertWritable` resolves the company a write is made *against*, and for
 	 * an unscoped administrator that is the posted `company_id`, checked against
-	 * nothing: R-061 records that as ruled-on parity, because a platform
-	 * administrator is cross-company by design. The write is therefore correct and
+	 * nothing: the owner ruled on 2026-09-23 to leave that
+	 * as it is (D-281; the mismatch itself is R-047). The write is therefore correct and
 	 * is deliberately left alone here. What was wrong is what it recorded. Posting
 	 * company A while editing a branch of company B wrote "branch updated in
 	 * company A" -- an entry that names the wrong company and reads as
 	 * authoritative, which is worse than one that names none.
 	 *
 	 * <p>The one case an auditor most needs to find was the one case the record
-	 * hid, so it now names the owner and says the administrator posted the other.
+	 * hid, so it now names the owner and says which company the request named.
 	 */
 	@Test
 	void anAdministratorsCrossCompanyEditIsAuditedAgainstTheRowsOwnCompany() {
 		long beta = seedBranch(this.companyB, "Beta Owned");
-		// The scenario is an UNSCOPED administrator, so say so rather than
-		// inheriting whatever company the session was last filtered to: with the
-		// scope still on B, assertWritable ignores the posted field entirely and
-		// there is no cross-company edit to audit. That is how this test first
-		// failed.
-		body("/admin/branches?company_id=");
-
 		post("/admin/branches", this.cookie, page("/admin/branches", this.cookie).csrf(),
 				"action", "save_edit", "id", String.valueOf(beta),
 				"company_id", String.valueOf(this.companyA),
@@ -611,7 +604,7 @@ class AdminBranchesEndToEndTest {
 
 		assertThat(this.jdbc.queryForObject(
 				"SELECT name FROM branches WHERE id = ?", String.class, beta))
-				.as("the write itself is unchanged: R-061 rules this parity, and this test does "
+				.as("the write itself is unchanged: the owner ruled to leave it (D-281), and this test does "
 						+ "not relitigate it")
 				.isEqualTo("Beta Renamed");
 		assertThat(this.jdbc.queryForObject(
@@ -628,7 +621,7 @@ class AdminBranchesEndToEndTest {
 				.contains("in company " + this.companyB);
 		assertThat(detail)
 				.as("and the posted company is named as the administrator's, not as the subject")
-				.contains("the administrator posted company " + this.companyA);
+				.contains("made against company " + this.companyA);
 	}
 
 	/** The ordinary case is unchanged: one company, one number, no parenthetical. */
@@ -648,7 +641,7 @@ class AdminBranchesEndToEndTest {
 		assertThat(detail).isEqualTo("branch updated in company " + this.companyA);
 		assertThat(detail)
 				.as("nothing is added when there is nothing to disambiguate")
-				.doesNotContain("administrator posted");
+				.doesNotContain("made against");
 	}
 
 	/**
@@ -658,19 +651,13 @@ class AdminBranchesEndToEndTest {
 	 *
 	 * <p>{@code deactivate} sets {@code is_active = 0} and leaves the row, so the
 	 * owner is still there to resolve after the write. A hard delete would find
-	 * nothing, fall back silently to the posted company, and restore exactly the
-	 * defect this fixes -- which is why the surviving row is asserted here and not
-	 * taken for granted.
+	 * nothing, and the entry would say the row had no owning company when it had
+	 * one -- which is why the surviving row is asserted here and not taken for
+	 * granted.
 	 */
 	@Test
 	void anAdministratorsCrossCompanyDeleteIsAuditedAgainstTheRowsOwnCompany() {
 		long beta = seedBranch(this.companyB, "Beta Closing");
-		// The scenario is an UNSCOPED administrator, so say so rather than
-		// inheriting whatever company the session was last filtered to: with the
-		// scope still on B, assertWritable ignores the posted field entirely and
-		// there is no cross-company write to audit.
-		body("/admin/branches?company_id=");
-
 		post("/admin/branches", this.cookie, page("/admin/branches", this.cookie).csrf(),
 				"action", "delete", "id", String.valueOf(beta),
 				"company_id", String.valueOf(this.companyA));
@@ -693,7 +680,7 @@ class AdminBranchesEndToEndTest {
 				.contains("in company " + this.companyB);
 		assertThat(detail)
 				.as("and the posted company is named as the administrator's, not as the subject")
-				.contains("the administrator posted company " + this.companyA);
+				.contains("made against company " + this.companyA);
 	}
 
 	@Test

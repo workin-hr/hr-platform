@@ -439,27 +439,22 @@ class AdminShiftsEndToEndTest {
 
 	/**
 	 * When the administrator writes across companies, the audit row says whose row
-	 * it was -- not where the operator was standing.
+	 * it was -- not only the company the request named.
 	 *
 	 * <p>`assertWritable` resolves the company a write is made *against*, and for
 	 * an unscoped administrator that is the posted `company_id`, checked against
-	 * nothing: R-061 records that as ruled-on parity. The write is correct and is
+	 * nothing: the owner ruled on 2026-09-23 to leave that
+	 * as it is (D-281; the mismatch itself is R-047). The write is correct and is
 	 * deliberately left alone. What was wrong is what it recorded -- the posted
 	 * company, which named the wrong one and read as authoritative.
 	 *
-	 * <p>Each of the four org services carries its own copy of this, so each is
-	 * tested separately: a slip in one is invisible to the others' tests.
+	 * <p>The wording lives in one helper, {@code OrgAuditDetail}; what each service
+	 * can still get wrong is the wiring -- which store's {@code companyOf} it
+	 * passes, or a call site left unconverted -- so each call site has its own test.
 	 */
 	@Test
 	void anAdministratorsCrossCompanyEditIsAuditedAgainstTheRowsOwnCompany() {
 		long beta = seedShift(this.companyB, "Beta Owned");
-		// The scenario is an UNSCOPED administrator, so say so rather than
-		// inheriting whatever company the session was last filtered to: with the
-		// scope still on B, assertWritable ignores the posted field entirely and
-		// there is no cross-company edit to audit. That is how this test first
-		// failed.
-		body("/admin/shifts?company_id=");
-
 		post("/admin/shifts", this.cookie, page("/admin/shifts", this.cookie).csrf(),
 				"action", "save_edit", "id", String.valueOf(beta),
 				"company_id", String.valueOf(this.companyA), "name", "Beta Renamed",
@@ -468,7 +463,7 @@ class AdminShiftsEndToEndTest {
 		assertThat(this.jdbc.queryForObject(
 				"SELECT company_id FROM shifts WHERE id = ?", Long.class, beta))
 				.as("the row stayed company B's: the write is unchanged and this test does not "
-						+ "relitigate R-061")
+						+ "relitigate D-281's ruling")
 				.isEqualTo(this.companyB);
 
 		String detail = this.jdbc.queryForObject(
@@ -480,7 +475,37 @@ class AdminShiftsEndToEndTest {
 				.contains("in company " + this.companyB);
 		assertThat(detail)
 				.as("and the posted company is named as the administrator's, not as the subject")
-				.contains("the administrator posted company " + this.companyA);
+				.contains("made against company " + this.companyA);
+	}
+
+	/**
+	 * A shift with no owning company is recorded as that, not as the company the
+	 * request named.
+	 *
+	 * <p>{@code shifts.company_id} is nullable in the vendored schema -- the other
+	 * three org tables' are not -- so {@code companyOf} answers null for a row that
+	 * exists. The first version of the helper read that null as "nothing to add"
+	 * and wrote the named company plainly, which is the unqualified entry this
+	 * change exists to remove. The list pages hide such a row, so reaching one takes
+	 * a crafted id; the record should still be true when someone does.
+	 */
+	@Test
+	void anEditToAShiftWithNoOwningCompanySaysSo() {
+		this.jdbc.update("INSERT INTO shifts (company_id, name, start_time, end_time, is_active,"
+				+ " created_at) VALUES (NULL, 'Ownerless', '08:00:00', '16:00:00', 1, NOW())");
+		long orphan = this.jdbc.queryForObject(
+				"SELECT id FROM shifts WHERE company_id IS NULL AND name = 'Ownerless'", Long.class);
+		post("/admin/shifts", this.cookie, page("/admin/shifts", this.cookie).csrf(),
+				"action", "save_edit", "id", String.valueOf(orphan),
+				"company_id", String.valueOf(this.companyA), "name", "Ownerless Renamed",
+				"start_time", "10:00", "end_time", "18:00", "is_active", "1");
+
+		assertThat(this.jdbc.queryForObject(
+				"SELECT detail FROM platform_admin_audit_events WHERE target_type = 'shift'"
+						+ " AND target_id = ? ORDER BY id DESC LIMIT 1",
+				String.class, String.valueOf(orphan)))
+				.isEqualTo("shift updated in company " + this.companyA
+						+ " (the row has no owning company)");
 	}
 
 	/**
@@ -490,19 +515,13 @@ class AdminShiftsEndToEndTest {
 	 *
 	 * <p>{@code deactivate} sets {@code is_active = 0} and leaves the row, so the
 	 * owner is still there to resolve after the write. A hard delete would find
-	 * nothing, fall back silently to the posted company, and restore exactly the
-	 * defect this fixes -- which is why the surviving row is asserted here and not
-	 * taken for granted.
+	 * nothing, and the entry would say the row had no owning company when it had
+	 * one -- which is why the surviving row is asserted here and not taken for
+	 * granted.
 	 */
 	@Test
 	void anAdministratorsCrossCompanyDeleteIsAuditedAgainstTheRowsOwnCompany() {
 		long beta = seedShift(this.companyB, "Beta Closing");
-		// The scenario is an UNSCOPED administrator, so say so rather than
-		// inheriting whatever company the session was last filtered to: with the
-		// scope still on B, assertWritable ignores the posted field entirely and
-		// there is no cross-company write to audit.
-		body("/admin/shifts?company_id=");
-
 		post("/admin/shifts", this.cookie, page("/admin/shifts", this.cookie).csrf(),
 				"action", "delete", "id", String.valueOf(beta),
 				"company_id", String.valueOf(this.companyA));
@@ -525,7 +544,7 @@ class AdminShiftsEndToEndTest {
 				.contains("in company " + this.companyB);
 		assertThat(detail)
 				.as("and the posted company is named as the administrator's, not as the subject")
-				.contains("the administrator posted company " + this.companyA);
+				.contains("made against company " + this.companyA);
 	}
 
 }

@@ -5,13 +5,14 @@ import java.util.function.LongFunction;
 /**
  * Which company an org write actually affected, for the audit row.
  *
- * <p>{@code assertWritable} resolves the company a write is made *against*, and
- * for an unscoped administrator that is the posted form field, checked against
- * nothing: R-061 records this as ruled-on parity, because a platform
- * administrator is cross-company by design. But it means the posted value is
- * where the operator was standing, not necessarily whose row they edited -- and
- * an audit entry naming the wrong company is worse than one naming none,
- * because it reads as authoritative.
+ * <p>{@code assertWritable} resolves the company a write is made *against*. For
+ * an unscoped administrator -- every session these pages build -- that is the
+ * posted {@code company_id}, or the dashboard filter when none is posted, and it
+ * is checked against nothing. The dashboard's own forms post the row's company,
+ * so the two differ only on a crafted request; R-047 records that mismatch, and
+ * the owner ruled on 2026-09-23 to leave the write as it is and fix the record
+ * (D-281). Before this the record named the company the request named, which
+ * reads as authoritative and is not necessarily whose row changed.
  *
  * <p>So the entry names the row's own owner, and when the two differ it says
  * both. That is the case an auditor most needs to see, and it was previously the
@@ -38,21 +39,27 @@ final class OrgAuditDetail {
 
 	/**
 	 * @param rowId         the row the write touched
-	 * @param postedAgainst the company the write was made against, which for an
-	 *                      administrator is the posted field
-	 * @param ownerOf       the store's own {@code companyOf}, which returns null
-	 *                      when the row is gone -- a delete that matched nothing
-	 *                      has already been refused before this is called, so a
-	 *                      null here means the row vanished between the write and
-	 *                      the record, and the posted value is then the only
-	 *                      thing left to say
+	 * @param madeAgainst   the company {@code assertWritable} resolved the write
+	 *                      against
+	 * @param ownerOf       the store's own {@code companyOf}. Every caller runs
+	 *                      after its own write inside one transaction, and a write
+	 *                      that matched no row has already been refused, so the
+	 *                      row is there; a null means the row has no owning
+	 *                      company. That is possible only for a shift --
+	 *                      {@code shifts.company_id} is nullable in the vendored
+	 *                      schema, the other three tables' are not -- and the
+	 *                      entry says so rather than naming a company as the
+	 *                      owner that is not one.
 	 */
-	static String affected(long rowId, long postedAgainst, LongFunction<Long> ownerOf) {
+	static String affected(long rowId, long madeAgainst, LongFunction<Long> ownerOf) {
 		Long owner = ownerOf.apply(rowId);
-		if (owner == null || owner == postedAgainst) {
-			return String.valueOf(postedAgainst);
+		if (owner == null) {
+			return madeAgainst + " (the row has no owning company)";
 		}
-		return owner + " (the administrator posted company " + postedAgainst + ")";
+		if (owner == madeAgainst) {
+			return String.valueOf(madeAgainst);
+		}
+		return owner + " (made against company " + madeAgainst + ")";
 	}
 
 }

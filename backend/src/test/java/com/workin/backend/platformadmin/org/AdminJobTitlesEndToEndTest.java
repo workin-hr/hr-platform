@@ -583,27 +583,22 @@ class AdminJobTitlesEndToEndTest {
 
 	/**
 	 * When the administrator writes across companies, the audit row says whose row
-	 * it was -- not where the operator was standing.
+	 * it was -- not only the company the request named.
 	 *
 	 * <p>`assertWritable` resolves the company a write is made *against*, and for
 	 * an unscoped administrator that is the posted `company_id`, checked against
-	 * nothing: R-061 records that as ruled-on parity. The write is correct and is
+	 * nothing: the owner ruled on 2026-09-23 to leave that
+	 * as it is (D-281; the mismatch itself is R-047). The write is correct and is
 	 * deliberately left alone. What was wrong is what it recorded -- the posted
 	 * company, which named the wrong one and read as authoritative.
 	 *
-	 * <p>Each of the four org services carries its own copy of this, so each is
-	 * tested separately: a slip in one is invisible to the others' tests.
+	 * <p>The wording lives in one helper, {@code OrgAuditDetail}; what each service
+	 * can still get wrong is the wiring -- which store's {@code companyOf} it
+	 * passes, or a call site left unconverted -- so each call site has its own test.
 	 */
 	@Test
 	void anAdministratorsCrossCompanyDeleteIsAuditedAgainstTheRowsOwnCompany() {
 		long beta = seedJobTitleRow(this.companyB, "Beta Owned");
-		// The scenario is an UNSCOPED administrator, so say so rather than
-		// inheriting whatever company the session was last filtered to: with the
-		// scope still on B, assertWritable ignores the posted field entirely and
-		// there is no cross-company edit to audit. That is how this test first
-		// failed.
-		body("/admin/job_titles?company_id=");
-
 		// delete(), not save_edit(): saveEdit already resolves ownerOf(id) itself
 		// and audits that, so it never had this defect. The two methods differ, and
 		// the test has to name the one that does.
@@ -614,7 +609,7 @@ class AdminJobTitlesEndToEndTest {
 		assertThat(this.jdbc.queryForObject(
 				"SELECT company_id FROM job_titles WHERE id = ?", Long.class, beta))
 				.as("the row stayed company B's: the write is unchanged and this test does not "
-						+ "relitigate R-061")
+						+ "relitigate D-281's ruling")
 				.isEqualTo(this.companyB);
 		assertThat(this.jdbc.queryForObject(
 				"SELECT is_active FROM job_titles WHERE id = ?", Integer.class, beta))
@@ -630,7 +625,7 @@ class AdminJobTitlesEndToEndTest {
 				.contains("in company " + this.companyB);
 		assertThat(detail)
 				.as("and the posted company is named as the administrator's, not as the subject")
-				.contains("the administrator posted company " + this.companyA);
+				.contains("made against company " + this.companyA);
 	}
 
 	private long seedJobTitleRow(long companyId, String name) {
