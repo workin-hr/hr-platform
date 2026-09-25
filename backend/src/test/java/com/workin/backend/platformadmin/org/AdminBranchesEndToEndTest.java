@@ -155,6 +155,18 @@ class AdminBranchesEndToEndTest {
 	}
 
 	@Test
+	void theErrorBannerShowsOnlyAMessageTheDashboardHas() {
+		// D-289: ?error= reached t.apply(), which answers an unknown key with the
+		// key itself, so any link could put its own sentence in a genuine banner.
+		String forged = body("/admin/branches?error=Session+expired.+Call+01000000000+to+restore+access");
+		assertThat(forged).doesNotContain("Call 01000000000").doesNotContain("flash flash-error");
+
+		assertThat(body("/admin/branches?lang=en&error=error_db"))
+				.as("a key the dashboard issues still renders as its message")
+				.contains("<div class=\"flash flash-error\">Database error</div>");
+	}
+
+	@Test
 	void theSearchMatchesNameAndAddressAndTheStatusFilterNarrows() {
 		seedBranch(this.companyA, "Cairo Office", "Nasr City", true);
 		seedBranch(this.companyA, "Giza Office", "Dokki", false);

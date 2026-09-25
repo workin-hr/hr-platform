@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.List;
 
 import javax.sql.DataSource;
 
@@ -59,6 +60,39 @@ class PlatformAdminLoginThrottleTest extends AbstractIntegrationTest {
 		assertThat(this.loginService.login(TEST_ADMIN_PASSWORD, client))
 			.as("a client that has spent its budget is refused whatever it sends")
 			.isEmpty();
+	}
+
+	@Test
+	void parallelGuessesCannotSpendMoreThanTheBudget() throws Exception {
+		// D-289: the budget was read, bcrypt ran, and only then was the miss
+		// recorded -- so every guess that arrived while the first was hashing
+		// saw the same unspent budget. Each attempt that reached the password
+		// leaves exactly one row, so the rows are the attempts that got through.
+		String client = client();
+		int parallel = PlatformAdminLoginThrottle.MAX_ATTEMPTS * 3;
+		java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(parallel);
+		try {
+			java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+			List<java.util.concurrent.Future<Boolean>> results = new java.util.ArrayList<>();
+			for (int attempt = 0; attempt < parallel; attempt++) {
+				results.add(pool.submit(() -> {
+					start.await();
+					return this.loginService.login("wrong", client).isPresent();
+				}));
+			}
+			start.countDown();
+			for (java.util.concurrent.Future<Boolean> result : results) {
+				assertThat(result.get(60, java.util.concurrent.TimeUnit.SECONDS)).isFalse();
+			}
+		}
+		finally {
+			pool.shutdownNow();
+		}
+		// At most, not exactly: attempts that all reserve before any of them
+		// counts are all refused, which errs the safe way.
+		assertThat(recordedAttempts(client))
+			.as("no more guesses than the budget may reach the password, however they are timed")
+			.isLessThanOrEqualTo(PlatformAdminLoginThrottle.MAX_ATTEMPTS);
 	}
 
 	@Test
