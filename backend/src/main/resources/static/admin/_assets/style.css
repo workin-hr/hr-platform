@@ -7,9 +7,11 @@
 
 /*
  * Legacy's vocabulary, kept as the name some sheets in here already use and
- * re-pointed at app-tokens.css. Nothing below this block changed: a sheet
- * asking for var(--blue) gets the design system's accent, and the hex
- * literals that used to live here are now one ramp in one file.
+ * re-pointed at app-tokens.css. A sheet asking for var(--blue) gets the design
+ * system's accent, and the hex literals that used to live here are now one ramp
+ * in one file. The rules below did change -- this sheet is where most of the
+ * conversion landed -- and the first version of this sentence said they had not,
+ * which is the kind of claim a reader checks once and then trusts.
  *
  * Do not add a colour here. New rules read --ui-* directly. These five are the
  * ones with a referrer: --blue and --blue-lt in app-responsive.css, app-ui.css
@@ -55,10 +57,14 @@ html[dir="ltr"] body {
  * So the document scrolled and three things quietly did nothing:
  *
  *   - `.topbar`'s `position: sticky` (anchored to `.main`, which cannot scroll)
- *   - `.tbl th`'s `position: sticky` (anchored to `.content`, same)
  *   - `body.nav-locked .content { overflow: hidden }` in app-responsive.css,
  *     whose own comment explains that `.content` is the scroller and locking
  *     the body would do nothing -- which was the wrong way round
+ *
+ * Both hold now, measured in headless Chromium against this nesting at 1440x900,
+ * 1000x600 and 768x1024: `.content` reports `scrollable=true` and the topbar keeps
+ * `top=14` through a 600px scroll. `.tbl th` was on that list and is not any more;
+ * see the table rule below for why the same fix did not reach it.
  *
  * `dvh` second so a mobile browser's shrinking toolbar does not crop the pane;
  * the `vh` line stays as the fallback, as `.sidebar` already does at 1024.
@@ -246,16 +252,28 @@ textarea { min-height: 88px; resize: vertical; line-height: var(--ui-leading); }
   line-height: var(--ui-leading-table);
   table-layout: auto;
 }
-/* A sticky header is the single biggest readability win on these pages: every
-   list here scrolls past its own header, and a 200-row payroll table without
-   one means scrolling back up to learn which column you are reading. It sticks
-   to the wrapper, so it works without the page layout knowing about it. */
+/* No `position: sticky` here, and the reason is a measurement rather than taste.
+   A sticky element is clamped by its *nearest* scroll container, and `.table-wrap`
+   above declares `overflow-x: auto`, which makes it one -- Chromium reports its
+   `overflow-y` as `hidden` -- on both axes. It has no height cap, so it never
+   scrolls vertically, and a header clamped to a box that does not scroll does not
+   move. Measured with the real nesting
+   (`.content > .data-table-card > .table-wrap > table.tbl`, 60 rows) at three
+   viewports: scrolling `.content` by 600px puts the `th` at `top=-478`, i.e. off
+   the screen, while the topbar above it holds. Fixing the app shell revived the
+   topbar and did not revive this, because the two anchor to different boxes.
+   A header that does stick needs the table region itself to be the scroller and
+   to end inside the pane -- a per-page layout change, since what sits above the
+   table varies from nothing to a filter card, and a fixed `max-height` guess is
+   right on one page and wrong on the next. That is #338, with the two candidate
+   designs and this measurement; `everyStickyRuleHasAScrollportThatCanScroll`
+   fails if one comes back here without one. */
 .tbl th { background: var(--ui-surface-sunk); padding: var(--ui-space-3) var(--ui-space-4);
           text-align: center; font-weight: var(--ui-weight-semibold);
           font-size: var(--ui-text-xs); letter-spacing: var(--ui-tracking-caps);
           text-transform: none; color: var(--ui-text-soft);
           border-bottom: 1px solid var(--ui-border);
-          white-space: nowrap; position: sticky; top: 0; z-index: var(--ui-z-sticky); }
+          white-space: nowrap; }
 .tbl td { padding: var(--ui-space-3) var(--ui-space-4);
           border-bottom: 1px solid var(--ui-border-soft);
           vertical-align: middle; text-align: center; color: var(--ui-text); }

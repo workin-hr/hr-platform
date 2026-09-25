@@ -161,7 +161,13 @@
    with no height, so the vertical scroller is `.content` further out and a
    `position: sticky` thead inside the wrap could never stick to anything.
    Giving the wrap its own height to make that work would change how every
-   list page scrolls, which is a parity question, not a styling one. */
+   list page scrolls, which is a parity question, not a styling one.
+
+   This branch added exactly that sticky thead anyway, in two sheets, and a
+   browser measured it doing nothing at three viewports. The paragraph above was
+   already right and already in the tree; nothing failed when a later sheet
+   contradicted it, which is why `everyStickyRuleHasAScrollportThatCanScroll`
+   now exists and why #338 carries the design rather than a guess. */
 .table-wrap {
   scrollbar-width: thin;
   overscroll-behavior-x: contain;

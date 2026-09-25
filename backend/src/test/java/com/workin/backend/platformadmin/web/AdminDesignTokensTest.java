@@ -23,8 +23,11 @@ import org.junit.jupiter.api.Test;
  * The admin dashboard's colour vocabulary lives in one file, and these are the
  * properties that keep it there (D-284).
  *
- * <p>Before the design system there were <b>154 distinct colour literals across
- * 441 occurrences in 17 sheets</b>: three grey ramps running in parallel -- warm
+ * <p>Before the design system there were <b>217 distinct colour literals across
+ * 576 occurrences in 18 sheets</b> -- 507 written as hex and 69 in
+ * {@code rgba()}/{@code hsl()} form, which is the count this javadoc first gave as
+ * "154 across 441 in 17 sheets" from a hex-only sweep of a stale file list:
+ * three grey ramps running in parallel -- warm
  * ({@code #e8e6e0}), cool ({@code #e2e6ef}) and a Tailwind-ish one
  * ({@code #6b7280}) -- and five blues that all meant "the product's blue". None
  * of that was anybody's decision; it accumulated, because nothing said it could
@@ -38,7 +41,7 @@ import org.junit.jupiter.api.Test;
  * <li><b>No literal outside the token sheet.</b> The obvious one, and the only
  * one that would have been guessed.</li>
  * <li><b>No token used against its role</b> -- a text token as a background, or
- * a surface token as a colour. Mapping 154 literals by value silently turned the
+ * a surface token as a colour. Mapping 217 literals by value silently turned the
  * home banner near-black, because {@code #1e293b} was a dark <em>surface</em> and
  * the map read it as text that happens to be dark. The sidebar went the same way.
  * A picture would not have found it; this rule did.</li>
@@ -141,7 +144,12 @@ class AdminDesignTokensTest {
 				continue;
 			}
 			sheets++;
-			Matcher colour = COLOUR.matcher(Files.readString(sheet, StandardCharsets.UTF_8));
+			// Declarations, not prose. A comment cannot paint anything, and an issue
+			// reference is spelled exactly like a three-digit hex colour: `#338` in a
+			// sentence explaining why a rule was removed was reported as a shipped
+			// colour by the first version of this sweep, in three sheets at once.
+			Matcher colour = COLOUR.matcher(
+					withoutComments(Files.readString(sheet, StandardCharsets.UTF_8)));
 			while (colour.find()) {
 				String written = colour.group(1) != null
 						? "#" + colour.group(1).toLowerCase(Locale.ROOT)
@@ -179,6 +187,14 @@ class AdminDesignTokensTest {
 				.isFalse();
 		assertThat(COLOUR.matcher("border-color: #185fa5;").find())
 				.as("and the hex arm still matches, so widening took nothing away")
+				.isTrue();
+
+		assertThat(COLOUR.matcher(withoutComments("/* removed as inert; see #338 */")).find())
+				.as("an issue number in a comment is not a colour, and three sheets cite one")
+				.isFalse();
+		assertThat(COLOUR.matcher(withoutComments("a { color: #338; } /* see #338 */")).find())
+				.as("but stripping comments must not strip declarations: the same six characters "
+						+ "in a value are exactly what this rule is for")
 				.isTrue();
 	}
 
@@ -958,19 +974,25 @@ class AdminDesignTokensTest {
 	 * grew to its content, {@code .content} never overflowed and so never scrolled --
 	 * while remaining a scroll container, which is what a sticky descendant anchors
 	 * itself to. Measured in headless Chromium at 1440x900 on the real sheets: the
-	 * document scrolled 400px and <b>both</b> {@code .topbar} and {@code .tbl th} lost
-	 * exactly 400px of viewport position. With a real height, {@code .content} carries
-	 * the 5587px of overflow and both hold their position.
+	 * document scrolled 400px and both {@code .topbar} and {@code .tbl th} lost exactly
+	 * 400px of viewport position. With a real height, {@code .content} carries the
+	 * overflow, and the topbar holds {@code top=14} through a 600px scroll at 1440x900,
+	 * 1000x600 and 768x1024.
 	 *
-	 * <p>Three behaviours depended on it and all three were silently dead: the sticky
-	 * table header, the sticky topbar, and
-	 * {@code body.nav-locked .content { overflow: hidden }} in app-responsive.css,
+	 * <p>Two behaviours depended on it and both were silently dead: the sticky topbar,
+	 * and {@code body.nav-locked .content { overflow: hidden }} in app-responsive.css,
 	 * whose own comment explains that {@code .content} is the scroller and that
 	 * locking the body would do nothing -- true only once this is right.
 	 *
-	 * <p>A rule about three declarations rather than about the sticky ones, because
-	 * {@code position: sticky} was <em>present</em> and correct throughout. Nothing
-	 * about it was wrong, and a rule that read it would have passed.
+	 * <p><b>The table header was a third, and this fix did not revive it.</b> The first
+	 * version of this javadoc said it did, on a measurement taken against a page whose
+	 * markup put {@code table.tbl} straight inside a card -- without {@code .table-wrap},
+	 * which is the one element that decides the question. Its {@code overflow-x: auto}
+	 * makes it the header's nearest scroll container on both axes and it has no height
+	 * cap, so scrolling the pane by 600px still puts the {@code th} at {@code top=-478}.
+	 * The topbar and the header anchor to different boxes, so one rule could never have
+	 * covered both; {@link #everyStickyRuleHasAScrollportThatCanScroll} is the one that
+	 * reads the other half, and #338 owns the header that sticks.
 	 */
 	@Test
 	void theShellScrollsItsPaneAndNotTheDocument() throws IOException {
@@ -987,6 +1009,105 @@ class AdminDesignTokensTest {
 		assertThat(declarationsOf(style, ".content"))
 				.as("and `.content` is that pane")
 				.containsEntry("overflow-y", "auto");
+	}
+
+	/**
+	 * Sticky rules whose scrollport cannot scroll, and why that is allowed.
+	 *
+	 * <p>One entry. {@code .sidebar} is as tall as the shell and the shell does not
+	 * scroll, so its {@code position: sticky} pins nothing -- it is legacy's, from when
+	 * the document was the scroller, and it costs one line to leave correct for a page
+	 * that ever puts the shell back in a scrolling document. Being inert is the point
+	 * of the entry: a sticky declaration that does nothing is the defect this rule
+	 * exists for, so the one instance that is deliberately inert says so here rather
+	 * than passing quietly.
+	 */
+	private static final Map<String, String> STICKY_WHERE_NOTHING_SCROLLS = Map.of(
+			".sidebar",
+			"as tall as the shell, which is fixed; the declaration predates the app shell");
+
+	/**
+	 * A sticky rule sits in a box that can actually scroll.
+	 *
+	 * <p>{@code position: sticky} is clamped by the element's <em>nearest</em> scroll
+	 * container, and any {@code overflow} other than {@code visible} makes one -- on
+	 * both axes, so {@code overflow-x: auto} alone is enough. A box with no height cap
+	 * never scrolls vertically, and a header clamped to a box that does not scroll does
+	 * not move. Nothing about the sticky declaration looks wrong in that case, which is
+	 * why it needs a rule and not a reading.
+	 *
+	 * <p>This branch shipped exactly that, twice. {@code .tbl th} declared
+	 * {@code position: sticky} in style.css <em>and</em> in app-ui.css, which loads
+	 * later and so was the one that applied, both inside {@code .table-wrap}
+	 * ({@code overflow-x: auto}, no height). Measured against the real nesting at three
+	 * viewports: scrolling the pane 600px put the {@code th} at {@code top=-478}. And
+	 * app-responsive.css already said so, on {@code main}, in the {@code .table-wrap}
+	 * rule's own comment -- "a {@code position: sticky} thead inside the wrap could
+	 * never stick to anything". The tree held the correct analysis and two sheets
+	 * contradicted it with nothing failing, so the analysis is now a test.
+	 *
+	 * <p>The map is exact in both directions: a new sticky rule with no scrollport
+	 * named fails, and a named scrollport that stops capping its height fails. The
+	 * live subject is {@code .form-footer} in a dialog, which does work -- {@code .modal}
+	 * is {@code max-height: 88vh; overflow-y: auto} -- so the rule is pinned by
+	 * something that passes for the right reason.
+	 */
+	@Test
+	void everyStickyRuleHasAScrollportThatCanScroll() throws IOException {
+		Map<String, String> found = new java.util.LinkedHashMap<>();
+		for (Path sheet : sheets()) {
+			String css = withoutComments(Files.readString(sheet, StandardCharsets.UTF_8));
+			Matcher rule = Pattern.compile("([^{}]+)\\{([^{}]*)\\}").matcher(css);
+			while (rule.find()) {
+				if (Pattern.compile("(?m)^\\s*position\\s*:\\s*sticky").matcher(rule.group(2)).find()) {
+					found.put(rule.group(1).trim().replaceAll("\\s+", " "),
+							sheet.getFileName().toString());
+				}
+			}
+		}
+		assertThat(found.keySet())
+				.as("the sticky rules this repository has; a scanner that stopped matching would "
+						+ "pass by checking none of them")
+				.containsExactlyInAnyOrder(
+						".form-footer",
+						".modal .form-footer, .modal .account-form__footer",
+						".sidebar");
+
+		String style = Files.readString(ASSETS.resolve("style.css"), StandardCharsets.UTF_8);
+		Map<String, String> modal = declarationsOf(style, ".modal");
+		assertThat(modal)
+				.as("`.modal` is the scrollport both `.form-footer` rules stick inside, so it "
+						+ "must cap its height -- without the cap it never overflows and the "
+						+ "footer stops being reachable, which is the whole reason it is sticky")
+				.containsKey("max-height");
+		assertThat(modal.get("overflow-y"))
+				.as("and it must scroll")
+				.isEqualTo("auto");
+
+		assertThat(STICKY_WHERE_NOTHING_SCROLLS.keySet())
+				.as("a sticky rule is either inside a scrollport that scrolls, or listed as "
+						+ "deliberately inert with the reason. `.tbl th` was neither")
+				.containsExactly(".sidebar");
+		assertThat(found.keySet())
+				.as("and the list may not name a rule that is gone")
+				.containsAll(STICKY_WHERE_NOTHING_SCROLLS.keySet());
+
+		assertThat(withoutComments(Files.readString(
+						ASSETS.resolve("app-responsive.css"), StandardCharsets.UTF_8)))
+				.as("`.table-wrap` is a scroll container on both axes with no height, so nothing "
+						+ "may stick inside it until #338 gives the table region a height")
+				.doesNotContain("sticky");
+	}
+
+	/**
+	 * CSS with its comments removed.
+	 *
+	 * <p>Only this rule needs it, and it needs it for both directions: a sentence
+	 * <em>about</em> {@code position: sticky} is not a declaration, and the prose that
+	 * explains why a sticky header was removed would otherwise be read as one.
+	 */
+	private static String withoutComments(String css) {
+		return css.replaceAll("(?s)/\\*.*?\\*/", "");
 	}
 
 	/**

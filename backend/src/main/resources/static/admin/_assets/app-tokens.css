@@ -7,8 +7,11 @@
  *
  * Why aliases and not a rewrite: 18 sheets and 38 pages already speak those
  * two vocabularies. Re-pointing the two declarations moves every page at once
- * and leaves each sheet's own rules untouched, which is a reviewable diff; 186
- * hand-edited hex literals is not.
+ * and leaves each sheet's own rules untouched, which is a reviewable diff; 576
+ * hand-edited literals is not. That number is every colour literal in the 18
+ * sheets before this change -- 507 hex and 69 in rgba()/hsl() form, 217 of them
+ * distinct. This line said "186 hex literals", counted one notation, and so was
+ * wrong in the same way the gate below was: see D-284's round-one row.
  *
  * Dark values are defined under :root[data-theme="dark"] and nothing ships a
  * toggle. That is deliberate: it keeps the palette honest -- a token with no
@@ -346,7 +349,9 @@
 
   --ui-topbar-h: 60px;
 
-  --ui-z-sticky: 20;
+  /* No --ui-z-sticky. It existed for the sticky table header this branch added
+     and then removed as inert; a token nothing reads is a decision nothing
+     implements, which is the rule two blocks up, so it goes back with #338. */
   --ui-z-topbar: 40;
 }
 

@@ -43,10 +43,15 @@
     menu.style.minWidth = '10.5rem';
     menu.style.padding = '6px';
     menu.style.margin = '0';
-    menu.style.background = '#fff';
-    menu.style.border = '1px solid #e5e7eb';
-    menu.style.borderRadius = '12px';
-    menu.style.boxShadow = '0 10px 40px rgba(15, 23, 42, 0.14)';
+    // Tokens, not literals: this menu is portalled onto <body> and styled here
+    // rather than in a sheet, so it was the one component the design system did
+    // not reach -- a white background and a Tailwind grey border that would stay
+    // light the day a theme toggle lands. `var()` resolves in an inline style
+    // exactly as it does in a rule.
+    menu.style.background = 'var(--ui-surface)';
+    menu.style.border = '1px solid var(--ui-border)';
+    menu.style.borderRadius = 'var(--ui-radius-lg)';
+    menu.style.boxShadow = 'var(--ui-shadow-lg)';
     menu.style.visibility = 'hidden';
     menu.style.pointerEvents = 'auto';
 

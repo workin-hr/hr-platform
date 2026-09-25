@@ -133,8 +133,11 @@ class AdminLayoutWiringTest {
 	 *
 	 * <p>So, exactly: the twelve vendored {@code .woff2} files and nothing else; the faces in
 	 * {@code app-tokens.css} and nowhere else; no {@code @import} in any form or letter case;
-	 * no {@code fonts.googleapis.com} or {@code fonts.gstatic.com}; no absolute,
-	 * protocol-relative or {@code data:} {@code url()} in any sheet; the family named once,
+	 * no {@code fonts.googleapis.com} or {@code fonts.gstatic.com}; no absolute or
+	 * protocol-relative {@code url()} in any sheet, and no font binary inlined as a
+	 * {@code data:} URI -- {@code data:image/svg+xml} is allowed on purpose, because the
+	 * sheets draw icons with it and an inline SVG fetches nothing, which this sentence
+	 * first flattened into "no {@code data:} {@code url()}"; the family named once,
 	 * as {@code --ui-font}, so every sheet reads a token and reversing this decision a third
 	 * time is one line; and the SIL OFL text shipped beside the binaries, which the licence
 	 * requires and which a clean-up commit could silently drop.

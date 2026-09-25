@@ -257,9 +257,11 @@ body:not(.login-body) {
   border-bottom: 1px solid var(--ui-border);
   vertical-align: middle;
   text-align: center;
-  position: sticky;
-  top: 0;
-  z-index: var(--ui-z-sticky);
+  /* No `position: sticky`. This sheet loads after style.css, so this was the
+     declaration that actually applied -- and it could not work either: see
+     app-responsive.css's `.table-wrap` note, which said so before this branch
+     existed, and style.css's `.tbl th` for the measurement. #338 owns the
+     header that does stick. */
 }
 
 .tbl td {

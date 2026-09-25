@@ -12,10 +12,17 @@
     return;
   }
 
+  // Read from the token sheet, with no hard-coded fallback: a fallback here is a
+  // copy of a token's value that nothing keeps in step, and if the sheet failed
+  // to load Chart.js has its own defaults. The tint is composed from the same
+  // `-rgb` triples the sheets use, in comma form, because a canvas colour is
+  // parsed by Chart.js rather than by the CSS engine and never resolves `var()`.
   const styles = getComputedStyle(document.body);
-  const ink = styles.getPropertyValue('--app-text').trim() || '#1a1d24';
-  const muted = styles.getPropertyValue('--app-text-muted').trim() || '#6b7280';
-  const grid = 'rgba(15, 35, 70, .08)';
+  const ink = styles.getPropertyValue('--app-text').trim();
+  const muted = styles.getPropertyValue('--app-text-muted').trim();
+  const tint = (token, alpha) =>
+    'rgba(' + styles.getPropertyValue(token).trim().split(/\s+/).join(', ') + ', ' + alpha + ')';
+  const grid = tint('--ui-ink-rgb', '.08');
 
   Chart.defaults.font.family = styles.fontFamily;
   Chart.defaults.color = muted;
@@ -23,6 +30,13 @@
 
   // One palette, ordered so adjacent slices stay distinguishable and so a
   // single-series bar chart is always the brand blue rather than a random pick.
+  //
+  // Still literals, and the only colours in this directory's own JavaScript that
+  // are. A series hue is not a surface or a foreground: it is chosen against its
+  // neighbours, and on a dark canvas `#185FA5` reads at 2.1:1, so moving these
+  // into the token sheet means choosing ten dark values -- design work, not a
+  // relocation. #339 carries that, and the colour gate reaches these files with
+  // it.
   const BLUE = '#185FA5';
   const PALETTE = ['#185FA5', '#7c3aed', '#0d9488', '#f59e0b', '#ec4899',
                    '#0ea5e9', '#84cc16', '#a3a3a3', '#ef4444', '#14b8a6'];
@@ -90,7 +104,7 @@
         data: {
           labels,
           datasets: [{
-            data: values, borderColor: BLUE, backgroundColor: 'rgba(24,95,165,.10)',
+            data: values, borderColor: BLUE, backgroundColor: tint('--ui-accent-rgb', '.10'),
             fill: true, tension: 0.35, borderWidth: 2,
             pointRadius: 2, pointHoverRadius: 5, pointBackgroundColor: BLUE,
           }],
