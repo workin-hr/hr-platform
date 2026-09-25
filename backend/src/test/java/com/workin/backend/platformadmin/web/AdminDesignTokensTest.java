@@ -222,15 +222,10 @@ class AdminDesignTokensTest {
 				}
 				literals.add(key + " -- give it a token in " + TOKEN_SHEET);
 			}
-			Matcher declaration = DECLARATION.matcher(
-					withoutComments(Files.readString(sheet, StandardCharsets.UTF_8)));
-			while (declaration.find()) {
-				Matcher named = NAMED_COLOUR.matcher(declaration.group(2));
-				while (named.find()) {
-					literals.add(name + " " + declaration.group(1) + ": " + named.group()
-							+ " -- a colour by name is a literal too; give it a token in "
-							+ TOKEN_SHEET);
-				}
+			for (String named : namedColoursIn(
+					withoutComments(Files.readString(sheet, StandardCharsets.UTF_8)))) {
+				literals.add(name + " " + named + " -- a colour by name is a literal too; give it "
+						+ "a token in " + TOKEN_SHEET);
 			}
 		}
 		assertThat(sheets)
@@ -263,6 +258,11 @@ class AdminDesignTokensTest {
 		assertThat(COLOUR.matcher("background: rgb( var(--ui-accent-rgb) / .12);").find())
 				.as("nor is the same token with a space inside the parenthesis")
 				.isFalse();
+		assertThat(namedColoursIn(".probe { background: white; color: var(--ui-text); "
+						+ "white-space: nowrap; }"))
+				.as("the sweep itself, on a subject: the tree is clean, so without this a sweep "
+						+ "that stopped calling the pattern would pass")
+				.containsExactly("background: white");
 		assertThat(NAMED_COLOUR.matcher("white").find())
 				.as("a colour by its name is the spelling the two arms above cannot read")
 				.isTrue();
@@ -925,31 +925,42 @@ class AdminDesignTokensTest {
 				.hasSize(4);
 
 		List<String> states = new ArrayList<>();
-		for (String selector : filled) {
-			Matcher rule = Pattern.compile("(?m)^" + Pattern.quote(selector)
-					+ "[\\w\\s:().,\\[\\]=\"-]*\\{([^}]*)\\}").matcher(style);
-			while (rule.find()) {
-				Matcher background = Pattern.compile(
-						"background:\\s*var\\(\\s*(--[\\w-]+)\\s*\\)").matcher(rule.group(1));
-				while (background.find()) {
-					String token = background.group(1);
-					for (Map.Entry<String, Map<String, String>> theme : Map.of(
-							"light", light, "dark", darkTheme).entrySet()) {
-						String fill = theme.getValue().get(token);
-						String label = theme.getValue().get("--ui-text-on-accent");
-						if (fill == null || !fill.startsWith("#")) {
-							continue;
-						}
-						double ratio = contrast(label, fill);
-						if (ratio < 4.5) {
-							states.add(String.format("%s@%s: a state of %s paints %s (%s), %.2f:1 "
-									+ "under the label %s inherits", selector, theme.getKey(),
-									selector, token, fill, ratio, selector));
+		Set<String> statesReadIn = new TreeSet<>();
+		for (Path sheet : sheets()) {
+			String css = Files.readString(sheet, StandardCharsets.UTF_8);
+			for (String selector : filled) {
+				Matcher rule = Pattern.compile("(?m)^" + Pattern.quote(selector)
+						+ "[\\w\\s:().,\\[\\]=\"-]*\\{([^}]*)\\}").matcher(css);
+				while (rule.find()) {
+					statesReadIn.add(sheet.getFileName().toString());
+					Matcher background = Pattern.compile(
+							"background:\\s*var\\(\\s*(--[\\w-]+)\\s*\\)").matcher(rule.group(1));
+					while (background.find()) {
+						String token = background.group(1);
+						for (Map.Entry<String, Map<String, String>> theme : Map.of(
+								"light", light, "dark", darkTheme).entrySet()) {
+							String fill = theme.getValue().get(token);
+							String label = theme.getValue().get("--ui-text-on-accent");
+							if (fill == null || !fill.startsWith("#")) {
+								continue;
+							}
+							double ratio = contrast(label, fill);
+							if (ratio < 4.5) {
+								states.add(String.format("%s %s@%s: a state of %s paints %s (%s), %.2f:1 "
+										+ "under the label %s inherits", sheet.getFileName(), selector,
+										theme.getKey(), selector, token, fill, ratio, selector));
+							}
 						}
 					}
 				}
 			}
 		}
+		assertThat(statesReadIn)
+				.as("the sheets a filled button's states were read from. app-ui.css holds their "
+						+ "hovers and loads last, and it is the sheet whose background shipped while "
+						+ "this pass read style.css alone -- so a pass that stopped reading it must "
+						+ "fail here, on a clean tree, and not only on the day the defect returns")
+				.contains("app-ui.css", "style.css");
 		assertThat(states)
 				.as("a filled button's hover and focus states inherit its label, so each of their "
 						+ "fills carries that label too -- the state that fails is the one the "
@@ -1405,6 +1416,19 @@ class AdminDesignTokensTest {
 				.as("and the same duplicate written on one line, which is how style.css writes "
 						+ "most of its blocks and which a line-anchored count read as one")
 				.containsEntry("--topbar-h", 2);
+	}
+
+	/** Every colour a sheet's declarations name, as {@code <property>: <name>}. */
+	private static List<String> namedColoursIn(String css) {
+		List<String> found = new ArrayList<>();
+		Matcher declaration = DECLARATION.matcher(css);
+		while (declaration.find()) {
+			Matcher named = NAMED_COLOUR.matcher(declaration.group(2));
+			while (named.find()) {
+				found.add(declaration.group(1) + ": " + named.group());
+			}
+		}
+		return found;
 	}
 
 	/** How many times each custom property is declared in one rule block. */
