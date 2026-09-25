@@ -22,7 +22,7 @@
  * this file. Licence text is fonts/OFL.txt; it must ship with the binaries.
  * Nothing here references an external host, and nothing @imports: the
  * dashboard makes no third-party request, which is the property
- * theDashboardShipsNoWebFontAndKeepsLegacysSystemStack still enforces.
+ * theDashboardShipsOneSelfHostedFamilyAndReachesNoThirdParty enforces.
  *
  * Weight/size: 12 subsetted files, 277 KB on disk in total. A browser fetches
  * only the subsets whose unicode-range it needs, so an Arabic page at one
@@ -202,9 +202,12 @@
   --ui-nav-text:        #f2f1eb;
   --ui-nav-text-muted:  #a8a6a0;
   --ui-nav-text-faint:  #8a8880;
+  --ui-nav-text-soft:   #c2c0b6;
+  --ui-nav-text-active: #f0f7ff;
   --ui-nav-accent:      #6eb3ff;
   --ui-nav-accent-soft: #9ec8f5;
   --ui-nav-danger:      #e8b4b4;
+  --ui-nav-danger-hover: #fde8e8;
 
   /* The home banner: a dark brand surface, not text that happens to be dark.
      Kept as its own token because a value map cannot tell those apart, and

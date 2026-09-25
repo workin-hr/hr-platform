@@ -35,8 +35,8 @@
 	<link rel="apple-touch-icon" sizes="180x180" href="/admin/_assets/apple-touch-icon.png">
 	<%-- The design system: tokens and the self-hosted family, first so every
 	     sheet after it can read them. style.css and app-ui.css declare their own
-	     legacy vocabularies as aliases of these, which is how 38 pages move
-	     without 18 sheets being rewritten. --%>
+	     legacy vocabularies as aliases of these, which is how 38 pages moved on
+	     one edit before the sheets' own rules were converted. --%>
 	<link rel="stylesheet" href="/admin/_assets/app-tokens.css">
 	<link rel="stylesheet" href="/admin/_assets/style.css">
 	<link rel="stylesheet" href="/admin/_assets/app-ui.css">

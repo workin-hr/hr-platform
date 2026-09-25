@@ -70,7 +70,7 @@
 /* الرابط النشط — داخل القوائم الفرعية وخارجها (إعدادات، محتوى، …) */
 .sidebar nav a.nav-link.active {
   background: var(--ui-accent-700) !important;
-  color: var(--ui-info-weak) !important;
+  color: var(--ui-nav-text-active) !important;
   border-radius: 10px;
   margin: 3px 8px;
   width: auto;
@@ -249,7 +249,7 @@ html[dir="rtl"] .nav-chevron-icon { transform: rotate(90deg); }
   transition-delay: 0s;
 }
 .nav-group[open] .nav-sublink:hover {
-  background: var(--ui-nav-bg);
+  background: var(--ui-nav-bg-raised);
   color: var(--ui-nav-text);
 }
 .nav-sublink .nav-item-leading { gap: 8px; }
@@ -298,7 +298,7 @@ html[dir="rtl"] .nav-chevron-icon { transform: rotate(90deg); }
   transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 }
 .sidebar-lang__btn:hover:not(.is-active) {
-  color: var(--ui-border-soft);
+  color: var(--ui-nav-text);
   background: rgb(var(--ui-white-rgb) / 0.04);
 }
 .sidebar-lang__btn.is-active {
@@ -325,7 +325,7 @@ html[dir="rtl"] .nav-chevron-icon { transform: rotate(90deg); }
   transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
 }
 .sidebar-logout:hover {
-  color: var(--ui-danger-weak);
+  color: var(--ui-nav-danger-hover);
   background: rgb(var(--ui-danger-rgb) / 0.18);
   border-color: rgb(var(--ui-danger-rgb) / 0.35);
 }
@@ -352,14 +352,14 @@ html[dir="rtl"] .nav-chevron-icon { transform: rotate(90deg); }
   padding: 10px 14px;
   margin-bottom: 8px;
   border-radius: 8px;
-  color: var(--ui-border-strong);
+  color: var(--ui-nav-text-soft);
   text-decoration: none;
   font-size: 13px;
   font-weight: 500;
 }
 .sidebar-profile:hover {
   background: rgb(var(--ui-white-rgb) / 0.06);
-  color: var(--ui-surface);
+  color: var(--ui-nav-text);
 }
 .sidebar-profile.is-active {
   background: rgb(var(--ui-nav-accent-rgb) / 0.12);

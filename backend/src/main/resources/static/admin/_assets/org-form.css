@@ -212,7 +212,7 @@
 .dept-branch-card__icon {
   opacity: 0;
   transform: scale(0.6);
-  color: var(--ui-surface);
+  color: var(--ui-text-on-accent);
   transition: opacity .15s ease, transform .15s ease;
 }
 

@@ -111,9 +111,14 @@ class AdminDesignTokensTest {
 	 * lookahead sits before the whitespace: after it, {@code \\s*} backtracked to
 	 * zero width so {@code rgb( var(...) / .12)} read as a literal and the message
 	 * sent its author to make a token for a token.
+	 *
+	 * <p>{@code hwb()}, {@code lab()}, {@code lch()}, their {@code ok} forms and
+	 * {@code color()} are read too: {@code oklch(55% 0.02 260)} passed while the same
+	 * grey as {@code hsl()} failed (round four).
 	 */
 	private static final Pattern COLOUR = Pattern.compile(
-			"#([0-9a-fA-F]{3,8})\\b|(?:rgba?|hsla?)\\((?!\\s*var\\()\\s*([^)]*)\\)"
+			"#([0-9a-fA-F]{3,8})\\b"
+					+ "|(?<![\\w-])(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\\((?!\\s*var\\()\\s*([^)]*)\\)"
 					+ "|%23([0-9a-fA-F]{3,8})\\b");
 
 	/**
@@ -180,7 +185,8 @@ class AdminDesignTokensTest {
 	/** Tokens that name a text role; painting a surface with one is the mismatch. */
 	private static final Set<String> TEXT_ROLES = Set.of(
 			"--ui-text", "--ui-text-soft", "--ui-text-muted", "--ui-text-faint",
-			"--ui-nav-text", "--ui-nav-text-muted", "--ui-nav-text-faint");
+			"--ui-nav-text", "--ui-nav-text-muted", "--ui-nav-text-faint",
+			"--ui-nav-text-soft", "--ui-nav-text-active");
 
 	/**
 	 * Tokens that name a surface role; using one as a text colour is the mirror.
@@ -190,10 +196,31 @@ class AdminDesignTokensTest {
 	 * written from what the palette sounded like rather than from the sheet. The
 	 * assertion in the rule below now reads both lists against the token sheet, so the
 	 * next invented name fails instead of reassuring.
+	 *
+	 * <p>{@code --ui-surface} itself was missing, and eleven labels on accent and hero
+	 * fills read their white from it: right in light, and 1.06-2.54:1 in dark, where the
+	 * surface darkens and the fill under it does not. Borders and {@code -weak} tints
+	 * are surfaces for this purpose too ({@link #TINT_OR_BORDER}); the sidebar took its
+	 * label colours from them by value.
 	 */
 	private static final Set<String> SURFACE_ROLES = Set.of(
-			"--ui-bg", "--ui-surface-sunk", "--ui-surface-hover",
+			"--ui-bg", "--ui-surface", "--ui-surface-sunk", "--ui-surface-hover",
 			"--ui-nav-bg", "--ui-nav-bg-raised", "--ui-nav-bg-hover", "--ui-hero-bg");
+
+	/** A border or a {@code -weak} tint: a colour for a line or a wash, never for text. */
+	private static final Pattern TINT_OR_BORDER = Pattern.compile("--ui-(?:border[\\w-]*|[\\w-]+-weak)");
+
+	/**
+	 * States painted with a translucent wash, which no single token resolves, over
+	 * a surface that is the same in both themes -- so the label's contrast is the
+	 * surface's, measured where that surface is. Keyed by sheet and selector, and
+	 * self-policing: an entry whose wash is gone fails.
+	 */
+	private static final Map<String, String> WASHES_OVER_A_FIXED_SURFACE = Map.of(
+			"home.css .home-banner-content",
+			"an ink wash over --ui-hero-bg, which is dark in either theme",
+			"home.css .home-banner-cta:hover",
+			"a white wash over --ui-hero-bg, which is dark in either theme");
 
 	@Test
 	void everyColourInTheAdminSheetsComesFromTheTokenSheet() throws IOException {
@@ -244,12 +271,42 @@ class AdminDesignTokensTest {
 				}
 				literals.add(key + " -- give it a token in " + TOKEN_SHEET);
 			}
+			if (Files.readString(sheet, StandardCharsets.UTF_8).contains(";base64,")) {
+				// A base64 payload hides every colour inside it from both arms above,
+				// and a URL-encoded SVG does the same job readably.
+				literals.add(name + " -- a base64 data: URI hides its colours; URL-encode it");
+			}
 			for (String named : namedColoursIn(
 					withoutComments(Files.readString(sheet, StandardCharsets.UTF_8)))) {
 				literals.add(name + " " + named + " -- a colour by name is a literal too; give it "
 						+ "a token in " + TOKEN_SHEET);
 			}
 		}
+		// A template's own `style` attribute paints as surely as a sheet does:
+		// salary-calculator.jte shipped legacy's #888780 muted grey inline, 3.61:1 on
+		// white, after every sheet had moved to --ui-text-muted.
+		int styledAttributes = 0;
+		try (var templates = Files.walk(Path.of("src/main/jte/admin"))) {
+			for (Path template : templates.filter(path -> path.toString().endsWith(".jte")).toList()) {
+				Matcher style = Pattern.compile("\\bstyle\\s*=\\s*\"([^\"]*)\"")
+						.matcher(Files.readString(template, StandardCharsets.UTF_8));
+				while (style.find()) {
+					styledAttributes++;
+					Matcher colour = COLOUR.matcher(style.group(1));
+					while (colour.find()) {
+						literals.add(template.getFileName() + " style=\"" + colour.group()
+								+ "\" -- a colour in a template belongs in its sheet");
+					}
+					for (String named : namedColoursIn(".x { " + style.group(1) + " }")) {
+						literals.add(template.getFileName() + " style: " + named
+								+ " -- a colour in a template belongs in its sheet");
+					}
+				}
+			}
+		}
+		assertThat(styledAttributes)
+				.as("inline style attributes read; above zero so a path that stopped resolving fails")
+				.isGreaterThan(0);
 		assertThat(sheets)
 				.as("the sheets checked; a glob that stopped matching would pass by checking nothing")
 				.isGreaterThan(14);
@@ -276,6 +333,12 @@ class AdminDesignTokensTest {
 		assertThat(COLOUR.matcher("background: rgb(var(--ui-accent-rgb) / .12);").find())
 				.as("but a token carrying an alpha is not a literal -- it is the whole reason the "
 						+ "triples exist, and matching it would make the fix unusable")
+				.isFalse();
+		assertThat(COLOUR.matcher("color: oklch(55% 0.02 260);").find())
+				.as("and the newer notations, which round four found unread")
+				.isTrue();
+		assertThat(COLOUR.matcher(".x-label(a)").find())
+				.as("but not a word that merely ends in one of their names")
 				.isFalse();
 		assertThat(COLOUR.matcher("border-color: #185fa5;").find())
 				.as("and the hex arm still matches, so widening took nothing away")
@@ -345,10 +408,10 @@ class AdminDesignTokensTest {
 		int reachedThroughAnAlias = 0;
 		for (Path sheet : sheets()) {
 			String name = sheet.getFileName().toString();
-			String source = Files.readString(sheet, StandardCharsets.UTF_8);
+			String source = withoutComments(Files.readString(sheet, StandardCharsets.UTF_8));
 			Matcher declaration = DECLARATION.matcher(source);
 			while (declaration.find()) {
-				String property = declaration.group(1);
+				String property = declaration.group(1).toLowerCase(java.util.Locale.ROOT);
 				boolean paintsSurface = "background".equals(property)
 						|| "background-color".equals(property);
 				boolean paintsText = "color".equals(property);
@@ -368,6 +431,11 @@ class AdminDesignTokensTest {
 						mismatches.add(name + ": " + property + " painted with " + written
 								+ (written.equals(token) ? "" : " -> " + token)
 								+ ", which names a text role");
+					}
+					if (paintsText && TINT_OR_BORDER.matcher(token).matches()) {
+						mismatches.add(name + ": color set from " + written
+								+ (written.equals(token) ? "" : " -> " + token)
+								+ ", which names a border or a tint");
 					}
 					if (paintsText && SURFACE_ROLES.contains(token)) {
 						mismatches.add(name + ": color set from " + written
@@ -429,7 +497,7 @@ class AdminDesignTokensTest {
 		}
 		Set<String> used = new TreeSet<>();
 		for (Path sheet : sheets()) {
-			Matcher use = TOKEN_USE.matcher(Files.readString(sheet, StandardCharsets.UTF_8));
+			Matcher use = TOKEN_USE.matcher(withoutComments(Files.readString(sheet, StandardCharsets.UTF_8)));
 			while (use.find()) {
 				used.add(use.group(1));
 			}
@@ -560,6 +628,9 @@ class AdminDesignTokensTest {
 			Map.entry("--ui-nav-accent", "the navigation is dark in either theme"),
 			Map.entry("--ui-nav-accent-soft", "the navigation is dark in either theme"),
 			Map.entry("--ui-nav-danger", "the navigation is dark in either theme"),
+			Map.entry("--ui-nav-danger-hover", "the navigation is dark in either theme"),
+			Map.entry("--ui-nav-text-soft", "the navigation is dark in either theme"),
+			Map.entry("--ui-nav-text-active", "the navigation is dark in either theme"),
 			Map.entry("--ui-hero-bg", "a dark brand surface, dark in either theme"));
 
 	/**
@@ -888,9 +959,10 @@ class AdminDesignTokensTest {
 				.isEmpty();
 		assertThat(measured)
 				.as("the label-on-fill pairs measured, across both themes -- the four filled "
-						+ "buttons twice over; pinned so a parser that stopped resolving cannot "
-						+ "pass this on nothing")
-				.isEqualTo(8);
+						+ "buttons and, since round four moved eleven labels off --ui-surface, "
+						+ "three more whose fill is one token, each twice over; pinned so a parser "
+						+ "that stopped resolving cannot pass this on nothing")
+				.isEqualTo(14);
 
 		// And every fill token on its own, which is what covers a hover. A `:hover`
 		// rule sets a background and no colour -- it inherits the label from the base
@@ -952,7 +1024,7 @@ class AdminDesignTokensTest {
 		assertThat(filled)
 				.as("the classes that declare a label on a fill; this is what the states below "
 						+ "are found from, so an empty set would check nothing")
-				.hasSize(4);
+				.hasSize(11);
 
 		// Any rule naming the class as a compound -- `.btn.btn-green`, a hover, a
 		// `:not()` -- in any sheet, painting with either spelling of a background,
@@ -964,6 +1036,7 @@ class AdminDesignTokensTest {
 		Map<String, String> definitions = allTokenDefinitions();
 		List<String> states = new ArrayList<>();
 		List<String> unresolved = new ArrayList<>();
+		Set<String> washesUsed = new LinkedHashSet<>();
 		Set<String> statesReadIn = new TreeSet<>();
 		int statesMeasured = 0;
 		for (Path sheet : sheets()) {
@@ -983,8 +1056,13 @@ class AdminDesignTokensTest {
 							continue;
 						}
 						Matcher single = Pattern.compile("^var\\(\\s*(--[\\w-]+)\\s*\\)$").matcher(value);
+						String where = sheet.getFileName() + " " + rule.group(1).trim();
 						if (!single.find()) {
-							unresolved.add(sheet.getFileName() + " " + rule.group(1).trim() + ": " + value);
+							if (WASHES_OVER_A_FIXED_SURFACE.containsKey(where)) {
+								washesUsed.add(where);
+								continue;
+							}
+							unresolved.add(where + ": " + value);
 							continue;
 						}
 						String token = roleTokenFor(single.group(1), definitions);
@@ -1010,14 +1088,18 @@ class AdminDesignTokensTest {
 				}
 			}
 		}
+		assertThat(washesUsed)
+				.as("an exemption whose wash is gone is a stale entry to delete")
+				.containsExactlyInAnyOrderElementsOf(WASHES_OVER_A_FIXED_SURFACE.keySet());
 		assertThat(unresolved)
 				.as("a filled button's state painted with something this cannot resolve to a "
 						+ "token's colour is a state nobody measured")
 				.isEmpty();
 		assertThat(statesMeasured)
-				.as("the state-by-theme fills measured; exact, so a pattern that stops matching "
-						+ "fails on a clean tree rather than only when the defect returns")
-				.isEqualTo(16);
+				.as("the state-by-theme fills measured -- eleven state rules, two themes; exact, "
+						+ "so a pattern that stops matching fails on a clean tree rather than only "
+						+ "when the defect returns")
+				.isEqualTo(22);
 		assertThat(statesReadIn)
 				.as("the sheets a filled button's states were read from. app-ui.css holds their "
 						+ "hovers and loads last, and it is the sheet whose background shipped while "
@@ -1179,6 +1261,16 @@ class AdminDesignTokensTest {
 		assertThat(declarationsOf(style, ".content"))
 				.as("and `.content` is that pane")
 				.containsEntry("overflow-y", "auto");
+
+		// A shell fixed to the viewport prints one screenful: in print the page is
+		// the viewport. Measured in headless Chrome, a 200-row list printed 1 page
+		// and 17 rows without this block and 11 pages and 191 rows with it.
+		Matcher print = Pattern.compile("@media\\s+print\\s*\\{((?:[^{}]|\\{[^{}]*\\})*)\\}")
+				.matcher(withoutComments(style));
+		assertThat(print.find()).as("style.css releases the shell for print").isTrue();
+		assertThat(declarationsOf(print.group(1), ".shell")).containsEntry("height", "auto");
+		assertThat(declarationsOf(print.group(1), ".main, .content"))
+				.containsEntry("overflow", "visible");
 	}
 
 	/**

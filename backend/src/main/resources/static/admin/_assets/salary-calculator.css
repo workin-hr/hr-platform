@@ -133,6 +133,11 @@
   color: var(--ui-text-soft);
   padding-top: 4px;
 }
+.salary-breakdown-hint {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--ui-text-muted);
+}
 .salary-breakdown-empty {
   text-align: center;
   padding: 40px 16px;

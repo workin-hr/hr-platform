@@ -470,7 +470,7 @@
 .complaints-source-tabs__link.is-active {
   background: var(--ui-accent-500);
   border-color: var(--ui-accent-500);
-  color: var(--ui-surface);
+  color: var(--ui-text-on-accent);
 }
 .complaints-source-hint {
   margin: 0 0 16px;

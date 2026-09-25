@@ -33,7 +33,7 @@
 }
 
 .settings-hub-tabs__link.is-active {
-  color: var(--ui-surface);
+  color: var(--ui-text-on-accent);
   background: var(--blue, var(--ui-accent-600));
   border-color: var(--blue, var(--ui-accent-600));
 }

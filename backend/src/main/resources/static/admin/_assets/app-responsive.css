@@ -30,7 +30,7 @@
   padding: 10px 16px;
   border-radius: var(--app-radius-sm);
   background: var(--blue);
-  color: var(--ui-surface);
+  color: var(--ui-text-on-accent);
   font-weight: 600;
   text-decoration: none;
   transform: translateY(-150%);
