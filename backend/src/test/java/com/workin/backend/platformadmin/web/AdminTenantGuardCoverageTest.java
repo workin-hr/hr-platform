@@ -174,7 +174,7 @@ class AdminTenantGuardCoverageTest {
 	 * that moves or gains a guard cannot leave a licence behind.
 	 *
 	 * <p>Every reason below was read at the call site, not inferred from the store's
-	 * entry. Three shapes account for all nineteen, and the shape is the reason:
+	 * entry. A handful of shapes account for all thirty-nine, and the shape is the reason:
 	 * the company is an argument of the write itself, or a company-scoped read of
 	 * the same row precedes it, or the surface reaching it is the platform
 	 * administrator's, who is cross-company by design.
@@ -236,8 +236,16 @@ class AdminTenantGuardCoverageTest {
 				"DevicePunchIngestionService.java: punches.adoptUnmatched()")) {
 			accounted.put(call, COMPANY_IS_AN_ARGUMENT_OF_THE_WRITE);
 		}
+		// `store.insert()` was in the group below until review read its call site:
+		// `LegacyPayrollBatchService.create` calls
+		// `store.insert(companyId, month, year, ...)`, an INSERT whose company_id is
+		// that argument. It is not by bare id, nothing precedes it but
+		// `existsForPeriod(companyId, month, year)`, and a payroll batch has no batch
+		// or employee parent for that group's sentence to be about. The stronger of
+		// the two shapes was the true one.
+		accounted.put("LegacyPayrollBatchService.java: store.insert()",
+				COMPANY_IS_AN_ARGUMENT_OF_THE_WRITE);
 		for (String call : List.of(
-				"LegacyPayrollBatchService.java: store.insert()",
 				"LegacyPayrollBatchService.java: store.updatePeriod()",
 				"LegacyPayrollBatchService.java: store.finalizeBatchIfNotAlready()",
 				"LegacyPayslipService.java: store.insert()",
@@ -254,14 +262,11 @@ class AdminTenantGuardCoverageTest {
 				"AdminDevicesController.java: actions.importAttlog()",
 				"AdminDevicesController.java: actions.issueAgent()",
 				"AdminDevicesController.java: actions.setActive()",
-				"AdminDevicesController.java: actions.setAgentActive()",
 				"AdminDeviceActions.java: devices.allocate()",
 				"AdminDeviceActions.java: devices.importAttlog()",
 				"AdminDeviceActions.java: devices.issueAgent()",
 				"AdminDeviceActions.java: devices.setActive()",
-				"AdminDeviceActions.java: devices.setAgentActive()",
 				"DeviceAdministrationService.java: agents.issue()",
-				"DeviceAdministrationService.java: agents.setActive()",
 				"DeviceAdministrationService.java: fileImport.importAttlog()",
 				"DeviceAdministrationService.java: management.allocate()",
 				"PlatformAdminCompaniesController.java: companyService.delete()")) {
@@ -276,6 +281,52 @@ class AdminTenantGuardCoverageTest {
 					+ "companyId is the posted form field, existence-checked in "
 					+ "DeviceAdministrationService.issueAgent and audited as posted, which "
 					+ "DeviceAgentStore's own entry states.");
+		}
+		// Agent deactivation, all three layers of it, and the one path in this chain
+		// where no company is resolved before the write. The group above says the
+		// company is read off a row the method resolved first, and review found that
+		// sentence false here: DeviceAdministrationService calls
+		// `agents.setActive(agentId, active)` immediately, the store's statement is
+		// `UPDATE device_agents SET is_active = ?, updated_at = ? WHERE id = ?`, and
+		// the audit row is written AFTER it, reading the company off the row that
+		// comes back. DeviceAgentStore's own entry said exactly that and warned that
+		// the two must not drift; they had. One sentence generalised across a group
+		// of methods, for the fourth time in this file.
+		for (String call : List.of(
+				"AdminDevicesController.java: actions.setAgentActive()",
+				"AdminDeviceActions.java: devices.setAgentActive()",
+				"DeviceAdministrationService.java: agents.setActive()")) {
+			accounted.put(call, "Agent deactivation, by bare agent id: no company predicate and "
+					+ "no company resolved above the write, and the audit row is written after it "
+					+ "from the row that comes back rather than before it from a row that was "
+					+ "checked. " + PLATFORM_ADMINISTRATOR_ONLY + " That is the whole of the "
+					+ "control here, and DeviceAgentStore's entry says the same of the same "
+					+ "write.");
+		}
+		// The interface hop. `PlatformAdminCompanyService` holds
+		// `PlatformAdminCompanyDirectory`, an interface, beside the concrete
+		// `LegacyCompanyDelete`, and only the concrete field was reported until the
+		// resolver learned to follow an interface to its implementation.
+		accounted.put("PlatformAdminCompanyService.java: companies.create()",
+				"Creating a company and its first branch, so there is no prior owner to compare "
+						+ "anything against -- the INSERT's company_id is the company just made, "
+						+ "which is what LegacyPlatformAdminCompanyDirectory's own entry states. "
+						+ PLATFORM_ADMINISTRATOR_ONLY + " PlatformAdminCompanyService.create takes "
+						+ "the administrator's id and writes an audit row naming them.");
+		accounted.put("PlatformAdminCompanyService.java: companies.update()",
+				"Editing a company's main branch. The branch id is resolved inside the company "
+						+ "being edited -- `SELECT id FROM branches WHERE company_id = ? ORDER BY "
+						+ "id ASC LIMIT 1` -- and the UPDATE writes that id; where the company has "
+						+ "no branch yet the INSERT carries the same companyId. So the id the "
+						+ "write uses cannot be another company's, which is the same shape as the "
+						+ "legacy payroll services one surface over. " + PLATFORM_ADMINISTRATOR_ONLY);
+		for (String call : List.of(
+				"PlatformAdminCompaniesController.java: companyService.create()",
+				"PlatformAdminCompaniesController.java: companyService.update()")) {
+			accounted.put(call, "The controller of the two calls above, one hop further out, and "
+					+ "the reason is theirs: it passes `principal.platformAdminId()` and the "
+					+ "service resolves the branch inside the company or creates both together. "
+					+ PLATFORM_ADMINISTRATOR_ONLY);
 		}
 		accounted.put("DeviceFileImportService.java: ingestion.ingest()",
 				"Not a surface call: the argument is the device row the caller already resolved "
@@ -1084,7 +1135,21 @@ class AdminTenantGuardCoverageTest {
 	 * a method, one construct to the left.
 	 * <li>an <b>annotation in type position</b>, which is the round before last's
 	 * finding on a method, on a field.
+	 * <li><b>no access modifier at all.</b> {@code final PenaltyStore store;} is
+	 * Java's default access and is constructor-injected exactly as the
+	 * {@code private final} form is, and the pattern opened
+	 * {@code (?:private|protected|public)\s+}, so deleting one keyword from this
+	 * rule's own stated exploit made the field invisible again. This is the
+	 * eleventh round's finding a third time -- it found it on a method, where
+	 * {@code ANY_METHOD} has a positional backstop; a field has none. There is no
+	 * such field today, which is why it is driven by a fixture.
 	 * </ul>
+	 *
+	 * <p>Anchored at a line start and requiring at least one of
+	 * {@code static|final|transient|volatile}, because dropping the access modifier
+	 * without either would match a bare statement inside a method body --
+	 * {@code Row row = ...} is not a field, and treating it as one would report the
+	 * write it leads to against whatever local happened to be named.
 	 *
 	 * <p>The type expression is captured whole and narrowed by {@link #simpleName},
 	 * because the index this is resolved against is keyed on the simple name. A
@@ -1096,9 +1161,24 @@ class AdminTenantGuardCoverageTest {
 	 * decoration, captured for it.
 	 */
 	private static final Pattern FIELD_DECLARATION = Pattern.compile(
-			"(?:private|protected|public)\\s+(?:(?:static|final|transient|volatile)\\s+)*"
+			"(?m)^[ \\t]*(?:(?:private|protected|public)\\s+)?"
+					+ "(?:(?:static|final|transient|volatile)\\s+)+"
 					+ TYPE_ANNOTATIONS
 					+ "([\\w.]+)((?:\\s*<[^;=]*>)?(?:\\s*\\[\\s*\\])*)\\s+(\\w+)\\s*[;=]");
+
+	/**
+	 * A type whose methods have no bodies, so reading its own text finds no writes.
+	 *
+	 * <p>An interface, or an abstract class. Both are ordinary things to hold a field
+	 * of, and both made every write behind that field invisible to the rule that reads
+	 * declared types.
+	 */
+	private static final Pattern DECLARES_NO_BODIES =
+			Pattern.compile("\\b(?:interface|abstract\\s+class)\\s+\\w+");
+
+	/** {@code implements A, B<C>} -- the names, before the generics are stripped. */
+	private static final Pattern IMPLEMENTS_CLAUSE =
+			Pattern.compile("\\bimplements\\s+([\\w.,<>\\s]+?)\\s*\\{");
 
 	/** The last segment of a possibly-qualified type name. */
 	private static String simpleName(String type) {
@@ -2808,7 +2888,7 @@ class AdminTenantGuardCoverageTest {
 	 * very much outside the two rules. Rule three already computes what the admin
 	 * surface reaches, and deliberately does not stop at the root, because the device
 	 * stores that prompted it live outside; this now reads the same set, and
-	 * <b>nineteen calls</b> came into view the moment it did. None of them is
+	 * <b>thirty-nine calls</b> are enumerated there today. None of them is
 	 * unguarded -- every one was read at its call site, and they fall into three
 	 * shapes -- but none of them was covered by anything either, which is the
 	 * difference this rule exists to remove. They are enumerated in
@@ -2849,19 +2929,21 @@ class AdminTenantGuardCoverageTest {
 				.containsExactlyInAnyOrderElementsOf(REACHED_WRITES_ACCOUNTED_FOR.keySet());
 		assertThat(fieldsChecked)
 				.as("fields whose declared type writes a tenant-owned table, held by a class "
-						+ "neither rule scans; pinned above zero so the rule cannot pass by "
-						+ "resolving no type at all. Thirty-four across the reachable set, "
-						+ "which was 21 while this looked only under the admin root -- the pin "
-						+ "names the scope it belongs to, since the last three bare figures in "
-						+ "this class were each wrong after a widening")
-				.isGreaterThan(25);
+						+ "neither rule scans. Exact, and with no comparative figure beside it: "
+						+ "this said thirty-four with a note about twenty-one under the old scope, "
+						+ "and both were the numbers from before the commit that widened the "
+						+ "resolver in the same round -- the fourth bare figure in this file to "
+						+ "rot, and the third to rot inside the round that wrote it. A floor "
+						+ "would not have caught it; an equality does, and a figure that exists "
+						+ "only here cannot disagree with one somewhere else")
+				.isEqualTo(45);
 		assertThat(resolver.cycles())
 				.as("a cycle in the field graph would make what a class exports depend on where "
 						+ "the walk started, so the resolver records one rather than returning "
 						+ "less; there is none, and if one appears this is where it says so")
 				.isEmpty();
 
-		// The live half has nineteen subjects now that the scope is the reachable set
+		// The live half has thirty-nine subjects now that the scope is the reachable set
 		// rather than a directory, and every one of them is accounted for above. The
 		// fixtures stay: an accounted call cannot demonstrate that an UNaccounted one
 		// would be reported, and it is the reporting that is the rule.
@@ -2957,6 +3039,120 @@ class AdminTenantGuardCoverageTest {
 				.as("nor an annotation in type position -- the same position that hid a method "
 						+ "from every rule two rounds ago, now on a field")
 				.containsExactly("store.delete()");
+
+		String unmodified = """
+				class AdminPenaltiesController {
+					final PenaltyStore store;
+
+					public String submit(long id) {
+						this.store.delete(id);
+						return "ok";
+					}
+				}""";
+		assertThat(storeWriteCallsIn(unmodified, fixtureWrites).calls())
+				.as("nor the absence of one. Java's default access is constructor-injected "
+						+ "exactly as `private final` is, and deleting that one keyword from this "
+						+ "rule's own stated exploit made the field invisible again -- the "
+						+ "eleventh round's finding a third time, and on a field there is no "
+						+ "positional backstop the way there is on a method")
+				.containsExactly("store.delete()");
+
+		String local = """
+				class AdminPenaltiesController {
+					public String submit(long id) {
+						PenaltyStore store = lookup();
+						store.delete(id);
+						return "ok";
+					}
+				}""";
+		assertThat(storeWriteCallsIn(local, fixtureWrites).calls())
+				.as("the control for dropping the modifier: a local variable is not a field, and "
+						+ "reporting one would attribute a write to whatever a method happened to "
+						+ "name. That is why the pattern is anchored at a line start and still "
+						+ "requires a field modifier")
+				.isEmpty();
+	}
+
+	/**
+	 * Only an admin service may hide a write behind a session.
+	 *
+	 * <p>The premise the resolver's seam rests on, turned into an assertion. It
+	 * suppresses any public method whose signature names a {@code DashboardSession},
+	 * on the ground that such a method is rule one's subject and rule one asks it for
+	 * a guard. Rule one is {@code files("*AdminService.java")} -- <b>22 files</b>, out
+	 * of the couple of hundred the closure reaches. For any other class the
+	 * suppression hands the method to nobody: its callers go silent, and nothing asks
+	 * it for a guard either, because rule two only harvests a store's write-method
+	 * names and never asks a store method to resolve anything.
+	 *
+	 * <p>The shape that would exploit it: {@code PenaltyStore.purge(DashboardSession,
+	 * long)} holding the DELETE, called from a controller. Rule one does not scan
+	 * stores, rule three counts the store as scanned, rule four suppresses the call
+	 * because the signature names a session, and the positional check passes because
+	 * the write is inside a method. Nothing compares that session against the row.
+	 *
+	 * <p>Green today -- no reachable class outside the admin services has a
+	 * session-taking method that reaches a write; the only session-taking store method
+	 * anywhere is {@code ComplaintStore.paginate}, a read -- which is exactly why the
+	 * premise needed writing down as a check rather than as a sentence.
+	 */
+	@Test
+	void onlyAnAdminServiceMayHideAWriteBehindASession() {
+		Set<String> tenantTables = tenantOwnedTables();
+		Map<String, String> entities = entityTables();
+		Map<String, Path> known = classesByName();
+		WriteResolver resolver = new WriteResolver(known, tenantTables, entities);
+		Set<String> services = adminServices().stream()
+				.map(path -> path.getFileName().toString())
+				.collect(java.util.stream.Collectors.toSet());
+
+		List<String> hidden = new ArrayList<>();
+		int considered = 0;
+		for (String type : new TreeSet<>(reachableFromAdminSurface(known))) {
+			Path file = known.get(type);
+			if (file == null || services.contains(file.getFileName().toString())) {
+				continue;
+			}
+			Set<String> reaching = resolver.reachingBy(type);
+			if (reaching.isEmpty()) {
+				continue;
+			}
+			considered++;
+			for (String signature : publicMethodBodies(read(file)).keySet()) {
+				if (signature.contains("DashboardSession") && reaching.contains(name(signature))) {
+					hidden.add(type + "::" + signature + " reaches a write and takes a session, "
+							+ "but it is not an admin service, so rule one never asks it for a "
+							+ "guard and the resolver hides it from the rule that would");
+				}
+			}
+		}
+		assertThat(hidden)
+				.as("the seam suppresses a session-taking write on the ground that rule one owns "
+						+ "it; rule one owns 22 files, and outside them the suppression hands the "
+						+ "method to nobody")
+				.isEmpty();
+		assertThat(considered)
+				.as("the reachable non-service classes that reach a write at all; pinned so a "
+						+ "closure that stopped resolving cannot make this pass on nothing")
+				.isGreaterThan(15);
+
+		// And the shape itself, which no live class has.
+		Map<String, String> sources = new HashMap<>();
+		sources.put("PenaltyStore", """
+				class PenaltyStore {
+					public int purge(DashboardSession session, long id) {
+						return this.jdbcTemplate.update("DELETE FROM penalties WHERE id = ?", id);
+					}
+				}""");
+		WriteResolver fixture =
+				new WriteResolver(sources::get, sources.keySet(), tenantTables, entities);
+		assertThat(fixture.reachingBy("PenaltyStore"))
+				.as("the write is there and the walk finds it")
+				.containsExactly("purge");
+		assertThat(fixture.exportedBy("PenaltyStore"))
+				.as("and the seam hides it, which is correct only if something else asks -- a "
+						+ "store is not something rule one asks")
+				.isEmpty();
 	}
 
 	/**
@@ -2982,8 +3178,8 @@ class AdminTenantGuardCoverageTest {
 		Set<String> tenantTables = tenantOwnedTables();
 		Map<String, String> entities = entityTables();
 		Map<String, Path> known = classesByName();
-		java.util.function.Function<String, Set<String>> writesOf =
-				new WriteResolver(known, tenantTables, entities)::exportedBy;
+		WriteResolver resolver = new WriteResolver(known, tenantTables, entities);
+		java.util.function.Function<String, Set<String>> writesOf = resolver::exportedBy;
 
 		List<String> held = new ArrayList<>();
 		for (Path file : unscannedReachableFiles(known)) {
@@ -2995,6 +3191,12 @@ class AdminTenantGuardCoverageTest {
 				.as("a writer held in a container is reached by an access the rule beside this "
 						+ "one does not model, so that rule would pass on it while meaning "
 						+ "nothing")
+				.isEmpty();
+		assertThat(resolver.cycles())
+				.as("this rule built its own resolver and never asked it about cycles, so with a "
+						+ "cycle present it would have read truncated export sets and passed -- "
+						+ "which is the outcome its own javadoc refuses. The rule beside it asks; "
+						+ "so does this one now")
 				.isEmpty();
 
 		// Nothing live, so the rule is pinned by fixtures or by nothing at all.
@@ -3174,7 +3376,7 @@ class AdminTenantGuardCoverageTest {
 						this.store.delete(id);
 					}
 				}""");
-		WriteResolver resolver = new WriteResolver(sources::get, tenantTables, entities);
+		WriteResolver resolver = new WriteResolver(sources::get, sources.keySet(), tenantTables, entities);
 
 		assertThat(resolver.exportedBy("LegacyPenaltyService"))
 				.as("the service holds no SQL of its own, and `delete(companyId, id)` is still a "
@@ -3211,6 +3413,47 @@ class AdminTenantGuardCoverageTest {
 				}""", writesOf).calls())
 				.as("and the control: the shape twenty controllers already use is silent")
 				.isEmpty();
+
+		// And through an interface, which is how Spring is ordinarily written and was
+		// the one hop the resolver did not take: an interface declares no bodies, so
+		// reading its own text found no writes and it exported nothing at all.
+		Map<String, String> behindAnInterface = new HashMap<>();
+		behindAnInterface.put("PenaltyStore", sources.get("PenaltyStore"));
+		behindAnInterface.put("PenaltyDirectory", """
+				interface PenaltyDirectory {
+					void erase(long companyId, long id);
+				}""");
+		behindAnInterface.put("LegacyPenaltyDirectory", """
+				class LegacyPenaltyDirectory implements PenaltyDirectory {
+					private final PenaltyStore store;
+
+					@Override
+					public void erase(long companyId, long id) {
+						this.store.delete(id);
+					}
+				}""");
+		WriteResolver throughTheInterface = new WriteResolver(
+				behindAnInterface::get, behindAnInterface.keySet(), tenantTables, entities);
+		assertThat(throughTheInterface.exportedBy("PenaltyDirectory"))
+				.as("the interface's own text holds no body and therefore no write, and a field "
+						+ "declared as the interface is the shape a Spring service actually has. "
+						+ "PlatformAdminCompanyService holds one beside a concrete field, and only "
+						+ "the concrete one was reported: two fields, one file, one seen")
+				.containsExactly("erase");
+		assertThat(storeWriteCallsIn("""
+				class AdminPenaltiesController {
+					private final PenaltyDirectory penalties;
+
+					public String submit(long companyId, long id) {
+						this.penalties.erase(companyId, id);
+						return "ok";
+					}
+				}""", throughTheInterface::exportedBy).calls())
+				.as("so the call through the interface is reported")
+				.containsExactly("penalties.erase()");
+		assertThat(throughTheInterface.exportedBy("PenaltyDirectory"))
+				.as("and the answer is memoised rather than recomputed per field")
+				.containsExactly("erase");
 	}
 
 	/**
@@ -3244,7 +3487,7 @@ class AdminTenantGuardCoverageTest {
 						return this.jdbcTemplate.update("DELETE FROM penalties WHERE id = ?", id);
 					}
 				}""");
-		assertThat(new WriteResolver(deep::get, tenantTables, entities).exportedBy("PenaltyStore"))
+		assertThat(new WriteResolver(deep::get, deep.keySet(), tenantTables, entities).exportedBy("PenaltyStore"))
 				.as("`purge` is four calls from the statement, and it is the only name a caller "
 						+ "can spell; a bound below four drops it and asks nobody for a guard")
 				.containsExactly("purge");
@@ -3266,7 +3509,7 @@ class AdminTenantGuardCoverageTest {
 						return this.store.delete(id);
 					}
 				}""");
-		WriteResolver walked = new WriteResolver(circular::get, tenantTables, entities);
+		WriteResolver walked = new WriteResolver(circular::get, circular.keySet(), tenantTables, entities);
 		walked.exportedBy("PenaltyStore");
 		assertThat(walked.cycles())
 				.as("A holding B holding A: what each exports would depend on which one the walk "
@@ -3279,7 +3522,7 @@ class AdminTenantGuardCoverageTest {
 				class OrgFilterCascade {
 					public static final OrgFilterCascade NONE = new OrgFilterCascade();
 				}""");
-		WriteResolver itself = new WriteResolver(sentinel::get, tenantTables, entities);
+		WriteResolver itself = new WriteResolver(sentinel::get, sentinel.keySet(), tenantTables, entities);
 		itself.exportedBy("OrgFilterCascade");
 		assertThat(itself.cycles())
 				.as("the control, and four live classes: a sentinel constant of the class's own "
@@ -3324,6 +3567,10 @@ class AdminTenantGuardCoverageTest {
 
 		private final java.util.function.Function<String, String> sourceOf;
 
+		private final Set<String> allTypes;
+
+		private @org.jspecify.annotations.Nullable Map<String, Set<String>> implementors;
+
 		private final Set<String> tenantTables;
 
 		private final Map<String, String> entities;
@@ -3338,7 +3585,7 @@ class AdminTenantGuardCoverageTest {
 		WriteResolver(Map<String, Path> known, Set<String> tenantTables,
 				Map<String, String> entities) {
 			this(type -> known.get(type) == null ? null : read(known.get(type)),
-					tenantTables, entities);
+					known.keySet(), tenantTables, entities);
 		}
 
 		/**
@@ -3346,9 +3593,10 @@ class AdminTenantGuardCoverageTest {
 		 * of a rule cannot demonstrate the rule: an accounted call proves nothing
 		 * about whether an unaccounted one would be reported.
 		 */
-		WriteResolver(java.util.function.Function<String, String> sourceOf,
+		WriteResolver(java.util.function.Function<String, String> sourceOf, Set<String> allTypes,
 				Set<String> tenantTables, Map<String, String> entities) {
 			this.sourceOf = sourceOf;
+			this.allTypes = allTypes;
 			this.tenantTables = tenantTables;
 			this.entities = entities;
 		}
@@ -3381,7 +3629,23 @@ class AdminTenantGuardCoverageTest {
 				}
 				return Set.of();
 			}
-			Set<String> exported = exported(source);
+			Set<String> exported = new TreeSet<>(exported(source));
+			// An interface declares no bodies, so `publicMethodBodies` finds nothing
+			// in it and it exported nothing at all -- which made every write behind
+			// an interface-typed field invisible. `PlatformAdminCompanyService`
+			// holds `PlatformAdminCompanyDirectory` beside the concrete
+			// `LegacyCompanyDelete`, and only the concrete one was reported: two
+			// fields, one file, one seen. Injecting the interface is the idiomatic
+			// shape, so this is the ordinary case rather than the exotic one.
+			//
+			// An abstract class is the same shape for the same reason, so it is
+			// included; a simple-name collision cannot confuse the lookup, because
+			// `noTwoClassesShareASimpleName` forbids one outright.
+			if (DECLARES_NO_BODIES.matcher(maskNonCode(source).code()).find()) {
+				for (String implementation : implementorsOf(type)) {
+					exported.addAll(exportedBy(implementation));
+				}
+			}
 			this.onStack.remove(type);
 			this.memo.put(type, exported);
 			return exported;
@@ -3424,6 +3688,49 @@ class AdminTenantGuardCoverageTest {
 			return false;
 		}
 
+		/**
+		 * Every class declaring {@code implements <type>}, by the interface's simple
+		 * name.
+		 *
+		 * <p>Built once and lazily, because a tree with no interface-typed field
+		 * should not pay for the scan.
+		 */
+		private Set<String> implementorsOf(String type) {
+			if (this.implementors == null) {
+				Map<String, Set<String>> found = new java.util.HashMap<>();
+				for (String name : new TreeSet<>(this.allTypes)) {
+					String source = this.sourceOf.apply(name);
+					if (source == null) {
+						continue;
+					}
+					Matcher implemented = IMPLEMENTS_CLAUSE.matcher(maskNonCode(source).code());
+					while (implemented.find()) {
+						for (String each : implemented.group(1).split(",")) {
+							String simple = simpleName(
+									each.replaceAll("<[^>]*>", "").strip());
+							if (!simple.isEmpty()) {
+								found.computeIfAbsent(simple, key -> new TreeSet<>()).add(name);
+							}
+						}
+					}
+				}
+				this.implementors = found;
+			}
+			return this.implementors.getOrDefault(type, Set.of());
+		}
+
+		/**
+		 * Every method of this type that reaches a write, exported or not.
+		 *
+		 * <p>{@link #exportedBy} hides the session-taking ones on the ground that rule
+		 * one asks them for a guard. This is the same set before that hiding, so the
+		 * ground can be checked rather than asserted in prose.
+		 */
+		Set<String> reachingBy(String type) {
+			String source = this.sourceOf.apply(type);
+			return source == null ? Set.of() : reaching(source);
+		}
+
 		List<String> cycles() {
 			return this.cycles;
 		}
@@ -3439,8 +3746,14 @@ class AdminTenantGuardCoverageTest {
 	private static List<String> fieldWriteCallsIn(
 			String code, String field, Set<String> writes) {
 		List<String> found = new ArrayList<>();
+		// `(?<![\w.])` so a field named `store` does not match `backupStore.delete(`.
+		// That over-reported rather than hid anything -- it can only demand an
+		// accounting -- but it also meant a mutant deleting the optional `this.`
+		// changed no behaviour, so the boundary is what makes that mutant mean
+		// something.
 		Matcher call = Pattern.compile(
-				"(?:this\\s*\\.\\s*)?" + Pattern.quote(field) + "\\s*\\.\\s*(\\w+)\\s*\\(")
+				"(?<![\\w.])(?:this\\s*\\.\\s*)?" + Pattern.quote(field)
+						+ "\\s*\\.\\s*(\\w+)\\s*\\(")
 				.matcher(code);
 		while (call.find()) {
 			if (writes.contains(call.group(1))) {

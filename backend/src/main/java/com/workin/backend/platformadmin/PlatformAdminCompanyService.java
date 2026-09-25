@@ -249,6 +249,4 @@ public class PlatformAdminCompanyService {
 		};
 	}
 
-	/** Thrown so the transaction rolls back and the step-up approval is not spent. */
-
 }
