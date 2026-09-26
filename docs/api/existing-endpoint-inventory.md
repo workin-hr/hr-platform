@@ -96,7 +96,10 @@ for expected cases:
   the client address (60) has spent its 15-minute budget. Checked before
   the password, so even the right one is refused until the window passes;
   the owner signing in from another address is refused only past the
-  phone-wide 40. The phone counts by its digits in any script.
+  phone-wide 40. A phone in Arabic-Indic, Persian or fullwidth digits is
+  folded to ASCII before the lookup; one holding any other character but a
+  leading `+`, hyphens or spaces is answered as an unknown phone without a
+  lookup.
   `login_company` and `login_desktop` share the same budgets and answer
   the same way. Legacy has no limit.
 
