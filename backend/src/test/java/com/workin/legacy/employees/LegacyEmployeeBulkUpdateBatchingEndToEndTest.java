@@ -144,11 +144,11 @@ class LegacyEmployeeBulkUpdateBatchingEndToEndTest {
 		// The request guard reads the actor twice whatever the sheet holds;
 		// anything else repeated would be a statement per row.
 		assertThat(repeated(full)).as("no statement is issued once per row").isEqualTo(repeated(ten));
-		// One row past the chunk is a second chunk: its five reference reads
-		// (shift, department links, departments, titles, phone holders), its
-		// re-read and its three batches -- the lone row already has a
-		// contract, so it patches rather than inserts.
-		assertThat(overflow).as("statements for %d rows: %s", CHUNK + 1, overflow).hasSize(full.size() + 9);
+		// One row past the chunk is a second chunk: its one reference read
+		// (shifts, department links, departments, titles and phone holders in
+		// one statement), its re-read and its three batches -- the lone row
+		// already has a contract, so it patches rather than inserts.
+		assertThat(overflow).as("statements for %d rows: %s", CHUNK + 1, overflow).hasSize(full.size() + 5);
 		assertThat(QueryCounter.busiestRepeat(overflow)).isEqualTo(2);
 	}
 
@@ -376,7 +376,6 @@ class LegacyEmployeeBulkUpdateBatchingEndToEndTest {
 		}
 		// Halving 500 rows down to one takes 9 levels; each level writes two
 		// halves of at most five statements (a re-read and four batches).
-		System.out.println("BUDGET bisect " + cleanIssued.size() + " " + issued.size());
 		assertThat(issued.size()).as("statements with one refused row, against %d clean", cleanIssued.size())
 				.isLessThanOrEqualTo(cleanIssued.size() + 2 * 9 * 5 + 5);
 	}

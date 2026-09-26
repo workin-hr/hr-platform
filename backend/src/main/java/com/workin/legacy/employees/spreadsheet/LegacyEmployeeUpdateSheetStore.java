@@ -44,92 +44,96 @@ public class LegacyEmployeeUpdateSheetStore {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
 	}
 
-	/** The ids among {@code shiftIds} that {@code shift_belongs_to_company()} accepts. */
-	public Set<Long> shiftsInCompany(Collection<Long> shiftIds, long companyId) {
-		Set<Long> found = new HashSet<>();
+	/**
+	 * What one chunk's rows name, as the single-row checks would answer it,
+	 * in <b>one statement</b>: a {@code UNION ALL} with one arm per question
+	 * and per {@link #CHUNK} identifiers --
+	 * <ul>
+	 * <li>shifts in the company ({@code shift_belongs_to_company()});</li>
+	 * <li>every {@code department_branches} row for the departments, with no
+	 *     company predicate and no active check
+	 *     ({@code department_belongs_to_branch()});</li>
+	 * <li>the departments that are in the company and active
+	 *     ({@code department_belongs_to_company()});</li>
+	 * <li>each active job title's department
+	 *     ({@code job_title_belongs_to_department()}, no company predicate,
+	 *     D-075);</li>
+	 * <li>every non-rejected employee row stored in any spelling of the
+	 *     numbers ({@code employee_phone_exists_globally()}'s candidates; the
+	 *     caller verifies each row's own {@code (phone, country_code)} as
+	 *     {@link com.workin.legacy.phone.PhoneLookup} does).</li>
+	 * </ul>
+	 * Every arm names its columns, since the first arm present names the
+	 * result's. One statement because it runs once per chunk outside any
+	 * transaction:
+	 * each extra statement would be another round trip, and each checkout
+	 * already costs two (D-099).
+	 */
+	public References references(Collection<Long> shiftIds, Collection<Long> departmentIds,
+			Collection<Long> jobTitleIds, Collection<CanonicalPhone> phones, long companyId) {
+		List<String> arms = new ArrayList<>();
+		List<Object> params = new ArrayList<>();
 		for (List<Long> chunk : chunks(shiftIds)) {
-			List<Object> params = new ArrayList<>(chunk);
+			arms.add("SELECT 's' AS kind, s.id AS a, NULL AS b, NULL AS phone, NULL AS country_code FROM shifts s"
+					+ " WHERE s.id IN (" + placeholders(chunk.size()) + ") AND s.company_id = ?");
+			params.addAll(chunk);
 			params.add(companyId);
-			found.addAll(this.jdbcTemplate.queryForList(
-					"SELECT s.id FROM shifts s WHERE s.id IN (" + placeholders(chunk.size()) + ") AND s.company_id = ?",
-					Long.class, params.toArray()));
 		}
-		return found;
-	}
-
-	/**
-	 * Every {@code department_branches} row for these departments, as
-	 * {@code department_belongs_to_branch()} reads the junction: no company
-	 * predicate, no active check.
-	 */
-	public Set<DepartmentBranch> departmentBranches(Collection<Long> departmentIds) {
-		Set<DepartmentBranch> found = new HashSet<>();
 		for (List<Long> chunk : chunks(departmentIds)) {
-			this.jdbcTemplate.query(
-					"SELECT department_id, branch_id FROM department_branches WHERE department_id IN ("
-							+ placeholders(chunk.size()) + ")",
-					rs -> {
-						found.add(new DepartmentBranch(rs.getLong("department_id"), rs.getLong("branch_id")));
-					}, chunk.toArray());
-		}
-		return found;
-	}
-
-	/** The ids among {@code departmentIds} that {@code department_belongs_to_company()} accepts: company and active. */
-	public Set<Long> activeDepartmentsInCompany(Collection<Long> departmentIds, long companyId) {
-		Set<Long> found = new HashSet<>();
-		for (List<Long> chunk : chunks(departmentIds)) {
-			List<Object> params = new ArrayList<>(chunk);
+			arms.add("SELECT 'l' AS kind, department_id AS a, branch_id AS b, NULL AS phone, NULL AS country_code"
+					+ " FROM department_branches"
+					+ " WHERE department_id IN (" + placeholders(chunk.size()) + ")");
+			params.addAll(chunk);
+			arms.add("SELECT 'd' AS kind, id AS a, NULL AS b, NULL AS phone, NULL AS country_code"
+					+ " FROM departments WHERE id IN (" + placeholders(chunk.size())
+					+ ") AND company_id = ? AND is_active = 1");
+			params.addAll(chunk);
 			params.add(companyId);
-			found.addAll(this.jdbcTemplate.queryForList(
-					"SELECT id FROM departments WHERE id IN (" + placeholders(chunk.size())
-							+ ") AND company_id = ? AND is_active = 1",
-					Long.class, params.toArray()));
 		}
-		return found;
-	}
-
-	/**
-	 * Each active job title's department, for {@code job_title_belongs_to_department()}:
-	 * {@code id} is the key, so "this title in that department" is one map lookup.
-	 * No company predicate, as the single-row check has none (D-075).
-	 */
-	public Map<Long, Long> activeJobTitleDepartments(Collection<Long> jobTitleIds) {
-		Map<Long, Long> found = new HashMap<>();
 		for (List<Long> chunk : chunks(jobTitleIds)) {
-			this.jdbcTemplate.query(
-					"SELECT id, department_id FROM job_titles WHERE id IN (" + placeholders(chunk.size())
-							+ ") AND is_active = 1",
-					rs -> {
-						long department = rs.getLong("department_id");
-						if (!rs.wasNull()) {
-							found.put(rs.getLong("id"), department);
-						}
-					}, chunk.toArray());
+			arms.add("SELECT 'j' AS kind, id AS a, department_id AS b, NULL AS phone, NULL AS country_code"
+					+ " FROM job_titles WHERE id IN ("
+					+ placeholders(chunk.size()) + ") AND is_active = 1 AND department_id IS NOT NULL");
+			params.addAll(chunk);
 		}
-		return found;
-	}
-
-	/**
-	 * The rows {@code employee_phone_exists_globally()} would weigh for any of
-	 * these numbers: global, every stored spelling of each, a rejected join
-	 * request never counting. Candidates only -- the caller verifies each row's
-	 * own {@code (phone, country_code)} as {@link com.workin.legacy.phone.PhoneLookup}
-	 * does, and applies its own exclusion.
-	 */
-	public List<Map<String, Object>> phoneHolders(Collection<CanonicalPhone> phones) {
-		List<Map<String, Object>> holders = new ArrayList<>();
 		for (List<CanonicalPhone> chunk : chunks(phones)) {
 			LinkedHashSet<String> spellings = new LinkedHashSet<>();
 			for (CanonicalPhone phone : chunk) {
 				spellings.addAll(phone.storedSpellings());
 			}
-			holders.addAll(this.jdbcTemplate.queryForList(
-					"SELECT id, phone, country_code FROM employees WHERE phone IN (" + placeholders(spellings.size())
-							+ ") AND COALESCE(join_request_status, 'accepted') <> 'rejected'",
-					spellings.toArray()));
+			arms.add("SELECT 'p' AS kind, id AS a, NULL AS b, phone, country_code"
+					+ " FROM employees WHERE phone IN ("
+					+ placeholders(spellings.size()) + ") AND COALESCE(join_request_status, 'accepted') <> 'rejected'");
+			params.addAll(spellings);
 		}
-		return holders;
+		References references = new References(
+				new HashSet<>(), new HashSet<>(), new HashSet<>(), new HashMap<>(), new ArrayList<>());
+		if (arms.isEmpty()) {
+			return references;
+		}
+		this.jdbcTemplate.query(String.join(" UNION ALL ", arms), rs -> {
+			long a = rs.getLong("a");
+			switch (rs.getString("kind")) {
+				case "s" -> references.shifts().add(a);
+				case "l" -> references.departmentBranches().add(new DepartmentBranch(a, rs.getLong("b")));
+				case "d" -> references.activeDepartments().add(a);
+				case "j" -> references.activeJobTitleDepartments().put(a, rs.getLong("b"));
+				default -> {
+					Map<String, Object> holder = new java.util.LinkedHashMap<>();
+					holder.put("id", a);
+					holder.put("phone", rs.getString("phone"));
+					holder.put("country_code", rs.getString("country_code"));
+					references.phoneHolders().add(holder);
+				}
+			}
+		}, params.toArray());
+		return references;
+	}
+
+	/** {@link #references}' answer. */
+	public record References(Set<Long> shifts, Set<DepartmentBranch> departmentBranches,
+			Set<Long> activeDepartments, Map<Long, Long> activeJobTitleDepartments,
+			List<Map<String, Object>> phoneHolders) {
 	}
 
 	/**

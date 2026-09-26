@@ -193,8 +193,10 @@ public class LegacyEmployeeUpdateAnalyzer {
 	 * Re-reads, for the rows of the next chunk, everything the sheet answers
 	 * about them from the database: the shifts, department-branch links,
 	 * active departments and job titles they name, and who holds each number
-	 * they resolve to. One statement per kind per chunk of identifiers,
-	 * replacing what earlier chunks read.
+	 * they resolve to -- one statement
+	 * ({@link LegacyEmployeeUpdateSheetStore#references}), replacing what
+	 * earlier chunks read, and no transaction: one statement is its own
+	 * snapshot.
 	 *
 	 * <p>Collects more than the rows will use -- both the named and the
 	 * current department, a phone on a row that later fails -- because a
@@ -202,7 +204,7 @@ public class LegacyEmployeeUpdateAnalyzer {
 	 * small would answer "not found" for a row the per-row check accepted.
 	 */
 	void refresh(LegacyEmployeeUpdateSheet sheet, List<Map<String, Object>> rows) {
-		this.reads.executeWithoutResult(status -> readReferences(sheet, rows));
+		readReferences(sheet, rows);
 	}
 
 	private void readReferences(LegacyEmployeeUpdateSheet sheet, List<Map<String, Object>> rows) {
@@ -239,12 +241,11 @@ public class LegacyEmployeeUpdateAnalyzer {
 				}
 			}
 		}
-		sheet.replaceReferences(
-				shifts.isEmpty() ? Set.of() : this.sheetStore.shiftsInCompany(shifts, companyId),
-				departments.isEmpty() ? Set.of() : this.sheetStore.departmentBranches(departments),
-				departments.isEmpty() ? Set.of() : this.sheetStore.activeDepartmentsInCompany(departments, companyId),
-				jobTitles.isEmpty() ? Map.of() : this.sheetStore.activeJobTitleDepartments(jobTitles));
-		sheet.replacePhoneHolders(phones, phones.isEmpty() ? List.of() : this.sheetStore.phoneHolders(phones));
+		LegacyEmployeeUpdateSheetStore.References references =
+				this.sheetStore.references(shifts, departments, jobTitles, phones, companyId);
+		sheet.replaceReferences(references.shifts(), references.departmentBranches(),
+				references.activeDepartments(), references.activeJobTitleDepartments());
+		sheet.replacePhoneHolders(phones, references.phoneHolders());
 	}
 
 	private static void addIfPresent(Set<Long> ids, Long id) {
