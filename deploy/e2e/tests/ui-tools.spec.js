@@ -580,6 +580,26 @@ test.describe('a read-only date-time field (review round 4)', () => {
 		expect(posts).toEqual([]);
 	});
 
+	test('Enter in a typable field with its calendar open keeps what was typed, without submitting', async ({ page }) => {
+		await page.locator('#edit-trigger').click();
+		await page.locator('#day-picker').click();
+		await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(1);
+		await page.locator('#day-picker').fill('14/09/2026');
+		await page.keyboard.press('Enter');
+		await expect(page.locator('#day')).toHaveValue('2026-09-14');
+		await expect(page.locator('#edit')).toHaveClass(/open/);
+		await page.waitForTimeout(200);
+		expect(posts).toEqual([]);
+	});
+
+	test('ArrowDown on a closed read-only field only opens the calendar', async ({ page }) => {
+		await page.locator('#edit-trigger').click();
+		await page.locator('#punch-picker').focus();
+		await page.keyboard.press('ArrowDown');
+		await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(1);
+		await expect(page.locator('#punch-picker')).toBeFocused();
+	});
+
 	test('Backspace cannot empty a required read-only field', async ({ page }) => {
 		await page.locator('#edit-trigger').click();
 		await page.locator('#punch-picker').click();

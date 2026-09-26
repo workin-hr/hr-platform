@@ -50,13 +50,20 @@
           // Escape without stopping the key, which then closed the dialog.
           instance.altInput.addEventListener('keydown', function (event) {
             if (event.key === 'ArrowDown' && !instance.isOpen) {
+              // Stopped: flatpickr would otherwise act on the same key with the
+              // calendar now open, and a time-only calendar has no days to reach.
               event.preventDefault();
+              event.stopPropagation();
               instance.open();
             } else if ((event.key === 'Escape' || event.key === 'Enter') && instance.isOpen) {
               // The calendar, not the dialog around it: Escape would close the
               // dialog and Enter would submit it with the picker still open.
               event.preventDefault();
               event.stopPropagation();
+              if (event.key === 'Enter' && instance.config.allowInput) {
+                // What flatpickr's own Enter did: keep what was typed.
+                instance.setDate(instance.altInput.value, true, instance.config.altFormat);
+              }
               instance.close();
             } else if ((event.key === 'Backspace' || event.key === 'Delete')
                 && input.required && instance.config.allowInput === false) {
