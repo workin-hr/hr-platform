@@ -37,18 +37,24 @@ final class LegacyWarmedDays<T> {
 	}
 
 	/**
-	 * The longest window one warm may hold: a report's widest range plus the
-	 * days before and after it the per-day rules read. A wider request is not
-	 * warmed at all, and its dates go to the per-date statements -- slower, but
-	 * bounded by the request's own rows rather than by the width of the range
-	 * it names (a {@code stats.php} for 0001-01-01..9999-12-31 is a valid
-	 * request).
+	 * The most employee-days one kind of warm may hold over a request (D-292).
+	 *
+	 * <p>Measured, not guessed: a slot is one compressed reference, and a warm
+	 * at this budget retained 11.8-12.4 MB per kind under {@code -Xmx768m}
+	 * (D-292 records the run), so the three kinds a request warms --
+	 * shifts, leave, timed requests -- stay under 40 MB whatever it asks for.
+	 * The same request at {@code 2a5baf0d}'s string-keyed maps was ~100 bytes a
+	 * slot. The budget still admits every range a caller warmed before D-292:
+	 * the dashboard aggregate's 200-row page over two years is 150,000 slots, a
+	 * year's report over 7,700 employees fits, and so does a single employee's
+	 * stats back to the year 1 when they stop at today. What it refuses is a
+	 * range no roster needs -- {@code 0001-01-01..9999-12-31} is 3.65 million
+	 * days for one employee -- and those dates go to the per-date statements.
 	 */
-	static final int MAX_WINDOW_DAYS = LegacyReportRange.MAX_DAYS
-			+ LegacyAttendanceCalendar.REPORT_LOOKBACK_DAYS + LegacyAttendanceCalendar.REPORT_LOOKAHEAD_DAYS;
+	static final long MAX_SLOTS = 3_000_000L;
 
-	/** Two overlapping or adjacent warms are merged up to this span; past it the newer one replaces the older. */
-	private static final int MAX_MERGED_DAYS = 2 * MAX_WINDOW_DAYS;
+	/** Slots currently held across every employee. */
+	private long held;
 
 	private final Map<Long, Window> byEmployee = new HashMap<>();
 
@@ -106,29 +112,38 @@ final class LegacyWarmedDays<T> {
 		long firstDay = first.toEpochDay();
 		Window existing = byEmployee.get(employeeId);
 		if (existing == null) {
+			held += encoded.length;
 			byEmployee.put(employeeId, new Window(firstDay, encoded));
 			return;
 		}
 		long mergedFirst = Math.min(existing.firstDay, firstDay);
 		long mergedLast = Math.max(existing.lastDay(), firstDay + encoded.length - 1);
-		if (mergedLast - mergedFirst + 1 > MAX_MERGED_DAYS) {
-			// Two warms far apart: keep the newer rather than allocate the gap.
+		if (mergedLast - mergedFirst + 1 > existing.slots.length + encoded.length) {
+			// Two warms that neither overlap nor touch: keep the newer rather
+			// than allocate the gap between them.
+			held += encoded.length - existing.slots.length;
 			byEmployee.put(employeeId, new Window(firstDay, encoded));
 			return;
 		}
 		Object[] merged = new Object[(int) (mergedLast - mergedFirst + 1)];
 		System.arraycopy(existing.slots, 0, merged, (int) (existing.firstDay - mergedFirst), existing.slots.length);
 		System.arraycopy(encoded, 0, merged, (int) (firstDay - mergedFirst), encoded.length);
+		held += merged.length - existing.slots.length;
 		byEmployee.put(employeeId, new Window(mergedFirst, merged));
+	}
+
+	/**
+	 * Whether warming {@code employees} more employees over {@code days} days
+	 * stays within {@link #MAX_SLOTS}. A warm that does not fit is not made at
+	 * all, and its dates go to the per-date statements.
+	 */
+	boolean admits(long employees, long days) {
+		return employees > 0 && days > 0 && days <= MAX_SLOTS && held + employees * days <= MAX_SLOTS;
 	}
 
 	/** How many employee-days are held, warmed or not, for a test to bound. */
 	long slotCount() {
-		long count = 0;
-		for (Window window : byEmployee.values()) {
-			count += window.slots.length;
-		}
-		return count;
+		return held;
 	}
 
 	/** The epoch day of a canonical {@code yyyy-MM-dd} string, or {@code Long.MIN_VALUE}. */

@@ -65,7 +65,7 @@ public class LegacyAttendancePeriodStats {
 		// day (D-292), so a year costs what a week does. Only up to today: the
 		// loop below skips every later date, and stats.php takes any range it is
 		// given, so warming to `to` would allocate for days nothing reads.
-		// warmReportRange itself declines a span longer than a report's widest.
+		// What a warm may hold is bounded in employee-days (LegacyWarmedDays).
 		String todayStr = today.toString();
 		String warmTo = to.compareTo(todayStr) > 0 ? todayStr : to;
 		calendar.warmReportRange(companyId, List.of(employeeId), from, warmTo);

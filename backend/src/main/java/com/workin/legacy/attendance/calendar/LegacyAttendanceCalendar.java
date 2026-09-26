@@ -291,8 +291,7 @@ public class LegacyAttendanceCalendar {
 	 * widening; this sentence is what tells the next reader why it matters.
 	 *
 	 * @param employeeIds the employees to warm, bound {@link LegacyIdBatches#SIZE} per statement;
-	 *        a window longer than a report's widest ({@link LegacyWarmedDays#MAX_WINDOW_DAYS})
-	 *        is not warmed
+	 *        a warm past {@link LegacyWarmedDays#MAX_SLOTS} employee-days is not made
 	 * @param from        first date to resolve, inclusive
 	 * @param to          last date to resolve, inclusive
 	 */
@@ -317,7 +316,7 @@ public class LegacyAttendanceCalendar {
 			return;
 		}
 
-		if (java.time.temporal.ChronoUnit.DAYS.between(first, last) + 1 > LegacyWarmedDays.MAX_WINDOW_DAYS) {
+		if (!warmedShifts.admits(ids.size(), java.time.temporal.ChronoUnit.DAYS.between(first, last) + 1)) {
 			return;
 		}
 
@@ -418,8 +417,7 @@ public class LegacyAttendanceCalendar {
 	 * the fragile case either way, so the drift gate is what protects it.
 	 *
 	 * @param employeeIds the employees to warm, bound {@link LegacyIdBatches#SIZE} per statement;
-	 *        a window longer than a report's widest ({@link LegacyWarmedDays#MAX_WINDOW_DAYS})
-	 *        is not warmed
+	 *        a warm past {@link LegacyWarmedDays#MAX_SLOTS} employee-days is not made
 	 * @param from        first date to resolve, inclusive
 	 * @param to          last date to resolve, inclusive
 	 */
@@ -444,15 +442,12 @@ public class LegacyAttendanceCalendar {
 		if (last.isBefore(first)) {
 			return;
 		}
-		if (java.time.temporal.ChronoUnit.DAYS.between(first, last) + 1 > LegacyWarmedDays.MAX_WINDOW_DAYS) {
-			return;
-		}
 		// An employee whose every date here is already warmed -- by a wider warm
 		// over the whole report, or by the same window asked twice -- costs
 		// nothing to skip, and re-reading them is the per-employee statement the
 		// report-wide warm exists to remove.
 		ids = ids.stream().filter(id -> !approvedLeave.covers(id, first, last)).toList();
-		if (ids.isEmpty()) {
+		if (!approvedLeave.admits(ids.size(), java.time.temporal.ChronoUnit.DAYS.between(first, last) + 1)) {
 			return;
 		}
 
@@ -551,11 +546,14 @@ public class LegacyAttendanceCalendar {
 		if (ids.isEmpty() || first == null || last == null || last.isBefore(first)) {
 			return;
 		}
-		// Past a report's widest range nothing is warmed and every date goes to
-		// its own statement, as before D-292. The per-day warms hold a slot per
-		// employee per day, so without this a request naming 0001-01-01 to
-		// 9999-12-31 -- which stats.php accepts -- would allocate millions.
-		if (java.time.temporal.ChronoUnit.DAYS.between(first, last) + 1 > LegacyReportRange.MAX_DAYS) {
+		// What each warm below may hold is bounded in employee-days
+		// (LegacyWarmedDays.MAX_SLOTS), not by this range: a warm that does not
+		// fit is not made, and its dates go to the per-date statements. When the
+		// roster over the widest window cannot fit at all -- 0001-01-01 to
+		// 9999-12-31 for anyone -- nothing here is read.
+		long windowDays = java.time.temporal.ChronoUnit.DAYS.between(first, last) + 1
+				+ REPORT_LOOKBACK_DAYS + REPORT_LOOKAHEAD_DAYS;
+		if (windowDays > LegacyWarmedDays.MAX_SLOTS / ids.size()) {
 			return;
 		}
 		String lookback = first.minusDays(REPORT_LOOKBACK_DAYS).toString();
@@ -663,10 +661,10 @@ public class LegacyAttendanceCalendar {
 		LocalDate first = isoDate(from);
 		LocalDate last = isoDate(to);
 		if (ids.isEmpty() || first == null || last == null || last.isBefore(first)
-				|| java.time.temporal.ChronoUnit.DAYS.between(first, last) + 1 > LegacyWarmedDays.MAX_WINDOW_DAYS) {
+				|| !timedRequests.admits(ids.size(), java.time.temporal.ChronoUnit.DAYS.between(first, last) + 1)) {
 			return;
 		}
-		record Timed(long id, String fromDate, String toDate, String fromTime, String toTime) {
+		record Timed(long id, String fromDate, String toDate, LegacyAttendanceWorkedMinutes.TimedRequest answer) {
 		}
 		Map<Long, List<Timed>> byEmployee = new HashMap<>();
 		java.util.Set<Long> undecidable = new java.util.HashSet<>();
@@ -694,8 +692,8 @@ public class LegacyAttendanceCalendar {
 							return;
 						}
 						byEmployee.computeIfAbsent(employeeId, key -> new java.util.ArrayList<>()).add(new Timed(
-								rs.getLong("id"), fromDate, toDate, rs.getString("from_time"),
-								rs.getString("to_time")));
+								rs.getLong("id"), fromDate, toDate, new LegacyAttendanceWorkedMinutes.TimedRequest(
+										rs.getString("from_time"), rs.getString("to_time"))));
 					}, args);
 		}
 		int days = (int) java.time.temporal.ChronoUnit.DAYS.between(first, last) + 1;
@@ -714,8 +712,7 @@ public class LegacyAttendanceCalendar {
 						winner = request;
 					}
 				}
-				answers[offset] = winner == null ? null
-						: new LegacyAttendanceWorkedMinutes.TimedRequest(winner.fromTime(), winner.toTime());
+				answers[offset] = winner == null ? null : winner.answer();
 			}
 			timedRequests.put(employeeId, first, answers);
 		}

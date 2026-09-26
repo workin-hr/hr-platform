@@ -24,10 +24,12 @@ import com.workin.legacy.attendance.session.LegacyAttendanceSessions;
  * is a request it answers. Warming every day of that range for its employee
  * held about 682 MB live under a 768 MB heap -- one authenticated request away
  * from {@code ExitOnOutOfMemoryError} stopping the container for every tenant.
- * The period stats never read a date after today, and no report reads a span
- * wider than {@link LegacyReportRange#MAX_DAYS}; so the warm stops at today and
- * declines anything wider, leaving those dates to the per-date statements that
- * answered them before D-292.
+ * The period stats never read a date after today, so their warm stops there;
+ * and every warm is bounded in employee-days ({@link LegacyWarmedDays#MAX_SLOTS}),
+ * so a range no roster needs is declined and its dates go to the per-date
+ * statements. Review round 2: the bound is in employee-days rather than days
+ * because a days-only bound turned the dashboard aggregate's longer ranges
+ * back into per-date reads.
  */
 class LegacyAttendanceWarmBoundsTest extends AbstractLegacyMySqlTest {
 
@@ -54,7 +56,7 @@ class LegacyAttendanceWarmBoundsTest extends AbstractLegacyMySqlTest {
 	}
 
 	@Test
-	void aSpanWiderThanAReportIsNotWarmed() {
+	void aRangeNoRosterNeedsIsNotWarmed() {
 		LegacyAttendanceCalendar calendar = calendar(counter.wrap(dataSource()));
 		List<String> issued = counter.measure(
 				() -> calendar.warmReportRange(COMPANY, List.of(EMPLOYEE), "0001-01-01", "9999-12-31"));
@@ -74,6 +76,20 @@ class LegacyAttendanceWarmBoundsTest extends AbstractLegacyMySqlTest {
 				.isEqualTo(2L * (366 + LegacyAttendanceCalendar.REPORT_LOOKBACK_DAYS
 						+ LegacyAttendanceCalendar.REPORT_LOOKAHEAD_DAYS)
 						+ (366 + LegacyAttendanceCalendar.REPORT_LOOKBACK_DAYS));
+	}
+
+	/**
+	 * Round 2's regression, at the slot level: two years for the dashboard's
+	 * largest page -- 200 employees -- is warmed, as it was before D-292.
+	 */
+	@Test
+	void theDashboardsLargestPageOverTwoYearsIsStillWarmed() {
+		LegacyAttendanceCalendar calendar = calendar(dataSource());
+		List<Long> page = java.util.stream.LongStream.rangeClosed(1, 200).boxed().toList();
+		calendar.warmShiftsForEmployees(page, "2024-03-18", "2026-03-31");
+		calendar.warmApprovedLeaveForEmployees(page, "2024-03-18", "2026-03-31");
+
+		assertThat(calendar.warmedSlotCount()).isEqualTo(2L * 200 * 744);
 	}
 
 	/**
