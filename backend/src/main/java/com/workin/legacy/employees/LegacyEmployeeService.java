@@ -663,6 +663,8 @@ public class LegacyEmployeeService {
 			if (reread != null) {
 				body.put("phone", reread.phone());
 				body.put("country_code", reread.countryCode());
+			} else {
+				body.put("country_code", LegacyPhoneNumbers.countryCodeWritten(body.get("country_code")));
 			}
 		}
 		if (body.containsKey("phone")) {

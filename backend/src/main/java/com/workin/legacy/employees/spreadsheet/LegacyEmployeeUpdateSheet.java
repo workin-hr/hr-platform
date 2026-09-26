@@ -194,7 +194,7 @@ final class LegacyEmployeeUpdateSheet {
 	private void file(long id, Map<String, Object> row) {
 		Object country = row.get("country_code");
 		Optional<CanonicalPhone> number = CanonicalPhones.parse(row.get("phone"),
-				country == null ? null : LegacyValues.toPhpString(country).strip());
+				CanonicalPhones.countryCodeAsRead(country));
 		if (number.isEmpty()) {
 			// Not a number, so no lookup can verify it: the single-number
 			// query would return it as a candidate and then discard it.

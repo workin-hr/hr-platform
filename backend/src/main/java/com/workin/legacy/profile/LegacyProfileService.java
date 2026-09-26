@@ -126,6 +126,8 @@ public class LegacyProfileService {
 			if (reread != null) {
 				resolved.put("phone", reread.phone());
 				resolved.put("country_code", reread.countryCode());
+			} else {
+				resolved.put("country_code", LegacyPhoneNumbers.countryCodeWritten(resolved.get("country_code")));
 			}
 		}
 		if (resolved.containsKey("phone")) {

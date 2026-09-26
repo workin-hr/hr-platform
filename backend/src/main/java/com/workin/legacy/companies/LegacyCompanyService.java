@@ -80,7 +80,7 @@ public class LegacyCompanyService {
 			LegacyPhoneNumbers.Reread reread = current == null ? null : LegacyPhoneNumbers.storedPhoneRereadBy(
 					body.get("country_code"), current.get("phone"), current.get("country_code"));
 			if (reread == null) {
-				columns.put("country_code", body.get("country_code"));
+				columns.put("country_code", LegacyPhoneNumbers.countryCodeWritten(body.get("country_code")));
 			} else {
 				CanonicalPhone phone = phoneNumbers.forAccount(reread.phone(), reread.countryCode())
 						.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
