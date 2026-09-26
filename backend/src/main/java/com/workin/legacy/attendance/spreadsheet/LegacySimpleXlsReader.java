@@ -7,10 +7,13 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.RandomAccess;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -268,17 +271,55 @@ public final class LegacySimpleXlsReader {
 		Map<Integer, String> formats = formatRecords(workbook);
 		boolean nineteenFour = workbook.getInternalWorkbook().isUsing1904DateWindowing();
 
+		// Still numRows by numCols, but a row holds only what the file wrote:
+		// the blank tail past its last cell is implied, and every missing row
+		// is one shared blank. A forged DIMENSION and a single cell at row
+		// 65535 otherwise built 16 million slots from a file of a few KB.
+		List<String> blankRow = new PaddedRow(new String[0], numCols);
 		List<List<String>> grid = new ArrayList<>(numRows);
 		for (int rowIndex = 0; rowIndex < numRows; rowIndex++) {
 			HSSFRow row = sheet.getRow(rowIndex);
-			List<String> cells = new ArrayList<>(numCols);
-			for (int column = 0; column < numCols; column++) {
-				HSSFCell cell = row == null ? null : row.getCell(column);
-				cells.add(cell == null ? "" : value(cell, formats, nineteenFour));
+			int written = row == null ? 0 : Math.max(0, Math.min(row.getLastCellNum(), numCols));
+			if (written == 0) {
+				grid.add(blankRow);
+				continue;
 			}
-			grid.add(List.copyOf(cells));
+			String[] cells = new String[written];
+			for (int column = 0; column < written; column++) {
+				HSSFCell cell = row.getCell(column);
+				cells[column] = cell == null ? "" : value(cell, formats, nineteenFour);
+			}
+			grid.add(new PaddedRow(cells, numCols));
 		}
 		return List.copyOf(grid);
+	}
+
+	/**
+	 * An unmodifiable row of {@code size} cells whose positions past
+	 * {@code cells} read as {@code ''}, which is what {@code rows()} yields
+	 * for a position no cell record covered.
+	 */
+	private static final class PaddedRow extends AbstractList<String> implements RandomAccess {
+
+		private final String[] cells;
+
+		private final int size;
+
+		PaddedRow(String[] cells, int size) {
+			this.cells = cells;
+			this.size = size;
+		}
+
+		@Override
+		public String get(int index) {
+			Objects.checkIndex(index, this.size);
+			return index < this.cells.length ? this.cells[index] : "";
+		}
+
+		@Override
+		public int size() {
+			return this.size;
+		}
 	}
 
 	/**
