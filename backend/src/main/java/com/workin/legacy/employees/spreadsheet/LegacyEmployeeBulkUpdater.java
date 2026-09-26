@@ -12,9 +12,12 @@ import java.util.Set;
 
 import javax.sql.DataSource;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.TransactionSystemException;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 
@@ -58,10 +61,14 @@ import com.workin.legacy.employees.LegacyHrPeerCredentials;
  * in order, which is exactly PHP's loop: the failing row rolls back only
  * itself and every other row lands. The cost of a failure is that chunk's
  * rows at per-row cost; the cost of success is a handful of round trips per
- * chunk instead of a dozen per row.
+ * chunk instead of a dozen per row. The one failure that is not replayed is
+ * the commit itself: whether the chunk landed is then unknown, so its rows
+ * are reported failed, as PHP reports a row whose commit failed.
  */
 @Component
 public class LegacyEmployeeBulkUpdater {
+
+	private static final Logger LOG = LoggerFactory.getLogger(LegacyEmployeeBulkUpdater.class);
 
 	/**
 	 * {@code $allowed}: the columns a sheet may write, in PHP's order. The
@@ -234,10 +241,27 @@ public class LegacyEmployeeBulkUpdater {
 				succeeded(batch, planned);
 			}
 			return;
+		} catch (TransactionSystemException ex) {
+			// The commit (or the rollback) itself failed, so whether the chunk
+			// landed is unknown. Replaying could apply a shift assignment
+			// twice; PHP, whose commit fails the same way, reports the row
+			// failed. Every row of the chunk is reported so, and none is retried.
+			LOG.warn("employees.update_bulk.chunk_commit_failed tenant_id={} first_row={} rows={} cause={}",
+					batch.context().companyId(), from + 1, to - from, ex.getClass().getSimpleName());
+			sheet.rollBackTo(mark);
+			for (Planned planned : writes) {
+				batch.outcomes().set(planned.position(), List.of("employee_update_failed"));
+			}
+			return;
 		} catch (RuntimeException ex) {
 			// Either a write failed or the re-read disagreed with the
-			// validation; the transaction is rolled back either way. Not
-			// reported: the replay below decides each row's own outcome.
+			// validation; the transaction is rolled back either way, and the
+			// replay below decides each row's own outcome. Logged because a
+			// replayed chunk costs its rows' per-row round trips: an operator
+			// seeing slow sheets needs to know it happened. The class only --
+			// a driver message can quote the row's values.
+			LOG.warn("employees.update_bulk.chunk_replayed tenant_id={} first_row={} rows={} cause={}",
+					batch.context().companyId(), from + 1, to - from, ex.getClass().getSimpleName());
 			sheet.rollBackTo(mark);
 		}
 		for (int position = from; position < to; position++) {
