@@ -528,12 +528,12 @@ class AdminEmployeesEndToEndTest {
 	}
 
 	@Test
-	void theStoredPhoneIsTheTypedDigitsNotTheNormalisedNumber() {
-		// Legacy validates with a normaliser that repairs a missing leading
-		// zero, then stores phone_digits_only() of what was typed. So the
-		// number it accepted and the number it saved are different strings.
-		// Reproduced deliberately: silently storing the better value is how two
-		// systems stop agreeing about who a phone number belongs to.
+	void theStoredPhoneIsTheNumbersNationalFormAndItsOwnDialCode() {
+		// Legacy validated with a normaliser that repairs a missing leading
+		// zero, then stored phone_digits_only() of what was typed -- the number
+		// it accepted and the number it saved were different strings. Every
+		// Java write now stores the number's national form beside its own dial
+		// code (D-291, ADR-0020), which is the spelling PHP's own clients show.
 		postForm("action", "add_employee",
 				"company_id", String.valueOf(this.companyA),
 				"branch_id", String.valueOf(this.branchA),
@@ -542,8 +542,8 @@ class AdminEmployeesEndToEndTest {
 				"phone", "1012345678", "country_code", "+20");
 
 		assertThat(this.jdbc.queryForObject(
-				"SELECT phone FROM employees WHERE employee_code = '2001'", String.class))
-				.isEqualTo("1012345678");
+				"SELECT CONCAT(phone, '|', country_code) FROM employees WHERE employee_code = '2001'", String.class))
+				.isEqualTo("01012345678|+20");
 	}
 
 	@Test

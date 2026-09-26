@@ -154,6 +154,33 @@ class LegacyEmployeeUpdateBulkEndToEndTest {
 				.isEqualTo(before);
 	}
 
+	/** Another employee's number is taken in any spelling -- the canonical number is compared (D-291). */
+	@Test
+	void aNumberAnotherEmployeeHoldsIsTakenInAnySpelling() {
+		String before = stringField(TARGET_A, "phone");
+
+		ResponseEntity<Map<String, Object>> response =
+				post(rows("{\"employee_code\":\"2001\",\"phone\":\"0100 019 9022\"}"), ADMIN);
+
+		// The phone is not written, so the row has nothing else to update.
+		assertThat(errorsOfFirstFailure(response)).containsExactly("phone_exists", "nothing_to_update");
+		assertThat(stringField(TARGET_A, "phone")).isEqualTo(before);
+	}
+
+	/**
+	 * The employee's own number in another spelling is not a duplicate of
+	 * itself, and is stored as the national digits beside its dial code.
+	 */
+	@Test
+	void anEmployeesOwnNumberInAnotherSpellingIsStoredCanonically() {
+		ResponseEntity<Map<String, Object>> response =
+				post(rows("{\"employee_code\":\"2002\",\"phone\":\"1000199022\"}"), ADMIN);
+
+		assertThat(data(response)).containsEntry("updated", 1);
+		assertThat(stringField(TARGET_B, "phone")).isEqualTo("01000199022");
+		assertThat(stringField(TARGET_B, "country_code")).isEqualTo("+20");
+	}
+
 	/** A row that resolves but asks for nothing is an error, not a no-op success. */
 	@Test
 	void aRowWithOnlyAnEmployeeCodeIsNothingToUpdate() {

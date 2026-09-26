@@ -174,7 +174,7 @@ class LegacyClientApiHardeningEndToEndTest {
 			assertThat(queryString("SELECT CONCAT(password_hash, '|', phone, '|', is_active, '|', token_version)"
 					+ " FROM employees WHERE id = " + target))
 					.as("nothing about %s changed", target)
-					.isEqualTo(HASH + "|+20100" + target + "|1|1");
+					.isEqualTo(HASH + "|+201000" + target + "|1|1");
 		}
 	}
 
@@ -237,7 +237,7 @@ class LegacyClientApiHardeningEndToEndTest {
 			assertThat(queryString("SELECT CONCAT(password_hash, '|', phone, '|', country_code)"
 					+ " FROM employees WHERE id = " + target))
 					.as("nothing about %s changed", target)
-					.isEqualTo(HASH + "|+20100" + target + "|+20");
+					.isEqualTo(HASH + "|+201000" + target + "|+20");
 		}
 		assertThat(new BCryptPasswordEncoder().matches("reset-by-hr",
 				queryString("SELECT password_hash FROM employees WHERE id = " + staff))).isTrue();
@@ -379,7 +379,7 @@ class LegacyClientApiHardeningEndToEndTest {
 	@Test
 	void aPhonesMissBudgetRefusesEvenTheRightPasswordAcrossAllThreeRoutes() throws Exception {
 		long staff = staff(BRANCH_A, 1, "accepted");
-		String phone = "+20100" + staff;
+		String phone = "+201000" + staff;
 
 		for (int miss = 0; miss < LegacyLoginThrottle.MAX_PAIR_MISSES; miss++) {
 			ResponseEntity<Map<String, Object>> wrong = login("login_employee", phone, "wrong", null);
@@ -404,7 +404,7 @@ class LegacyClientApiHardeningEndToEndTest {
 		// lets a pending row share the admin's phone, so a guesser's own
 		// successful login reset the admin's budget at will.
 		long staff = staff(BRANCH_A, 1, "accepted");
-		String phone = "+20100" + staff;
+		String phone = "+201000" + staff;
 
 		for (int miss = 0; miss < LegacyLoginThrottle.MAX_PAIR_MISSES - 1; miss++) {
 			assertThat(login("login_employee", phone, "wrong", null).getStatusCode().value()).isEqualTo(401);
@@ -420,7 +420,7 @@ class LegacyClientApiHardeningEndToEndTest {
 	@Test
 	void aGuesserSpendingThePhonesBudgetFromTheirAddressDoesNotLockTheOwnerOut() throws Exception {
 		long staff = staff(BRANCH_A, 1, "accepted");
-		String phone = "+20100" + staff;
+		String phone = "+201000" + staff;
 
 		for (int miss = 0; miss < LegacyLoginThrottle.MAX_PAIR_MISSES; miss++) {
 			assertThat(loginFrom("127.0.0.1", "login_employee", phone, "wrong").getStatusCode().value())
@@ -438,11 +438,11 @@ class LegacyClientApiHardeningEndToEndTest {
 	@Test
 	void theSamePhoneWrittenInArabicIndicDigitsSpendsTheSameBudget() throws Exception {
 		long staff = staff(BRANCH_A, 1, "accepted");
-		String phone = "+20100" + staff;
+		String phone = "+201000" + staff;
 		String arabicIndic = "+" + toArabicIndic(phone.substring(1));
 
 		assertThat(login("login_employee", arabicIndic, PASSWORD, null).getStatusCode().value())
-				.as("MariaDB's collation finds the row by these digits").isEqualTo(200);
+				.as("Arabic-Indic digits are folded to the same number (D-291)").isEqualTo(200);
 		for (int miss = 0; miss < LegacyLoginThrottle.MAX_PAIR_MISSES; miss++) {
 			assertThat(login("login_employee", phone, "wrong", null).getStatusCode().value()).isEqualTo(401);
 		}
@@ -459,7 +459,7 @@ class LegacyClientApiHardeningEndToEndTest {
 		// utf8mb4_unicode_ci, but no key follows them: the review found them
 		// reaching the victim's row with no phone budget charged at all.
 		long staff = staff(BRANCH_A, 1, "accepted");
-		String phone = "+20100" + staff;
+		String phone = "+201000" + staff;
 		StringBuilder dingbats = new StringBuilder("+");
 		for (char digit : phone.substring(1).toCharArray()) {
 			dingbats.append(digit == '0' ? '\u24FF' : (char) ('\u2780' + (digit - '1')));
@@ -627,7 +627,7 @@ class LegacyClientApiHardeningEndToEndTest {
 				INSERT INTO employees
 				  (id, company_id, branch_id, employee_code, first_name, last_name, phone, country_code,
 				   password_hash, token_version, role, is_active, join_request_status, created_at)
-				VALUES (%d, %d, %d, '%d', 'Hardening', 'Subject', '+20100%d', '+20',
+				VALUES (%d, %d, %d, '%d', 'Hardening', 'Subject', '+201000%d', '+20',
 				   '%s', 1, '%s', %d, '%s', '2025-05-01 09:00:00')
 				""".formatted(id, COMPANY, branchId, id % 100_000, id, HASH, role, active, joinStatus));
 	}

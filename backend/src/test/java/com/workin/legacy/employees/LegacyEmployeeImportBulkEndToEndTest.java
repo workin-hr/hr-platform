@@ -305,6 +305,16 @@ class LegacyEmployeeImportBulkEndToEndTest {
 	}
 
 	@Test
+	void aPhoneAlreadyUsedInAnotherSpellingIsRejected() {
+		// The canonical number is compared, not the digits (D-291).
+		for (String spelling : List.of("+20 100 019 8021", "1000198021", "0020 1000198021")) {
+			List<Map<String, Object>> failed =
+					failedOf(dataOf(importRows(ADMIN_1, validRow("8175", spelling))));
+			assertThat(failed.get(0).get("errors")).as(spelling).isEqualTo(List.of("phone_exists"));
+		}
+	}
+
+	@Test
 	void aPhoneRepeatedInsideTheFileIsCaughtOnceTheFirstRowHasCommitted() {
 		// There is no seen_phones set: the second row is caught because the
 		// first has already been committed and the check is a database read.
