@@ -27,7 +27,11 @@
     const base = {
       locale: locale,
       altInput: true,
-      allowInput: true,
+      // A field with seconds is set with the spinner, not typed: flatpickr
+      // parses typed text strictly left to right against the format, so an
+      // Arabic "05:30 م" typed without seconds lost its م with them and saved
+      // as 05:30 in the morning. The spinner always writes all three parts.
+      allowInput: !seconds,
       disableMobile: false,
       // Not on focus: a dialog focuses its first field as it opens, and a
       // calendar that pops open over the footer then is in the way. A click or
@@ -51,6 +55,17 @@
               event.preventDefault();
               event.stopPropagation();
               instance.close();
+            }
+          });
+          // Escape anywhere in the calendar -- the hour and minute fields of a
+          // date-time are in it, and it lives in <body>, outside the dialog --
+          // closes the calendar and returns to the field.
+          instance.calendarContainer.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              event.stopPropagation();
+              instance.close();
+              instance.altInput.focus();
             }
           });
           instance.altInput.classList.add('ui-picker');
@@ -98,8 +113,11 @@
     // flatpickr is about to hide it, so the focus moves to the visible copy.
     const focused = document.activeElement === input;
     const instance = window.flatpickr(input, options(input));
-    if (focused && instance.altInput && !instance.isMobile) {
-      instance.altInput.focus();
+    if (focused) {
+      const visible = instance.isMobile ? instance.mobileInput : instance.altInput;
+      if (visible) {
+        visible.focus();
+      }
     }
   }
 

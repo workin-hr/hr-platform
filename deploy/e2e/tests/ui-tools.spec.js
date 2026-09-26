@@ -499,10 +499,10 @@ test.describe('inside a dialog, and after a round of review (D-288)', () => {
 		await page.keyboard.press('Tab');
 		await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(0);
 		await expect(page.locator('#punch')).toHaveValue('2026-09-26T08:00:45');
+		// Enter in the field submits the form, as in any text field, and the
+		// punch goes with its seconds.
 		await page.locator('#punch-picker').focus();
 		await page.keyboard.press('Enter');
-		await expect(page.locator('#punch')).toHaveValue('2026-09-26T08:00:45');
-		await page.locator('#edit form').evaluate((form) => form.requestSubmit());
 		await expect.poll(() => posts.length).toBe(1);
 		expect(new URLSearchParams(posts[0].body).get('check_in')).toBe('2026-09-26T08:00:45');
 	});
@@ -530,5 +530,43 @@ test.describe('inside a dialog, and after a round of review (D-288)', () => {
 	test('a dialog rendered open keeps focus on its first field\'s visible picker', async ({ page }) => {
 		await page.goto(`${ORIGIN}/edit-open`);
 		await expect(page.locator('#day-picker')).toBeFocused();
+	});
+
+	test('a field with seconds is set with the spinner, and a PM time keeps its PM', async ({ page }) => {
+		await page.locator('#edit-trigger').click();
+		await expect(page.locator('#punch-picker'), 'typed text would lose م with the missing seconds')
+			.toHaveAttribute('readonly', /.*/);
+		await page.locator('#punch-picker').click();
+		const calendar = page.locator('.flatpickr-calendar.open');
+		await calendar.locator('.flatpickr-hour').fill('5');
+		await calendar.locator('.flatpickr-minute').fill('30');
+		const ampm = calendar.locator('.flatpickr-am-pm');
+		if ((await ampm.textContent()).trim() !== 'م') {
+			await ampm.click();
+		}
+		await calendar.locator('.flatpickr-minute').press('Tab');
+		await expect(page.locator('#punch')).toHaveValue('2026-09-26T17:30:45');
+	});
+
+	test('Escape in a date-time calendar\'s hour field closes the calendar and leaves the dialog', async ({ page }) => {
+		await page.locator('#edit-trigger').click();
+		await page.locator('#punch-picker').click();
+		const calendar = page.locator('.flatpickr-calendar.open');
+		await calendar.locator('.flatpickr-hour').focus();
+		await page.keyboard.press('Escape');
+		await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(0);
+		await expect(page.locator('#edit')).toHaveClass(/open/);
+		await expect(page.locator('#punch-picker')).toBeFocused();
+	});
+});
+
+test.describe('on a phone', () => {
+	test.use({ userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36',
+		viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+	test('a dialog rendered open keeps focus on its first field\'s native picker', async ({ page }) => {
+		await page.goto(`${ORIGIN}/edit-open`);
+		const focused = await page.evaluate(() => [document.activeElement.tagName, document.activeElement.type]);
+		expect(focused).toEqual(['INPUT', 'date']);
 	});
 });
