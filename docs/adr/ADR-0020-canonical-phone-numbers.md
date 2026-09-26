@@ -166,18 +166,28 @@ account stored in one.
 number's national digits from the metadata (`01012345678`, `0501234567`) in
 `phone` and its own dial code (`+20`, `+966`) in `country_code`, so PHP and
 the mobile clients see the data they always have. International input stores
-its own dial code, never the request's. Because a national number is read
-in its row's `country_code`, a write carrying `country_code` without `phone`
-(the profile PUT, `update.php`, the company's `update.php`) is compared
-with the stored code as they are read -- a blank code reads as Egypt's -- so
-a code under which the stored phone is the same number is written as read,
-as PHP wrote it less its padding; any other code re-reads the stored phone under it through
-`forAccount` and the route's uniqueness check, is refused as a new phone
-would be when it does not hold, and stores the number's own dial code.
-Every rule reads a `country_code` through one trim
-(`CanonicalPhones.countryCodeAsRead`: PHP's `trim()` set, NUL included, plus
-whitespace) -- the comparison, the value stored, and every lookup, login and
-OTP route -- so a padded `+966\0` is `+966` everywhere, as PHP read it.
+its own dial code, never the request's. **No route stores a client's
+`country_code` as sent**: every Java write stores a dial code a parse
+derived (`CanonicalPhone.dialCode()`, or `CanonicalPhones.canonicalDialCode`
+for a code with no phone), NULL, or the value already stored. Because a
+national number is read in its row's `country_code`, a write carrying
+`country_code` without `phone` (the profile PUT, `update.php`, the company's
+`update.php`) is compared with the stored code as they are read -- a blank
+code reads as Egypt's, `+0000000966` as `+966` -- and a code under which
+the stored phone is the same number changes nothing: the stored value is
+written back byte for byte, so the request still answers as PHP's did. Any
+other code re-reads the stored phone under it through `forAccount` and the
+route's uniqueness check, is refused as a new phone would be when it does
+not hold, and stores the number's own dial code; on a row with no phone the
+code's canonical `+<cc>` is stored, or nothing changes when it names no
+country. Every reading of a stored `country_code` -- the comparison,
+`CanonicalPhones.parse`/`regionForDialCode`, `PhoneLookup.matches` and so
+every lookup, login and OTP route, `normalizeDialCode` (sheets, dashboard
+country checks) and the dashboard edit's unchanged check -- trims through
+one method, `CanonicalPhones.countryCodeAsRead` (PHP's `trim()` set, NUL
+included, plus whitespace), so a padded `+966\0` is `+966` everywhere, as
+PHP read it. Request codes are still checked for blankness by each route's
+legacy trim before that parse; only the parse's output is stored.
 
 **Phase 2 (not now).** After PHP is retired and the 16 company pairs are
 resolved, add a stored E.164 column to `employees` and `companies`, backfill
