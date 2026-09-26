@@ -223,14 +223,23 @@ class LegacyProfileEndToEndTest {
 		assertThat(response.getBody()).containsEntry("message", "Field 'country_code' is required");
 	}
 
-	/** Taking another employee's phone is 409; the caller's own is not a conflict. */
+	/** Taking another employee's number is 409, in any spelling; the caller's own is not a conflict. */
 	@Test
 	@Order(10)
 	@SuppressWarnings("unchecked")
 	void aPhoneAlreadyHeldByAnotherEmployeeIs409() {
-		assertThat(send(EMPLOYEE, HttpMethod.PUT, employeeToken(STAFF),
-				"{\"phone\":\"" + phoneOf(ADMIN) + "\",\"country_code\":\"+20\"}")
-				.getStatusCode().value()).isEqualTo(409);
+		// The fixture's phones are not valid numbers, and a phone is validated
+		// before it is compared (D-291), so the other employee is given a real
+		// one -- and asked for in another spelling, which is the same number.
+		String original = phoneOf(ADMIN);
+		execute("UPDATE employees SET phone = '01000029101' WHERE id = " + ADMIN);
+		try {
+			assertThat(send(EMPLOYEE, HttpMethod.PUT, employeeToken(STAFF),
+					"{\"phone\":\"+20 100 002 9101\",\"country_code\":\"+20\"}")
+					.getStatusCode().value()).isEqualTo(409);
+		} finally {
+			execute("UPDATE employees SET phone = '" + original + "' WHERE id = " + ADMIN);
+		}
 
 		Map<String, Object> row = (Map<String, Object>) data(send(EMPLOYEE, HttpMethod.PUT, employeeToken(STAFF),
 				"{\"phone\":\"01000000099\",\"country_code\":\" +20 \"}"));
@@ -636,6 +645,14 @@ class LegacyProfileEndToEndTest {
 
 	private String doomedCompanyToken() {
 		return legacyPhpJwtService.issueCompanyToken(DOOMED_COMPANY, "company_admin");
+	}
+
+	private static void execute(String sql) {
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			st.execute(sql);
+		} catch (Exception ex) {
+			throw new IllegalStateException(sql, ex);
+		}
 	}
 
 	private static String scalar(String sql) {

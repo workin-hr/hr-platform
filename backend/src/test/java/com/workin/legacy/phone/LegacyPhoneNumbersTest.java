@@ -8,14 +8,10 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * The pure half of the phone port: everything
- * {@code helpers/phone_validator_helper.php} and the table-independent parts of
- * {@code helpers/phone_countries_helper.php} decide without touching a
- * database.
- *
- * <p>These are the rules that decide which numbers become login identifiers, so
- * they are asserted against PHP's regexes and branches rather than against
- * "what a phone number should look like".
+ * The formatting helpers PHP's spreadsheets and dial-code selectors still use.
+ * None of them decides whether a number is valid any more -- that is
+ * {@link CanonicalPhones}' and {@code CanonicalPhonesTest}'s (ADR-0020) -- so
+ * these are asserted against PHP's string handling only.
  */
 class LegacyPhoneNumbersTest {
 
@@ -116,44 +112,6 @@ class LegacyPhoneNumbersTest {
 		assertThat(LegacyPhoneNumbers.decodePrefixes("123")).containsExactly("123");
 		assertThat(LegacyPhoneNumbers.decodePrefixes("not json at all")).isEmpty();
 		assertThat(LegacyPhoneNumbers.decodePrefixes("[\"010\",")).containsExactly("010");
-	}
-
-	@Test
-	void lookupVariantsCoverEveryEgyptianSpelling() {
-		assertThat(LegacyPhoneNumbers.lookupVariants("01012345678"))
-				.containsExactly("01012345678", "1012345678", "201012345678");
-		assertThat(LegacyPhoneNumbers.lookupVariants("1012345678"))
-				.containsExactly("1012345678", "01012345678", "201012345678");
-		assertThat(LegacyPhoneNumbers.lookupVariants("201012345678"))
-				.containsExactly("201012345678", "01012345678", "1012345678");
-		// Formatting is stripped before matching.
-		assertThat(LegacyPhoneNumbers.lookupVariants("+20 (10) 1234-5678"))
-				.contains("201012345678", "01012345678", "1012345678");
-		// A non-Egyptian number has exactly one variant: itself.
-		assertThat(LegacyPhoneNumbers.lookupVariants("0512345678")).containsExactly("0512345678");
-		assertThat(LegacyPhoneNumbers.lookupVariants("   ")).isEmpty();
-	}
-
-	@Test
-	void theSqlExpressionStripsTheFormattingLegacyAllowsInTheColumn() {
-		String expression = LegacyPhoneNumbers.digitsSqlExpression("phone");
-		assertThat(expression).startsWith("REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(COALESCE(phone, ''))");
-		assertThat(expression).contains("'+', ''").contains("'-', ''").contains("' ', ''");
-	}
-
-	@Test
-	void theLegacyFallbackValidatorKeepsItsThreeCountriesAndRejectsTheRest() {
-		// phone_is_valid_local_legacy(): the pre-table rules, still reached when
-		// a dial code has no active phone_countries row.
-		assertThat(LegacyPhoneNumbers.isValidLocalLegacy("+20", "01012345678")).isTrue();
-		assertThat(LegacyPhoneNumbers.isValidLocalLegacy("+20", "1012345678")).isTrue();
-		assertThat(LegacyPhoneNumbers.isValidLocalLegacy("+20", "01312345678")).isFalse();
-		assertThat(LegacyPhoneNumbers.isValidLocalLegacy("+966", "0512345678")).isTrue();
-		assertThat(LegacyPhoneNumbers.isValidLocalLegacy("+966", "512345678")).isTrue();
-		assertThat(LegacyPhoneNumbers.isValidLocalLegacy("+971", "0501234567")).isTrue();
-		assertThat(LegacyPhoneNumbers.isValidLocalLegacy("+971", "0511234567")).isFalse();
-		assertThat(LegacyPhoneNumbers.isValidLocalLegacy("+218", "0912345678")).isFalse();
-		assertThat(LegacyPhoneNumbers.isValidLocalLegacy("", "01012345678")).isFalse();
 	}
 
 }

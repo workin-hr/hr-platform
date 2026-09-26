@@ -12,6 +12,7 @@ import com.workin.backend.platformadmin.PlatformAdminAuditEventType;
 import com.workin.backend.platformadmin.PlatformAdminAuditService;
 import com.workin.backend.platformadmin.web.DashboardSession;
 import com.workin.legacy.PhpCast;
+import com.workin.legacy.phone.CanonicalPhone;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
 
 /**
@@ -179,34 +180,32 @@ public class EmployeeAdminService {
 	/**
 	 * A phone is optional, but an incomplete one is not: legacy refuses a
 	 * number with no country code before it validates anything else, and
-	 * refuses one that does not match the country's rule.
+	 * refuses one that is not a number an account may hold -- the one
+	 * normalizer's rule now, {@link LegacyPhoneNumbers#forAccount} (D-291).
 	 *
-	 * @return the normalized local digits, or the empty string when no phone
-	 *     was given
+	 * <p>PHP stored the typed digits and validated a normalised copy, so an
+	 * Egyptian number typed without its leading zero was stored as
+	 * {@code 10...}. Every Java write stores the number's national form and
+	 * its own dial code instead (ADR-0020): one number, one stored spelling,
+	 * the one PHP's clients already show.
+	 *
+	 * @return the number, or null when no phone was given
 	 */
-	private String normalizedPhone(String rawPhone, String rawCountryCode) {
+	private CanonicalPhone normalizedPhone(String rawPhone, String rawCountryCode) {
 		String phone = rawPhone == null ? "" : rawPhone.trim();
 		if (phone.isEmpty()) {
-			return "";
+			return null;
 		}
 		String countryCode = rawCountryCode == null ? "" : rawCountryCode.trim();
 		if (countryCode.isEmpty()) {
 			throw new RefusedException(Refusal.INVALID);
 		}
 		String resolved = this.phoneNumbers.resolveCode(countryCode);
-		// What legacy stores and what legacy validated are not the same string,
-		// and reproducing that is deliberate. `company_normalize_phone()` is
-		// only `phone_digits_only()`, while `phone_country_is_valid_local()`
-		// normalizes properly before judging -- so an Egyptian number typed
-		// without its leading zero passes validation (normalized to 010...)
-		// and is then stored as typed (10...). Storing the normalized form
-		// would be an improvement, and improvements to stored values are how
-		// two systems stop agreeing.
-		String digits = LegacyPhoneNumbers.digitsOnly(phone);
-		if (digits.isEmpty() || !this.phoneNumbers.isValidLocal(resolved, digits)) {
+		if (LegacyPhoneNumbers.digitsOnly(phone).isEmpty()) {
 			throw new RefusedException(Refusal.PHONE_INVALID);
 		}
-		return digits;
+		return this.phoneNumbers.forAccount(phone, resolved)
+				.orElseThrow(() -> new RefusedException(Refusal.PHONE_INVALID));
 	}
 
 	private void assertCode(long companyId, String code, long excludeId) {
@@ -256,9 +255,9 @@ public class EmployeeAdminService {
 		assertOrgWithinCompany(companyId, command.branchId(), command.departmentId(),
 				command.jobTitleId(), command.shiftId(), null);
 
-		String phone = normalizedPhone(command.phone(), command.countryCode());
-		String countryCode = phone.isEmpty() ? null
-				: this.phoneNumbers.resolveCode(command.countryCode().trim());
+		CanonicalPhone number = normalizedPhone(command.phone(), command.countryCode());
+		String phone = number == null ? "" : number.nationalDigits();
+		String countryCode = number == null ? null : number.dialCode();
 		// A password with no phone is silently dropped, because there would be
 		// no way to sign in with it.
 		String passwordHash = !phone.isEmpty() && command.password() != null
@@ -319,10 +318,9 @@ public class EmployeeAdminService {
 			countryCode = current.countryCode();
 		}
 		else {
-			String normalized = normalizedPhone(command.phone(), command.countryCode());
-			phone = normalized.isEmpty() ? null : normalized;
-			countryCode = normalized.isEmpty() ? null
-					: this.phoneNumbers.resolveCode(command.countryCode().trim());
+			CanonicalPhone number = normalizedPhone(command.phone(), command.countryCode());
+			phone = number == null ? null : number.nationalDigits();
+			countryCode = number == null ? null : number.dialCode();
 		}
 		// Unlike the create path, an edit hashes a password whether or not the
 		// employee has a phone. Legacy's asymmetry, kept.

@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Component;
@@ -13,6 +14,7 @@ import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.employees.LegacyEmployeeStore;
 import com.workin.legacy.phone.LegacyPhoneCountries;
+import com.workin.legacy.phone.CanonicalPhone;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
 
 /**
@@ -311,7 +313,9 @@ public class LegacyEmployeeSpreadsheetAnalyzer {
 	 * The spreadsheet's own phone resolution, which is more forgiving than
 	 * {@code create.php}'s: a label-like country cell is ignored, an unknown
 	 * dial code falls back to the configured default, and a number that fails
-	 * its own country is retried as Egyptian before being rejected.
+	 * its own country is retried as Egyptian before being rejected. Validity
+	 * is {@link LegacyPhoneNumbers#forAccount}'s and the dial code kept is the
+	 * number's own (D-291).
 	 */
 	private Phone resolvePhone(Map<String, Object> row, List<String> errors) {
 		Object phoneCell = row.get("phone");
@@ -325,19 +329,23 @@ public class LegacyEmployeeSpreadsheetAnalyzer {
 			if (countryCode.isEmpty() || phoneCountries.find(countryCode).isEmpty()) {
 				countryCode = phoneCountries.defaultCode();
 			}
-			String phone = phoneNumbers.normalizeLocal(countryCode, phoneCell);
-			if (!phoneNumbers.isValidLocal(countryCode, phone)) {
-				String egyptian = phoneNumbers.normalizeLocal("+20", phoneCell);
-				if (phoneNumbers.isValidLocal("+20", egyptian)) {
-					return new Phone(egyptian, "+20");
-				}
-				errors.add("invalid_phone");
-				return new Phone(null, null);
+			String raw = LegacyPhoneNumbers.excelCellToRaw(phoneCell);
+			Optional<CanonicalPhone> inCountry = phoneNumbers.forAccount(raw, countryCode);
+			if (inCountry.isEmpty()) {
+				// Retried as Egyptian -- and, as PHP's early return did, not
+				// checked for a duplicate on that path.
+				return phoneNumbers.forAccount(raw, "+20")
+						.map(egyptian -> new Phone(egyptian.nationalDigits(), egyptian.dialCode()))
+						.orElseGet(() -> {
+							errors.add("invalid_phone");
+							return new Phone(null, null);
+						});
 			}
+			CanonicalPhone phone = inCountry.get();
 			if (store.phoneExistsGlobally(phone, null)) {
 				errors.add("phone_exists");
 			}
-			return new Phone(phone, countryCode);
+			return new Phone(phone.nationalDigits(), phone.dialCode());
 		}
 		if (!LegacyValues.isPhpEmpty(row.get("country_code"))) {
 			// No phone, but a country cell: the code is kept on its own.

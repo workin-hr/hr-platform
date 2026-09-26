@@ -20,7 +20,9 @@ import com.workin.legacy.authorization.LegacyHrPermissionRows;
 import com.workin.legacy.employees.LegacyEmployee;
 import com.workin.legacy.employees.LegacyEmployeeStore;
 import com.workin.legacy.notifications.LegacyNotifications;
+import com.workin.legacy.phone.CanonicalPhone;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
+import com.workin.legacy.phone.PhoneLookup;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyMessages;
 
@@ -112,13 +114,14 @@ public class LegacyProfileService {
 		if (body == null || body.isEmpty()) {
 			throw new LegacyApiException(400, "nothing_to_update");
 		}
-		if (store.employeeInCompany(employeeId, companyId) == null) {
+		Map<String, Object> employee = store.employeeInCompany(employeeId, companyId);
+		if (employee == null) {
 			throw new LegacyApiException(404, "employee_not_found");
 		}
 
 		Map<String, Object> resolved = new LinkedHashMap<>(body);
 		if (resolved.containsKey("phone")) {
-			applyPhoneChange(resolved, employeeId);
+			applyPhoneChange(resolved, employeeId, employee);
 		}
 
 		List<String> assignments = new ArrayList<>();
@@ -152,37 +155,46 @@ public class LegacyProfileService {
 	/**
 	 * The phone block of the PUT.
 	 *
-	 * <p>{@code normalize_employee_phone()} reduces the input to digits and
-	 * turns an empty result into null, so {@code "phone": "abc"} clears the
-	 * phone rather than failing. Clearing it also nulls {@code country_code}
-	 * <b>whether or not the body mentioned it</b> -- the pair is kept
-	 * consistent by force.
+	 * <p>A phone with no digits at all -- {@code "phone": "abc"}, or an empty
+	 * string -- clears the phone, as {@code normalize_employee_phone()} did,
+	 * and clearing it also nulls {@code country_code} <b>whether or not the
+	 * body mentioned it</b>.
 	 *
-	 * <p>The {@code country_code} check is an {@code elseif}: it only runs when
-	 * a phone survived normalisation <em>and</em> the body carried the key. A
-	 * phone supplied without any country code at all is accepted here, unlike
-	 * {@code resolve_employee_phone_and_country_code()} elsewhere in legacy.
+	 * <p>Anything else is a number now (D-291): PHP stored whatever digits it
+	 * was sent, and a login identifier is validated and stored canonically
+	 * instead -- {@code invalid_phone_number} 400 when it is not a number an
+	 * account may hold. It is read in the body's {@code country_code} when the
+	 * body carries one (blank is still {@code field_required}, as PHP's
+	 * {@code elseif} had it), else in the country already stored on the row, and
+	 * the dial code stored beside it is the number's own.
 	 */
-	private void applyPhoneChange(Map<String, Object> body, long employeeId) {
-		String normalized = normalizeEmployeePhone(body.get("phone"));
-		if (normalized != null && employeeStore.phoneExistsGlobally(normalized, employeeId)) {
-			throw new LegacyApiException(409, "phone_already_exists");
-		}
-		body.put("phone", normalized);
-		if (normalized == null) {
+	private void applyPhoneChange(Map<String, Object> body, long employeeId, Map<String, Object> employee) {
+		Object raw = body.get("phone");
+		if (normalizeEmployeePhone(raw) == null) {
+			body.put("phone", null);
 			body.put("country_code", null);
 			return;
 		}
+		String context;
 		if (body.containsKey("country_code")) {
-			String code = LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("country_code")));
-			if (code.isEmpty()) {
+			context = LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("country_code")));
+			if (context.isEmpty()) {
 				throw new LegacyApiException(400, "field_required", null, Map.of("field", "country_code"));
 			}
-			body.put("country_code", code);
+		} else {
+			Object stored = employee.get("country_code");
+			context = stored == null ? null : LegacyValues.toPhpString(stored);
 		}
+		CanonicalPhone phone = phoneNumbers.forAccount(raw, context)
+				.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
+		if (employeeStore.phoneExistsGlobally(phone, employeeId)) {
+			throw new LegacyApiException(409, "phone_already_exists");
+		}
+		body.put("phone", phone.nationalDigits());
+		body.put("country_code", phone.dialCode());
 	}
 
-	/** {@code normalize_employee_phone()} ({@code functions.php:70-73}). */
+	/** {@code normalize_employee_phone()} ({@code functions.php:70-73}): digits, or null for none. */
 	private static String normalizeEmployeePhone(Object raw) {
 		String digits = LegacyPhoneNumbers.digitsOnly(
 				LegacyValues.phpTrim(raw == null ? "" : LegacyValues.toPhpString(raw)));
@@ -461,40 +473,31 @@ public class LegacyProfileService {
 	 * The five checks both phone-change routes share, in PHP's order.
 	 *
 	 * <p>Both files repeat this block verbatim, so it is written once here and
-	 * the order is preserved exactly: resolve the dial code, normalise the
-	 * number, reject an invalid one, reject one equivalent to the company's
-	 * current number, then reject one another company already holds.
+	 * the order is preserved exactly: resolve the dial code, read the number,
+	 * reject an invalid one, reject one that is the company's current number,
+	 * then reject one another company already holds. "Is the current number"
+	 * and "another company holds it" are both a comparison of canonical
+	 * numbers now (D-291); an empty stored phone is still skipped by the first.
 	 *
-	 * <p>The same-as-current test uses {@code phones_are_equivalent()} while
-	 * the uniqueness test uses {@code phone_sql_match_clause()} -- two
-	 * different mechanisms for the same question, both variant-aware, and both
-	 * kept because they disagree at the edges: an empty stored phone is
-	 * skipped by the first ({@code $currentPhone !== ''}) but would still be
-	 * compared by the second.
-	 *
-	 * @return the normalised phone and the resolved dial code
+	 * @return the number, which is stored as its national digits and dial code
 	 */
-	private String[] validatedNewCompanyPhone(long companyId, Map<String, Object> body) {
+	private CanonicalPhone validatedNewCompanyPhone(long companyId, Map<String, Object> body) {
 		required(body, "phone", "country_code");
 		String countryCode = phoneNumbers.resolveCode(
 				LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("country_code"))));
-		String phone = phoneNumbers.normalizeLocal(countryCode,
-				LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("phone"))));
+		CanonicalPhone phone = phoneNumbers.forAccount(body.get("phone"), countryCode)
+				.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
 
-		if (phone.isEmpty() || !phoneNumbers.isValidLocal(countryCode, phone)) {
-			throw new LegacyApiException(400, "invalid_phone_number");
-		}
-
-		String current = LegacyValues.phpTrim(
-				LegacyValues.toPhpString(otpAuthStore.companyPhone(companyId)));
-		if (!current.isEmpty() && LegacyPhoneNumbers.areEquivalent(current, phone)) {
+		Map<String, Object> current = otpAuthStore.companyPhone(companyId);
+		if (current != null && !LegacyValues.phpTrim(LegacyValues.toPhpString(current.get("phone"))).isEmpty()
+				&& PhoneLookup.of(phone).matches(current.get("phone"), current.get("country_code"))) {
 			throw new LegacyApiException(400, "phone_same_as_current");
 		}
 
 		if (otpAuthStore.anotherCompanyHasPhone(phone, companyId)) {
 			throw new LegacyApiException(409, "phone_already_registered");
 		}
-		return new String[] { phone, countryCode };
+		return phone;
 	}
 
 	/**
@@ -515,13 +518,12 @@ public class LegacyProfileService {
 			HttpServletRequest request, LegacyRequestContext context, Map<String, Object> body, String locale) {
 		requireCompanySession(context);
 		requestGuard.requireCompanyActive(context.companyId());
-		String[] resolved = validatedNewCompanyPhone(context.companyId(), body);
+		CanonicalPhone phone = validatedNewCompanyPhone(context.companyId(), body);
 
-		if (otpService.hasRecentForPhone(resolved[0], 60)) {
+		if (otpService.hasRecentForPhone(phone, 60)) {
 			throw new LegacyApiException(429, "please_wait_before_resending");
 		}
-		otpService.issueAndSendWhatsApp(
-				request, resolved[0], LegacyOtpService.SMS_OTP_VERIFY, resolved[1], 10, locale);
+		otpService.issueAndSendWhatsApp(request, phone, LegacyOtpService.SMS_OTP_VERIFY, 10, locale);
 	}
 
 	/**
@@ -547,14 +549,14 @@ public class LegacyProfileService {
 		// reported `otp` for that body and sent a compatibility client down the
 		// wrong recovery flow.
 		required(body, "phone", "country_code", "otp");
-		String[] resolved = validatedNewCompanyPhone(context.companyId(), body);
+		CanonicalPhone phone = validatedNewCompanyPhone(context.companyId(), body);
 
-		if (otpService.verifyLatestForPhone(resolved[0], body.get("otp")) == null) {
+		if (otpService.verifyLatestForPhone(phone, body.get("otp")) == null) {
 			throw new LegacyApiException(400, "invalid_expired_otp");
 		}
 
-		otpAuthStore.changeCompanyPhone(context.companyId(), resolved[0], resolved[1]);
-		otpService.clearForPhone(resolved[0]);
+		otpAuthStore.changeCompanyPhone(context.companyId(), phone.nationalDigits(), phone.dialCode());
+		otpService.clearForPhone(phone);
 		return com.workin.legacy.LegacyPublicRow.of(otpAuthStore.company(context.companyId()));
 	}
 

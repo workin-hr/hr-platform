@@ -196,16 +196,19 @@ class LegacyRegistrationEndToEndTest {
 		assertThat(deactivated).containsEntry("screen", "enter_company_code").containsKey("message");
 	}
 
-	/** An exact phone match: a differently-formatted number is "not found". */
+	/**
+	 * PHP matched the column exactly, so a differently formatted number was
+	 * "not found"; the number is found in any spelling now (D-291).
+	 */
 	@Test
 	@Order(4)
 	@SuppressWarnings("unchecked")
-	void checkStatusMatchesThePhoneExactly() {
-		Map<String, Object> data = (Map<String, Object>) data(
-				post(CHECK_STATUS, "{\"phone\":\"+2" + HR_PHONE + "\",\"company_id\":" + ACTIVE_COMPANY + "}"));
-		assertThat(data)
-				.as("no phone_sql_match_clause here, unlike join_company")
-				.containsEntry("screen", "enter_company_code");
+	void checkStatusFindsTheNumberInAnySpelling() {
+		for (String spelling : List.of("+2" + HR_PHONE, "(010) 0033-0011", HR_PHONE.substring(1))) {
+			Map<String, Object> data = (Map<String, Object>) data(
+					post(CHECK_STATUS, "{\"phone\":\"" + spelling + "\",\"company_id\":" + ACTIVE_COMPANY + "}"));
+			assertThat(data).as(spelling).containsEntry("screen", "home").containsEntry("role", "hr");
+		}
 	}
 
 	// ---------------- register_company ----------------
@@ -259,21 +262,23 @@ class LegacyRegistrationEndToEndTest {
 				.isEqualTo("+20");
 	}
 
-	/** Its duplicate probe is an exact match, so a variant spelling is not caught. */
+	/**
+	 * PHP's duplicate probe was an exact match, so a variant spelling slipped
+	 * through -- which is how 16 pairs of companies share a number. Any
+	 * spelling of a registered number is refused now (D-291).
+	 */
 	@Test
 	@Order(7)
-	void registerCompanyDuplicateCheckIsExactSoAVariantSlipsThrough() {
-		assertThat(post(REGISTER_COMPANY, "{\"first_name\":\"A\",\"last_name\":\"B\",\"phone\":\""
-				+ ACTIVE_PHONE + "\",\"password\":\"p\"}").getStatusCode().value())
-				.as("the same spelling is refused")
-				.isEqualTo(400);
-
+	void registerCompanyRefusesARegisteredNumberInAnySpelling() {
 		recorder().clear();
-		assertThat(post(REGISTER_COMPANY, "{\"first_name\":\"A\",\"last_name\":\"B\",\"phone\":\""
-				+ ACTIVE_PHONE.substring(1) + "\",\"password\":\"p\"}").getStatusCode().value())
-				.as("the same number without its leading zero is NOT caught -- the probe is exact,"
-						+ " unlike join_company's variant-aware one")
-				.isEqualTo(201);
+		for (String spelling : List.of(ACTIVE_PHONE, ACTIVE_PHONE.substring(1), "+2" + ACTIVE_PHONE,
+				"0020 100 003 3001", "(010) 0003-3001")) {
+			assertThat(post(REGISTER_COMPANY, "{\"first_name\":\"A\",\"last_name\":\"B\",\"phone\":\""
+					+ spelling + "\",\"password\":\"p\"}").getStatusCode().value())
+					.as(spelling)
+					.isEqualTo(400);
+		}
+		assertThat(recorder().sent()).as("no code is sent for a refused registration").isEmpty();
 	}
 
 	// ---------------- register_employee vs join_company ----------------
@@ -401,21 +406,20 @@ class LegacyRegistrationEndToEndTest {
 	 * joiner's row stores NULL, and a later {@code forgot_password.php} falls
 	 * back to {@code +20} and builds the wrong WhatsApp JID.
 	 *
-	 * <p>Legacy's defect, not the port's, so it is pinned rather than fixed:
-	 * writing the column here would make a joined employee's row differ between
-	 * the two systems on a column other endpoints read.
+	 * <p>Fixed in the port by D-291: every Java write stores the number's own
+	 * dial code, so the row reads as the number it is.
 	 */
 	@Test
 	@Order(13)
-	void aNonEgyptianJoinerHasNoCountryCodeStored() throws Exception {
+	void aNonEgyptianJoinerStoresTheNumbersOwnCountryCode() throws Exception {
 		ResponseEntity<Map<String, Object>> joined = post(JOIN,
 				"{\"first_name\":\"Saudi\",\"phone\":\"0512345678\",\"password\":\"" + PASSWORD
 						+ "\",\"company_code\":\"" + CODE + "\",\"country_code\":\"+966\"}");
 		assertThat(joined.getStatusCode().value()).as("%s", joined.getBody()).isEqualTo(201);
 
-		assertThat(storedCountryCode("0512345678"))
-				.as("validated against +966, then discarded")
-				.isNull();
+		// PHP validated against +966 and then discarded it (R-019); every Java
+		// write stores the number's national digits beside its own dial code.
+		assertThat(storedCountryCode("0512345678")).isEqualTo("+966");
 	}
 
 	/**

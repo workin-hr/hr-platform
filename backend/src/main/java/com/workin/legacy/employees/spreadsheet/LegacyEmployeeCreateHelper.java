@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.employees.LegacyEmployeeStore;
+import com.workin.legacy.phone.CanonicalPhone;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
 import com.workin.legacy.wire.LegacyApiException;
 
@@ -106,7 +107,7 @@ public class LegacyEmployeeCreateHelper {
 
 		// May end the request outright -- see the class note.
 		Phone phone = resolvePhone(body);
-		if (phone.phone() != null && store.phoneExistsGlobally(phone.phone(), null)) {
+		if (phone.number() != null && store.phoneExistsGlobally(phone.number(), null)) {
 			return Result.failure("phone_already_exists");
 		}
 
@@ -355,25 +356,29 @@ public class LegacyEmployeeCreateHelper {
 				|| "1".equals(flag) || "true".equals(flag);
 	}
 
-	/** {@code resolve_employee_phone_and_country_code()}. */
-	private record Phone(String phone, String countryCode) {
+	/** {@code resolve_employee_phone_and_country_code()}: the number, stored as its national digits and dial code. */
+	private record Phone(CanonicalPhone number) {
+		String phone() {
+			return this.number == null ? null : this.number.nationalDigits();
+		}
+
+		String countryCode() {
+			return this.number == null ? null : this.number.dialCode();
+		}
 	}
 
 	private Phone resolvePhone(Map<String, Object> body) {
 		String rawPhone = trimmed(body.get("phone"));
 		if (LegacyPhoneNumbers.digitsOnly(rawPhone).isEmpty()) {
-			return new Phone(null, null);
+			return new Phone(null);
 		}
 		String countryCode = LegacyPhoneNumbers.normalizeDialCode(trimmed(body.get("country_code")));
 		if (countryCode.isEmpty()) {
 			// fail() -> exit: the whole request ends here, mid-batch.
 			throw new LegacyApiException(400, "field_required", null, Map.of("field", "country_code"));
 		}
-		String phone = phoneNumbers.normalizeLocal(countryCode, rawPhone);
-		if (!phoneNumbers.isValidLocal(countryCode, phone)) {
-			throw new LegacyApiException(400, "invalid_phone_number");
-		}
-		return new Phone(phone, countryCode);
+		return new Phone(phoneNumbers.forAccount(rawPhone, countryCode)
+				.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number")));
 	}
 
 	/** {@code normalize_optional_branch_id()}: null and the empty string are absent, and 0 is too. */

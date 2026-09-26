@@ -42,7 +42,7 @@ class LegacyPhoneCountriesProbeTest {
 		assertThatCode(countries::tableExists).doesNotThrowAnyException();
 		assertThat(countries.tableExists()).isFalse();
 		assertThat(countries.find("+966")).isPresent();
-		assertThat(new LegacyPhoneNumbers(countries).isValidLocal("+966", "0512345678")).isTrue();
+		assertThat(new LegacyPhoneNumbers(countries).offeredDialCodes()).contains("+966", "+218");
 	}
 
 	@Test

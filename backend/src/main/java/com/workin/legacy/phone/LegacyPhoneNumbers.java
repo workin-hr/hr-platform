@@ -17,36 +17,30 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * The normalization and validation half of legacy's phone helpers
- * ({@code helpers/phone_validator_helper.php} and the pure parts of
- * {@code helpers/phone_countries_helper.php}).
+ * The phone helpers the legacy surface calls, now split in two (ADR-0020,
+ * D-291).
  *
- * <p>This decides which phone numbers Phase 1 accepts as employee identifiers,
- * so it is a literal port of the PHP graph -- including the parts that look
- * like quirks. It is deliberately <b>not</b> libphonenumber or any other
- * "correct" international validator: legacy's rules are the contract, and a
- * stricter or looser library would silently change which people can log in.
- *
- * <p>Everything that needs a country definition goes through
- * {@link LegacyPhoneCountries}; everything else is static and testable without
- * a database, matching how PHP splits the two files.
+ * <p><b>Validity and identity are {@link CanonicalPhones}'</b>, which is
+ * Google libphonenumber's metadata. This class used to be a literal port of
+ * PHP's hand-written rules and said it was deliberately <em>not</em>
+ * libphonenumber; the owner reversed that on 2026-09-26, and the regexes,
+ * the lookup variants and the {@code REPLACE()} match clause are gone. What
+ * this class adds on top is the product's policy, which the library cannot
+ * know:
+ * <ul>
+ * <li>{@link #forAccount}: the numbers an account may be <em>given</em> --
+ *     valid, mobile (legacy never accepted a landline), and in a country the
+ *     product offers ({@link #offeredDialCodes()});</li>
+ * <li>{@link #lookup}: the rows a number typed without a country refers to,
+ *     read in Egypt and in every offered country;</li>
+ * <li>the formatting helpers PHP's spreadsheets and dial-code selectors still
+ *     need ({@link #excelCellToRaw}, {@link #decodePrefixes},
+ *     {@link #normalizeDialCode}, {@link #resolveCode}), none of which decides
+ *     whether a number is valid.</li>
+ * </ul>
  */
 @Service
 public class LegacyPhoneNumbers {
-
-	/** {@code /^01(0|1|2|5)\d{8}$/} -- the Egyptian local form legacy stores. */
-	private static final Pattern EGYPT_LOCAL = Pattern.compile("^01(0|1|2|5)\\d{8}$");
-
-	/** {@code /^1(0|1|2|5)\d{8}$/} -- the same number with the leading zero lost. */
-	private static final Pattern EGYPT_NO_LEADING_ZERO = Pattern.compile("^1(0|1|2|5)\\d{8}$");
-
-	/** {@code /^20(1(0|1|2|5)\d{8})$/} -- pasted international without the plus. */
-	private static final Pattern EGYPT_INTERNATIONAL = Pattern.compile("^20(1(0|1|2|5)\\d{8})$");
-
-	private static final Pattern SAUDI_LOCAL = Pattern.compile("^05\\d{8}$");
-	private static final Pattern SAUDI_NO_LEADING_ZERO = Pattern.compile("^5\\d{8}$");
-	private static final Pattern UAE_LOCAL = Pattern.compile("^05(0|2|4|5|6|8)\\d{7}$");
-	private static final Pattern UAE_NO_LEADING_ZERO = Pattern.compile("^5(0|2|4|5|6|8)\\d{7}$");
 
 	private static final Pattern NON_DIGITS = Pattern.compile("\\D+");
 	private static final Pattern PREFIX_SEPARATORS = Pattern.compile("[\\s,;]+");
@@ -55,6 +49,17 @@ public class LegacyPhoneNumbers {
 
 	/** The application's own mapper (Jackson 3, already on the classpath). */
 	private static final ObjectMapper JSON = new ObjectMapper();
+
+	/** Egypt's dial code, accepted whatever {@code phone_countries} holds, as PHP's special case did. */
+	static final String HOME_DIAL_CODE = "+20";
+
+	/**
+	 * The countries {@code phone_is_valid_local_legacy()} accepted when
+	 * {@code phone_countries} had no row for them -- so PHP accepted them
+	 * whatever the table held, and so does this, rather than refusing a
+	 * Saudi or Emirati number because a deployment's table omits the row.
+	 */
+	static final List<String> ALWAYS_OFFERED = List.of(HOME_DIAL_CODE, "+966", "+971");
 
 	private final LegacyPhoneCountries countries;
 
@@ -174,85 +179,6 @@ public class LegacyPhoneNumbers {
 		return code;
 	}
 
-	/**
-	 * {@code phone_lookup_variants()}: the forms the same Egyptian number can
-	 * already be stored in. Used only for the global uniqueness precheck, never
-	 * for storage.
-	 */
-	public static List<String> lookupVariants(String phone) {
-		String digits = digitsOnly(phone == null ? "" : phone.trim());
-		if (digits.isEmpty()) {
-			return List.of();
-		}
-		LinkedHashSet<String> variants = new LinkedHashSet<>();
-		variants.add(digits);
-		if (EGYPT_LOCAL.matcher(digits).matches()) {
-			variants.add(digits.substring(1));
-			variants.add("20" + digits.substring(1));
-		} else if (EGYPT_NO_LEADING_ZERO.matcher(digits).matches()) {
-			variants.add("0" + digits);
-			variants.add("20" + digits);
-		} else {
-			java.util.regex.Matcher international = EGYPT_INTERNATIONAL.matcher(digits);
-			if (international.matches()) {
-				variants.add("0" + international.group(1));
-				variants.add(international.group(1));
-			}
-		}
-		return List.copyOf(variants);
-	}
-
-	/**
-	 * {@code phone_digits_sql_expr()}: the stored value with {@code + - space (
-	 * )} removed, so a formatted number still matches a variant.
-	 */
-	public static String digitsSqlExpression(String column) {
-		return "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(COALESCE(" + column
-				+ ", '')), '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')";
-	}
-
-	/**
-	 * {@code phone_sql_match_clause()} ({@code phone_validator_helper.php:114-125}):
-	 * a {@code WHERE} fragment matching any stored formatting of the same
-	 * number, and the values to bind with it.
-	 *
-	 * <p>A phone with no digits produces the literal {@code "0=1"} and no
-	 * binds, so a query built from it matches nothing rather than everything.
-	 * That guard is the whole reason this returns a fragment instead of a list
-	 * of variants for the caller to splice.
-	 */
-	public static MatchClause sqlMatchClause(String column, String phone) {
-		List<String> variants = lookupVariants(phone);
-		if (variants.isEmpty()) {
-			return new MatchClause("0=1", List.of());
-		}
-		String placeholders = String.join(", ", java.util.Collections.nCopies(variants.size(), "?"));
-		return new MatchClause(digitsSqlExpression(column) + " IN (" + placeholders + ")", variants);
-	}
-
-	/** The fragment and its binds, kept together so they cannot drift apart. */
-	public record MatchClause(String sql, List<String> binds) {
-	}
-
-	/**
-	 * {@code phones_are_equivalent()}: true when the two numbers share any
-	 * lookup variant. Either side having no digits is false, so an empty phone
-	 * is not equivalent to another empty phone.
-	 */
-	public static boolean areEquivalent(String phoneA, String phoneB) {
-		List<String> a = lookupVariants(phoneA);
-		List<String> b = lookupVariants(phoneB);
-		if (a.isEmpty() || b.isEmpty()) {
-			return false;
-		}
-		for (String candidate : a) {
-			if (b.contains(candidate)) {
-				return true;
-			}
-		}
-		return false;
-	}
-
 	/** {@code phone_country_resolve_code()}: a known dial code, else the first configured one, else {@code +20}. */
 	public String resolveCode(String countryCode) {
 		String code = normalizeDialCode(countryCode);
@@ -267,113 +193,51 @@ public class LegacyPhoneNumbers {
 	}
 
 	/**
-	 * {@code phone_country_normalize_local()}: the canonical local form legacy
-	 * stores.
+	 * A number an account may be given, in the storage convention every Java
+	 * write uses: {@link CanonicalPhone#nationalDigits()} in {@code phone} and
+	 * {@link CanonicalPhone#dialCode()} in {@code country_code}.
 	 *
-	 * <p>Order matters and is preserved: strip the dial prefix from a pasted
-	 * international number first (only when what remains is longer than seven
-	 * digits), then apply Egypt's hard-coded rule, and only then consult the
-	 * configured length and prefixes for the missing-leading-zero case. Egypt
-	 * never reaches the table -- {@code +20} is special-cased in PHP, which is
-	 * why an odd {@code phone_countries} row cannot break Egyptian numbers.
+	 * <p>Valid per the metadata, typed mobile -- legacy's rules accepted only
+	 * mobile ranges in every country they knew, so a landline stays refused --
+	 * and in a country the product offers. Input written internationally keeps
+	 * its own country whatever {@code countryContext} says, and the caller
+	 * must store {@link CanonicalPhone#dialCode()}, never the request's code.
+	 *
+	 * @param countryContext the dial code a national number is read in; blank
+	 *        for Egypt
 	 */
-	public String normalizeLocal(String countryCode, Object localPhone) {
-		String digits = digitsOnly(excelCellToRaw(localPhone));
-		if (digits.isEmpty()) {
-			return "";
+	public Optional<CanonicalPhone> forAccount(Object raw, String countryContext) {
+		Optional<CanonicalPhone> phone = CanonicalPhones.parse(raw, countryContext);
+		if (phone.isEmpty() || !phone.get().mobile()) {
+			return Optional.empty();
 		}
-		String code = normalizeDialCode(countryCode);
-		String dialDigits = digitsOnly(code);
-		if (!dialDigits.isEmpty() && digits.startsWith(dialDigits)
-				&& digits.length() > dialDigits.length() + 7) {
-			digits = digits.substring(dialDigits.length());
+		String dialCode = phone.get().dialCode();
+		if (!ALWAYS_OFFERED.contains(dialCode) && !offeredDialCodes().contains(dialCode)) {
+			return Optional.empty();
 		}
-		if ("+20".equals(code) || "20".equals(dialDigits)) {
-			if (EGYPT_LOCAL.matcher(digits).matches()) {
-				return digits;
-			}
-			if (EGYPT_NO_LEADING_ZERO.matcher(digits).matches()) {
-				return "0" + digits;
-			}
-			return digits;
-		}
-		Optional<LegacyPhoneCountry> row = countries.find(code.isEmpty() ? countries.defaultCode() : code);
-		if (row.isEmpty()) {
-			return digits;
-		}
-		int length = row.get().phoneLength();
-		List<String> prefixes = decodePrefixes(row.get().phonePrefixes());
-		if (length > 0 && digits.length() == length) {
-			return digits;
-		}
-		if (length > 0 && digits.length() == length - 1) {
-			for (String prefix : prefixes) {
-				if (prefix.isEmpty() || !prefix.startsWith("0")) {
-					continue;
-				}
-				String withoutZero = prefix.substring(1);
-				if (!withoutZero.isEmpty() && digits.startsWith(withoutZero)) {
-					return "0" + digits;
-				}
-			}
-		}
-		return digits;
+		return phone;
 	}
 
 	/**
-	 * {@code phone_country_is_valid_local()}. Egypt is decided by the regex
-	 * alone ("regardless of DB prefix quirks"); an unknown country falls back to
-	 * {@code phone_is_valid_local_legacy()}'s three hard-coded rules and rejects
-	 * everything else; a configured country checks length, then prefixes with
-	 * both leading-zero spellings accepted.
+	 * The stored rows a number typed with no country refers to -- every login
+	 * and OTP route's input. The offered countries are read only for a number
+	 * written nationally; international input needs no table.
 	 */
-	public boolean isValidLocal(String countryCode, Object localPhone) {
-		String code = normalizeDialCode(countryCode);
-		String digits = normalizeLocal(code, localPhone);
-		if (digits.isEmpty()) {
-			return false;
-		}
-		if ("+20".equals(code)) {
-			return EGYPT_LOCAL.matcher(digits).matches();
-		}
-		Optional<LegacyPhoneCountry> row = countries.find(code);
-		if (row.isEmpty()) {
-			return isValidLocalLegacy(code, digits);
-		}
-		int length = row.get().phoneLength();
-		if (length > 0 && digits.length() != length) {
-			return false;
-		}
-		List<String> prefixes = decodePrefixes(row.get().phonePrefixes());
-		if (prefixes.isEmpty()) {
-			return true;
-		}
-		for (String prefix : prefixes) {
-			if (prefix.isEmpty()) {
-				continue;
-			}
-			if (digits.startsWith(prefix)) {
-				return true;
-			}
-			// The column may hold 10... while normalization produced 010...
-			if (!prefix.startsWith("0") && digits.startsWith("0" + prefix)) {
-				return true;
-			}
-			if (prefix.startsWith("0") && digits.startsWith(prefix.substring(1))) {
-				return true;
-			}
-		}
-		return false;
+	public PhoneLookup lookup(Object raw) {
+		return PhoneLookup.ofInput(raw, this::offeredDialCodes);
 	}
 
-	/** {@code phone_is_valid_local_legacy()}: the pre-table rules, still the fallback for an unknown country. */
-	static boolean isValidLocalLegacy(String countryCode, String digits) {
-		return switch (countryCode == null ? "" : countryCode) {
-			case "+20" -> EGYPT_LOCAL.matcher(digits).matches() || EGYPT_NO_LEADING_ZERO.matcher(digits).matches();
-			case "+966" -> SAUDI_LOCAL.matcher(digits).matches() || SAUDI_NO_LEADING_ZERO.matcher(digits).matches();
-			case "+971" -> UAE_LOCAL.matcher(digits).matches() || UAE_NO_LEADING_ZERO.matcher(digits).matches();
-			default -> false;
-		};
+	/**
+	 * The dial codes the product offers: {@code phone_countries}' active rows
+	 * (or its fallback rows when the table is absent), plus
+	 * {@link #ALWAYS_OFFERED}. Validity inside each is the metadata's.
+	 */
+	public List<String> offeredDialCodes() {
+		LinkedHashSet<String> codes = new LinkedHashSet<>(ALWAYS_OFFERED);
+		for (String code : countries.offeredDialCodes()) {
+			codes.add(normalizeDialCode(code));
+		}
+		return List.copyOf(codes);
 	}
 
 	/**

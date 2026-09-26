@@ -266,21 +266,26 @@ class LegacyEmployeeUpdateEndToEndTest {
 	}
 
 	@Test
-	void thePhoneUpdatePathOnlyStripsToDigits() throws Exception {
-		// normalize_employee_phone(), not create's resolver: no country
-		// normalisation and no validity check, so update stores numbers create
-		// would have rejected outright.
+	void thePhoneUpdatePathValidatesAndStoresTheNumberCanonically() throws Exception {
+		// PHP's normalize_employee_phone() only stripped to digits, so update
+		// stored "201012345000" and even "013999". A phone is a login
+		// identifier: update validates it as create does and stores the
+		// national digits beside the number's own dial code (D-291).
 		long id = employee(8000, "01019000090");
 		assertThat(put(id, Map.of("phone", "+20 (10) 1234-5000", "country_code", "+20"))
 				.getStatusCode().value()).isEqualTo(200);
-		assertThat(single("SELECT phone FROM employees WHERE id = " + id).get("phone"))
-				.isEqualTo("201012345000");
+		assertThat(single("SELECT phone, country_code FROM employees WHERE id = " + id))
+				.containsEntry("phone", "01012345000").containsEntry("country_code", "+20");
 
 		long invalidNumber = employee(8001, "01019000091");
-		assertThat(put(invalidNumber, Map.of("phone", "013999", "country_code", "+20"))
-				.getStatusCode().value()).isEqualTo(200);
+		assertThat(message(put(invalidNumber, Map.of("phone", "013999", "country_code", "+20")), 400))
+				.isEqualTo("Phone number is not valid for the selected country");
 		assertThat(single("SELECT phone FROM employees WHERE id = " + invalidNumber).get("phone"))
-				.isEqualTo("013999");
+				.isEqualTo("01019000091");
+
+		// Another spelling of a number someone else holds is that number.
+		assertThat(message(put(invalidNumber, Map.of("phone", "1012345000", "country_code", "+20")), 409))
+				.isEqualTo("Phone already exists");
 
 		// A country code is required only while the phone stays non-null...
 		Map<String, Object> withoutCountry = new LinkedHashMap<>();

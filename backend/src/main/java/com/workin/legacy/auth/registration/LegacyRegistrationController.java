@@ -11,6 +11,7 @@ import com.workin.legacy.LegacyJsonBody;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyLoginThrottle;
 import com.workin.legacy.auth.LegacyPhpJwtService;
+import com.workin.legacy.phone.PhoneLookup;
 import com.workin.legacy.uploads.LegacyFileUploads;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyApiResponse;
@@ -163,7 +164,7 @@ public class LegacyRegistrationController {
 		required(body, "phone", "password");
 		return loginThrottle.guard(body.get("phone"), request.getRemoteAddr(),
 				() -> new LegacyApiException(401, "invalid_phone_password"),
-				phone -> companyLoginResponse(request, withPhone(body, phone), false));
+				phone -> companyLoginResponse(request, body, phone, false));
 	}
 
 	/**
@@ -185,31 +186,21 @@ public class LegacyRegistrationController {
 			return loginThrottle.guard(body.get("phone"), request.getRemoteAddr(),
 					() -> new LegacyApiException(401, "user_not_found"),
 					phone -> LegacyApiResponse.ok(message(request, "login_successful"),
-							service.desktopHrLogin(withPhone(body, phone), messages.resolveLocale(request))));
+							service.desktopHrLogin(body, phone, messages.resolveLocale(request))));
 		}
 		if ("company".equals(loginAs) || "company_admin".equals(loginAs)) {
 			return loginThrottle.guard(body.get("phone"), request.getRemoteAddr(),
 					() -> new LegacyApiException(401, "company_not_registered"),
-					phone -> companyLoginResponse(request, withPhone(body, phone), true));
+					phone -> companyLoginResponse(request, body, phone, true));
 		}
 		throw new LegacyApiException(400, "field_required", null, Map.of("field", "login_as"));
 	}
 
-	/**
-	 * The body with its phone replaced by the one the login throttle folded,
-	 * so the lookup binds exactly the value the budget is keyed on (D-289).
-	 */
-	private static Map<String, Object> withPhone(Map<String, Object> body, String phone) {
-		Map<String, Object> bound = new LinkedHashMap<>(body);
-		bound.put("phone", phone);
-		return bound;
-	}
-
 	/** The three shapes a company login can answer with, shared by both routes. */
 	private LegacyApiResponse companyLoginResponse(
-			HttpServletRequest request, Map<String, Object> body, boolean desktop) {
+			HttpServletRequest request, Map<String, Object> body, PhoneLookup phone, boolean desktop) {
 		LegacyRegistrationService.CompanyLoginResult result =
-				service.companyLogin(request, body, desktop, messages.resolveLocale(request));
+				service.companyLogin(request, body, phone, desktop, messages.resolveLocale(request));
 
 		if (result instanceof LegacyRegistrationService.CompanyLoginResult.VerifyOtpFirst pending) {
 			Map<String, Object> payload = new LinkedHashMap<>();

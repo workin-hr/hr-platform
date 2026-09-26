@@ -40,13 +40,13 @@ public class LegacyLoginPhpController {
 		required(body, "password");
 
 		String password = LegacyValues.toPhpString(body.get("password"));
-		// The lookup binds the throttle's folded phone, trimmed as before, so
-		// the budget is keyed on exactly what it matches (D-289).
+		// The lookup is the one the budget was keyed from: canonical numbers,
+		// never the request's text (D-289, D-291).
 		LegacyPhpLoginService.LoginResult login = loginThrottle.guard(
 				body.get("phone"), request.getRemoteAddr(),
 				() -> new LegacyApiException(
 						LegacyLoginOutcome.USER_NOT_FOUND.status(), LegacyLoginOutcome.USER_NOT_FOUND.messageKey()),
-				phone -> service.login(LegacyValues.phpTrim(phone), password));
+				phone -> service.login(phone, password));
 
 		Map<String, Object> data = new LinkedHashMap<>();
 		data.put("token", login.token());

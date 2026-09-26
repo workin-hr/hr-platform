@@ -19,9 +19,11 @@ import org.springframework.web.context.annotation.RequestScope;
  * {@code phone_countries} table, its existence probe, and the hard-coded
  * fallback definitions PHP uses when that table is not there.
  *
- * <p>Kept separate from {@link LegacyPhoneNumbers} on purpose -- normalization
- * and validation are pure functions over a country definition, and only this
- * class knows where a definition comes from.
+ * <p>Since ADR-0020 the table decides only which countries the product
+ * <em>offers</em> -- the selectors' choices, and the countries a national
+ * number may be read in and an account may be given. Whether a number is
+ * valid in one of them is libphonenumber's ({@link CanonicalPhones}), so
+ * {@code phone_length} and {@code phone_prefixes} are display data now.
  *
  * <h2>The table may be absent, and that is a supported state</h2>
  * <p>{@code phone_countries_table_exists()} probes
@@ -134,8 +136,47 @@ public class LegacyPhoneCountries {
 	 * PHP's map assignment does.
 	 */
 	public List<String> dialCodes() {
+		return codesOf(allActive());
+	}
+
+	/**
+	 * The dial codes the product offers, for {@link LegacyPhoneNumbers}: what a
+	 * national number may be read in, and which countries an account may be
+	 * given. Validity is not decided here -- {@code phone_length} and
+	 * {@code phone_prefixes} are display data for the selectors now
+	 * (ADR-0020) -- and a code that names no libphonenumber region simply
+	 * validates nothing.
+	 *
+	 * <p>One statement, not {@link #dialCodes()}'s two: a login reads this
+	 * before every national-format lookup, and the database is a round trip
+	 * away. When this request has not probed the table yet, the read itself
+	 * is the probe -- a failure means absent, as {@link #tableExists()} decides
+	 * -- and its answer is cached for the rest of the request like the probe's.
+	 */
+	public List<String> offeredDialCodes() {
+		if (this.tableExists != null) {
+			return dialCodes();
+		}
+		List<LegacyPhoneCountry> rows;
+		try {
+			rows = jdbcTemplate.query(
+					"""
+					SELECT id, country_code, name_ar, name_en, flag_emoji, phone_length, phone_prefixes, sort_order, is_active
+					FROM phone_countries
+					WHERE is_active = 1
+					ORDER BY sort_order ASC, id ASC""",
+					ROW_MAPPER);
+			this.tableExists = true;
+		} catch (Throwable ex) { // NOPMD - catch (Throwable $e), as the probe it stands in for does
+			this.tableExists = false;
+			rows = FALLBACK;
+		}
+		return codesOf(rows);
+	}
+
+	private static List<String> codesOf(List<LegacyPhoneCountry> rows) {
 		Map<String, LegacyPhoneCountry> byCode = new LinkedHashMap<>();
-		for (LegacyPhoneCountry row : allActive()) {
+		for (LegacyPhoneCountry row : rows) {
 			String code = row.countryCode() == null ? "" : row.countryCode().trim();
 			if (!code.isEmpty()) {
 				byCode.put(code, row);

@@ -416,25 +416,27 @@ class LegacyOtpAuthEndToEndTest {
 
 	/**
 	 * The country code travels with the resolved employee rather than being
-	 * re-derived. {@code otp_resolve_country_code_for_phone()} matches the
-	 * phone column <b>exactly</b>, so a stored number the variant-aware account
-	 * query found would not be found again and delivery would silently fall
-	 * back to {@code +20} -- building the wrong WhatsApp JID for a non-Egyptian
-	 * number.
+	 * re-derived, and since D-291 the number itself is read in that country:
+	 * a Saudi employee typing the national {@code 05...} they are stored as is
+	 * found through their row's {@code +966}, and the code goes to the Saudi
+	 * number -- not to the Egyptian landline those digits also spell.
 	 */
 	@Test
 	@Order(12)
 	void theResolvedEmployeesCountryCodeIsUsedForDelivery() throws Exception {
 		recorder().clear();
 		clearOtps();
-		setCountryCode(STAFF, "+966");
+		execute("UPDATE employees SET phone = '0501234567', country_code = '+966' WHERE id = " + STAFF);
 		try {
-			post(FORGOT, null, "{\"phone\":\"" + STAFF_PHONE + "\",\"type\":\"employee\"}");
+			assertThat(post(FORGOT, null, "{\"phone\":\"0501234567\",\"type\":\"employee\"}")
+					.getStatusCode().value()).isEqualTo(200);
 			assertThat(recorder().last().countryCode())
 					.as("the row's own code, not the +20 default")
 					.isEqualTo("+966");
+			assertThat(recorder().last().phone()).isEqualTo("0501234567");
+			assertThat(activeOtpCount("+966501234567")).as("keyed on the Saudi number").isEqualTo(1);
 		} finally {
-			setCountryCode(STAFF, "+20");
+			execute("UPDATE employees SET phone = '" + STAFF_PHONE + "', country_code = '+20' WHERE id = " + STAFF);
 		}
 	}
 
@@ -636,13 +638,22 @@ class LegacyOtpAuthEndToEndTest {
 		execute("DELETE FROM otp_request_logs");
 	}
 
+	/**
+	 * The key an OTP row is stored under: the number's E.164 form (D-291), so
+	 * every spelling of one number shares its code, cooldown and caps.
+	 */
+	private static String otpKey(String phone) {
+		return com.workin.legacy.phone.CanonicalPhones.parse(phone, null)
+				.map(com.workin.legacy.phone.CanonicalPhone::e164).orElse(phone);
+	}
+
 	private static void expireOtps(String phone) {
 		execute("UPDATE otp_codes SET expires_at = DATE_SUB(NOW(), INTERVAL 1 MINUTE) WHERE phone = '"
-				+ phone + "'");
+				+ otpKey(phone) + "'");
 	}
 
 	private static void seedOtpRow(String phone) {
-		execute("INSERT INTO otp_codes (phone, code, expires_at) VALUES ('" + phone
+		execute("INSERT INTO otp_codes (phone, code, expires_at) VALUES ('" + otpKey(phone)
 				+ "', '1111', DATE_ADD(NOW(), INTERVAL 10 MINUTE))");
 	}
 
@@ -653,11 +664,11 @@ class LegacyOtpAuthEndToEndTest {
 	 */
 	private static void seedRequestLog(String phone, String purpose, String ip) {
 		execute("INSERT INTO otp_request_logs (phone, purpose, ip_address, created_at) VALUES ('"
-				+ phone + "', '" + purpose + "', '" + ip + "', NOW())");
+				+ otpKey(phone) + "', '" + purpose + "', '" + ip + "', NOW())");
 	}
 
 	private static long activeOtpCount(String phone) {
-		return Long.parseLong(scalar("SELECT COUNT(*) FROM otp_codes WHERE phone = '" + phone
+		return Long.parseLong(scalar("SELECT COUNT(*) FROM otp_codes WHERE phone = '" + otpKey(phone)
 				+ "' AND COALESCE(is_used, 0) = 0 AND expires_at > NOW()"));
 	}
 
@@ -667,10 +678,6 @@ class LegacyOtpAuthEndToEndTest {
 
 	private static void setOtpVerified(long companyId, int value) {
 		execute("UPDATE companies SET otp_verified = " + value + " WHERE id = " + companyId);
-	}
-
-	private static void setCountryCode(long employeeId, String code) {
-		execute("UPDATE employees SET country_code = '" + code + "' WHERE id = " + employeeId);
 	}
 
 	/** A second, pending account at another company owning an equivalent number. */

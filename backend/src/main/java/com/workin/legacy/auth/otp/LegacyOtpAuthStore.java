@@ -1,6 +1,7 @@
 package com.workin.legacy.auth.otp;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -12,16 +13,21 @@ import org.springframework.stereotype.Repository;
 import com.workin.legacy.LegacyJdbcValues;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyLoginCandidate;
-import com.workin.legacy.phone.LegacyPhoneNumbers;
+import com.workin.legacy.phone.CanonicalPhone;
+import com.workin.legacy.phone.PhoneLookup;
 
 /**
  * The account lookups and password writes behind the four OTP auth endpoints.
  *
- * <p>Every phone lookup here goes through
- * {@link LegacyPhoneNumbers#sqlMatchClause}, so a number stored as
- * {@code +201012345678}, {@code 01012345678} or {@code 1012345678} all match
- * the same request. {@code verify_otp.php} is the exception and matches the
- * column exactly -- see {@link #markCompanyOtpVerified}.
+ * <p>Every phone lookup here is a {@link PhoneLookup}: the stored spellings of
+ * the number are bound, and only rows that canonicalise to it are kept
+ * (ADR-0020, D-291). So a number stored as {@code 01012345678},
+ * {@code 1012345678} or {@code 201012345678} is found by any spelling of the
+ * request, and nothing the client typed reaches a {@code WHERE}.
+ *
+ * <p>The writes that PHP expressed as {@code UPDATE ... WHERE phone matches}
+ * are a verified read followed by an update of exactly those ids, so the set
+ * written is the set verified.
  */
 @Repository
 public class LegacyOtpAuthStore {
@@ -32,45 +38,29 @@ public class LegacyOtpAuthStore {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
 	}
 
-	/** {@code forgot_password.php}'s company branch: id, phone and country code. */
-	public Map<String, Object> findCompanyByPhone(String phone) {
-		LegacyPhoneNumbers.MatchClause match = LegacyPhoneNumbers.sqlMatchClause("phone", phone);
-		List<Map<String, Object>> rows = jdbcTemplate.query(
-				"SELECT id, phone, country_code FROM companies WHERE " + match.sql() + " LIMIT 1",
-				LegacyJdbcValues.rowMapper(), match.binds().toArray());
-		return rows.isEmpty() ? null : rows.get(0);
+	/** {@code forgot_password.php}'s company branch: id, phone and country code, lowest id first. */
+	public Map<String, Object> findCompanyByPhone(PhoneLookup phone) {
+		return first(verified(phone, "phone", "SELECT id, phone, country_code FROM companies WHERE %s ORDER BY id ASC"));
 	}
 
 	/** {@code forgot_password.php}'s employee branch when a company id was supplied. */
-	public Map<String, Object> findEmployeeByPhoneInCompany(String phone, long companyId) {
-		LegacyPhoneNumbers.MatchClause match = LegacyPhoneNumbers.sqlMatchClause("phone", phone);
-		List<Object> binds = new ArrayList<>(match.binds());
-		binds.add(companyId);
-		List<Map<String, Object>> rows = jdbcTemplate.query(
-				"SELECT id, phone, country_code FROM employees WHERE " + match.sql()
-						+ " AND company_id = ? LIMIT 1",
-				LegacyJdbcValues.rowMapper(), binds.toArray());
-		return rows.isEmpty() ? null : rows.get(0);
+	public Map<String, Object> findEmployeeByPhoneInCompany(PhoneLookup phone, long companyId) {
+		return first(verified(phone, "phone",
+				"SELECT id, phone, country_code FROM employees WHERE %s AND company_id = ? ORDER BY id ASC",
+				companyId));
 	}
 
 	/**
 	 * {@code resolve_single_employee_auth_by_phone()}'s query: every row owning
-	 * the phone, newest first, joined to its company's status.
-	 *
-	 * <p>The two guards after the phone match ({@code phone IS NOT NULL} and
-	 * {@code TRIM(phone) <> ''}) are redundant once a variant matched, and are
-	 * kept because removing them would widen the result set if
-	 * {@code sqlMatchClause} ever produced an empty-string variant.
+	 * the number, newest first, joined to its company's status.
 	 */
-	public List<LegacyLoginCandidate> employeeAuthCandidatesByPhone(String phone) {
-		LegacyPhoneNumbers.MatchClause match = LegacyPhoneNumbers.sqlMatchClause("e.phone", phone);
-		List<Map<String, Object>> rows = jdbcTemplate.query("""
+	public List<LegacyLoginCandidate> employeeAuthCandidatesByPhone(PhoneLookup phone) {
+		List<Map<String, Object>> rows = verified(phone, "e.phone", """
 				SELECT e.*, c.status AS company_status
 				FROM employees AS e
 				JOIN companies AS c ON c.id = e.company_id
-				WHERE %s AND e.phone IS NOT NULL AND TRIM(e.phone) <> ''
-				ORDER BY e.id DESC""".formatted(match.sql()),
-				LegacyJdbcValues.rowMapper(), match.binds().toArray());
+				WHERE %s
+				ORDER BY e.id DESC""");
 
 		List<LegacyLoginCandidate> candidates = new ArrayList<>(rows.size());
 		for (Map<String, Object> row : rows) {
@@ -90,15 +80,9 @@ public class LegacyOtpAuthStore {
 	/**
 	 * The phone and country code as stored on one employee row.
 	 *
-	 * <p>Both are needed, and the country code is the easy one to drop:
-	 * {@code forgot_password.php} carries
-	 * {@code COUNTRY_CODE => $employee[COUNTRY_CODE] ?? null} out of
-	 * {@code resolve_single_employee_auth_by_phone()} and into the WhatsApp
-	 * send. Falling back to {@code otp_resolve_country_code_for_phone()}
-	 * instead is <b>not</b> equivalent: that helper matches the phone column
-	 * <em>exactly</em>, so a number the variant-aware account query found --
-	 * {@code +966 50...}, say -- is not found again, and delivery silently
-	 * defaults to {@code +20} and builds the wrong WhatsApp JID.
+	 * <p>Both are needed: {@code forgot_password.php} carries the row's
+	 * {@code COUNTRY_CODE} into the WhatsApp send, and the number is read in
+	 * that country.
 	 */
 	public Map<String, Object> employeeContact(long employeeId) {
 		List<Map<String, Object>> rows = jdbcTemplate.query(
@@ -108,74 +92,79 @@ public class LegacyOtpAuthStore {
 	}
 
 	/**
-	 * {@code verify_otp.php}'s company update.
+	 * {@code verify_otp.php}'s company update: the company holding the
+	 * number -- the one row when the number is stored once, or, when it is
+	 * stored twice (the duplicate registrations ADR-0020 counts), the row
+	 * stored exactly as the request's digits and none otherwise.
 	 *
-	 * <p>{@code WHERE phone = ?} -- an <b>exact</b> match on the normalised
-	 * digits, not {@code phone_sql_match_clause()}. A company whose stored
-	 * phone carries a {@code +} or a space therefore verifies its OTP
-	 * successfully and is never marked {@code otp_verified}, leaving it stuck
-	 * at {@code login_company.php}'s verify-first branch. Preserved: the
-	 * endpoint's own success response does not depend on this UPDATE matching.
+	 * <p>PHP matched {@code WHERE phone = ?} on the request's digits, so a
+	 * company stored in a different spelling from the one it typed verified
+	 * its OTP and was never marked; that quirk is gone with the exact match
+	 * (D-291).
 	 */
-	public void markCompanyOtpVerified(String normalizedPhone) {
-		jdbcTemplate.update("UPDATE companies SET otp_verified = 1 WHERE phone = ?", normalizedPhone);
+	public void markCompanyOtpVerified(CanonicalPhone phone, Object typedPhone) {
+		Map<String, Object> company = PhoneLookup.singleRow(
+				verified(PhoneLookup.of(phone), "phone", "SELECT id, phone, country_code FROM companies WHERE %s ORDER BY id ASC"),
+				typedPhone);
+		if (company != null) {
+			jdbcTemplate.update("UPDATE companies SET otp_verified = 1 WHERE id = ?", company.get("id"));
+		}
 	}
 
-	/** {@code reset_password.php}'s company branch -- every matching row. */
-	public void updateCompanyPasswordByPhone(String phone, String hash) {
-		LegacyPhoneNumbers.MatchClause match = LegacyPhoneNumbers.sqlMatchClause("phone", phone);
+	/** {@code reset_password.php}'s company branch -- every company holding the number. */
+	public void updateCompanyPasswordByPhone(CanonicalPhone phone, String hash) {
+		List<Object> ids = ids(verified(PhoneLookup.of(phone), "phone", "SELECT id, phone, country_code FROM companies WHERE %s"));
+		if (ids.isEmpty()) {
+			return;
+		}
 		List<Object> binds = new ArrayList<>();
 		binds.add(hash);
-		binds.addAll(match.binds());
-		jdbcTemplate.update(
-				"UPDATE companies SET password_hash = ? WHERE " + match.sql(), binds.toArray());
+		binds.addAll(ids);
+		jdbcTemplate.update("UPDATE companies SET password_hash = ? WHERE id IN ("
+				+ String.join(", ", Collections.nCopies(ids.size(), "?")) + ")", binds.toArray());
 	}
 
 	/**
-	 * The ids {@link #updateEmployeePasswordByPhone} is about to touch.
+	 * The ids {@link #updateEmployeePasswords} is given.
 	 *
-	 * <p>Read <b>before</b> the update, and by the same predicate, so the set
-	 * revoked is exactly the set whose credential changed -- ADR-0005 requires
-	 * a password reset to revoke the relevant sessions, and revoking by a
-	 * different predicate than the one that wrote would be a guess.
+	 * <p>Read <b>before</b> the update and handed to it, so the set revoked is
+	 * exactly the set whose credential changed -- ADR-0005 requires a password
+	 * reset to revoke the relevant sessions.
 	 */
-	public List<Long> employeeIdsByPhoneInCompany(String phone, long companyId) {
-		LegacyPhoneNumbers.MatchClause match = LegacyPhoneNumbers.sqlMatchClause("phone", phone);
-		List<Object> binds = new ArrayList<>(match.binds());
-		binds.add(companyId);
-		return jdbcTemplate.queryForList(
-				"SELECT id FROM employees WHERE " + match.sql() + " AND company_id = ?",
-				Long.class, binds.toArray());
+	public List<Long> employeeIdsByPhoneInCompany(CanonicalPhone phone, long companyId) {
+		List<Long> ids = new ArrayList<>();
+		for (Map<String, Object> row : verified(PhoneLookup.of(phone), "phone",
+				"SELECT id, phone, country_code FROM employees WHERE %s AND company_id = ?", companyId)) {
+			ids.add(LegacyValues.toPhpLong(row.get("id")));
+		}
+		return ids;
 	}
 
 	/** {@code reset_password.php}'s employee branch, scoped by company. */
-	public void updateEmployeePasswordByPhone(String phone, long companyId, String hash) {
-		LegacyPhoneNumbers.MatchClause match = LegacyPhoneNumbers.sqlMatchClause("phone", phone);
+	public void updateEmployeePasswords(List<Long> employeeIds, long companyId, String hash) {
+		if (employeeIds.isEmpty()) {
+			return;
+		}
 		List<Object> binds = new ArrayList<>();
 		binds.add(hash);
-		binds.addAll(match.binds());
+		binds.addAll(employeeIds);
 		binds.add(companyId);
-		jdbcTemplate.update(
-				"UPDATE employees SET password_hash = ? WHERE " + match.sql() + " AND company_id = ?",
+		jdbcTemplate.update("UPDATE employees SET password_hash = ? WHERE id IN ("
+				+ String.join(", ", Collections.nCopies(employeeIds.size(), "?")) + ") AND company_id = ?",
 				binds.toArray());
 	}
 
-	/** {@code request_phone_change.php}/{@code confirm_phone_change.php}: the current phone. */
-	public String companyPhone(long companyId) {
-		List<String> values = jdbcTemplate.queryForList(
-				"SELECT phone FROM companies WHERE id = ?", String.class, companyId);
-		return values.isEmpty() ? null : values.get(0);
+	/** {@code request_phone_change.php}/{@code confirm_phone_change.php}: the current phone and its country. */
+	public Map<String, Object> companyPhone(long companyId) {
+		List<Map<String, Object>> rows = jdbcTemplate.query(
+				"SELECT phone, country_code FROM companies WHERE id = ?", LegacyJdbcValues.rowMapper(), companyId);
+		return rows.isEmpty() ? null : rows.get(0);
 	}
 
 	/** The uniqueness probe for a new company phone, excluding the caller. */
-	public boolean anotherCompanyHasPhone(String phone, long excludeCompanyId) {
-		LegacyPhoneNumbers.MatchClause match = LegacyPhoneNumbers.sqlMatchClause("phone", phone);
-		List<Object> binds = new ArrayList<>(match.binds());
-		binds.add(excludeCompanyId);
-		List<Long> ids = jdbcTemplate.queryForList(
-				"SELECT id FROM companies WHERE (" + match.sql() + ") AND id <> ?",
-				Long.class, binds.toArray());
-		return !ids.isEmpty();
+	public boolean anotherCompanyHasPhone(CanonicalPhone phone, long excludeCompanyId) {
+		return !verified(PhoneLookup.of(phone), "phone",
+				"SELECT id, phone, country_code FROM companies WHERE %s AND id <> ?", excludeCompanyId).isEmpty();
 	}
 
 	/** {@code confirm_phone_change.php}'s write: phone, country code and the verified flag. */
@@ -189,6 +178,31 @@ public class LegacyOtpAuthStore {
 	public Map<String, Object> company(long companyId) {
 		List<Map<String, Object>> rows = jdbcTemplate.query(
 				"SELECT * FROM companies WHERE id = ?", LegacyJdbcValues.rowMapper(), companyId);
+		return rows.isEmpty() ? null : rows.get(0);
+	}
+
+	/**
+	 * The rows {@code sql} returns with its {@code %s} replaced by the
+	 * lookup's {@code phone IN (...)}, kept only when they are the number.
+	 * The trailing binds follow the lookup's.
+	 */
+	private List<Map<String, Object>> verified(PhoneLookup phone, String column, String sql, Object... trailing) {
+		PhoneLookup.Clause match = phone.clause(column);
+		List<Object> binds = new ArrayList<>(match.binds());
+		Collections.addAll(binds, trailing);
+		return phone.verified(jdbcTemplate.query(
+				sql.formatted(match.sql()), LegacyJdbcValues.rowMapper(), binds.toArray()));
+	}
+
+	private static List<Object> ids(List<Map<String, Object>> rows) {
+		List<Object> ids = new ArrayList<>(rows.size());
+		for (Map<String, Object> row : rows) {
+			ids.add(row.get("id"));
+		}
+		return ids;
+	}
+
+	private static Map<String, Object> first(List<Map<String, Object>> rows) {
 		return rows.isEmpty() ? null : rows.get(0);
 	}
 }

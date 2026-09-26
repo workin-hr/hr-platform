@@ -19,6 +19,8 @@ import com.workin.legacy.companies.LegacyCompany;
 import com.workin.legacy.companies.LegacyCompanyRepository;
 import com.workin.legacy.employees.LegacyEmployee;
 import com.workin.legacy.employees.LegacyEmployeeRepository;
+import com.workin.legacy.phone.LegacyPhoneNumbers;
+import com.workin.legacy.phone.PhoneLookup;
 
 /**
  * The legacy employee-login use case (punch-list item #9), owning its
@@ -57,6 +59,7 @@ public class LegacyLoginService {
 	private final PasswordEncoder passwordEncoder;
 	private final JwtService jwtService;
 	private final LegacyRefreshTokenService legacyRefreshTokenService;
+	private final LegacyPhoneNumbers phoneNumbers;
 
 	public LegacyLoginService(
 			LegacyEmployeeRepository legacyEmployeeRepository,
@@ -64,20 +67,28 @@ public class LegacyLoginService {
 			TenantFilterActivator tenantFilterActivator,
 			PasswordEncoder passwordEncoder,
 			JwtService jwtService,
-			LegacyRefreshTokenService legacyRefreshTokenService) {
+			LegacyRefreshTokenService legacyRefreshTokenService,
+			LegacyPhoneNumbers phoneNumbers) {
 		this.legacyEmployeeRepository = legacyEmployeeRepository;
 		this.legacyCompanyRepository = legacyCompanyRepository;
 		this.tenantFilterActivator = tenantFilterActivator;
 		this.passwordEncoder = passwordEncoder;
 		this.jwtService = jwtService;
 		this.legacyRefreshTokenService = legacyRefreshTokenService;
+		this.phoneNumbers = phoneNumbers;
 	}
 
 	@Transactional
 	public LegacyAuthResponse login(LegacyLoginRequest request) {
 		tenantFilterActivator.deactivateForPreTenantLookup();
 
-		List<LegacyEmployee> candidates = legacyEmployeeRepository.findByPhoneOrderByIdDesc(request.phone());
+		// The stored spellings of the number, newest first, kept only when the
+		// row is that number (ADR-0020): the request's text is never bound.
+		PhoneLookup phone = phoneNumbers.lookup(request.phone());
+		List<LegacyEmployee> candidates = phone.isEmpty() ? List.of()
+				: legacyEmployeeRepository.findByPhoneInOrderByIdDesc(phone.spellings()).stream()
+						.filter(employee -> phone.matches(employee.getPhone(), employee.getCountryCode()))
+						.toList();
 		List<LegacyLoginCandidate> projected = candidates.stream()
 				.map(this::toCandidate)
 				.filter(Optional::isPresent)

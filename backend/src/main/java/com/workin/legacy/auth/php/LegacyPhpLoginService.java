@@ -21,6 +21,7 @@ import com.workin.legacy.auth.LegacyLoginOutcome;
 import com.workin.legacy.auth.LegacyLoginResolution;
 import com.workin.legacy.auth.LegacyLoginResolver;
 import com.workin.legacy.auth.LegacyPhpJwtService;
+import com.workin.legacy.phone.PhoneLookup;
 import com.workin.legacy.wire.LegacyApiException;
 
 /** Exact application port of frozen auth/login_employee.php. */
@@ -44,9 +45,7 @@ public class LegacyPhpLoginService {
 			LEFT JOIN job_titles jt ON jt.id = e.job_title_id
 			JOIN companies c ON c.id = e.company_id
 			LEFT JOIN company_titles ct ON ct.id = c.company_title_id
-			WHERE e.phone = ?
-			  AND e.phone IS NOT NULL
-			  AND TRIM(e.phone) <> ''
+			WHERE %s
 			ORDER BY e.id DESC
 			""";
 
@@ -74,8 +73,12 @@ public class LegacyPhpLoginService {
 	 * durable before the later read/response work. Wrapping this in a Java
 	 * transaction would change failure semantics during the compatibility phase.
 	 */
-	public LoginResult login(String phone, String password) {
-		List<Map<String, Object>> rows = jdbcTemplate.query(LOGIN_ROWS, LegacyJdbcValues.rowMapper(), phone);
+	public LoginResult login(PhoneLookup phone, String password) {
+		// Every row holding the number in any stored spelling, newest first as
+		// PHP orders them, then only those that canonicalise to it (D-291).
+		PhoneLookup.Clause match = phone.clause("e.phone");
+		List<Map<String, Object>> rows = phone.verified(jdbcTemplate.query(
+				LOGIN_ROWS.formatted(match.sql()), LegacyJdbcValues.rowMapper(), match.binds().toArray()));
 		List<LegacyLoginCandidate> candidates = new ArrayList<>(rows.size());
 		for (Map<String, Object> row : rows) {
 			Object hash = row.get("password_hash");

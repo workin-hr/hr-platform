@@ -80,7 +80,7 @@ public class PlatformAdminCompanyService {
 		if (!this.actionsEnabled) {
 			return new Saved(false, "admin_actions_disabled");
 		}
-		if (this.companies.phoneTaken(write.phone(), 0L)) {
+		if (this.companies.phoneTaken(write.number(), 0L)) {
 			return new Saved(false, "error_phone_registered");
 		}
 		if (!this.companies.lookupsExist(write.activityId(), write.titleId(), write.sizeId())) {
@@ -117,7 +117,7 @@ public class PlatformAdminCompanyService {
 				&& this.companies.companyCodeTaken(write.companyCode(), companyId)) {
 			return new Saved(false, "company_code_taken");
 		}
-		if (this.companies.phoneTaken(write.phone(), companyId)) {
+		if (this.companies.phoneTaken(write.number(), companyId)) {
 			return new Saved(false, "error_phone_registered");
 		}
 		if (!this.companies.lookupsExist(write.activityId(), write.titleId(), write.sizeId())) {
