@@ -489,6 +489,37 @@ public final class LegacyXlsFixtures {
 		return rewrite(base, records -> merge(records, BLANK, MULBLANK, 6, null));
 	}
 
+	/**
+	 * {@link #punchOrdinary()} with a forged {@code DIMENSION}: the sheet claims
+	 * {@code 0x7FFFFFFF} rows and {@code 0xFFFF} columns while holding four rows
+	 * and two columns. Only the record's own fields change, so no offset moves.
+	 * Not in {@link #all()}: there is no PHP answer to compare it with, only a
+	 * bound the Java reader must keep (D-289).
+	 */
+	public static byte[] forgedDimension() {
+		return rewrite(punchOrdinary(), records -> {
+			List<Biff> out = new ArrayList<>();
+			int seen = 0;
+			for (Biff record : records) {
+				if (record.sid() != DIMENSIONS) {
+					out.add(record);
+					continue;
+				}
+				byte[] data = record.data().clone();
+				writeInt(data, 4, 0x7FFFFFFF);
+				writeShort(data, 10, 0xFFFF);
+				out.add(new Biff(DIMENSIONS, data));
+				seen++;
+			}
+			if (seen != 1) {
+				throw new IllegalStateException("expected one DIMENSION record, saw " + seen);
+			}
+			return out;
+		});
+	}
+
+	private static final int DIMENSIONS = 0x0200;
+
 	/** One packed cell: its row label, its {@code RK} payload and its format. */
 	private record RkCell(String label, int rk, String format) {
 	}

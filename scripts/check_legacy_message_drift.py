@@ -62,7 +62,13 @@ LOCALES = ("en", "ar")
 # kind and is the reason this list exists at all: it is not a new key but a
 # **changed value** on a live authentication path, so this application answers
 # a 403 with wording that appears in no commit.
-DIVERGES_FROM_BASELINE: dict[str, str] = {}
+DIVERGES_FROM_BASELINE: dict[str, str] = {
+    "too_many_login_attempts": (
+        "D-289: the app logins gained a miss budget PHP does not have, and its 429 "
+        "needs a message PHP never defined. Java-only by design, not pending a "
+        "baseline move."
+    ),
+}
 
 COMMITTED_HEADER = """\
 # Every message hr-legacy's apis/lang/{en,ar}.php defines, as

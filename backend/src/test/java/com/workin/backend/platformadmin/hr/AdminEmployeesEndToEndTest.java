@@ -635,6 +635,26 @@ class AdminEmployeesEndToEndTest {
 	}
 
 	@Test
+	void deactivatingAnEmployeeEndsTheSessionTheirAppHolds() {
+		// D-289: the app's guard compares token_version, so a deactivation that
+		// leaves it alone leaves the employee's token working.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+
+		get("/admin/employees?company_id=" + this.companyA, this.cookie);
+		postForm("action", "deactivate", "id", String.valueOf(id));
+
+		assertThat(this.jdbc.queryForObject(
+				"SELECT CONCAT(is_active, '/', token_version) FROM employees WHERE id = " + id, String.class))
+				.isEqualTo("0/2");
+
+		postForm("action", "reactivate", "id", String.valueOf(id));
+		assertThat(this.jdbc.queryForObject(
+				"SELECT CONCAT(is_active, '/', token_version) FROM employees WHERE id = " + id, String.class))
+				.as("reactivating ends nothing: the old token is already dead")
+				.isEqualTo("1/2");
+	}
+
+	@Test
 	void anEditCannotPointAnEmployeeAtAnotherCompanysOrgRows() {
 		// D-176, indirect half. Legacy validates none of these four.
 		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");

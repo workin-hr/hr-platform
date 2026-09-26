@@ -18,6 +18,7 @@ import com.workin.legacy.payroll.LegacyPayrollFiscalSettings;
 import com.workin.legacy.attendance.calendar.LegacyAttendancePeriodStats;
 import com.workin.legacy.attendance.calendar.LegacyAttendanceRangeCalendar;
 import com.workin.legacy.attendance.calendar.LegacyAttendanceWorkedMinutes;
+import com.workin.legacy.attendance.calendar.LegacyReportRange;
 import com.workin.legacy.attendance.session.LegacyAttendanceSessions;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.employees.LegacyEmployee;
@@ -100,9 +101,11 @@ public class LegacyAttendanceReportService {
 		if (to.compareTo(from) < 0) {
 			throw new LegacyApiException(400, "invalid_input");
 		}
+		LegacyReportRange.requireWithinCap(from, to, "invalid_input");
 
 		boolean isEmployee = context.role() == LegacyEmployee.Role.EMPLOYEE;
-		Long employeeId = isEmployee ? context.employeeId() : nonZeroLong(query, "employee_id");
+		// Boxed: a bare long here unboxes the null of an absent employee_id and 500s.
+		Long employeeId = isEmployee ? Long.valueOf(context.employeeId()) : nonZeroLong(query, "employee_id");
 		Long branchId = isEmployee ? null : nonZeroLong(query, "branch_id");
 		Long departmentId = isEmployee ? null : nonZeroLong(query, "department_id");
 		String search = LegacyPagination.searchQueryParam(query);

@@ -16,6 +16,7 @@ import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.spreadsheet.LegacyCsvReader;
 import com.workin.legacy.spreadsheet.LegacySpreadsheetFormat;
+import com.workin.legacy.spreadsheet.LegacySpreadsheetRows;
 import com.workin.legacy.spreadsheet.LegacyXlsxReader;
 import com.workin.legacy.spreadsheet.LegacyXlsxWriter;
 
@@ -185,14 +186,20 @@ public class LegacyLeaveBalanceSpreadsheetService {
 		List<String> header = matrix.getFirst();
 		List<String> keys = header.stream().map(this::normalizeHeader).toList();
 		List<Map<String, Object>> rows = new ArrayList<>();
+		LegacySpreadsheetRows.KeyedCells budget = new LegacySpreadsheetRows.KeyedCells();
 		for (int rowIndex = 1; rowIndex < matrix.size(); rowIndex++) {
-			List<String> source = matrix.get(rowIndex);
-			Map<String, Object> row = new LinkedHashMap<>();
+			Map<String, Object> row;
+			try {
+				row = LegacySpreadsheetRows.assocRow(keys, matrix.get(rowIndex), budget);
+			} catch (LegacySpreadsheetRows.TooManyCellsException ex) {
+				throw new IllegalArgumentException("Empty or unreadable file");
+			}
+			if (row == null) {
+				continue;
+			}
 			boolean any = false;
-			for (int column = 0; column < keys.size(); column++) {
-				String value = column < source.size() ? source.get(column) : null;
-				row.put(keys.get(column), value);
-				if (value != null && !LegacyValues.phpTrim(value).isEmpty()) {
+			for (Object value : row.values()) {
+				if (value != null && !LegacyValues.phpTrim((String) value).isEmpty()) {
 					any = true;
 				}
 			}
@@ -244,22 +251,30 @@ public class LegacyLeaveBalanceSpreadsheetService {
 
 	private String normalizeHeader(String header) {
 		String key = foldHeader(header);
-		for (Column column : COLUMNS) {
+		for (int index = 0; index < COLUMNS.size(); index++) {
+			Column column = COLUMNS.get(index);
 			if (key.equals(column.key())) {
 				return column.key();
 			}
-			List<String> aliases = new ArrayList<>();
-			aliases.add(column.labelAr());
-			aliases.add(column.labelEn());
-			aliases.addAll(column.aliases());
-			for (String alias : aliases) {
-				String aliasKey = foldHeader(alias);
+			for (String aliasKey : AliasKeys.BY_COLUMN.get(index)) {
 				if (!aliasKey.isEmpty() && (key.equals(aliasKey) || key.startsWith(aliasKey + "_"))) {
 					return column.key();
 				}
 			}
 		}
 		return key;
+	}
+
+	/** Each column's labels and aliases, folded once rather than for every header cell (D-289). */
+	private static final class AliasKeys {
+
+		static final List<List<String>> BY_COLUMN = COLUMNS.stream().map(column -> {
+			List<String> aliases = new ArrayList<>();
+			aliases.add(column.labelAr());
+			aliases.add(column.labelEn());
+			aliases.addAll(column.aliases());
+			return aliases.stream().map(LegacyLeaveBalanceSpreadsheetService::foldHeader).toList();
+		}).toList();
 	}
 
 	/** Literal Java port of {@code leave_balance_excel_normalize_header_key()}'s fold closure. */

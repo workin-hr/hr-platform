@@ -11,6 +11,7 @@ import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyPhpStrtotime;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.attendance.calendar.LegacyAttendanceRangeCalendar;
+import com.workin.legacy.attendance.calendar.LegacyReportRange;
 import com.workin.legacy.wire.LegacyApiException;
 
 /**
@@ -153,6 +154,7 @@ public class LegacyAttendanceExportService {
 		if (to.compareTo(from) < 0) {
 			throw new LegacyApiException(400, "invalid_input");
 		}
+		LegacyReportRange.requireWithinCap(from, to, LegacyReportRange.MAX_EXPORT_DAYS, "invalid_input");
 
 		List<List<String>> rows = new ArrayList<>();
 		List<Integer> rowStyles = new ArrayList<>();

@@ -157,20 +157,24 @@ public class LegacyProfileStore {
 				LegacyJdbcValues.rowMapper(), employeeId, companyId));
 	}
 
+	/**
+	 * {@code delete_account.php}'s deactivation. PHP sets only {@code is_active};
+	 * the port also bumps {@code token_version}, so the deleted account's token
+	 * stops authenticating at once rather than at its expiry (D-289).
+	 */
 	public void deactivate(long employeeId, long companyId) {
-		jdbcTemplate.update("UPDATE employees SET is_active = 0 WHERE id = ? AND company_id = ?",
+		jdbcTemplate.update(
+				"UPDATE employees SET is_active = 0, token_version = COALESCE(token_version, 0) + 1"
+						+ " WHERE id = ? AND company_id = ?",
 				employeeId, companyId);
 	}
 
 	/**
-	 * {@code logout.php}'s deactivation, which is <em>not</em> the one above:
-	 * it bumps {@code token_version} in the same statement, so the JWT the
-	 * departing employee still holds stops authenticating immediately rather
-	 * than at its own expiry.
-	 *
-	 * <p>{@code delete_account.php} sets only {@code is_active}, so the two
-	 * stay separate methods. Merging them would silently start revoking
-	 * sessions on a path legacy leaves alone.
+	 * {@code logout.php}'s deactivation: it bumps {@code token_version} in the
+	 * same statement, so the JWT the departing employee still holds stops
+	 * authenticating immediately rather than at its own expiry. Since D-289
+	 * {@link #deactivate} does the same, but the two stay separate methods
+	 * because they port two different PHP statements.
 	 */
 	public void deactivateAndRevokeSessions(long employeeId, long companyId) {
 		jdbcTemplate.update(

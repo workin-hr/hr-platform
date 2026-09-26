@@ -594,6 +594,10 @@ public class LegacyEmployeeService {
 			// message is legacy's 'forbidden', not the platform's error.forbidden.
 			throw new LegacyApiException(403, "forbidden");
 		}
+		// Sending the field is enough: update.php writes whatever it is sent.
+		if (LegacyHrPeerCredentials.refuses(context, employeeId, employee.get("role"), body.keySet())) {
+			throw new LegacyApiException(403, "forbidden");
+		}
 		if (hrSession && employeeId == context.employeeId()) {
 			body.keySet().retainAll(SELF_UPDATABLE_FIELDS);
 		}
@@ -731,6 +735,11 @@ public class LegacyEmployeeService {
 		try {
 			store.inTransaction(() -> {
 				store.updateEmployeeColumns(employeeId, context.companyId(), updates);
+				// is_active was normalised to 0 or 1 above; a deactivation ends the
+				// target's sessions, which update.php does not do (D-289).
+				if (Integer.valueOf(0).equals(body.get("is_active"))) {
+					store.revokeSessions(employeeId, context.companyId());
+				}
 				// Appended every time, never replacing or de-duplicating.
 				if (shiftId != null && shiftId > 0) {
 					store.insertShiftAssignment(employeeId, shiftId, shiftEffectiveFrom);
@@ -1171,7 +1180,7 @@ public class LegacyEmployeeService {
 		if (rows.isEmpty()) {
 			throw new LegacyApiException(400, "field_required", null, Map.of("field", "rows"));
 		}
-		return bulkUpdater.updateRows(context.companyId(), rows, lookups(context.companyId()));
+		return bulkUpdater.updateRows(context, rows, lookups(context.companyId()));
 	}
 
 	/**

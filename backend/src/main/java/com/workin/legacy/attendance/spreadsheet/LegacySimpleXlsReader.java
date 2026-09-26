@@ -7,10 +7,13 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.RandomAccess;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -151,6 +154,12 @@ public final class LegacySimpleXlsReader {
 	 */
 	private static final String REFUSE_TO_DECRYPT = "legacy parity -- never decrypt an .xls";
 
+	/** BIFF8's row limit. */
+	static final int MAX_ROWS = 65_536;
+
+	/** BIFF8's column limit. */
+	static final int MAX_COLUMNS = 256;
+
 	private LegacySimpleXlsReader() {
 	}
 
@@ -251,22 +260,66 @@ public final class LegacySimpleXlsReader {
 			return List.of();
 		}
 		HSSFSheet sheet = workbook.getSheetAt(0);
-		int numRows = rowCount(sheet);
-		int numCols = columnCount(sheet);
+		// DIMENSION is the file's own claim and is read before any cell, so a
+		// forged one sized the grid at will (D-289). Clamped to BIFF8's limits,
+		// and never past the last row that exists: every row beyond it would
+		// be blank, and xlsAssoc drops a row with fewer than two filled cells.
+		// At least one, because an empty sheet reads as one empty cell in PHP.
+		int present = Math.max(1, sheet.getLastRowNum() + 1);
+		int numRows = Math.max(0, Math.min(rowCount(sheet), Math.min(MAX_ROWS, present)));
+		int numCols = Math.max(0, Math.min(columnCount(sheet), MAX_COLUMNS));
 		Map<Integer, String> formats = formatRecords(workbook);
 		boolean nineteenFour = workbook.getInternalWorkbook().isUsing1904DateWindowing();
 
+		// Still numRows by numCols, but a row holds only what the file wrote:
+		// the blank tail past its last cell is implied, and every missing row
+		// is one shared blank. A forged DIMENSION and a single cell at row
+		// 65535 otherwise built 16 million slots from a file of a few KB.
+		List<String> blankRow = new PaddedRow(new String[0], numCols);
 		List<List<String>> grid = new ArrayList<>(numRows);
 		for (int rowIndex = 0; rowIndex < numRows; rowIndex++) {
 			HSSFRow row = sheet.getRow(rowIndex);
-			List<String> cells = new ArrayList<>(numCols);
-			for (int column = 0; column < numCols; column++) {
-				HSSFCell cell = row == null ? null : row.getCell(column);
-				cells.add(cell == null ? "" : value(cell, formats, nineteenFour));
+			int written = row == null ? 0 : Math.max(0, Math.min(row.getLastCellNum(), numCols));
+			if (written == 0) {
+				grid.add(blankRow);
+				continue;
 			}
-			grid.add(List.copyOf(cells));
+			String[] cells = new String[written];
+			for (int column = 0; column < written; column++) {
+				HSSFCell cell = row.getCell(column);
+				cells[column] = cell == null ? "" : value(cell, formats, nineteenFour);
+			}
+			grid.add(new PaddedRow(cells, numCols));
 		}
 		return List.copyOf(grid);
+	}
+
+	/**
+	 * An unmodifiable row of {@code size} cells whose positions past
+	 * {@code cells} read as {@code ''}, which is what {@code rows()} yields
+	 * for a position no cell record covered.
+	 */
+	private static final class PaddedRow extends AbstractList<String> implements RandomAccess {
+
+		private final String[] cells;
+
+		private final int size;
+
+		PaddedRow(String[] cells, int size) {
+			this.cells = cells;
+			this.size = size;
+		}
+
+		@Override
+		public String get(int index) {
+			Objects.checkIndex(index, this.size);
+			return index < this.cells.length ? this.cells[index] : "";
+		}
+
+		@Override
+		public int size() {
+			return this.size;
+		}
 	}
 
 	/**

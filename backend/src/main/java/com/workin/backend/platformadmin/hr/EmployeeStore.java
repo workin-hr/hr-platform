@@ -473,9 +473,14 @@ public class EmployeeStore {
 		}
 	}
 
+	/**
+	 * A deactivation also bumps {@code token_version}, so the employee's app
+	 * token stops authenticating at once (D-289); legacy's dashboard does not.
+	 */
 	public int setActive(long id, boolean active) {
 		return this.jdbcTemplate.update(
-				"UPDATE employees SET is_active = ? WHERE id = ?", active ? 1 : 0, id);
+				"UPDATE employees SET is_active = ?, token_version = token_version + ? WHERE id = ?",
+				active ? 1 : 0, active ? 0 : 1, id);
 	}
 
 	public int delete(long id) {

@@ -249,6 +249,11 @@ public class LegacyEmployee {
 		return tokenVersion;
 	}
 
+	/** The stored text, unparsed: a guard must not fail on a value the enum does not know. */
+	public String getJoinRequestStatus() {
+		return joinRequestStatus;
+	}
+
 	public String getNationalId() {
 		return nationalId;
 	}

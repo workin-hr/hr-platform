@@ -34,9 +34,11 @@ import org.springframework.transaction.annotation.Transactional;
  * here rather than tuneable configuration: a property that can widen the budget
  * is a property that can remove it.
  *
- * <p>Recording is {@code REQUIRES_NEW} for the same reason the audit write is:
+ * <p>Every write is {@code REQUIRES_NEW} for the same reason the audit write is:
  * the caller throws immediately after a failed attempt, and a failure the
- * rollback erases is a failure that never counted.
+ * rollback erases is a failure that never counted. The reservation also has to
+ * be visible to concurrent attempts before the password is checked, which only
+ * a committed row is.
  */
 @Service
 public class PlatformAdminLoginThrottle {
@@ -60,17 +62,40 @@ public class PlatformAdminLoginThrottle {
 		this.clock = clock;
 	}
 
-	/** Whether this identifier has spent its budget for the current window. */
-	@Transactional(readOnly = true)
-	public boolean isExhausted(String identifier) {
-		return this.attemptRepository.countByIdentifierHashAndAttemptedAtAfter(
-				hash(identifier), this.clock.instant().minus(WINDOW)) >= MAX_ATTEMPTS;
+	/**
+	 * Charges one attempt to the budget <em>before</em> the password is
+	 * checked, and commits it.
+	 *
+	 * <p>The order is the point. Reading the count, running bcrypt and only
+	 * then recording the miss let every request that arrived while the first
+	 * was hashing see the same unspent budget, so a burst of parallel guesses
+	 * all went through (D-289). With the row committed first and the window
+	 * counted after ({@link #withinBudget}), the k-th attempt to proceed counts
+	 * at least k rows, so no more than {@link #MAX_ATTEMPTS} can.
+	 *
+	 * @return the reservation, for {@link #release} when the attempt is refused
+	 */
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public long reserve(String identifier) {
+		return this.attemptRepository.save(
+				new PlatformAdminLoginAttempt(hash(identifier), this.clock.instant())).getId();
 	}
 
+	/** Whether the reserved attempt fits: the window's rows, this one included, within the budget. */
+	@Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
+	public boolean withinBudget(String identifier) {
+		return this.attemptRepository.countByIdentifierHashAndAttemptedAtAfter(
+				hash(identifier), this.clock.instant().minus(WINDOW)) <= MAX_ATTEMPTS;
+	}
+
+	/**
+	 * Returns a reservation that was refused. A refused attempt never reached
+	 * the password, so, as before, it does not itself extend the lockout. A
+	 * reservation that reached the password and failed is kept: it is the miss.
+	 */
 	@Transactional(propagation = Propagation.REQUIRES_NEW)
-	public void recordFailure(String identifier) {
-		this.attemptRepository.save(
-				new PlatformAdminLoginAttempt(hash(identifier), this.clock.instant()));
+	public void release(long reservation) {
+		this.attemptRepository.deleteById(reservation);
 	}
 
 	/**

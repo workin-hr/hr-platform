@@ -370,10 +370,27 @@ public class LegacyEmployeeStore {
 	 * is deliberately ignored for that reason, and the company predicate is what
 	 * makes the write tenant-safe -- a native statement Hibernate's filters
 	 * never see.
+	 *
+	 * <p>A deactivation also bumps {@code token_version}, which PHP does not:
+	 * without it the departing employee's token kept working (D-289).
 	 */
 	public void setActive(long employeeId, long companyId, int active) {
 		jdbcTemplate.update(
-				"UPDATE employees SET is_active=? WHERE id=? AND company_id=?", active, employeeId, companyId);
+				active == 0
+						? "UPDATE employees SET is_active=?, token_version=COALESCE(token_version, 0) + 1"
+								+ " WHERE id=? AND company_id=?"
+						: "UPDATE employees SET is_active=? WHERE id=? AND company_id=?",
+				active, employeeId, companyId);
+	}
+
+	/**
+	 * Ends every session the employee holds. {@code update.php} calls it in the
+	 * same transaction as a write that sets {@code is_active} to 0 (D-289).
+	 */
+	public void revokeSessions(long employeeId, long companyId) {
+		jdbcTemplate.update(
+				"UPDATE employees SET token_version=COALESCE(token_version, 0) + 1 WHERE id=? AND company_id=?",
+				employeeId, companyId);
 	}
 
 	/**

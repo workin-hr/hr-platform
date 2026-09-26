@@ -357,7 +357,43 @@ public class LegacyEmployeeUpdateAnalyzer {
 			return;
 		}
 
-		String rawCountry = trimmed(row.get("country_code"));
+		String[] resolved = normalizePhone(phoneCell, row.get("country_code"), employee);
+		if (resolved == null) {
+			errors.add("invalid_phone");
+			return;
+		}
+		String phone = resolved[0];
+		String countryCode = resolved[1];
+
+		if (this.store.phoneExistsGlobally(phone, employeeId)) {
+			// Reported, and neither field written: the row fails, so the
+			// payload must not carry a number that was rejected.
+			errors.add("phone_exists");
+			return;
+		}
+		payload.put("phone", phone);
+		payload.put("country_code", countryCode);
+	}
+
+	/**
+	 * The employee's stored phone and country code as a sheet carrying them
+	 * unchanged would resolve them, or {@code null} when there is no stored
+	 * phone or it does not resolve. {@code update.php} stores a phone as sent
+	 * -- {@code 201012345678}, a code of {@code 20} -- so a re-uploaded export
+	 * resolves to a different string for the same number, and only this form
+	 * says whether a row really changes it (D-289).
+	 */
+	public String[] storedPhoneAsSheetResolves(Map<String, Object> employee) {
+		Object stored = employee.get("phone");
+		if (LegacyValues.phpTrim(LegacyPhoneNumbers.excelCellToRaw(stored)).isEmpty()) {
+			return null;
+		}
+		return normalizePhone(stored, employee.get("country_code"), employee);
+	}
+
+	/** The phone and country code a sheet's two cells resolve to, or {@code null} for an invalid phone. */
+	private String[] normalizePhone(Object phoneCell, Object countryCell, Map<String, Object> employee) {
+		String rawCountry = trimmed(countryCell);
 		String folded = LegacyValues.mbStrToLower(rawCountry);
 		if (rawCountry.isEmpty() || folded.contains("دولة") || folded.contains("country")) {
 			rawCountry = text(employee.get("country_code"));
@@ -373,23 +409,13 @@ public class LegacyEmployeeUpdateAnalyzer {
 		String phone = this.phoneNumbers.normalizeLocal(countryCode, phoneCell);
 		if (!this.phoneNumbers.isValidLocal(countryCode, phone)) {
 			String egyptian = this.phoneNumbers.normalizeLocal("+20", phoneCell);
-			if (this.phoneNumbers.isValidLocal("+20", egyptian)) {
-				phone = egyptian;
-				countryCode = "+20";
-			} else {
-				errors.add("invalid_phone");
-				return;
+			if (!this.phoneNumbers.isValidLocal("+20", egyptian)) {
+				return null;
 			}
+			phone = egyptian;
+			countryCode = "+20";
 		}
-
-		if (this.store.phoneExistsGlobally(phone, employeeId)) {
-			// Reported, and neither field written: the row fails, so the
-			// payload must not carry a number that was rejected.
-			errors.add("phone_exists");
-			return;
-		}
-		payload.put("phone", phone);
-		payload.put("country_code", countryCode);
+		return new String[] {phone, countryCode};
 	}
 
 	/** {@code employee_excel_cell_filled()}: present and non-blank after trimming. */

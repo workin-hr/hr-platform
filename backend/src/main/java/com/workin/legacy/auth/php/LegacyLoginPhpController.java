@@ -8,6 +8,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.workin.legacy.LegacyJsonBody;
 import com.workin.legacy.LegacyValues;
+import com.workin.legacy.auth.LegacyLoginOutcome;
+import com.workin.legacy.auth.LegacyLoginThrottle;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyApiResponse;
 import com.workin.legacy.wire.LegacyMessages;
@@ -21,10 +23,13 @@ public class LegacyLoginPhpController {
 
 	private final LegacyPhpLoginService service;
 	private final LegacyMessages messages;
+	private final LegacyLoginThrottle loginThrottle;
 
-	public LegacyLoginPhpController(LegacyPhpLoginService service, LegacyMessages messages) {
+	public LegacyLoginPhpController(
+			LegacyPhpLoginService service, LegacyMessages messages, LegacyLoginThrottle loginThrottle) {
 		this.service = service;
 		this.messages = messages;
+		this.loginThrottle = loginThrottle;
 	}
 
 	@RequestMapping("/login_employee.php")
@@ -34,9 +39,14 @@ public class LegacyLoginPhpController {
 		required(body, "phone");
 		required(body, "password");
 
-		String phone = LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("phone")));
 		String password = LegacyValues.toPhpString(body.get("password"));
-		LegacyPhpLoginService.LoginResult login = service.login(phone, password);
+		// The lookup binds the throttle's folded phone, trimmed as before, so
+		// the budget is keyed on exactly what it matches (D-289).
+		LegacyPhpLoginService.LoginResult login = loginThrottle.guard(
+				body.get("phone"), request.getRemoteAddr(),
+				() -> new LegacyApiException(
+						LegacyLoginOutcome.USER_NOT_FOUND.status(), LegacyLoginOutcome.USER_NOT_FOUND.messageKey()),
+				phone -> service.login(LegacyValues.phpTrim(phone), password));
 
 		Map<String, Object> data = new LinkedHashMap<>();
 		data.put("token", login.token());

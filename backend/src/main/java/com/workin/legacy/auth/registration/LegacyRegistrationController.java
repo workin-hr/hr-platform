@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.workin.legacy.LegacyJsonBody;
 import com.workin.legacy.LegacyValues;
+import com.workin.legacy.auth.LegacyLoginThrottle;
 import com.workin.legacy.auth.LegacyPhpJwtService;
 import com.workin.legacy.uploads.LegacyFileUploads;
 import com.workin.legacy.wire.LegacyApiException;
@@ -35,16 +36,18 @@ public class LegacyRegistrationController {
 	private final LegacyEmployeeSessionTokens sessionTokens;
 	private final LegacyFileUploads fileUploads;
 	private final LegacyMessages messages;
+	private final LegacyLoginThrottle loginThrottle;
 
 	public LegacyRegistrationController(
 			LegacyRegistrationService service, LegacyPhpJwtService jwtService,
 			LegacyEmployeeSessionTokens sessionTokens, LegacyFileUploads fileUploads,
-			LegacyMessages messages) {
+			LegacyMessages messages, LegacyLoginThrottle loginThrottle) {
 		this.service = service;
 		this.jwtService = jwtService;
 		this.sessionTokens = sessionTokens;
 		this.fileUploads = fileUploads;
 		this.messages = messages;
+		this.loginThrottle = loginThrottle;
 	}
 
 	/** The only GET in the module. */
@@ -158,7 +161,9 @@ public class LegacyRegistrationController {
 		requireMethod(request, "POST");
 		Map<String, Object> body = LegacyJsonBody.read(request);
 		required(body, "phone", "password");
-		return companyLoginResponse(request, body, false);
+		return loginThrottle.guard(body.get("phone"), request.getRemoteAddr(),
+				() -> new LegacyApiException(401, "invalid_phone_password"),
+				phone -> companyLoginResponse(request, withPhone(body, phone), false));
 	}
 
 	/**
@@ -177,13 +182,27 @@ public class LegacyRegistrationController {
 		String loginAs = LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("login_as")))
 				.toLowerCase(java.util.Locale.ROOT);
 		if ("hr".equals(loginAs) || "employee".equals(loginAs)) {
-			return LegacyApiResponse.ok(message(request, "login_successful"),
-					service.desktopHrLogin(body, messages.resolveLocale(request)));
+			return loginThrottle.guard(body.get("phone"), request.getRemoteAddr(),
+					() -> new LegacyApiException(401, "user_not_found"),
+					phone -> LegacyApiResponse.ok(message(request, "login_successful"),
+							service.desktopHrLogin(withPhone(body, phone), messages.resolveLocale(request))));
 		}
 		if ("company".equals(loginAs) || "company_admin".equals(loginAs)) {
-			return companyLoginResponse(request, body, true);
+			return loginThrottle.guard(body.get("phone"), request.getRemoteAddr(),
+					() -> new LegacyApiException(401, "company_not_registered"),
+					phone -> companyLoginResponse(request, withPhone(body, phone), true));
 		}
 		throw new LegacyApiException(400, "field_required", null, Map.of("field", "login_as"));
+	}
+
+	/**
+	 * The body with its phone replaced by the one the login throttle folded,
+	 * so the lookup binds exactly the value the budget is keyed on (D-289).
+	 */
+	private static Map<String, Object> withPhone(Map<String, Object> body, String phone) {
+		Map<String, Object> bound = new LinkedHashMap<>(body);
+		bound.put("phone", phone);
+		return bound;
 	}
 
 	/** The three shapes a company login can answer with, shared by both routes. */

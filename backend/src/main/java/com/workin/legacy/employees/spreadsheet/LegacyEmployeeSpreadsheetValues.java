@@ -8,6 +8,7 @@ import java.util.regex.Pattern;
 
 import com.workin.legacy.LegacyPhpStrtotime;
 import com.workin.legacy.LegacyValues;
+import com.workin.legacy.spreadsheet.LegacySpreadsheetRows;
 import com.workin.legacy.spreadsheet.LegacyXlsxReader;
 
 /**
@@ -251,17 +252,12 @@ public final class LegacyEmployeeSpreadsheetValues {
 	/**
 	 * {@code spreadsheet_assoc_row()}: a short row is padded with nulls and a
 	 * long one is truncated, both to the header's width. An empty header yields
-	 * null, which the caller drops.
+	 * null, which the caller drops. Built by the shared helper, which charges
+	 * the row to the sheet's {@code budget} first (D-289).
 	 */
-	public static Map<String, Object> assocRow(List<String> header, List<String> row) {
-		if (header.isEmpty()) {
-			return null;
-		}
-		Map<String, Object> combined = new LinkedHashMap<>();
-		for (int index = 0; index < header.size(); index++) {
-			combined.put(header.get(index), index < row.size() ? row.get(index) : null);
-		}
-		return combined;
+	public static Map<String, Object> assocRow(
+			List<String> header, List<String> row, LegacySpreadsheetRows.KeyedCells budget) {
+		return LegacySpreadsheetRows.assocRow(header, row, budget);
 	}
 
 	/** {@code is_numeric()} for the shapes a spreadsheet cell can hold. */

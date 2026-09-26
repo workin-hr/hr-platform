@@ -8,6 +8,7 @@ import java.util.Map;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.spreadsheet.LegacyCsvReader;
 import com.workin.legacy.spreadsheet.LegacySpreadsheetFormat;
+import com.workin.legacy.spreadsheet.LegacySpreadsheetRows;
 import com.workin.legacy.spreadsheet.LegacyXlsxReader;
 
 /**
@@ -217,6 +218,21 @@ public final class LegacyEmployeeSpreadsheetReader {
 		}
 
 		List<Map<String, Object>> rawRows = new ArrayList<>();
+		try {
+			readKeyedRows(content, format, rawRows);
+		} catch (LegacySpreadsheetRows.TooManyCellsException ex) {
+			throw new LegacySpreadsheetException(EMPTY_OR_UNREADABLE);
+		}
+		return filterDataRows(rawRows);
+	}
+
+	/**
+	 * The XLSX branch, or the CSV one, keyed by the header into {@code rawRows}
+	 * -- every row through one {@link LegacySpreadsheetRows.KeyedCells} budget.
+	 */
+	private static void readKeyedRows(
+			byte[] content, LegacySpreadsheetFormat format, List<Map<String, Object>> rawRows) {
+		LegacySpreadsheetRows.KeyedCells budget = new LegacySpreadsheetRows.KeyedCells();
 		boolean readAsWorkbook = false;
 		if (format == LegacySpreadsheetFormat.XLSX) {
 			List<List<String>> matrix = readWorkbook(content);
@@ -232,7 +248,7 @@ public final class LegacyEmployeeSpreadsheetReader {
 					}
 					List<String> header = rows.isEmpty() ? List.of() : normalize(rows.remove(0));
 					for (List<String> row : rows) {
-						Map<String, Object> combined = LegacyEmployeeSpreadsheetValues.assocRow(header, row);
+						Map<String, Object> combined = LegacyEmployeeSpreadsheetValues.assocRow(header, row, budget);
 						if (combined != null) {
 							rawRows.add(combined);
 						}
@@ -254,13 +270,16 @@ public final class LegacyEmployeeSpreadsheetReader {
 			List<String> header = headerRaw == null ? List.of() : normalize(headerRaw);
 			while (index < records.size()) {
 				Map<String, Object> combined =
-						LegacyEmployeeSpreadsheetValues.assocRow(header, records.get(index++));
+						LegacyEmployeeSpreadsheetValues.assocRow(header, records.get(index++), budget);
 				if (combined != null) {
 					rawRows.add(combined);
 				}
 			}
 		}
 
+	}
+
+	private static List<Map<String, Object>> filterDataRows(List<Map<String, Object>> rawRows) {
 		List<Map<String, Object>> dataRows = new ArrayList<>();
 		for (int index = 0; index < rawRows.size(); index++) {
 			Map<String, Object> row = rawRows.get(index);

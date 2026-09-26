@@ -58,7 +58,9 @@ public class PlatformAdminLoginService {
 	 */
 	public Optional<PlatformAdmin> login(String password, String clientKey) {
 		String budget = "web:" + clientKey;
-		if (this.throttle.isExhausted(budget)) {
+		long reservation = this.throttle.reserve(budget);
+		if (!this.throttle.withinBudget(budget)) {
+			this.throttle.release(reservation);
 			return Optional.empty();
 		}
 		PlatformAdmin admin = this.platformAdminRepository.findByPhone(ADMIN_IDENTIFIER).orElse(null);
@@ -67,7 +69,7 @@ public class PlatformAdminLoginService {
 		boolean matches = this.passwordEncoder.matches(
 				password == null ? "" : password, admin != null ? admin.getPasswordHash() : DUMMY_HASH);
 		if (admin == null || !matches || !admin.isActive()) {
-			this.throttle.recordFailure(budget);
+			// The reservation stays: it is this miss.
 			if (admin != null) {
 				this.auditService.record(admin.getId(), PlatformAdminAuditEventType.LOGIN_FAILED,
 						admin.isActive() ? "wrong password" : "inactive account");

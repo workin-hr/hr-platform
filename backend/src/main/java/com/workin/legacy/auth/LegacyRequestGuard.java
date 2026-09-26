@@ -121,7 +121,10 @@ public class LegacyRequestGuard {
 		}
 	}
 
-	/** PHP requireEmployeeSessionValid(): only type=employee participates. */
+	/**
+	 * PHP requireEmployeeSessionValid(): only type=employee participates. The
+	 * port adds one refusal legacy lacks -- an inactive, non-pending row.
+	 */
 	private void requireSessionValid(AuthenticatedPrincipal principal) {
 		if (principal.legacyAuthType() != null && !"employee".equals(principal.legacyAuthType())) {
 			return;
@@ -138,6 +141,13 @@ public class LegacyRequestGuard {
 		long databaseVersion = currentVersion == null ? 0L : currentVersion.longValue();
 		long claimedVersion = principal.claimedTokenVersion() == null ? -1L : principal.claimedTokenVersion();
 		if (claimedVersion != databaseVersion) {
+			throw new ApiException(HttpStatus.UNAUTHORIZED, "session_replaced");
+		}
+		// PHP checks token_version alone, so a deactivation that did not bump it
+		// left the token working (D-289). A pending joiner is inactive by
+		// construction and legacy's login deliberately issues it a token, so it
+		// is the one inactive row that keeps its session.
+		if (!employee.active() && !"pending".equals(employee.getJoinRequestStatus())) {
 			throw new ApiException(HttpStatus.UNAUTHORIZED, "session_replaced");
 		}
 	}

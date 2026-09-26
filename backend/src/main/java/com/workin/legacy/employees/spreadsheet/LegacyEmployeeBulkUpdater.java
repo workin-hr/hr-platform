@@ -18,7 +18,10 @@ import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyPhpArray;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import com.workin.legacy.LegacyValues;
+import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.employees.LegacyEmployeeStore;
+import com.workin.legacy.employees.LegacyHrPeerCredentials;
 
 /**
  * {@code employee_excel_update_rows()} and {@code employee_excel_apply_update()}
@@ -91,9 +94,10 @@ public class LegacyEmployeeBulkUpdater {
 	 * @return {@code updated}, {@code failed} and {@code updated_ids}, the
 	 *         three keys the endpoint returns unchanged
 	 */
-	public Map<String, Object> updateRows(long companyId, LegacyPhpArray rows,
+	public Map<String, Object> updateRows(LegacyRequestContext context, LegacyPhpArray rows,
 			LegacyEmployeeSpreadsheetLookups lookups) {
 
+		long companyId = context.companyId();
 		Map<String, Map<String, Object>> employeesByCode = this.store.employeesByCode(companyId);
 		Set<String> seenCodes = new HashSet<>();
 		List<Map<String, Object>> failed = new ArrayList<>();
@@ -122,7 +126,7 @@ public class LegacyEmployeeBulkUpdater {
 				continue;
 			}
 
-			List<String> applyErrors = applyUpdate(companyId, parsed.payload());
+			List<String> applyErrors = applyUpdate(context, parsed.payload());
 			if (!applyErrors.isEmpty()) {
 				failed.add(failure(entry, applyErrors, row));
 				continue;
@@ -176,7 +180,8 @@ public class LegacyEmployeeBulkUpdater {
 	 *
 	 * @return the errors, empty when the row applied
 	 */
-	private List<String> applyUpdate(long companyId, Map<String, Object> payload) {
+	private List<String> applyUpdate(LegacyRequestContext context, Map<String, Object> payload) {
+		long companyId = context.companyId();
 		long id = asLong(payload.get("id"));
 		if (id < 1) {
 			return List.of("employee_not_found");
@@ -188,6 +193,13 @@ public class LegacyEmployeeBulkUpdater {
 			// travels through the client between analyze and update, so this
 			// is the boundary check, not a repeat of one.
 			return List.of("employee_not_found");
+		}
+		// D-289: the same peer rule update.php applies, read after the company
+		// check so the row is the one about to be written. The sheet repeats a
+		// phone it did not change, so only a value that would change counts.
+		if (LegacyHrPeerCredentials.refuses(
+				context, id, employee.get("role"), changedCredentials(payload, employee))) {
+			return List.of("forbidden");
 		}
 
 		List<String> setColumns = new ArrayList<>();
@@ -243,6 +255,30 @@ public class LegacyEmployeeBulkUpdater {
 			return List.of("employee_update_failed");
 		}
 		return List.of();
+	}
+
+	/**
+	 * The credential fields this row would actually change: a password the
+	 * apply step would hash, and a phone or country code that differs from
+	 * the stored one once both are in the form the sheet resolves to -- a
+	 * stored {@code 201012345678} is the sheet's {@code 01012345678}. The bulk
+	 * sheet has no active-flag column.
+	 */
+	private List<String> changedCredentials(Map<String, Object> payload, Map<String, Object> employee) {
+		List<String> changed = new ArrayList<>();
+		if (payload.containsKey("password") && !String.valueOf(payload.get("password")).trim().isEmpty()) {
+			changed.add("password");
+		}
+		String[] stored = this.analyzer.storedPhoneAsSheetResolves(employee);
+		List<String> fields = List.of("phone", "country_code");
+		for (int index = 0; index < fields.size(); index++) {
+			String field = fields.get(index);
+			String current = stored == null ? LegacyValues.toPhpString(employee.get(field)) : stored[index];
+			if (payload.containsKey(field) && !LegacyValues.toPhpString(payload.get(field)).equals(current)) {
+				changed.add(field);
+			}
+		}
+		return changed;
 	}
 
 	/**

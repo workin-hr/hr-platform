@@ -104,7 +104,8 @@ class LegacyEmployeeSpreadsheetValuesTest {
 			@SuppressWarnings("unchecked")
 			List<String> row = (List<String>) probe.get("row");
 			List<String> headerForCase = "no header".equals(probe.get("label")) ? List.of() : header;
-			assertThat(LegacyEmployeeSpreadsheetValues.assocRow(headerForCase, row))
+			assertThat(LegacyEmployeeSpreadsheetValues.assocRow(headerForCase, row,
+					new com.workin.legacy.spreadsheet.LegacySpreadsheetRows.KeyedCells()))
 					.as("assoc %s", probe.get("label"))
 					.isEqualTo(probe.get("result"));
 		}
