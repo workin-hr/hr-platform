@@ -60,6 +60,8 @@ class LegacyCanonicalPhoneEndToEndTest {
 	private static final long SAUDI_COMPANY = 29105L;
 	private static final long RECODED_COMPANY = 29106L;
 	private static final long RECODED_TWIN_COMPANY = 29107L;
+	private static final long SAUDI_DIGITS_COMPANY = 29109L;
+	private static final long EMIRATI_DIGITS_COMPANY = 29110L;
 
 	private static final long EMPLOYEE = 291001L;
 	private static final long SAUDI = 291002L;
@@ -69,6 +71,9 @@ class LegacyCanonicalPhoneEndToEndTest {
 	private static final long EMIRATI_TWIN = 291006L;
 	private static final long BRITISH = 291007L;
 	private static final long EMIRATI = 291008L;
+	private static final long SAUDI_DIGITS = 291010L;
+	private static final long EMIRATI_DIGITS = 291011L;
+	private static final long MISCODED = 291012L;
 
 	private static final String EMPLOYEE_PHONE = "01012910001";
 	private static final String CODE = "CANON01";
@@ -328,7 +333,139 @@ class LegacyCanonicalPhoneEndToEndTest {
 		execute("UPDATE employees SET password_hash = '" + HASH + "' WHERE id = " + EMIRATI);
 	}
 
+	@Test
+	void aResetForOneOfTwoEmployeesHoldingTheSameDigitsActsOnTheNumberTheCodeWasSentTo() throws Exception {
+		// 501234592 is one employee in +966 and, with its zero, another in
+		// +971; the Emirati asks for the code, then types the digits nationally.
+		assertThat(post("forgot_password", Map.of("phone", "+971501234592", "type", "employee"))
+				.getStatusCode().value()).isEqualTo(200);
+		String code = ((RecordingWhatsAppSender) this.whatsAppSender).lastCode();
+		try {
+			ResponseEntity<Map<String, Object>> verified = post("verify_otp", Map.of("phone", "0501234592",
+					"otp", code, "type", "employee", "purpose", "password_reset"));
+			assertThat(verified.getStatusCode().value()).as("%s", verified.getBody()).isEqualTo(200);
+			ResponseEntity<Map<String, Object>> reset = post("reset_password", Map.of("phone", "0501234592",
+					"otp", code, "type", "employee", "password", "Reset-Owl-7"));
+			assertThat(reset.getStatusCode().value()).as("%s", reset.getBody()).isEqualTo(200);
+			assertThat(employeeId(post("login_employee", Map.of("phone", "+971501234592", "password", "Reset-Owl-7"))))
+					.isEqualTo(EMIRATI_DIGITS);
+			assertThat(employeeId(post("login_employee", Map.of("phone", "+966501234592", "password", PASSWORD))))
+					.as("the other number's account is untouched").isEqualTo(SAUDI_DIGITS);
+		} finally {
+			execute("UPDATE employees SET password_hash = '" + HASH + "' WHERE id IN ("
+					+ SAUDI_DIGITS + ", " + EMIRATI_DIGITS + ")");
+		}
+	}
+
+	@Test
+	void aResetForOneOfTwoCompaniesHoldingTheSameDigitsActsOnTheNumberTheCodeWasSentTo() throws Exception {
+		assertThat(post("forgot_password", Map.of("phone", "+971501234593", "type", "company"))
+				.getStatusCode().value()).isEqualTo(200);
+		String code = ((RecordingWhatsAppSender) this.whatsAppSender).lastCode();
+		try {
+			ResponseEntity<Map<String, Object>> reset = post("reset_password", Map.of("phone", "0501234593",
+					"otp", code, "type", "company", "password", "Reset-Owl-8"));
+			assertThat(reset.getStatusCode().value()).as("%s", reset.getBody()).isEqualTo(200);
+			assertThat(companyId(post("login_company", Map.of("phone", "+971501234593", "password", "Reset-Owl-8"))))
+					.isEqualTo(EMIRATI_DIGITS_COMPANY);
+			assertThat(companyId(post("login_company", Map.of("phone", "+966501234593", "password", PASSWORD))))
+					.as("the other number's company is untouched").isEqualTo(SAUDI_DIGITS_COMPANY);
+		} finally {
+			execute("UPDATE companies SET password_hash = '" + HASH + "' WHERE id IN ("
+					+ SAUDI_DIGITS_COMPANY + ", " + EMIRATI_DIGITS_COMPANY + ")");
+		}
+	}
+
+	@Test
+	void aCodeAuthorisesOnlyItsOwnNumberAndOneBothReadingsHoldAuthorisesNeither() throws Exception {
+		assertThat(post("forgot_password", Map.of("phone", "+966501234592", "type", "employee"))
+				.getStatusCode().value()).isEqualTo(200);
+		String saudiCode = ((RecordingWhatsAppSender) this.whatsAppSender).lastCode();
+		try {
+			ResponseEntity<Map<String, Object>> other = post("reset_password", Map.of("phone", "+971501234592",
+					"otp", saudiCode, "type", "employee", "password", "Stolen-Owl-1"));
+			assertThat(other.getStatusCode().value()).isEqualTo(400);
+
+			assertThat(post("forgot_password", Map.of("phone", "+971501234592", "type", "employee"))
+					.getStatusCode().value()).isEqualTo(200);
+			execute("UPDATE otp_codes SET code = '4321'");
+			ResponseEntity<Map<String, Object>> both = post("reset_password", Map.of("phone", "0501234592",
+					"otp", "4321", "type", "employee", "password", "Stolen-Owl-2"));
+			assertThat(both.getStatusCode().value()).isEqualTo(400);
+			assertThat(both.getBody()).as("the answer an unknown code gets")
+					.isEqualTo(other.getBody());
+
+			for (String phone : List.of("+966501234592", "+971501234592")) {
+				assertThat(post("login_employee", Map.of("phone", phone, "password", PASSWORD))
+						.getStatusCode().value()).as(phone).isEqualTo(200);
+			}
+		} finally {
+			execute("UPDATE employees SET password_hash = '" + HASH + "' WHERE id IN ("
+					+ SAUDI_DIGITS + ", " + EMIRATI_DIGITS + ")");
+		}
+	}
+
 	// ---------------- a country code written without the phone ----------------
+
+	@Test
+	void aBlankCountryCodeUnderWhichTheNumberIsUnchangedIsNoChange() throws Exception {
+		// 01012910004 in +20 is the same number read in Egypt, which is what a
+		// blank code means: the write is saved and the code stored as sent.
+		String token = token(post("login_employee", Map.of("phone", "01012910004", "password", PASSWORD)));
+		try {
+			Map<String, Object> body = new java.util.HashMap<>();
+			body.put("first_name", "Blank");
+			body.put("country_code", null);
+			ResponseEntity<Map<String, Object>> profile =
+					send("/apis/api/profile/employee.php", HttpMethod.PUT, token, body);
+			assertThat(profile.getStatusCode().value()).as("%s", profile.getBody()).isEqualTo(200);
+			assertThat(row("SELECT CONCAT(first_name, '|', COALESCE(country_code, 'NULL')) FROM employees WHERE id = "
+					+ RECODED)).isEqualTo("Blank|NULL");
+
+			ResponseEntity<Map<String, Object>> update = send("/apis/api/employees/update.php?id=" + RECODED,
+					HttpMethod.PUT, companyToken("01012911001"), Map.of("country_code", "", "last_name", "Blank"));
+			assertThat(update.getStatusCode().value()).as("%s", update.getBody()).isEqualTo(200);
+			assertThat(row("SELECT CONCAT(last_name, '|', country_code) FROM employees WHERE id = " + RECODED))
+					.isEqualTo("Blank|");
+			assertThat(employeeId(post("login_employee", Map.of("phone", "01012910004", "password", PASSWORD))))
+					.isEqualTo(RECODED);
+
+			ResponseEntity<Map<String, Object>> company = send("/apis/api/company/update.php", HttpMethod.PUT,
+					companyToken("01012911006"), Map.of("country_code", ""));
+			assertThat(company.getStatusCode().value()).as("%s", company.getBody()).isEqualTo(200);
+			assertThat(row("SELECT CONCAT(phone, '|', country_code) FROM companies WHERE id = " + RECODED_COMPANY))
+					.as("stored as sent, as on the employee routes").isEqualTo("01012911006|");
+		} finally {
+			execute("UPDATE employees SET first_name = 'Canon', last_name = 'Subject', country_code = '+20'"
+					+ " WHERE id = " + RECODED);
+			execute("UPDATE companies SET country_code = '+20' WHERE id = " + RECODED_COMPANY);
+		}
+	}
+
+	@Test
+	void aBlankCountryCodeThatChangesTheNumberIsReadAsEgyptLikeAnyOtherCode() throws Exception {
+		// 01012910010 is no number in +966, and an Egyptian mobile: a blank
+		// code re-reads it as Egypt's, and it is stored with Egypt's code.
+		ResponseEntity<Map<String, Object>> update = send("/apis/api/employees/update.php?id=" + MISCODED,
+				HttpMethod.PUT, companyToken("01012911001"), Map.of("country_code", ""));
+		assertThat(update.getStatusCode().value()).as("%s", update.getBody()).isEqualTo(200);
+		assertThat(row("SELECT CONCAT(phone, '|', country_code) FROM employees WHERE id = " + MISCODED))
+				.isEqualTo("01012910010|+20");
+		assertThat(employeeId(post("login_employee", Map.of("phone", "+201012910010", "password", PASSWORD))))
+				.isEqualTo(MISCODED);
+
+		// 501234570 in +966 is this employee; in Egypt it is a landline: the
+		// blank code is refused as that number, not as a missing field.
+		String token = token(post("login_employee", Map.of("phone", "+966501234570", "password", PASSWORD)));
+		Map<String, Object> body = new java.util.HashMap<>();
+		body.put("country_code", null);
+		ResponseEntity<Map<String, Object>> profile =
+				send("/apis/api/profile/employee.php", HttpMethod.PUT, token, body);
+		assertThat(profile.getStatusCode().value()).isEqualTo(400);
+		assertThat(profile.getBody()).containsEntry("message", "Phone number is not valid for the selected country");
+		assertThat(row("SELECT country_code FROM employees WHERE id = " + SAUDI_HOLDER)).isEqualTo("+966");
+	}
+
 
 	@Test
 	void aProfileCannotMoveItsNumberIntoACountryWhereItIsNoNumber() throws Exception {
@@ -486,6 +623,11 @@ class LegacyCanonicalPhoneEndToEndTest {
 			company(st, RECODED_COMPANY, "Recoded Co", "01012911006", "+20", null);
 			company(st, RECODED_TWIN_COMPANY, "Recoded Twin", "0501234571", "+971", null);
 			company(st, 29108L, "Saudi Twin", "501234571", "+966", null);
+			employee(st, SAUDI_DIGITS, "501234592", "+966", "employee");
+			employee(st, EMIRATI_DIGITS, "0501234592", "+971", "employee");
+			employee(st, MISCODED, "01012910010", "+966", "employee");
+			company(st, SAUDI_DIGITS_COMPANY, "Saudi Digits", "501234593", "+966", null);
+			company(st, EMIRATI_DIGITS_COMPANY, "Emirati Digits", "0501234593", "+971", null);
 		}
 	}
 

@@ -74,18 +74,14 @@ public class LegacyOtpAuthService {
 	 */
 	public void verifyOtp(Map<String, Object> body) {
 		required(body, "phone", "otp", "type");
-		// A phone that is not a number holds no code, so it is answered as an
-		// unknown code is.
+		// The reading whose code this is. A phone that is not a number holds no
+		// code, so it is answered as an unknown code is.
 		Object authType = body.get("type");
-		CanonicalPhone phone = otp.resolvePhone(body.get("phone"), authType)
+		CanonicalPhone phone = otp.verifiedReading(body.get("phone"), body.get("otp"))
 				.orElseThrow(() -> new LegacyApiException(400, "invalid_expired_otp"));
 		String purpose = body.get("purpose") == null
 				? "" : LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("purpose")));
 		boolean isPasswordReset = "password_reset".equals(purpose);
-
-		if (otp.verifyLatestForPhone(phone, body.get("otp")) == null) {
-			throw new LegacyApiException(400, "invalid_expired_otp");
-		}
 
 		if (COMPANY.equals(authType) && !isPasswordReset) {
 			store.markCompanyOtpVerified(phone, body.get("phone"));
@@ -115,7 +111,7 @@ public class LegacyOtpAuthService {
 		required(body, "phone");
 		// PHP refused a phone with no digits with this key; a phone that is
 		// not a valid number is refused with it now (D-291).
-		CanonicalPhone phone = otp.resolvePhone(body.get("phone"), null)
+		CanonicalPhone phone = otp.resolvePhone(body.get("phone"))
 				.filter(phoneNumbers::offered)
 				.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
 		if (otp.hasRecentForPhone(phone, 60)) {
@@ -192,12 +188,8 @@ public class LegacyOtpAuthService {
 	public void resetPassword(Map<String, Object> body) {
 		required(body, "phone", "password", "otp", "type");
 		Object authType = body.get("type");
-		CanonicalPhone phone = otp.resolvePhone(body.get("phone"), authType)
+		CanonicalPhone phone = otp.verifiedReading(body.get("phone"), body.get("otp"))
 				.orElseThrow(() -> new LegacyApiException(400, "invalid_expired_otp"));
-
-		if (otp.verifyLatestForPhone(phone, body.get("otp")) == null) {
-			throw new LegacyApiException(400, "invalid_expired_otp");
-		}
 
 		String hash = passwordEncoder.encode(LegacyValues.toPhpString(body.get("password")));
 

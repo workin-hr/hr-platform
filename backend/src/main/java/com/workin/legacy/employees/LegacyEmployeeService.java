@@ -658,10 +658,11 @@ public class LegacyEmployeeService {
 		// country_code alone re-reads the stored phone in it, so it is
 		// validated as that phone would be.
 		if (!body.containsKey("phone") && body.containsKey("country_code")) {
-			String stored = LegacyPhoneNumbers.storedPhoneRereadBy(
+			LegacyPhoneNumbers.Reread reread = LegacyPhoneNumbers.storedPhoneRereadBy(
 					body.get("country_code"), employee.get("phone"), employee.get("country_code"));
-			if (stored != null) {
-				body.put("phone", stored);
+			if (reread != null) {
+				body.put("phone", reread.phone());
+				body.put("country_code", reread.countryCode());
 			}
 		}
 		if (body.containsKey("phone")) {

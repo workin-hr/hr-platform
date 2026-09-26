@@ -43,6 +43,9 @@ import tools.jackson.databind.ObjectMapper;
 public class LegacyPhoneNumbers {
 
 	private static final Pattern NON_DIGITS = Pattern.compile("\\D+");
+
+	/** {@link CanonicalPhones#DEFAULT_REGION}'s dial code: what a blank {@code country_code} reads as. */
+	private static final String DEFAULT_DIAL_CODE = "+20";
 	private static final Pattern PREFIX_SEPARATORS = Pattern.compile("[\\s,;]+");
 	private static final Pattern SCIENTIFIC = Pattern.compile("^\\d+\\.?\\d*E[+-]?\\d+$", Pattern.CASE_INSENSITIVE);
 	private static final Pattern TRAILING_ZEROS = Pattern.compile("^\\d+\\.0+$");
@@ -224,22 +227,45 @@ public class LegacyPhoneNumbers {
 	}
 
 	/**
-	 * The stored phone a write must validate again when it carries a
-	 * {@code country_code} but no {@code phone}, or {@code null} when that write
-	 * leaves the number alone -- the row holds no phone, or the code is the one
-	 * already stored. A national number is read in its row's
-	 * {@code country_code}, so changing the code alone changes which number
-	 * the row is; the caller runs the stored phone through {@link #forAccount}
-	 * under the new code and its own uniqueness check, as for a new phone.
+	 * What a write carrying a {@code country_code} but no {@code phone} must
+	 * validate, or {@code null} when it leaves the number alone. A national
+	 * number is read in its row's {@code country_code}, so changing the code
+	 * alone can change which number the row is.
+	 *
+	 * <p>Codes are compared as they are <em>read</em>: a blank one reads as
+	 * Egypt's, and {@code 20} as {@code +20}, so a code under which the stored
+	 * phone is the same number as before -- or the very code already stored --
+	 * is no change, and the caller writes it as sent, as PHP did. Any other
+	 * code is a change, and the caller runs the stored phone through
+	 * {@link #forAccount} in {@link Reread#countryCode()} (a blank one as
+	 * Egypt's dial code) and its own uniqueness check, as for a new phone,
+	 * storing the number's own dial code.
 	 */
-	public static String storedPhoneRereadBy(Object newCountryCode, Object storedPhone, Object storedCountryCode) {
+	public static Reread storedPhoneRereadBy(Object newCountryCode, Object storedPhone, Object storedCountryCode) {
 		String stored = storedPhone == null ? "" : LegacyValues.phpTrim(LegacyValues.toPhpString(storedPhone));
 		if (digitsOnly(stored).isEmpty()) {
 			return null;
 		}
 		String before = storedCountryCode == null ? "" : LegacyValues.phpTrim(LegacyValues.toPhpString(storedCountryCode));
 		String after = newCountryCode == null ? "" : LegacyValues.phpTrim(LegacyValues.toPhpString(newCountryCode));
-		return after.equals(before) ? null : stored;
+		if (after.equals(before)) {
+			return null;
+		}
+		Optional<CanonicalPhone> was = CanonicalPhones.parse(stored, before);
+		Optional<CanonicalPhone> is = CanonicalPhones.parse(stored, after);
+		if (was.isPresent() && is.isPresent() && was.get().e164().equals(is.get().e164())) {
+			return null;
+		}
+		return new Reread(stored, after.isEmpty() ? DEFAULT_DIAL_CODE : after);
+	}
+
+	/**
+	 * The stored phone and the non-blank code to read it in.
+	 *
+	 * @param phone the stored phone, trimmed
+	 * @param countryCode the written code, or Egypt's for a blank one
+	 */
+	public record Reread(String phone, String countryCode) {
 	}
 
 	/**

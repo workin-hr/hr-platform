@@ -61,27 +61,19 @@ public class LegacyOtpService {
 	}
 
 	/**
-	 * The number an OTP route's {@code phone} names, for a route that has no
-	 * stored row to take it from ({@code resend_otp}, {@code verify_otp},
-	 * {@code reset_password}) -- PHP's {@code otp_normalize_phone()} plus
+	 * The number {@code resend_otp}'s {@code phone} names, the one OTP route
+	 * that delivers to a number it has no stored row to take from -- PHP's {@code otp_normalize_phone()} plus
 	 * {@code otp_resolve_country_code_for_phone()}, through the one
 	 * normalizer (ADR-0020).
 	 *
 	 * <p>Written internationally, or read the same in every country the
 	 * product offers, it has one reading and that is the answer. A national
 	 * number with several readings takes the country of the stored account it
-	 * belongs to, and with no account, Egypt's. Anything else is empty.
-	 *
-	 * <p>The account is searched for among the request's own kind first: a
-	 * {@code type} of {@code "employee"} reads employees before companies, so
-	 * an employee's {@code 0501234567} in +971 is not taken for a company's
-	 * {@code 501234567} in +966 -- the code {@code forgot_password} keyed on
-	 * the employee's number is then the one {@code reset_password} checks.
-	 * Any other type keeps PHP's country lookup order, companies first.
-	 *
-	 * @param authType the body's {@code type}, or null for a route without one
+	 * belongs to -- companies first, then employees, as PHP's country lookup
+	 * orders them -- and with no account, Egypt's. Anything else is empty.
+	 * {@link #verifiedReading} is how the routes that check a code choose.
 	 */
-	public Optional<CanonicalPhone> resolvePhone(Object rawPhone, Object authType) {
+	public Optional<CanonicalPhone> resolvePhone(Object rawPhone) {
 		PhoneLookup lookup = phoneNumbers.lookup(rawPhone);
 		if (lookup.isEmpty()) {
 			return Optional.empty();
@@ -90,9 +82,7 @@ public class LegacyOtpService {
 		if (only.isPresent()) {
 			return only;
 		}
-		String[] tables = "employee".equals(authType)
-				? new String[] {"employees", "companies"} : new String[] {"companies", "employees"};
-		for (String table : tables) {
+		for (String table : new String[] {"companies", "employees"}) {
 			PhoneLookup.Clause match = lookup.clause("phone");
 			List<Map<String, Object>> rows = lookup.verified(jdbcTemplate.queryForList(
 					"SELECT phone, country_code FROM " + table + " WHERE " + match.sql() + " ORDER BY id ASC",
@@ -167,6 +157,34 @@ public class LegacyOtpService {
 	/** {@code otp_has_recent_for_phone($phone, 60)}. */
 	public boolean hasRecentForPhone(CanonicalPhone phone, long withinSeconds) {
 		return rateLimit.countRecentSends(phone.e164(), null, "", withinSeconds) > 0;
+	}
+
+	/**
+	 * The number {@code verify_otp} and {@code reset_password} act on: the one
+	 * reading of the typed phone whose latest live code is this code, or empty.
+	 *
+	 * <p>A national number can be several numbers -- two accounts, of one type
+	 * or two, may hold the same digits in two countries -- and a code was
+	 * issued to exactly one of them, so the code decides which, not an
+	 * account's id or table. Each reading's code is compared once, as a
+	 * request naming that number alone would compare it, so no number is
+	 * guessed at faster than before; a code only ever authorises the number it
+	 * was issued to; and when two readings both hold this code the request is
+	 * refused, since it cannot say which number it proves. Every refusal is
+	 * the same empty answer.
+	 */
+	public Optional<CanonicalPhone> verifiedReading(Object rawPhone, Object rawCode) {
+		String code = LegacyValues.phpTrim(rawCode == null ? "" : LegacyValues.toPhpString(rawCode));
+		CanonicalPhone match = null;
+		for (CanonicalPhone reading : phoneNumbers.lookup(rawPhone).readings()) {
+			if (store.verifyLatest(reading.e164(), code) != null) {
+				if (match != null) {
+					return Optional.empty();
+				}
+				match = reading;
+			}
+		}
+		return Optional.ofNullable(match);
 	}
 
 	/** {@code otp_verify_latest_for_phone()}. */
