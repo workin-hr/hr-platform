@@ -575,6 +575,41 @@ class AdminEmployeesEndToEndTest {
 	}
 
 	@Test
+	void anotherEmployeesNumberInAnotherSpellingIsRefusedOnCreateAndEdit() {
+		// Every uniqueness check compares the canonical number (D-291): global,
+		// with a rejected join request not reserving the number.
+		long holder = seedEmployee(this.companyB, "9101", "Hala", "Holder");
+		this.jdbc.update("UPDATE employees SET phone = '1012345678', country_code = '+20' WHERE id = ?", holder);
+
+		ResponseEntity<String> created = postForm("action", "add_employee",
+				"company_id", String.valueOf(this.companyA),
+				"branch_id", String.valueOf(this.branchA),
+				"shift_id", String.valueOf(this.shiftA),
+				"first_name", "Nadia", "employee_code", "2001",
+				"phone", "+20 10 1234 5678", "country_code", "+20");
+		assertThat(created.getHeaders().getLocation()).asString().contains("phone_exists");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT COUNT(*) FROM employees WHERE employee_code = '2001'", Integer.class)).isZero();
+
+		long editing = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		ResponseEntity<String> edited = postForm("action", "save_edit", "id", String.valueOf(editing),
+				"first_name", "Aya", "employee_code", "1001", "branch_id", String.valueOf(this.branchA),
+				"phone", "01012345678", "country_code", "+20");
+		assertThat(edited.getHeaders().getLocation()).asString().contains("phone_exists");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT phone FROM employees WHERE id = " + editing, String.class)).isNotEqualTo("01012345678");
+
+		// A rejected applicant does not hold the number.
+		this.jdbc.update("UPDATE employees SET join_request_status = 'rejected' WHERE id = ?", holder);
+		this.jdbc.update("UPDATE employees SET phone = '201012345678' WHERE id = ?", holder);
+		postForm("action", "save_edit", "id", String.valueOf(editing),
+				"first_name", "Aya", "employee_code", "1001", "branch_id", String.valueOf(this.branchA),
+				"phone", "01012345678", "country_code", "+20");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT phone FROM employees WHERE id = " + editing, String.class)).isEqualTo("01012345678");
+	}
+
+	@Test
 	void anEditWithNoPasswordKeepsTheExistingCredential() {
 		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
 		this.jdbc.update("UPDATE employees SET password_hash = 'existing-hash' WHERE id = ?", id);

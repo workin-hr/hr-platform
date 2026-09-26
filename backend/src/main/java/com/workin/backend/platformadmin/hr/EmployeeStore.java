@@ -11,6 +11,8 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import com.workin.backend.platformadmin.web.DashboardListFilters;
+import com.workin.legacy.phone.CanonicalPhone;
+import com.workin.legacy.phone.PhoneLookup;
 import com.workin.backend.platformadmin.web.DashboardPage;
 
 /**
@@ -31,6 +33,22 @@ public class EmployeeStore {
 
 	public EmployeeStore(JdbcTemplate jdbcTemplate) {
 		this.jdbcTemplate = jdbcTemplate;
+	}
+
+	/**
+	 * Another employee holds the number, in any stored spelling -- the scope
+	 * of every other employee uniqueness check ({@code employee_phone_exists_globally()}):
+	 * global, and a rejected join request does not reserve it (D-291).
+	 */
+	public boolean phoneTaken(CanonicalPhone phone, long excludeEmployeeId) {
+		PhoneLookup lookup = PhoneLookup.of(phone);
+		PhoneLookup.Clause match = lookup.clause("phone");
+		List<Object> binds = new ArrayList<>(match.binds());
+		binds.add(excludeEmployeeId);
+		return !lookup.verified(this.jdbcTemplate.queryForList(
+				"SELECT id, phone, country_code FROM employees WHERE " + match.sql()
+						+ " AND COALESCE(join_request_status, 'accepted') <> 'rejected' AND id <> ?",
+				binds.toArray())).isEmpty();
 	}
 
 	/**

@@ -53,6 +53,9 @@ public class EmployeeAdminService {
 		/** {@code error_invalid_phone}. */
 		PHONE_INVALID,
 
+		/** {@code phone_exists}: another employee holds the number, in any spelling (D-291). */
+		PHONE_TAKEN,
+
 		/** {@code error_db}: the row is not this session's to touch. */
 		FOREIGN_ROW
 	}
@@ -256,6 +259,9 @@ public class EmployeeAdminService {
 				command.jobTitleId(), command.shiftId(), null);
 
 		CanonicalPhone number = normalizedPhone(command.phone(), command.countryCode());
+		if (number != null && this.store.phoneTaken(number, 0L)) {
+			throw new RefusedException(Refusal.PHONE_TAKEN);
+		}
 		String phone = number == null ? "" : number.nationalDigits();
 		String countryCode = number == null ? null : number.dialCode();
 		// A password with no phone is silently dropped, because there would be
@@ -319,6 +325,9 @@ public class EmployeeAdminService {
 		}
 		else {
 			CanonicalPhone number = normalizedPhone(command.phone(), command.countryCode());
+			if (number != null && this.store.phoneTaken(number, id)) {
+				throw new RefusedException(Refusal.PHONE_TAKEN);
+			}
 			phone = number == null ? null : number.nationalDigits();
 			countryCode = number == null ? null : number.dialCode();
 		}
