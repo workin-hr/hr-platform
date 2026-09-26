@@ -427,6 +427,27 @@ class LegacyClientApiHardeningEndToEndTest {
 	}
 
 	@Test
+	void aPhoneInDigitsTheCollationFoldsButNoDigitCategoryDoesIsAnsweredAsUnknown() throws Exception {
+		// Dingbat and circled digits compare equal to the stored phone under
+		// utf8mb4_unicode_ci, but no key follows them: the review found them
+		// reaching the victim's row with no phone budget charged at all.
+		long staff = staff(BRANCH_A, 1, "accepted");
+		String phone = "+20100" + staff;
+		StringBuilder dingbats = new StringBuilder("+");
+		for (char digit : phone.substring(1).toCharArray()) {
+			dingbats.append(digit == '0' ? '\u24FF' : (char) ('\u2780' + (digit - '1')));
+		}
+
+		ResponseEntity<Map<String, Object>> unknown = login("login_employee", dingbats.toString(), PASSWORD, null);
+		assertThat(unknown.getStatusCode().value()).as("the right password, never looked up").isEqualTo(401);
+		assertThat(unknown.getBody().get("message")).as("exactly an unknown phone's answer").isEqualTo("User not found");
+		assertThat(login("login_company", dingbats.toString(), PASSWORD, null).getBody().get("message"))
+				.isEqualTo(login("login_company", "+2015550999999", PASSWORD, null).getBody().get("message"));
+		assertThat(login("login_employee", phone, PASSWORD, null).getStatusCode().value())
+				.as("the owner's own phone was charged nothing").isEqualTo(200);
+	}
+
+	@Test
 	void theCompanyLoginIsChargedToo() throws Exception {
 		for (int miss = 0; miss < LegacyLoginThrottle.MAX_PAIR_MISSES; miss++) {
 			assertThat(login("login_company", "+201000289000", "wrong", null).getStatusCode().value())
