@@ -76,16 +76,17 @@ public final class CanonicalPhones {
 		if (start < 0) {
 			return Optional.empty();
 		}
+		String context = countryCodeAsRead(countryContext);
 		String region;
 		if (input.charAt(start) == '+') {
 			region = UNKNOWN_REGION;
 		} else if (input.startsWith("00", start)) {
 			input = input.substring(0, start) + "+" + input.substring(start + 2);
 			region = UNKNOWN_REGION;
-		} else if (countryContext == null || countryContext.isBlank()) {
+		} else if (context == null || context.isEmpty()) {
 			region = DEFAULT_REGION;
 		} else {
-			Optional<String> contextRegion = regionForDialCode(countryContext);
+			Optional<String> contextRegion = regionForDialCode(context);
 			if (contextRegion.isEmpty()) {
 				return Optional.empty();
 			}
@@ -115,6 +116,36 @@ public final class CanonicalPhones {
 	}
 
 	/**
+	 * A {@code country_code} as every phone rule reads it: PHP's
+	 * {@code trim()} characters (NUL and vertical tab among them) and Unicode
+	 * whitespace removed from both ends, or null for null. The comparison that
+	 * decides whether a written code changes a number, the value such a write
+	 * stores, and every reading of a stored code go through this one method,
+	 * so a code cannot be judged unchanged by one rule and unreadable by
+	 * another.
+	 */
+	public static String countryCodeAsRead(Object countryCode) {
+		if (countryCode == null) {
+			return null;
+		}
+		String text = LegacyValues.toPhpString(countryCode);
+		int start = 0;
+		int end = text.length();
+		while (start < end && trimmed(text.charAt(start))) {
+			start++;
+		}
+		while (end > start && trimmed(text.charAt(end - 1))) {
+			end--;
+		}
+		return text.substring(start, end);
+	}
+
+	private static boolean trimmed(char c) {
+		// PHP's trim() set is " \t\n\r\0\x0B"; all but NUL are Java whitespace.
+		return c == '\0' || Character.isWhitespace(c);
+	}
+
+	/**
 	 * The region a dial code names: {@code +966}, {@code 966} and
 	 * {@code 00966} all give {@code SA}; {@code +1} gives the main region of
 	 * its plan. Empty for a blank code or one the metadata does not know.
@@ -123,7 +154,7 @@ public final class CanonicalPhones {
 		if (dialCode == null) {
 			return Optional.empty();
 		}
-		String digits = dialCode.strip();
+		String digits = countryCodeAsRead(dialCode);
 		if (digits.startsWith("+")) {
 			digits = digits.substring(1);
 		}

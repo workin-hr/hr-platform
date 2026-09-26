@@ -130,7 +130,7 @@ public final class PhoneLookup {
 	 * for national input, is what the input reads as in that same country.
 	 */
 	public boolean matches(Object storedPhone, Object storedCountryCode) {
-		String country = storedCountryCode == null ? null : LegacyValues.toPhpString(storedCountryCode).strip();
+		String country = CanonicalPhones.countryCodeAsRead(storedCountryCode);
 		Optional<CanonicalPhone> stored = CanonicalPhones.parse(storedPhone, country);
 		if (stored.isEmpty() || !this.readings.containsKey(stored.get().e164())) {
 			return false;

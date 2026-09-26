@@ -74,6 +74,7 @@ class LegacyCanonicalPhoneEndToEndTest {
 	private static final long SAUDI_DIGITS = 291010L;
 	private static final long EMIRATI_DIGITS = 291011L;
 	private static final long MISCODED = 291012L;
+	private static final long PADDED = 291013L;
 
 	private static final String EMPLOYEE_PHONE = "01012910001";
 	private static final String CODE = "CANON01";
@@ -444,6 +445,53 @@ class LegacyCanonicalPhoneEndToEndTest {
 	}
 
 	@Test
+	void aCodePaddedWithNulIsTheCodeItPads() throws Exception {
+		// Stored by the write as it is read -- never as a value a reader would
+		// take for another code -- so the account keeps signing in.
+		String token = token(post("login_employee", Map.of("phone", "+966501234570", "password", PASSWORD)));
+		ResponseEntity<Map<String, Object>> profile = send("/apis/api/profile/employee.php", HttpMethod.PUT, token,
+				Map.of("country_code", "+966\u0000"));
+		assertThat(profile.getStatusCode().value()).as("%s", profile.getBody()).isEqualTo(200);
+		assertThat(row("SELECT HEX(country_code) FROM employees WHERE id = " + SAUDI_HOLDER))
+				.isEqualTo("2B393636");
+		assertThat(employeeId(post("login_employee", Map.of("phone", "+966501234570", "password", PASSWORD))))
+				.isEqualTo(SAUDI_HOLDER);
+		assertThat(post("forgot_password", Map.of("phone", "+966501234570", "type", "employee"))
+				.getStatusCode().value()).isEqualTo(200);
+
+		try {
+			ResponseEntity<Map<String, Object>> update = send("/apis/api/employees/update.php?id=" + RECODED,
+					HttpMethod.PUT, companyToken("01012911001"), Map.of("country_code", "\u0000"));
+			assertThat(update.getStatusCode().value()).as("%s", update.getBody()).isEqualTo(200);
+			assertThat(row("SELECT HEX(country_code) FROM employees WHERE id = " + RECODED)).isEmpty();
+			assertThat(employeeId(post("login_employee", Map.of("phone", "01012910004", "password", PASSWORD))))
+					.isEqualTo(RECODED);
+
+			ResponseEntity<Map<String, Object>> company = send("/apis/api/company/update.php", HttpMethod.PUT,
+					companyToken("01012911006"), Map.of("country_code", "+20\u0000"));
+			assertThat(company.getStatusCode().value()).as("%s", company.getBody()).isEqualTo(200);
+			assertThat(row("SELECT HEX(country_code) FROM companies WHERE id = " + RECODED_COMPANY))
+					.isEqualTo("2B3230");
+			assertThat(companyId(post("login_company", Map.of("phone", "01012911006", "password", PASSWORD))))
+					.isEqualTo(RECODED_COMPANY);
+		} finally {
+			execute("UPDATE employees SET country_code = '+20' WHERE id = " + RECODED);
+			execute("UPDATE companies SET country_code = '+20' WHERE id = " + RECODED_COMPANY);
+		}
+	}
+
+	@Test
+	void aStoredCodePaddedWithNulIsReadAsTheCodeItPads() throws Exception {
+		for (String spelling : List.of("0501234595", "+966 50 123 4595")) {
+			assertThat(employeeId(post("login_employee", Map.of("phone", spelling, "password", PASSWORD))))
+					.as(spelling).isEqualTo(PADDED);
+		}
+		assertThat(post("forgot_password", Map.of("phone", "0501234595", "type", "employee"))
+				.getStatusCode().value()).isEqualTo(200);
+		assertThat(row("SELECT phone FROM otp_codes")).isEqualTo("+966501234595");
+	}
+
+	@Test
 	void aBlankCountryCodeThatChangesTheNumberIsReadAsEgyptLikeAnyOtherCode() throws Exception {
 		// 01012910010 is no number in +966, and an Egyptian mobile: a blank
 		// code re-reads it as Egypt's, and it is stored with Egypt's code.
@@ -627,6 +675,9 @@ class LegacyCanonicalPhoneEndToEndTest {
 			employee(st, SAUDI_DIGITS, "501234592", "+966", "employee");
 			employee(st, EMIRATI_DIGITS, "0501234592", "+971", "employee");
 			employee(st, MISCODED, "01012910010", "+966", "employee");
+			employee(st, PADDED, "0501234595", "+966", "employee");
+			// PHP's trim() reads through the NUL; so must every Java reader.
+			st.execute("UPDATE employees SET country_code = CONCAT('+966', CHAR(0)) WHERE id = " + PADDED);
 			company(st, SAUDI_DIGITS_COMPANY, "Saudi Digits", "501234593", "+966", null);
 			company(st, EMIRATI_DIGITS_COMPANY, "Emirati Digits", "0501234593", "+971", null);
 		}

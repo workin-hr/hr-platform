@@ -6,6 +6,7 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -235,7 +236,8 @@ public class LegacyPhoneNumbers {
 	 * <p>Codes are compared as they are <em>read</em>: a blank one reads as
 	 * Egypt's, and {@code 20} as {@code +20}, so a code under which the stored
 	 * phone is the same number as before -- or the very code already stored --
-	 * is no change, and the caller writes it as sent, as PHP did. Any other
+	 * is no change, and the caller writes it as read
+	 * ({@link #countryCodeWritten}), as PHP did less its padding. Any other
 	 * code is a change, and the caller runs the stored phone through
 	 * {@link #forAccount} in {@link Reread#countryCode()} (a blank one as
 	 * Egypt's dial code) and its own uniqueness check, as for a new phone,
@@ -246,8 +248,8 @@ public class LegacyPhoneNumbers {
 		if (digitsOnly(stored).isEmpty()) {
 			return null;
 		}
-		String before = storedCountryCode == null ? "" : LegacyValues.phpTrim(LegacyValues.toPhpString(storedCountryCode));
-		String after = newCountryCode == null ? "" : LegacyValues.phpTrim(LegacyValues.toPhpString(newCountryCode));
+		String before = Objects.toString(CanonicalPhones.countryCodeAsRead(storedCountryCode), "");
+		String after = Objects.toString(CanonicalPhones.countryCodeAsRead(newCountryCode), "");
 		if (after.equals(before)) {
 			return null;
 		}
@@ -257,6 +259,17 @@ public class LegacyPhoneNumbers {
 			return null;
 		}
 		return new Reread(stored, after.isEmpty() ? DEFAULT_DIAL_CODE : after);
+	}
+
+	/**
+	 * The value a {@code country_code} that changes no number is stored as: a
+	 * string as {@link CanonicalPhones#countryCodeAsRead} reads it -- so a
+	 * padded {@code "+966\0"} is stored {@code "+966"}, never a value the
+	 * readers would take for another code -- and anything else (null, a JSON
+	 * number) as sent.
+	 */
+	public static Object countryCodeWritten(Object countryCode) {
+		return countryCode instanceof String text ? CanonicalPhones.countryCodeAsRead(text) : countryCode;
 	}
 
 	/**
