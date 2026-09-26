@@ -56,10 +56,6 @@ public class LegacyEmployeeService {
 	private static final java.util.Set<String> SELF_UPDATABLE_FIELDS = java.util.Set.of(
 			"first_name", "last_name", "phone", "country_code", "address", "password");
 
-	/** The keys an HR session may not send for a non-employee peer (D-289). */
-	private static final List<String> PEER_CREDENTIAL_FIELDS = List.of(
-			"password", "phone", "country_code", "is_active");
-
 	/** {@code $allowed_columns}, in {@code update.php}'s own order. */
 	private static final List<String> UPDATABLE_COLUMNS = List.of(
 			"employee_code", "first_name", "last_name", "phone", "country_code", "branch_id", "department_id",
@@ -598,13 +594,8 @@ public class LegacyEmployeeService {
 			// message is legacy's 'forbidden', not the platform's error.forbidden.
 			throw new LegacyApiException(403, "forbidden");
 		}
-		// can_employees is not authority over a peer's credentials: an HR session
-		// that could reset another HR's, a manager's or the admin's password,
-		// phone or active flag could take that account over (D-076, D-289).
-		// PHP admits it; the port refuses with the same forbidden.
-		if (hrSession && employeeId != context.employeeId()
-				&& !"employee".equals(LegacyValues.toPhpString(employee.get("role")))
-				&& PEER_CREDENTIAL_FIELDS.stream().anyMatch(body::containsKey)) {
+		// Sending the field is enough: update.php writes whatever it is sent.
+		if (LegacyHrPeerCredentials.refuses(context, employeeId, employee.get("role"), body.keySet())) {
 			throw new LegacyApiException(403, "forbidden");
 		}
 		if (hrSession && employeeId == context.employeeId()) {
@@ -1189,7 +1180,7 @@ public class LegacyEmployeeService {
 		if (rows.isEmpty()) {
 			throw new LegacyApiException(400, "field_required", null, Map.of("field", "rows"));
 		}
-		return bulkUpdater.updateRows(context.companyId(), rows, lookups(context.companyId()));
+		return bulkUpdater.updateRows(context, rows, lookups(context.companyId()));
 	}
 
 	/**

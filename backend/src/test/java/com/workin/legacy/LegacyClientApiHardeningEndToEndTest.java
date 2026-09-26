@@ -201,6 +201,79 @@ class LegacyClientApiHardeningEndToEndTest {
 				.isEqualTo(200);
 	}
 
+	@Test
+	void hrCannotReachAPeersCredentialsThroughTheBulkUpdateEither() throws Exception {
+		String hr = token(HR_PERMITTED, "hr", 1);
+		long peer = hrEmployee();
+		long staff = staff(BRANCH_A, 1, "accepted");
+
+		// The review's two steps: employee_code is not a guarded field, so HR
+		// can first give the peer a code of its choosing...
+		assertThat(call("/apis/api/employees/update.php?id=" + peer, HttpMethod.PUT, hr,
+				Map.of("employee_code", "7700" + peer)).getStatusCode().value()).isEqualTo(200);
+
+		// ...and then address the peer by it on update_bulk.php.
+		ResponseEntity<Map<String, Object>> bulk = call("/apis/api/employees/update_bulk.php", HttpMethod.POST, hr,
+				Map.of("rows", java.util.List.of(
+						Map.of("employee_code", "7700" + peer, "password", "owned"),
+						Map.of("employee_code", "7700" + peer, "phone", "01009998877"),
+						Map.of("employee_code", String.valueOf(ADMIN % 100_000), "password", "owned"),
+						Map.of("employee_code", String.valueOf(staff % 100_000), "password", "reset-by-hr"))));
+		assertThat(bulk.getStatusCode().value()).isEqualTo(200);
+		Map<String, Object> result = data(bulk);
+		assertThat(result.get("updated")).as("only the plain employee's row").isEqualTo(1);
+		assertThat(result.get("updated_ids")).isEqualTo(java.util.List.of((int) staff));
+		assertThat(failedErrors(bulk)).containsExactly(
+				java.util.List.of("forbidden"),
+				java.util.List.of("employee_code_duplicate_in_file"),
+				java.util.List.of("forbidden"));
+
+		// The phone alone, on a row of its own.
+		ResponseEntity<Map<String, Object>> phone = call("/apis/api/employees/update_bulk.php", HttpMethod.POST, hr,
+				Map.of("rows", java.util.List.of(Map.of("employee_code", "7700" + peer, "phone", "01009998877"))));
+		assertThat(failedErrors(phone)).containsExactly(java.util.List.of("forbidden"));
+
+		for (long target : new long[] {peer, ADMIN}) {
+			assertThat(queryString("SELECT CONCAT(password_hash, '|', phone, '|', country_code)"
+					+ " FROM employees WHERE id = " + target))
+					.as("nothing about %s changed", target)
+					.isEqualTo(HASH + "|+20100" + target + "|+20");
+		}
+		assertThat(new BCryptPasswordEncoder().matches("reset-by-hr",
+				queryString("SELECT password_hash FROM employees WHERE id = " + staff))).isTrue();
+	}
+
+	@Test
+	void theBulkUpdateStillLetsHrEditAPeersOtherFieldsAndTheAdminEditAnyone() throws Exception {
+		long peer = hrEmployee();
+		String code = String.valueOf(peer % 100_000);
+
+		ResponseEntity<Map<String, Object>> hrEdit = call("/apis/api/employees/update_bulk.php", HttpMethod.POST,
+				token(HR_PERMITTED, "hr", 1), Map.of("rows", java.util.List.of(
+						Map.of("employee_code", code, "address", "Moved", "password", "   "))));
+		assertThat(data(hrEdit).get("updated")).as("a blank password cell changes nothing").isEqualTo(1);
+		assertThat(queryString("SELECT address FROM employees WHERE id = " + peer)).isEqualTo("Moved");
+
+		ResponseEntity<Map<String, Object>> adminEdit = call("/apis/api/employees/update_bulk.php", HttpMethod.POST,
+				token(ADMIN, "company_admin", 1), Map.of("rows", java.util.List.of(
+						Map.of("employee_code", code, "password", "admin-reset"))));
+		assertThat(data(adminEdit).get("updated")).isEqualTo(1);
+		assertThat(new BCryptPasswordEncoder().matches("admin-reset",
+				queryString("SELECT password_hash FROM employees WHERE id = " + peer))).isTrue();
+	}
+
+	/** Each failed row's {@code errors}, in row order. */
+	private static java.util.List<Object> failedErrors(ResponseEntity<Map<String, Object>> response) {
+		return ((java.util.List<?>) data(response).get("failed")).stream()
+				.map(row -> ((Map<?, ?>) row).get("errors"))
+				.collect(java.util.stream.Collectors.toList());
+	}
+
+	@SuppressWarnings("unchecked")
+	private static Map<String, Object> data(ResponseEntity<Map<String, Object>> response) {
+		return (Map<String, Object>) response.getBody().get("data");
+	}
+
 	// ------------------------------------------------------------------
 	// Item 4 -- a manager decides only inside their branch
 	// ------------------------------------------------------------------
