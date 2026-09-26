@@ -150,10 +150,14 @@ as PHP's variant match did.
 **OTPs are keyed on E.164** -- `otp_codes.phone` and
 `otp_request_logs.phone` -- so every spelling of a number shares one code, one
 cooldown and one hourly cap, and an OTP is delivered to the number's own
-country. A national number with several readings takes the country of the
-stored account it belongs to -- employees first for an `employee` request,
-otherwise companies first, as `otp_resolve_country_code_for_phone()` ordered
-them -- else Egypt's. A code is delivered only to a country the product
+country. Where a route checks a code (`verify_otp`, `reset_password`), a
+national number with several readings is checked against each reading's
+code and acts on the one reading that holds it -- none, or more than one, is
+an unknown code -- so neither an account's id nor its table decides which of
+two numbers with the same digits is meant. `resend_otp`, which delivers
+rather than checks, takes the country of the stored account the number
+belongs to (companies, then employees, as
+`otp_resolve_country_code_for_phone()` ordered them), else Egypt's. A code is delivered only to a country the product
 offers (the set `forAccount` admits): `resend_otp` refuses any other number
 as an invalid one, and `forgot_password` answers `phone_not_found` for an
 account stored in one.
@@ -164,10 +168,12 @@ number's national digits from the metadata (`01012345678`, `0501234567`) in
 the mobile clients see the data they always have. International input stores
 its own dial code, never the request's. Because a national number is read
 in its row's `country_code`, a write carrying `country_code` without `phone`
-(the profile PUT, `update.php`, the company's `update.php`) re-reads the
-stored phone under the new code through `forAccount` and the route's
-uniqueness check, and is refused as a new phone would be when it does not
-hold.
+(the profile PUT, `update.php`, the company's `update.php`) is compared
+with the stored code as they are read -- a blank code reads as Egypt's -- so
+a code under which the stored phone is the same number is written as sent,
+as PHP wrote it; any other code re-reads the stored phone under it through
+`forAccount` and the route's uniqueness check, is refused as a new phone
+would be when it does not hold, and stores the number's own dial code.
 
 **Phase 2 (not now).** After PHP is retired and the 16 company pairs are
 resolved, add a stored E.164 column to `employees` and `companies`, backfill

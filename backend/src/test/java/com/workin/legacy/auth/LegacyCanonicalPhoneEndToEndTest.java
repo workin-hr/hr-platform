@@ -384,14 +384,15 @@ class LegacyCanonicalPhoneEndToEndTest {
 		try {
 			ResponseEntity<Map<String, Object>> other = post("reset_password", Map.of("phone", "+971501234592",
 					"otp", saudiCode, "type", "employee", "password", "Stolen-Owl-1"));
-			assertThat(other.getStatusCode().value()).isEqualTo(400);
+			assertThat(other.getStatusCode().value()).as("%s", other.getBody()).isEqualTo(400);
 
 			assertThat(post("forgot_password", Map.of("phone", "+971501234592", "type", "employee"))
 					.getStatusCode().value()).isEqualTo(200);
-			execute("UPDATE otp_codes SET code = '4321'");
+			// expires_at is the table's auto-updating TIMESTAMP, so it is set too.
+			execute("UPDATE otp_codes SET code = '4321', expires_at = NOW() + INTERVAL 10 MINUTE");
 			ResponseEntity<Map<String, Object>> both = post("reset_password", Map.of("phone", "0501234592",
 					"otp", "4321", "type", "employee", "password", "Stolen-Owl-2"));
-			assertThat(both.getStatusCode().value()).isEqualTo(400);
+			assertThat(both.getStatusCode().value()).as("%s", both.getBody()).isEqualTo(400);
 			assertThat(both.getBody()).as("the answer an unknown code gets")
 					.isEqualTo(other.getBody());
 
