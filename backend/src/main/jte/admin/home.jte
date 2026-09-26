@@ -167,7 +167,7 @@
 			     monthly, annual, then the 90-day cohort rate. --%>
 			<section class="home-section" aria-labelledby="home-section-turnover">
 				<h3 class="home-section-title" id="home-section-turnover">${t.apply("home_section_turnover")}</h3>
-				<div class="home-stats-grid home-stats-grid--four">
+				<div class="home-stats-grid">
 					@template.admin.statCard(href = "/admin/employees?filter=inactive", value = String.valueOf(summary.resignations()),
 							label = t.apply("resignations_year"), icon = "logout", tone = "gray")
 					@if(turnover != null)
