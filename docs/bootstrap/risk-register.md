@@ -337,12 +337,12 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Impact | Low but real, and it surfaces far from its cause. A non-Egyptian employee who joins and later uses `forgot_password.php` has no stored dial code, so `otp_resolve_country_code_for_phone()` falls back to `+20`, `phone_to_whatsapp_jid()` builds an Egyptian JID from a Saudi number, and the OTP is delivered nowhere. The user sees a password reset that silently never arrives, and the logs show a successful send. The row's own responses also lose the dial code the caller submitted. |
 | Severity | Low |
 | Owner | Repository owner. Upstream fix. |
-| Mitigation | None applied — adding the column in Java would make a joined employee's row differ between the two systems on a column other endpoints read. The regression `aNonEgyptianJoinerHasNoCountryCodeStored` pins the current behaviour so it is a known gap rather than an assumed one. |
+| Mitigation | **Applied in the Java port by D-291 (2026-09-26).** Every Java write now stores the number's national digits beside its own dial code (ADR-0020), `join_company` included, so a joined Saudi employee's row carries `+966`; `aNonEgyptianJoinerStoresTheNumbersOwnCountryCode` pins it. PHP still writes NULL until cutover, and existing NULL rows read as Egyptian, which the owner's production profile (every stored phone valid under its stored code) shows is correct for every current row. |
 | Trigger | A non-Egyptian employee reporting that a password reset never arrives; any `employees` row with a non-`+20`-shaped phone and a NULL `country_code`. |
 | Contingency | One column in one INSERT: add `country_code` with the already-resolved `$country_code`. It is additive and needs no schema change (the column exists and is nullable). Worth landing with the other upstream auth fixes rather than alone, and worth a backfill decision for existing rows — which is a data question, since the correct value for an existing NULL can only be inferred from the phone's shape. |
-| Status | Open — not accepted, low priority. |
+| Status | Mitigated in the Java port (D-291); open in legacy PHP until cutover. |
 | Evidence | `hr-legacy@d113204` `apis/api/auth/join_company.php:21-22` (resolve and validate) against `:79-99` (the nine-column INSERT). The same failure mode reached `forgot_password.php` as a **port** defect in the first Wave 13.1 review round and was fixed there (D-136); this one is legacy's and is not. Raised by the independent review of PR #144 and confirmed against the source. |
-| Last Reviewed | 2026-08-29 |
+| Last Reviewed | 2026-09-26 |
 
 ## R-020: Interleaved Field-Name Aliases In A URL-Encoded Body Resolve To The Wrong Value
 

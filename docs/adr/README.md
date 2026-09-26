@@ -119,6 +119,14 @@ requirements that survived the supersession is recorded in it.
 
 ## Proposed ADRs
 
-None. ADR-0006's Part B (final vendor protocol/connectivity detail) is a further
+- `ADR-0020-canonical-phone-numbers.md` — every phone number the legacy
+  surface reads or writes is parsed and validated by Google libphonenumber and
+  identified by its E.164 form, through one component; lookups bind stored
+  spellings and verify rows rather than binding the request's text, and the
+  login throttle keys on E.164. Reverses `LegacyPhoneNumbers`' "not
+  libphonenumber" stance; storage keeps the legacy national-digits convention
+  until PHP is retired (D-291, proposed 2026-09-26)
+
+ADR-0006's Part B (final vendor protocol/connectivity detail) is a further
 open ADR sub-item, tracked within `ADR-0006-attendance-edge-gateway-direction.md`
 itself rather than as a separately `Proposed` ADR.
