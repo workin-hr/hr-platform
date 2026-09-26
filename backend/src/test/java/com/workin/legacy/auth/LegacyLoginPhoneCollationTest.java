@@ -32,7 +32,7 @@ class LegacyLoginPhoneCollationTest {
 	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.emptyDatabase();
 
 	/** Every non-digit character {@code bindablePhone} admits. */
-	private static final List<String> ADMITTED = List.of(" ", "\t", "\n", "\r", "\0", "\u000B", "+", "-");
+	private static final List<String> ADMITTED = List.of(" ", "\t", "\n", "\r", "\0", "\u000B", "+", "-", "(", ")", ".", "/");
 
 	@Test
 	void everyCodePointTheCollationEquatesToADigitIsFoldedToThatDigitOrRefused() throws SQLException {

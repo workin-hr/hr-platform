@@ -176,7 +176,10 @@ public class LegacyLoginThrottle {
 	 * The phone a route binds in its lookup, or {@code null} when it must not
 	 * reach one: PHP's {@code (string)} cast, NFKC-folded, every decimal digit
 	 * (category Nd) written as ASCII, and then only ASCII digits, a leading
-	 * {@code +}, hyphens and {@code trim()}'s whitespace admitted. Those are
+	 * {@code +}, the separators a phone is written with ({@code - ( ) . /}) and
+	 * {@code trim()}'s whitespace admitted. {@code register_employee.php}
+	 * stores a phone as sent, so a refused separator would lock out an
+	 * account whose stored phone holds it. Those are
 	 * the only characters left, and none of them can compare equal to a digit
 	 * under the collation, so the ASCII digits of this string are the digits
 	 * the lookup matches on.
@@ -200,8 +203,8 @@ public class LegacyLoginThrottle {
 			} else if (codePoint == '+' && signAllowed) {
 				bound.append('+');
 				signAllowed = false;
-			} else if (codePoint == '-') {
-				bound.append('-');
+			} else if (codePoint == '-' || codePoint == '(' || codePoint == ')' || codePoint == '.' || codePoint == '/') {
+				bound.append((char) codePoint);
 				signAllowed = false;
 			} else {
 				return null;

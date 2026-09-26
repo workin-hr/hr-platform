@@ -90,6 +90,8 @@ class LegacyLoginThrottleTest {
 		assertThat(LegacyLoginThrottle.bindablePhone("٠١٠١٢٣٤٥٦٧٨")).isEqualTo("01012345678");
 		assertThat(LegacyLoginThrottle.bindablePhone("０１０-１２３４ ５６７８")).isEqualTo("010-1234 5678");
 		assertThat(LegacyLoginThrottle.bindablePhone(" +2010 ")).isEqualTo(" +2010 ");
+		assertThat(LegacyLoginThrottle.bindablePhone("(010) 1234.5678")).isEqualTo("(010) 1234.5678");
+		assertThat(LegacyLoginThrottle.bindablePhone("+20/10-1234")).isEqualTo("+20/10-1234");
 		String bound = this.throttle.guard("۰۱۰۱۲۳۴۵۶۷۸", OWNER, UNKNOWN, phone -> phone);
 		assertThat(bound).isEqualTo("01012345678");
 	}
