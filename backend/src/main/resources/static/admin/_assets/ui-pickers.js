@@ -95,6 +95,7 @@
               keepsTyped(instance);
             }
           }, true);
+          typable.set(instance.altInput, instance);
           instance.altInput.classList.add('ui-picker');
           instance.altInput.setAttribute('dir', 'auto');
           if (input.id) {
@@ -127,6 +128,21 @@
     }
     return Object.assign(base, { dateFormat: 'Y-m-d', altFormat: 'd/m/Y' });
   }
+
+  // A click away is the common way to leave a field -- onto Save, or the next
+  // field -- and flatpickr commits the typed text on the document's mousedown,
+  // before the field's blur. This listener is on the document in the capture
+  // phase, so it runs first and puts a typo back before flatpickr reads it.
+  const typable = new WeakMap();
+  function beforeLeaving(event) {
+    const field = document.activeElement;
+    const instance = field && typable.get(field);
+    if (instance && instance.config.allowInput && !field.contains(event.target)) {
+      keepsTyped(instance);
+    }
+  }
+  document.addEventListener('mousedown', beforeLeaving, true);
+  document.addEventListener('touchstart', beforeLeaving, true);
 
   // True when the typed text is a date or empty (a deliberate clear); otherwise
   // the field goes back to its last committed value and false is returned.
