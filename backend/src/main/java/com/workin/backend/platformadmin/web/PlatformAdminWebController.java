@@ -78,11 +78,14 @@ public class PlatformAdminWebController {
 		java.util.List<HomeChart> planning = this.homeService.workforcePlanning(scoped);
 		model.addAttribute("planned", planning.get(0));
 		model.addAttribute("actual", planning.get(1));
+		java.util.List<HomeChart> movement = this.homeService.hiresAndExits(scoped);
+		model.addAttribute("hires", movement.get(0));
+		model.addAttribute("exits", movement.get(1));
 		return "admin/home";
 	}
 
 	/**
-	 * The gender and age series come out of SQL as keys, because grouping on a
+	 * The gender, age and request-status series come out of SQL as keys, because grouping on a
 	 * translated string would group differently per language. They become
 	 * labels here, using the same {@code t} the templates render with.
 	 */
@@ -97,7 +100,7 @@ public class PlatformAdminWebController {
 				(java.util.function.Function<String, String>) translator;
 		java.util.SequencedMap<String, HomeChart> translated = new java.util.LinkedHashMap<>();
 		charts.forEach((key, chart) -> translated.put(key,
-				"chart_gender".equals(key) || "chart_age".equals(key)
+				"chart_gender".equals(key) || "chart_age".equals(key) || "chart_requests_status".equals(key)
 						? chart.translateLabels(label -> t.apply(labelKey(key, label)))
 						: chart));
 		return translated;
@@ -111,6 +114,14 @@ public class PlatformAdminWebController {
 				case "female" -> "gender_female";
 				case "unknown" -> "chart_unknown";
 				default -> "gender_other";
+			};
+		}
+		if ("chart_requests_status".equals(chart)) {
+			return switch (raw) {
+				case "pending" -> "status_pending";
+				case "approved" -> "status_approved";
+				case "rejected" -> "status_rejected";
+				default -> "chart_unknown";
 			};
 		}
 		// Spelled out, not concatenated: AdminLayoutWiringTest reads the

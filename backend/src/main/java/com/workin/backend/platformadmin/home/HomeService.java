@@ -78,6 +78,7 @@ public class HomeService {
 		put(charts, "chart_salary_dept", this.store.salaryByDepartment(companyId));
 		put(charts, "chart_att_dept", this.store.attendanceByDepartment(companyId));
 		put(charts, "chart_pen_dept", this.store.penaltiesByDepartment(companyId));
+		put(charts, "chart_requests_status", this.store.requestsByStatus(companyId));
 		return charts;
 	}
 
@@ -106,6 +107,21 @@ public class HomeService {
 			return java.util.List.of(HomeChart.EMPTY, HomeChart.EMPTY);
 		}
 		return this.store.workforcePlanning(session.companyId());
+	}
+
+	/**
+	 * Hires and exits over the last six months (D-290): two series over one
+	 * label set, beside the map for the same reason as {@link #workforcePlanning}.
+	 *
+	 * @return hires first, then exits; both empty when there is nothing to draw
+	 */
+	public java.util.List<HomeChart> hiresAndExits(DashboardSession session) {
+		if (!DashboardAccess.can(session, DashboardAccess.PERM_DASHBOARD)) {
+			return java.util.List.of(HomeChart.EMPTY, HomeChart.EMPTY);
+		}
+		java.util.List<HomeChart> series = this.store.hiresAndExits(session.companyId(), this.clock.today());
+		boolean nothing = series.stream().allMatch(chart -> chart.values().stream().allMatch(value -> value == 0d));
+		return nothing ? java.util.List.of(HomeChart.EMPTY, HomeChart.EMPTY) : series;
 	}
 
 	/**

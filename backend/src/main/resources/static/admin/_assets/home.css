@@ -459,15 +459,36 @@ html[dir="ltr"] .home-activity-side {
   text-decoration: underline;
 }
 
-/* Stats & charts (unchanged structure) */
-/* Sixteen cards: four across, then two, then one -- a count that divides
-   evenly at every width, so no row ends with a lone card. auto-fill put five
-   across at 1440px and left the sixteenth by itself. */
+/* Stats & charts */
+/* The figures come in four labelled groups (D-290), each sized so that its
+   cards divide evenly at every width and no row ends with a lone card: six
+   across three columns, three across three, four across four; then two per
+   row below 1100px, where the money figures take a row each on a phone. */
+.home-section {
+  margin-bottom: 22px;
+}
+.home-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ui-text-soft);
+}
+.home-section-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--ui-border-soft);
+}
 .home-stats-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
-  margin-bottom: 20px;
+}
+.home-stats-grid.home-stats-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .home-stat-card {
   background: var(--ui-surface);
@@ -498,6 +519,20 @@ html[dir="ltr"] .home-activity-side {
   margin-top: 4px;
   font-weight: 500;
 }
+.home-stat-card .note {
+  font-size: 11px;
+  color: var(--ui-text-muted);
+  margin-top: 2px;
+}
+/* An empty queue: the number and its label stay legible, the tile stops
+   asking for attention. */
+.home-stat-card--quiet .num {
+  color: var(--ui-text-muted);
+}
+.home-stat-card--quiet .ico {
+  filter: grayscale(1);
+  opacity: .55;
+}
 /* The glyph takes the tile's own colour. That is the whole reason it is an SVG
    and not an emoji: `.ico--red` already sets `color`, and an emoji ignores it,
    so a red tile used to hold a full-colour drawing of a speech bubble. */
@@ -519,8 +554,21 @@ html[dir="ltr"] .home-activity-side {
 }
 
 @media (max-width: 1100px) {
-  .home-stats-grid {
+  .home-stats-grid,
+  .home-stats-grid.home-stats-grid--three {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+/* Three money figures in two columns would leave the third alone; they fit
+   three across down to a tablet, then take a row each. */
+@media (max-width: 1100px) and (min-width: 761px) {
+  .home-stats-grid.home-stats-grid--money {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .home-stats-grid.home-stats-grid--money {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 /* A phone keeps two across -- one per row made sixteen screens of cards --
@@ -541,6 +589,9 @@ html[dir="ltr"] .home-activity-side {
   }
   .home-stat-card--wide {
     grid-column: 1 / -1;
+  }
+  .home-section-title {
+    font-size: 13px;
   }
 }
 

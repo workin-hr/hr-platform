@@ -120,6 +120,13 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 		assertThat(java.util.regex.Pattern.compile("<div class=\"num\">\\d{1,3}(,\\d{3})* \u062c\\.\u0645</div>")
 				.matcher(home.response().getBody()).results().count())
 				.as("gross, basic and net salaries").isEqualTo(3);
+		// D-290: the figures in four labelled groups, in this order.
+		assertThat(home.response().getBody())
+				.containsSubsequence(
+						"id=\"home-section-action\">" + arabic("admin-own", "home_section_action") + "<",
+						"id=\"home-section-workforce\">" + arabic("admin-own", "home_section_workforce") + "<",
+						"id=\"home-section-payroll\">" + arabic("admin-own", "home_section_payroll") + "<",
+						"id=\"home-section-turnover\">" + arabic("admin-own", "home_section_turnover") + "<");
 		Page sessions = get("/admin/sessions", cookie);
 		// The current session is the row carrying the badge. Asserted as markup
 		// rather than as its label: this surface renders in Arabic by default
