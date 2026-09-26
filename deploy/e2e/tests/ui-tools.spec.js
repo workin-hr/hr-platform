@@ -130,7 +130,7 @@ const BODY = `${FILTERS}
       <div class="form-row"><label for="day">اليوم</label>
         <input type="date" id="day" name="day" data-dialog-field="day"></div>
       <div class="form-row"><label for="punch">الحضور</label>
-        <input type="datetime-local" id="punch" name="check_in" data-dialog-field="check_in"></div>
+        <input type="datetime-local" id="punch" name="check_in" step="1" data-dialog-field="check_in"></div>
       <div class="form-footer"><button type="submit" class="btn btn-blue">save</button></div>
     </form>
   </div>
@@ -145,6 +145,8 @@ const BODY = `${FILTERS}
       <div class="form-row"><label for="run-month">الشهر</label>
         <select id="run-month" name="month">${MONTHS.map((name, index) => `<option value="${index + 1}">${name}</option>`).join('')}</select></div>
       <div class="form-row"><label for="run-note">ملاحظة</label><input id="run-note" name="note"></div>
+      <div class="form-row"><label for="run-year">السنة</label>
+        <select id="run-year" name="year">${[2027, 2026, 2025, 2024, 2023, 2022, 2021, 2020].map((year) => `<option>${year}</option>`).join('')}</select></div>
       <div class="form-footer"><button type="submit" class="btn btn-blue" id="run-submit">run</button></div>
     </form>
   </div>
@@ -187,8 +189,13 @@ test.beforeEach(async ({ page, context }) => {
 			return;
 		}
 		// /filtered is the same list rendered with one filter in force.
-		const body = new URL(request.url()).pathname === '/filtered'
-			? PAGE.replace('<option value="active">', '<option value="active" selected>') : PAGE;
+		// /filtered is one filter in force; /edit-open is the edit dialog rendered
+		// open, as a page that reopens a dialog after a failed save does.
+		const path = new URL(request.url()).pathname;
+		const body = path === '/filtered'
+			? PAGE.replace('<option value="active">', '<option value="active" selected>')
+			: path === '/edit-open' ? PAGE.replace('<div class="modal-bg" id="edit"', '<div class="modal-bg open" id="edit"')
+				: PAGE;
 		await route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body });
 	});
 	await page.goto(`${ORIGIN}/`);
@@ -398,7 +405,7 @@ test.describe('inside a dialog, and after a round of review (D-288)', () => {
 		await page.locator('#run-trigger').click();
 		const dialog = page.locator('#run');
 		await expect(dialog).toHaveClass(/open/);
-		await dialog.getByRole('combobox').click();
+		await page.locator('#run-month').locator('xpath=..').getByRole('combobox').click();
 		const popup = page.locator('.ui-select__popup:not([hidden])');
 		await expect(popup).toBeVisible();
 		const hit = await popup.evaluate((node) => {
@@ -414,7 +421,7 @@ test.describe('inside a dialog, and after a round of review (D-288)', () => {
 
 	test('Tab out of an open list moves to the next field, inside the dialog', async ({ page }) => {
 		await page.locator('#run-trigger').click();
-		await page.locator('#run').getByRole('combobox').click();
+		await page.locator('#run-month').locator('xpath=..').getByRole('combobox').click();
 		await expect(page.locator('.ui-select__popup:not([hidden])')).toBeVisible();
 		await page.keyboard.press('Tab');
 		await expect(page.locator('#run-note')).toBeFocused();
@@ -474,5 +481,54 @@ test.describe('inside a dialog, and after a round of review (D-288)', () => {
 		await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(0);
 		await page.keyboard.press('ArrowDown');
 		await expect(page.locator('.flatpickr-calendar.open'), 'ArrowDown opens it from the keyboard').toHaveCount(1);
+	});
+
+	test('the attendance edit dialog allows seconds, as #punch here does', () => {
+		const attendance = readFileSync(new URL('../../../backend/src/main/jte/admin/attendance.jte', import.meta.url), 'utf8');
+		for (const id of ['att_edit_check_in', 'att_edit_check_out']) {
+			expect(attendance, `${id} carries step="1", which is what keeps a punch's seconds`)
+				.toMatch(new RegExp(`<input type="datetime-local" id="${id}"[^>]*\\sstep="1"`));
+		}
+	});
+
+	test('a punch keeps its seconds after its picker is opened and closed, and after Enter', async ({ page }) => {
+		await page.locator('#edit-trigger').click();
+		await page.locator('#punch-picker').click();
+		await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(1);
+		// Leaving the field is what re-reads its visible text.
+		await page.keyboard.press('Tab');
+		await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(0);
+		await expect(page.locator('#punch')).toHaveValue('2026-09-26T08:00:45');
+		await page.locator('#punch-picker').focus();
+		await page.keyboard.press('Enter');
+		await expect(page.locator('#punch')).toHaveValue('2026-09-26T08:00:45');
+		await page.locator('#edit form').evaluate((form) => form.requestSubmit());
+		await expect.poll(() => posts.length).toBe(1);
+		expect(new URLSearchParams(posts[0].body).get('check_in')).toBe('2026-09-26T08:00:45');
+	});
+
+	test('Tab from a list onto the dialog\'s last control stays there, and Shift+Tab goes back a field', async ({ page }) => {
+		await page.locator('#run-trigger').click();
+		await page.locator('#run-year').locator('xpath=..').getByRole('combobox').click();
+		await page.keyboard.press('Tab');
+		await expect(page.locator('#run-submit'), 'not wrapped round to the dialog\'s ×').toBeFocused();
+		await page.locator('#run-year').locator('xpath=..').getByRole('combobox').click();
+		await page.keyboard.press('Shift+Tab');
+		await expect(page.locator('#run-note')).toBeFocused();
+	});
+
+	test('Escape with a calendar open closes the calendar and leaves the dialog', async ({ page }) => {
+		await page.locator('#edit-trigger').click();
+		await page.locator('#day-picker').focus();
+		await page.keyboard.press('ArrowDown');
+		await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(1);
+		await page.keyboard.press('Escape');
+		await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(0);
+		await expect(page.locator('#edit')).toHaveClass(/open/);
+	});
+
+	test('a dialog rendered open keeps focus on its first field\'s visible picker', async ({ page }) => {
+		await page.goto(`${ORIGIN}/edit-open`);
+		await expect(page.locator('#day-picker')).toBeFocused();
 	});
 });

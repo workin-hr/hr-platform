@@ -194,7 +194,9 @@
       } else if (event.key === 'Tab') {
         // The search box lives at the end of <body> or its dialog, so the
         // browser's own Tab would leave from there. Leave from the field.
+        // Handled here, so modal-a11y's wrap-around does not act on it too.
         event.preventDefault();
+        event.stopPropagation();
         close(false);
         neighbour(state.button, event.shiftKey ? -1 : 1).focus();
       }
@@ -321,7 +323,8 @@
   function neighbour(button, step) {
     const scope = button.closest('.modal-bg') || document;
     const fields = Array.from(scope.querySelectorAll(FOCUSABLE)).filter(function (node) {
-      return node.offsetParent !== null && !node.closest('.ui-select__popup');
+      return node.offsetParent !== null && !node.closest('.ui-select__popup')
+        && node.getAttribute('tabindex') !== '-1';
     });
     const at = fields.indexOf(button);
     if (at < 0 || fields.length < 2) {
