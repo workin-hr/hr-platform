@@ -98,8 +98,8 @@ for expected cases:
   the owner signing in from another address is refused only past the
   phone-wide 40. A phone in Arabic-Indic, Persian or fullwidth digits is
   folded to ASCII before the lookup; one holding any other character but a
-  leading `+`, hyphens or spaces is answered as an unknown phone without a
-  lookup.
+  leading `+`, spaces or the separators `- ( ) . /` is answered as an
+  unknown phone without a lookup.
   `login_company` and `login_desktop` share the same budgets and answer
   the same way. Legacy has no limit.
 

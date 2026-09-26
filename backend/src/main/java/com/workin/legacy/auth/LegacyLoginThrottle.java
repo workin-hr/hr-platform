@@ -76,8 +76,8 @@ import com.workin.legacy.wire.LegacyApiException;
  * raw string can follow all of that. So the phone is not keyed on what the
  * client sent; the route looks up {@link #bindablePhone}, the value the key
  * is made from. That folds NFKC and every decimal digit (category Nd) to ASCII,
- * and then admits only ASCII digits, a leading {@code +}, hyphens and the
- * whitespace PHP's {@code trim()} strips. Anything else never reaches the
+ * and then admits only ASCII digits, a leading {@code +}, the separators
+ * {@code - ( ) . /} and the whitespace PHP's {@code trim()} strips. Anything else never reaches the
  * lookup: it is answered as the route answers an unknown phone and charged
  * to the address as a miss. So the key is the ASCII digits of exactly the
  * string the lookup binds, and a phone written in characters the collation
