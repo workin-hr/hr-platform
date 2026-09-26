@@ -53,6 +53,10 @@ class HomeStoreAnalyticsTest extends AbstractLegacyMySqlTest {
 		}
 
 		seedAsLegacyWould(
+				"DELETE FROM payslips WHERE employee_id BETWEEN 990400 AND 990499",
+				"DELETE FROM payroll_batches WHERE company_id BETWEEN 990400 AND 990499",
+				"DELETE FROM complaints WHERE company_id BETWEEN 990400 AND 990499",
+				"DELETE FROM advances WHERE employee_id BETWEEN 990400 AND 990499",
 				"DELETE FROM requests WHERE employee_id BETWEEN 990400 AND 990499",
 				"DELETE FROM request_types WHERE id BETWEEN 990400 AND 990499",
 				"DELETE FROM attendance WHERE employee_id BETWEEN 990400 AND 990499",
@@ -66,6 +70,10 @@ class HomeStoreAnalyticsTest extends AbstractLegacyMySqlTest {
 						+ " (" + OTHER + ", 'Home D', '+201000990402', 'active', '2019-01-15 09:00:00')",
 				"INSERT INTO branches (id, company_id, name, is_active, created_at) VALUES"
 						+ " (990411, " + COMPANY + ", 'C', 1, '2019-03-01 10:00:00'),"
+						+ " (990413, " + COMPANY + ", 'C2', 1, '2019-03-01 10:00:00'),"
+						+ " (990414, " + COMPANY + ", 'C3', 1, '2019-03-01 10:00:00'),"
+						+ " (990415, " + COMPANY + ", 'C4', 1, '2019-03-01 10:00:00'),"
+						+ " (990416, " + COMPANY + ", 'C5', 0, '2019-03-01 10:00:00'),"
 						+ " (990412, " + OTHER + ", 'D', 1, '2019-03-01 10:00:00')",
 				// Hired this month, and two months ago: two hires in the window.
 				employee(990421, COMPANY, 1, "accepted", "CURDATE()", "CURDATE()"),
@@ -79,6 +87,8 @@ class HomeStoreAnalyticsTest extends AbstractLegacyMySqlTest {
 				// Hired seven months ago: before the six-month window.
 				employee(990426, COMPANY, 1, "accepted",
 						"DATE_SUB(CURDATE(), INTERVAL 7 MONTH)", "DATE_SUB(CURDATE(), INTERVAL 7 MONTH)"),
+				// A long-serving active employee, outside every window.
+				employee(990427, COMPANY, 1, "accepted", "'2019-05-01'", "'2019-05-01'"),
 				// The other company: a hire, an exit, and a row for every figure below.
 				employee(990431, OTHER, 1, "accepted", "CURDATE()", "CURDATE()"),
 				employee(990432, OTHER, 0, "accepted", "'2020-01-01'", "CURDATE()"),
@@ -103,7 +113,33 @@ class HomeStoreAnalyticsTest extends AbstractLegacyMySqlTest {
 						+ " (990431, 9000, 0, 0, 0, 0, '2025-01-01')",
 				"INSERT INTO penalties (employee_id, penalty_type, penalty_date, applied_to_payroll) VALUES"
 						+ " (990421, 'late', CURDATE(), 0), (990422, 'late', CURDATE(), 1),"
-						+ " (990431, 'late', CURDATE(), 0)");
+						+ " (990421, 'late', CURDATE(), 0), (990421, 'late', CURDATE(), 0),"
+						+ " (990421, 'late', CURDATE(), 0), (990421, 'late', CURDATE(), 0),"
+						+ " (990421, 'late', CURDATE(), 0), (990421, 'late', CURDATE(), 0),"
+						+ " (990421, 'late', CURDATE(), 0),"
+						+ " (990431, 'late', CURDATE(), 0)",
+				// Five of this company's employees' complaints are open; a closed
+				// one, one addressed to the platform, and the other company's are not.
+				"INSERT INTO complaints (company_id, source, message, status) VALUES"
+						+ " (" + COMPANY + ", 'employee', 'm', 'pending'), (" + COMPANY + ", 'employee', 'm', 'pending'),"
+						+ " (" + COMPANY + ", 'employee', 'm', 'pending'), (" + COMPANY + ", 'employee', 'm', 'pending'),"
+						+ " (" + COMPANY + ", 'employee', 'm', 'pending'), (" + COMPANY + ", 'employee', 'm', 'done'),"
+						+ " (" + COMPANY + ", 'company_support', 'm', 'pending'),"
+						+ " (" + OTHER + ", 'employee', 'm', 'pending')",
+				"INSERT INTO advances (employee_id, amount, remaining, status, request_date) VALUES"
+						+ " (990421, 10, 10, 'pending', CURDATE()), (990421, 10, 10, 'pending', CURDATE()),"
+						+ " (990421, 10, 10, 'pending', CURDATE()), (990422, 10, 10, 'pending', CURDATE()),"
+						+ " (990422, 10, 10, 'pending', CURDATE()), (990422, 10, 10, 'pending', CURDATE()),"
+						+ " (990422, 10, 10, 'approved', CURDATE()), (990431, 10, 10, 'pending', CURDATE())",
+				// Ten drafts in past years, and this month's finalized run with one payslip.
+				"INSERT INTO payroll_batches (id, company_id, month, year, period_from, period_to, status)"
+						+ " SELECT 990400 + seq, " + COMPANY + ", 1, 2000 + seq, '2000-01-01', '2000-01-31', 'draft'"
+						+ " FROM seq_1_to_10",
+				"INSERT INTO payroll_batches (id, company_id, month, year, period_from, period_to, status) VALUES"
+						+ " (990421, " + COMPANY + ", MONTH(CURDATE()), YEAR(CURDATE()), CURDATE(), CURDATE(), 'finalized'),"
+						+ " (990431, " + OTHER + ", MONTH(CURDATE()), YEAR(CURDATE()), CURDATE(), CURDATE(), 'draft')",
+				"INSERT INTO payslips (batch_id, employee_id, net_salary) VALUES"
+						+ " (990421, 990421, 1234.50), (990431, 990431, 9999)");
 	}
 
 	@Test
@@ -113,15 +149,23 @@ class HomeStoreAnalyticsTest extends AbstractLegacyMySqlTest {
 
 		assertThat(statements).as("sixteen figures, one statement").hasSize(1);
 		HomeSummary s = summary[0];
+		// Every count that the company predicate does not pin to 0 or 1 has a
+		// value of its own, so two columns swapped in the row mapper, or a
+		// subquery that lost its predicate, changes an assertion here.
 		assertThat(s.companiesTotal()).isEqualTo(1);
 		assertThat(s.companiesActive()).isEqualTo(1);
 		assertThat(s.companiesPending()).isZero();
-		assertThat(s.employeesTotal()).as("990421, 990422, 990426").isEqualTo(3);
-		assertThat(s.branchesTotal()).isEqualTo(1);
+		assertThat(s.employeesTotal()).as("990421, 990422, 990426, 990427").isEqualTo(4);
+		assertThat(s.branchesTotal()).as("every branch, active or not, as legacy counts").isEqualTo(5);
 		assertThat(s.checkedInToday()).as("two punches, one person").isEqualTo(1);
 		assertThat(s.pendingRequests()).isEqualTo(2);
-		assertThat(s.penaltiesTotal()).isEqualTo(2);
-		assertThat(s.penaltiesUnapplied()).isEqualTo(1);
+		assertThat(s.openComplaints()).as("the employees' own queue when scoped").isEqualTo(5);
+		assertThat(s.pendingAdvances()).isEqualTo(6);
+		assertThat(s.penaltiesTotal()).isEqualTo(9);
+		assertThat(s.penaltiesUnapplied()).isEqualTo(8);
+		assertThat(s.payrollDraft()).isEqualTo(10);
+		assertThat(s.monthlyNet()).as("this month's payslips, finalized or not, this company's only")
+				.isEqualByComparingTo(new BigDecimal("1234.50"));
 		assertThat(s.grossSalaries()).as("the latest contract each: 2000+200 and 3000")
 				.isEqualByComparingTo(new BigDecimal("5200"));
 		assertThat(s.basicSalaries()).isEqualByComparingTo(new BigDecimal("5000"));
@@ -130,10 +174,20 @@ class HomeStoreAnalyticsTest extends AbstractLegacyMySqlTest {
 	}
 
 	@Test
-	void theUnfilteredSummaryIsAlsoOneRoundTrip() {
-		List<String> statements = this.counter.measure(() -> this.store.summary(0L));
+	void theUnfilteredSummaryIsAlsoOneRoundTripAndReadsThePlatformsQueue() {
+		HomeSummary[] summary = new HomeSummary[1];
+		List<String> statements = this.counter.measure(() -> summary[0] = this.store.summary(0L));
 
 		assertThat(statements).hasSize(1);
+		assertThat(summary[0].employeesTotal()).as("both companies, and whatever else the database holds")
+				.isGreaterThanOrEqualTo(4 + 1);
+		assertThat(summary[0].openComplaints())
+				.as("unfiltered, the queue is the one addressed to the platform: the seeded company_support row")
+				.isEqualTo(new JdbcTemplate(new DriverManagerDataSource(
+						MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword())).queryForObject(
+								"SELECT COUNT(*) FROM complaints WHERE status='pending' AND source='company_support'",
+								Long.class))
+				.isGreaterThanOrEqualTo(1);
 	}
 
 	@Test

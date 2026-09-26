@@ -104,7 +104,10 @@
     if (!labels.length) {
       return;
     }
-    labels = labels.map(readable);
+    // Only an axis that is all months: a department named "2024-01" is a name.
+    if (labels.every((label) => /^\d{4}-\d{2}$/.test(label))) {
+      labels = labels.map(readable);
+    }
 
     const kind = card.dataset.chart || 'bar';
     if (kind === 'doughnut') {

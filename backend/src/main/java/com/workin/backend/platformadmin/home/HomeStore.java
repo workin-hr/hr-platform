@@ -52,8 +52,8 @@ public class HomeStore {
 	 * <p>Each figure is its own scalar subquery, the same SQL it was when each
 	 * was a statement of its own, so every number means what it did. What
 	 * changed is the round trips: sixteen of them at the remote database's
-	 * ~106 ms each were over a second and a half before the page drew anything,
-	 * and {@code HomePageQueryBudgetTest} now holds the page to its count.
+	 * ~106 ms each were over a second and a half before the page drew anything.
+	 * {@code HomeStoreAnalyticsTest} holds it to one statement, scoped and not.
 	 */
 	public HomeSummary summary(long companyId) {
 		String employees = scope("e", companyId);

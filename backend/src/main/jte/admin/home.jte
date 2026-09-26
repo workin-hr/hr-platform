@@ -309,7 +309,7 @@
 								: null;}
 						!{boolean horizontal = key.equals("chart_emp_dept") || key.equals("chart_emp_branch")
 								|| key.equals("chart_salary_dept") || key.equals("chart_age")
-								|| key.equals("chart_pen_dept");}
+								|| key.equals("chart_pen_dept") || key.equals("chart_att_dept");}
 						<div class="home-chart-card${wide ? " wide" : ""}"
 								data-chart="${kind}"
 								data-axis="${horizontal ? "y" : "x"}"
