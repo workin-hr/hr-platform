@@ -8,6 +8,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import javax.sql.DataSource;
+
 import org.springframework.stereotype.Component;
 
 import com.workin.legacy.LegacyClock;
@@ -43,24 +45,23 @@ public class LegacyEmployeeUpdateAnalyzer {
 
 	private final LegacyEmployeeStore store;
 
-	private final LegacyPhoneNumbers phoneNumbers;
-
 	private final LegacyPhoneCountries phoneCountries;
 
 	private final LegacyClock clock;
 
-	/** Shared with the create sheet so both agree on branch/department reachability. */
-	private final LegacyEmployeeSpreadsheetAnalyzer createAnalyzer;
+	private final LegacyEmployeeUpdateSheetStore sheetStore;
+
+	/** Handed to {@link PhoneCountriesSnapshot}'s superclass, which never queries it. */
+	private final DataSource legacyDataSource;
 
 	public LegacyEmployeeUpdateAnalyzer(
-			LegacyEmployeeStore store, LegacyPhoneNumbers phoneNumbers,
-			LegacyPhoneCountries phoneCountries, LegacyClock clock,
-			LegacyEmployeeSpreadsheetAnalyzer createAnalyzer) {
+			LegacyEmployeeStore store, LegacyPhoneCountries phoneCountries, LegacyClock clock,
+			LegacyEmployeeUpdateSheetStore sheetStore, DataSource legacyDataSource) {
 		this.store = store;
-		this.phoneNumbers = phoneNumbers;
 		this.phoneCountries = phoneCountries;
 		this.clock = clock;
-		this.createAnalyzer = createAnalyzer;
+		this.sheetStore = sheetStore;
+		this.legacyDataSource = legacyDataSource;
 	}
 
 	/** {@code ['payload' => ..., 'errors' => ..., 'warnings' => ...]}. */
@@ -80,7 +81,7 @@ public class LegacyEmployeeUpdateAnalyzer {
 			LegacyEmployeeSpreadsheetLookups lookups) {
 		LegacyEmployeeSpreadsheetReader.assertTemplateStructure(content, arabic);
 		List<Map<String, Object>> rows = LegacyEmployeeSpreadsheetReader.loadRows(content);
-		Map<String, Map<String, Object>> employeesByCode = this.store.employeesByCode(companyId);
+		LegacyEmployeeUpdateSheet sheet = prepare(rows, companyId, lookups);
 		Set<String> seenCodes = new HashSet<>();
 
 		List<Map<String, Object>> outRows = new ArrayList<>(rows.size());
@@ -89,7 +90,7 @@ public class LegacyEmployeeUpdateAnalyzer {
 
 		for (int index = 0; index < rows.size(); index++) {
 			Map<String, Object> row = rows.get(index);
-			Parsed parsed = rowToUpdatePayload(row, companyId, lookups, employeesByCode);
+			Parsed parsed = rowToUpdatePayload(row, sheet);
 			List<String> errors = new ArrayList<>(parsed.errors());
 
 			String code = LegacyEmployeeSpreadsheetErrors.normalizeEmployeeCode(text(row.get("employee_code")));
@@ -152,6 +153,76 @@ public class LegacyEmployeeUpdateAnalyzer {
 	}
 
 	/**
+	 * Reads everything {@link #rowToUpdatePayload} and the apply step will ask
+	 * about these rows, in statements bounded by chunks of identifiers rather
+	 * than by rows (D-294): the company's employees, the phone countries, then
+	 * -- for the identifiers the rows actually name -- the shifts, the
+	 * department-branch links, the active departments and job titles, and
+	 * every row already holding one of the sheet's numbers.
+	 *
+	 * <p>Collects more than the rows will use -- both the named and the
+	 * current department, a phone on a row that later fails -- because a
+	 * set that is too large answers the same questions, and one that is too
+	 * small would answer "not found" for a row the per-row check accepted.
+	 */
+	LegacyEmployeeUpdateSheet prepare(List<Map<String, Object>> rows, long companyId,
+			LegacyEmployeeSpreadsheetLookups lookups) {
+		Map<String, Map<String, Object>> employeesByCode = this.store.employeesByCode(companyId);
+		PhoneCountriesSnapshot countries =
+				new PhoneCountriesSnapshot(this.legacyDataSource, this.phoneCountries.allActive());
+		LegacyPhoneNumbers numbers = new LegacyPhoneNumbers(countries);
+
+		Set<Long> shifts = new HashSet<>();
+		Set<Long> departments = new HashSet<>();
+		Set<Long> jobTitles = new HashSet<>();
+		List<CanonicalPhone> phones = new ArrayList<>();
+		for (Map<String, Object> row : rows) {
+			Map<String, Object> employee = employeesByCode.get(
+					LegacyEmployeeSpreadsheetErrors.normalizeEmployeeCode(text(row.get("employee_code"))));
+			if (employee == null) {
+				continue;
+			}
+			if (cellFilled(row, "shift_name")) {
+				addIfPresent(shifts, lookups.shifts().get(LegacyValues.mbStrToLower(trimmed(row.get("shift_name")))));
+			}
+			addIfPresent(departments, positiveOrNull(employee.get("department_id")));
+			if (cellFilled(row, "department_name")) {
+				addIfPresent(departments,
+						lookups.departments().get(LegacyValues.mbStrToLower(trimmed(row.get("department_name")))));
+			}
+			addIfPresent(jobTitles, positiveOrNull(employee.get("job_title_id")));
+			if (cellFilled(row, "job_title_name")) {
+				addIfPresent(jobTitles,
+						lookups.jobTitles().get(LegacyValues.mbStrToLower(trimmed(row.get("job_title_name")))));
+			}
+			if (!LegacyValues.phpTrim(LegacyPhoneNumbers.excelCellToRaw(row.get("phone"))).isEmpty()) {
+				CanonicalPhone resolved = normalizePhone(row.get("phone"), row.get("country_code"), employee,
+						countries, numbers);
+				if (resolved != null) {
+					phones.add(resolved);
+				}
+			}
+		}
+
+		LegacyEmployeeUpdateSheet sheet = new LegacyEmployeeUpdateSheet(companyId, lookups, employeesByCode,
+				countries, numbers,
+				shifts.isEmpty() ? Set.of() : this.sheetStore.shiftsInCompany(shifts, companyId),
+				departments.isEmpty() ? Set.of() : this.sheetStore.departmentBranches(departments),
+				departments.isEmpty() ? Set.of() : this.sheetStore.activeDepartmentsInCompany(departments, companyId),
+				jobTitles.isEmpty() ? Map.of() : this.sheetStore.activeJobTitleDepartments(jobTitles));
+		if (!phones.isEmpty()) {
+			sheet.addPhoneHolders(this.sheetStore.phoneHolders(phones));
+		}
+		return sheet;
+	}
+
+	private static void addIfPresent(Set<Long> ids, Long id) {
+		if (id != null) {
+			ids.add(id);
+		}
+	}
+
+	/**
 	 * {@code employee_excel_row_to_update_payload()}, clause for clause and in
 	 * source order, because the order decides how {@code errors} reads.
 	 *
@@ -159,9 +230,8 @@ public class LegacyEmployeeUpdateAnalyzer {
 	 * payload: without an existing employee there is nothing for any later
 	 * clause to validate against, and PHP returns rather than accumulating.
 	 */
-	public Parsed rowToUpdatePayload(Map<String, Object> row, long companyId,
-			LegacyEmployeeSpreadsheetLookups lookups,
-			Map<String, Map<String, Object>> employeesByCode) {
+	Parsed rowToUpdatePayload(Map<String, Object> row, LegacyEmployeeUpdateSheet sheet) {
+		LegacyEmployeeSpreadsheetLookups lookups = sheet.lookups();
 
 		List<String> errors = new ArrayList<>();
 		Map<String, Object> payload = new LinkedHashMap<>();
@@ -175,7 +245,7 @@ public class LegacyEmployeeUpdateAnalyzer {
 			errors.add("employee_code_invalid");
 			return new Parsed(payload, errors);
 		}
-		Map<String, Object> employee = employeesByCode.get(code);
+		Map<String, Object> employee = sheet.employee(code);
 		if (employee == null) {
 			errors.add("employee_not_found");
 			return new Parsed(payload, errors);
@@ -203,7 +273,7 @@ public class LegacyEmployeeUpdateAnalyzer {
 
 		if (cellFilled(row, "shift_name")) {
 			Long shiftId = lookups.shifts().get(LegacyValues.mbStrToLower(trimmed(row.get("shift_name"))));
-			if (shiftId == null || !this.store.shiftBelongsToCompany(shiftId, companyId)) {
+			if (shiftId == null || !sheet.shiftBelongsToCompany(shiftId)) {
 				errors.add("shift_not_found");
 			} else {
 				payload.put("shift_id", shiftId);
@@ -240,7 +310,7 @@ public class LegacyEmployeeUpdateAnalyzer {
 		// fields it is given and does not audit rows it was not asked about.
 		if ((payload.containsKey("branch_id") || payload.containsKey("department_id"))
 				&& departmentId != null
-				&& !this.createAnalyzer.departmentValidForBranch(departmentId, branchId, companyId)) {
+				&& !sheet.departmentValidForBranch(departmentId, branchId)) {
 			errors.add("department_branch_mismatch");
 		}
 
@@ -257,7 +327,7 @@ public class LegacyEmployeeUpdateAnalyzer {
 
 		if ((payload.containsKey("department_id") || payload.containsKey("job_title_id"))
 				&& jobTitleId != null && departmentId != null
-				&& !this.store.jobTitleBelongsToDepartment(jobTitleId, departmentId)) {
+				&& !sheet.jobTitleBelongsToDepartment(jobTitleId, departmentId)) {
 			errors.add("job_title_department_mismatch");
 		}
 
@@ -271,7 +341,7 @@ public class LegacyEmployeeUpdateAnalyzer {
 			}
 		}
 
-		resolvePhone(row, employee, employeeId, errors, payload);
+		resolvePhone(row, employee, employeeId, errors, payload, sheet);
 
 		if (cellFilled(row, "password")) {
 			// Stored raw here and hashed at apply time, and only if still
@@ -350,21 +420,22 @@ public class LegacyEmployeeUpdateAnalyzer {
 	 * a row carrying its own unchanged phone would fail as a duplicate of
 	 * itself.
 	 */
-	private void resolvePhone(Map<String, Object> row, Map<String, Object> employee,
-			long employeeId, List<String> errors, Map<String, Object> payload) {
+	private static void resolvePhone(Map<String, Object> row, Map<String, Object> employee,
+			long employeeId, List<String> errors, Map<String, Object> payload, LegacyEmployeeUpdateSheet sheet) {
 
 		Object phoneCell = row.get("phone");
 		if (LegacyValues.phpTrim(LegacyPhoneNumbers.excelCellToRaw(phoneCell)).isEmpty()) {
 			return;
 		}
 
-		CanonicalPhone resolved = normalizePhone(phoneCell, row.get("country_code"), employee);
+		CanonicalPhone resolved = normalizePhone(phoneCell, row.get("country_code"), employee,
+				sheet.phoneCountries(), sheet.phoneNumbers());
 		if (resolved == null) {
 			errors.add("invalid_phone");
 			return;
 		}
 
-		if (this.store.phoneExistsGlobally(resolved, employeeId)) {
+		if (sheet.phoneExistsGlobally(resolved, employeeId)) {
 			// Reported, and neither field written: the row fails, so the
 			// payload must not carry a number that was rejected.
 			errors.add("phone_exists");
@@ -384,12 +455,13 @@ public class LegacyEmployeeUpdateAnalyzer {
 	 * canonical number's storage form now (D-291), so one number is one pair
 	 * of strings however either side spelled it.
 	 */
-	public String[] storedPhoneAsSheetResolves(Map<String, Object> employee) {
+	static String[] storedPhoneAsSheetResolves(Map<String, Object> employee, LegacyEmployeeUpdateSheet sheet) {
 		Object stored = employee.get("phone");
 		if (LegacyValues.phpTrim(LegacyPhoneNumbers.excelCellToRaw(stored)).isEmpty()) {
 			return null;
 		}
-		CanonicalPhone resolved = normalizePhone(stored, employee.get("country_code"), employee);
+		CanonicalPhone resolved = normalizePhone(stored, employee.get("country_code"), employee,
+				sheet.phoneCountries(), sheet.phoneNumbers());
 		return resolved == null ? null : new String[] {resolved.nationalDigits(), resolved.dialCode()};
 	}
 
@@ -400,23 +472,24 @@ public class LegacyEmployeeUpdateAnalyzer {
 	 * before it is refused -- the sheet's forgiving order, over
 	 * {@link LegacyPhoneNumbers#forAccount}'s validity (D-291).
 	 */
-	private CanonicalPhone normalizePhone(Object phoneCell, Object countryCell, Map<String, Object> employee) {
+	private static CanonicalPhone normalizePhone(Object phoneCell, Object countryCell, Map<String, Object> employee,
+			LegacyPhoneCountries phoneCountries, LegacyPhoneNumbers phoneNumbers) {
 		String rawCountry = trimmed(countryCell);
 		String folded = LegacyValues.mbStrToLower(rawCountry);
 		if (rawCountry.isEmpty() || folded.contains("دولة") || folded.contains("country")) {
 			rawCountry = text(employee.get("country_code"));
 			if (rawCountry.isEmpty()) {
-				rawCountry = this.phoneCountries.defaultCode();
+				rawCountry = phoneCountries.defaultCode();
 			}
 		}
 		String countryCode = LegacyPhoneNumbers.normalizeDialCode(rawCountry);
-		if (countryCode.isEmpty() || this.phoneCountries.find(countryCode).isEmpty()) {
-			countryCode = this.phoneCountries.defaultCode();
+		if (countryCode.isEmpty() || phoneCountries.find(countryCode).isEmpty()) {
+			countryCode = phoneCountries.defaultCode();
 		}
 
 		String raw = LegacyPhoneNumbers.excelCellToRaw(phoneCell);
-		return this.phoneNumbers.forAccount(raw, countryCode)
-				.or(() -> this.phoneNumbers.forAccount(raw, "+20"))
+		return phoneNumbers.forAccount(raw, countryCode)
+				.or(() -> phoneNumbers.forAccount(raw, "+20"))
 				.orElse(null);
 	}
 
