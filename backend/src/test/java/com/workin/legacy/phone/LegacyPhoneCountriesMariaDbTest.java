@@ -36,6 +36,7 @@ class LegacyPhoneCountriesMariaDbTest extends AbstractLegacyMySqlTest {
 	private static final long FORMATTED = 197014L;
 	private static final long WITHOUT_TRUNK_ZERO = 197015L;
 	private static final long SHARED_DIGITS = 197016L;
+	private static final long REJECTED_INTERNATIONAL = 197017L;
 
 	private static DataSource dataSource;
 	private static LegacyPhoneCountries countries;
@@ -204,10 +205,16 @@ class LegacyPhoneCountriesMariaDbTest extends AbstractLegacyMySqlTest {
 		// An unrelated number is free.
 		assertThat(employees.phoneExistsGlobally(egyptian("01111111111"), null)).isFalse();
 		// The same digits in another country are another number: the row is an
-		// Egyptian (Mansoura) number, and a Saudi mobile spelled alike is free.
+		// Egyptian (Mansoura) number. A Saudi mobile spelled alike is still
+		// refused, because a write stores it as 0502345678 -- the row's exact
+		// digits, which the column's unique index refuses (round 5 of #360).
 		assertThat(employees.phoneExistsGlobally(egyptian("0502345678"), null)).isTrue();
 		assertThat(employees.phoneExistsGlobally(
-				CanonicalPhones.parse("0502345678", "+966").orElseThrow(), null)).isFalse();
+				CanonicalPhones.parse("0502345678", "+966").orElseThrow(), null)).isTrue();
+		// A Saudi number whose written digits no row holds is free, even where
+		// an Egyptian row holds its digits in another spelling.
+		assertThat(employees.phoneExistsGlobally(
+				CanonicalPhones.parse("0502345677", "+966").orElseThrow(), null)).isFalse();
 	}
 
 	@Test
@@ -227,8 +234,12 @@ class LegacyPhoneCountriesMariaDbTest extends AbstractLegacyMySqlTest {
 		assertThat(employees.phoneExistsGlobally(egyptian("01055555555"), null)).isTrue();
 		// The schema default ('accepted', written by omitting the column) counts.
 		assertThat(employees.phoneExistsGlobally(egyptian("01044444444"), null)).isTrue();
-		// A rejected join request does not reserve the number.
-		assertThat(employees.phoneExistsGlobally(egyptian("01033333333"), null)).isFalse();
+		// A rejected join request does not reserve the number -- but a row
+		// holding exactly the digits a write would store blocks the unique
+		// index whatever its status, so the national spelling is refused and
+		// only a rejected row stored in another spelling leaves it free.
+		assertThat(employees.phoneExistsGlobally(egyptian("01033333333"), null)).isTrue();
+		assertThat(employees.phoneExistsGlobally(egyptian("01022222222"), null)).isFalse();
 		// The exclusion is only applied for a positive id.
 		assertThat(employees.phoneExistsGlobally(egyptian("01012345678"), ACCEPTED)).isFalse();
 		assertThat(employees.phoneExistsGlobally(egyptian("01012345678"), 0L)).isTrue();
@@ -319,6 +330,7 @@ class LegacyPhoneCountriesMariaDbTest extends AbstractLegacyMySqlTest {
 			// the default itself, written by an insert that omits the column.
 			insertEmployeeWithDefaultJoinStatus(st, LEGACY_DEFAULT_STATUS, COMPANY, BRANCH, "'01044444444'");
 			insertEmployee(st, REJECTED, COMPANY, BRANCH, "'01033333333'", "'rejected'");
+			insertEmployee(st, REJECTED_INTERNATIONAL, COMPANY, BRANCH, "'201022222222'", "'rejected'");
 			// Another company's employee: uniqueness is global, not tenant-scoped.
 			insertEmployee(st, 197021L, 19702L, 19712L, "'01055555555'", "'accepted'");
 		}

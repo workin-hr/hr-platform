@@ -315,6 +315,12 @@ public class LegacyEmployeeService {
 			// all, and a half-written employee is worse than a lost stack trace.
 			// The catch covers the transaction and nothing else -- validation
 			// ran before it and the post-commit re-read runs after it.
+			// A phone another row took between the probe and the insert is the
+			// duplicate the probe answers, once the transaction has rolled back
+			// (D-291).
+			if (LegacyPhoneNumbers.isPhoneDuplicate(ex)) {
+				throw new LegacyApiException(409, "phone_already_exists");
+			}
 			throw new LegacyApiException(500, "employee_create_failed", messageOf(ex));
 		}
 
@@ -373,16 +379,7 @@ public class LegacyEmployeeService {
 		if (hasAnyBranchColumn) {
 			columns.put("can_check_in_any_branch", exactTruthFlag(body, "can_check_in_any_branch", 0));
 		}
-		long employeeId;
-		try {
-			employeeId = store.insertEmployee(columns);
-		} catch (org.springframework.dao.DataIntegrityViolationException ex) {
-			// A phone taken between the probe and the insert (D-291).
-			if (LegacyPhoneNumbers.isPhoneDuplicate(ex)) {
-				throw new LegacyApiException(409, "phone_already_exists");
-			}
-			throw ex;
-		}
+		long employeeId = store.insertEmployee(columns);
 
 		Object salary = body.get("salary");
 		if (!LegacyValues.isPhpEmpty(salary)) {

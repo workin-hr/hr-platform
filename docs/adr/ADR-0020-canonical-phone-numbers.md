@@ -189,6 +189,16 @@ included, plus whitespace), so a padded `+966\0` is `+966` everywhere, as
 PHP read it. Request codes are still checked for blankness by each route's
 legacy trim before that parse; only the parse's output is stored.
 
+**A phone write never collides with another country's digits.** The frozen
+schema's `UNIQUE KEY phone` is on the raw column, and two numbers can share
+their national digits (the Saudi `501234570` is written `0501234570`, which an
+Emirati row may hold). So a write of the row's own number, in any spelling,
+puts the stored `phone` and `country_code` back byte for byte, and every
+probe guarding a new number also refuses a row holding exactly the digits it
+will write (`PhoneLookup.writeProbe`), with the route's own duplicate answer;
+a duplicate-key race on `phone` maps to that answer rather than a 500. D-291
+lists the 16 statements that write a phone and what each stores.
+
 **Phase 2 (not now).** After PHP is retired and the 16 company pairs are
 resolved, add a stored E.164 column to `employees` and `companies`, backfill
 it from `CanonicalPhones`, make it `UNIQUE`, and move lookups onto it. That
