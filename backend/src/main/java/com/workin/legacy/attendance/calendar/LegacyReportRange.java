@@ -10,14 +10,15 @@ import com.workin.legacy.wire.LegacyApiException;
  *
  * <p>PHP accepts any {@code from}/{@code to}, and every report that takes one
  * runs its per-day work for every employee in scope, so one request naming a
- * decade cost a decade of days times the roster. Sixty-two days covers any two
- * consecutive months -- the widest window a payroll or attendance review reads
- * -- and anything wider is refused with the same 400 the endpoint already
- * answers an inverted range with, so no client meets a new error shape.
+ * decade cost a decade of days times the roster. The cap is a year, leap day
+ * included: no client is known to ask for less, and a yearly report is a
+ * request someone legitimately makes, while a decade is refused. Anything
+ * wider is refused with the same 400 the endpoint already answers an
+ * inverted range with, so no client meets a new error shape.
  */
 public final class LegacyReportRange {
 
-	public static final int MAX_DAYS = 62;
+	public static final int MAX_DAYS = 366;
 
 	private LegacyReportRange() {
 	}

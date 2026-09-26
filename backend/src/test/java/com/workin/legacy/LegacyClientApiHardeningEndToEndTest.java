@@ -308,11 +308,11 @@ class LegacyClientApiHardeningEndToEndTest {
 	}
 
 	// ------------------------------------------------------------------
-	// Item 2 -- a report range is capped at 62 days
+	// Item 2 -- a report range is capped at 366 days
 	// ------------------------------------------------------------------
 
 	@Test
-	void aReportRangeOverSixtyTwoDaysIsRefusedWithTheInversionsOwnError() throws Exception {
+	void aReportRangeOverAYearIsRefusedWithTheInversionsOwnError() throws Exception {
 		String admin = token(ADMIN, "company_admin", 1);
 		String decade = "2016-01-01&date_to=2026-01-01";
 
@@ -323,20 +323,25 @@ class LegacyClientApiHardeningEndToEndTest {
 		assertThat(rawCall("/apis/api/attendance/export.php?type=fingerprints&from=2016-01-01&to=2026-01-01",
 				admin).getStatusCode().value()).isEqualTo(400);
 
-		// Sixty-three days is the first span refused.
-		assertBadRequest(call("/apis/api/attendance/overall_report.php?from=2026-01-01&to=2026-03-04",
+		// 367 days is the first span refused, on each endpoint.
+		assertBadRequest(call("/apis/api/attendance/list.php?fill_days=1&date_from=2025-01-01&date_to=2026-01-02",
+				HttpMethod.GET, admin, null), "Invalid input");
+		assertBadRequest(call("/apis/api/attendance/overall_report.php?from=2025-01-01&to=2026-01-02",
 				HttpMethod.GET, admin, null), "Invalid date");
+		assertThat(rawCall("/apis/api/attendance/export.php?type=fingerprints&from=2025-01-01&to=2026-01-02",
+				admin).getStatusCode().value()).isEqualTo(400);
 	}
 
 	@Test
-	void aSixtyTwoDayRangeIsStillServed() throws Exception {
+	void aYearLongRangeIsStillServed() throws Exception {
 		String admin = token(ADMIN, "company_admin", 1);
 
-		assertThat(call("/apis/api/attendance/list.php?fill_days=1&date_from=2026-01-01&date_to=2026-03-03",
+		// 2025-01-01 to 2026-01-01 is 366 days, the widest span served.
+		assertThat(call("/apis/api/attendance/list.php?fill_days=1&date_from=2025-01-01&date_to=2026-01-01",
 				HttpMethod.GET, admin, null).getStatusCode().value()).isEqualTo(200);
-		assertThat(call("/apis/api/attendance/overall_report.php?from=2026-01-01&to=2026-03-03",
+		assertThat(call("/apis/api/attendance/overall_report.php?from=2025-01-01&to=2026-01-01",
 				HttpMethod.GET, admin, null).getStatusCode().value()).isEqualTo(200);
-		assertThat(rawCall("/apis/api/attendance/export.php?type=fingerprints&from=2026-01-01&to=2026-03-03",
+		assertThat(rawCall("/apis/api/attendance/export.php?type=fingerprints&from=2025-01-01&to=2026-01-01",
 				admin).getStatusCode().value()).isEqualTo(200);
 	}
 
