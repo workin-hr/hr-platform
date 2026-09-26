@@ -151,14 +151,23 @@ as PHP's variant match did.
 `otp_request_logs.phone` -- so every spelling of a number shares one code, one
 cooldown and one hourly cap, and an OTP is delivered to the number's own
 country. A national number with several readings takes the country of the
-stored account it belongs to (companies, then employees, as
-`otp_resolve_country_code_for_phone()` ordered them), else Egypt's.
+stored account it belongs to -- employees first for an `employee` request,
+otherwise companies first, as `otp_resolve_country_code_for_phone()` ordered
+them -- else Egypt's. A code is delivered only to a country the product
+offers (the set `forAccount` admits): `resend_otp` refuses any other number
+as an invalid one, and `forgot_password` answers `phone_not_found` for an
+account stored in one.
 
 **Storage keeps the legacy convention.** Every Java write stores the
 number's national digits from the metadata (`01012345678`, `0501234567`) in
 `phone` and its own dial code (`+20`, `+966`) in `country_code`, so PHP and
 the mobile clients see the data they always have. International input stores
-its own dial code, never the request's.
+its own dial code, never the request's. Because a national number is read
+in its row's `country_code`, a write carrying `country_code` without `phone`
+(the profile PUT, `update.php`, the company's `update.php`) re-reads the
+stored phone under the new code through `forAccount` and the route's
+uniqueness check, and is refused as a new phone would be when it does not
+hold.
 
 **Phase 2 (not now).** After PHP is retired and the 16 company pairs are
 resolved, add a stored E.164 column to `employees` and `companies`, backfill
@@ -195,8 +204,9 @@ is expand-migrate-contract on a live table and needs its own decision.
   registration; update paths that stored raw digits unvalidated
   (`update.php`, the profile PUT, `register_employee`) validate now; a number
   the metadata rejects that the regexes accepted (a Saudi `052...`) is
-  refused on writes; `resend_otp` refuses an invalid number with
-  `invalid_phone_number`; `join_company` and `register_employee` write
+  refused on writes; a `country_code` written alone is validated against the
+  stored phone; `resend_otp` refuses an invalid number, or one outside the
+  offered countries, with `invalid_phone_number`; `join_company` and `register_employee` write
   `country_code` (R-019 closed).
 - An OTP issued by PHP is not verifiable by Java and vice versa during a
   cutover or rollback window (keys differ; codes live ten minutes).
@@ -211,7 +221,9 @@ is expand-migrate-contract on a live table and needs its own decision.
   make a stored number valid or invalid. Pin the version and treat an upgrade
   as a behaviour change with its own test run.
 - **A stored row that does not canonicalise cannot sign in** -- nothing
-  in the profile, and every Java write stores a valid number.
+  in the profile. A Java write of `phone` or of `country_code` alone is
+  validated, so Java cannot produce one; a PHP write still can while PHP
+  runs (PHP's `update.php` stores any `country_code`).
 
 ## Validation Evidence
 
