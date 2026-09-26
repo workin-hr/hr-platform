@@ -142,6 +142,52 @@ public final class PhoneLookup {
 		return inRowsCountry.isPresent() && inRowsCountry.get().e164().equals(stored.get().e164());
 	}
 
+	/**
+	 * A uniqueness probe for a <b>write</b> of this number: the select list
+	 * and binds that fetch every row the write would collide with. Java writes
+	 * a number as {@link CanonicalPhone#nationalDigits()}, and the frozen
+	 * schema's {@code UNIQUE KEY phone} is on that raw column -- so besides the
+	 * rows that are this number, a row holding exactly those digits as
+	 * another country's number (a +971 {@code 0501234570} when the Saudi
+	 * {@code 501234570} is written) blocks the write too. The database
+	 * decides that equality ({@code column = ?}), under the index's own
+	 * collation. Only for {@link #of}.
+	 *
+	 * @param column the phone column
+	 * @param selectList the other columns to select, e.g. {@code "id, phone, country_code"}
+	 * @param table the table
+	 * @return {@code SELECT <list>, (<column> = ?) AS held FROM <table> WHERE <clause>}, to which the
+	 *         caller appends its own predicates; bind {@link Clause#binds()} first
+	 */
+	public Clause writeProbe(String column, String selectList, String table) {
+		if (this.input != null) {
+			throw new IllegalStateException("a write probe is for one known number");
+		}
+		String written = this.readings.values().iterator().next().nationalDigits();
+		Clause match = clause(column);
+		List<String> binds = new ArrayList<>();
+		binds.add(written);
+		binds.addAll(match.binds());
+		return new Clause("SELECT " + selectList + ", (" + column + " = ?) AS " + HELD + " FROM " + table
+				+ " WHERE " + match.sql(), binds);
+	}
+
+	/**
+	 * Whether a row {@link #writeProbe} fetched blocks the write: it holds the
+	 * written digits exactly, or it {@link #matches} this number.
+	 */
+	public boolean blocksWrite(Map<String, Object> row) {
+		return holdsWrittenDigits(row) || matches(row.get("phone"), row.get("country_code"));
+	}
+
+	/** Whether a {@link #writeProbe} row holds the written digits exactly -- whatever its status. */
+	public static boolean holdsWrittenDigits(Map<String, Object> row) {
+		Object held = row.get(HELD);
+		return held instanceof Number number ? number.longValue() != 0 : Boolean.TRUE.equals(held);
+	}
+
+	private static final String HELD = "holds_written_digits";
+
 	/** Keeps the rows that {@link #matches}, in their order. */
 	public List<Map<String, Object>> verified(List<Map<String, Object>> rows) {
 		return verified(rows, "phone", "country_code");

@@ -269,6 +269,26 @@ public class LegacyPhoneNumbers {
 		return new Reread(stored, after.isEmpty() ? DEFAULT_DIAL_CODE : after);
 	}
 
+	private static final Pattern PHONE_DUPLICATE =
+			Pattern.compile("Duplicate entry .* for key '(?:\\w+\\.)?phone'");
+
+	/**
+	 * Whether a write failed on the frozen schema's {@code UNIQUE KEY phone}
+	 * -- the race a uniqueness probe cannot close, answered with the route's
+	 * own duplicate-phone response rather than a 500.
+	 */
+	public static boolean isPhoneDuplicate(Throwable failure) {
+		for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+			if (cause.getMessage() != null && PHONE_DUPLICATE.matcher(cause.getMessage()).find()) {
+				return true;
+			}
+			if (cause.getCause() == cause) {
+				break;
+			}
+		}
+		return false;
+	}
+
 	/** {@link #countryCodeWrite}'s answer. */
 	public sealed interface CountryCodeWrite permits Reread, Written {
 	}

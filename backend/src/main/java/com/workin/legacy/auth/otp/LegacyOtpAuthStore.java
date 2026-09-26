@@ -163,8 +163,14 @@ public class LegacyOtpAuthStore {
 
 	/** The uniqueness probe for a new company phone, excluding the caller. */
 	public boolean anotherCompanyHasPhone(CanonicalPhone phone, long excludeCompanyId) {
-		return !verified(PhoneLookup.of(phone), "phone",
-				"SELECT id, phone, country_code FROM companies WHERE %s AND id <> ?", excludeCompanyId).isEmpty();
+		// Or holds the exact digits the change stores, which the raw unique
+		// index would refuse (PhoneLookup#writeProbe).
+		PhoneLookup lookup = PhoneLookup.of(phone);
+		PhoneLookup.Clause probe = lookup.writeProbe("phone", "id, phone, country_code", "companies");
+		List<Object> binds = new ArrayList<>(probe.binds());
+		binds.add(excludeCompanyId);
+		return jdbcTemplate.queryForList(probe.sql() + " AND id <> ?", binds.toArray()).stream()
+				.anyMatch(lookup::blocksWrite);
 	}
 
 	/** {@code confirm_phone_change.php}'s write: phone, country code and the verified flag. */

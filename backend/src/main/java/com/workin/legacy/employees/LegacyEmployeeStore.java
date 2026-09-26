@@ -306,20 +306,29 @@ public class LegacyEmployeeStore {
 	 * and {@code 1012345678} are one number, and an Egyptian and a Saudi
 	 * number sharing their digits are two. And it ignores rows whose
 	 * {@code join_request_status} is {@code 'rejected'} (NULL counting as {@code 'accepted'}), so a rejected
-	 * join request never blocks a real hire.
+	 * join request never blocks a real hire -- except that any row, rejected
+	 * or not, holding exactly the digits the write will store blocks it,
+	 * because the column's raw unique index would ({@link PhoneLookup#writeProbe}).
 	 */
 	public boolean phoneExistsGlobally(CanonicalPhone phone, Long excludeEmployeeId) {
 		PhoneLookup lookup = PhoneLookup.of(phone);
-		PhoneLookup.Clause match = lookup.clause("phone");
-		StringBuilder sql = new StringBuilder()
-				.append("SELECT id, phone, country_code FROM employees WHERE ").append(match.sql())
-				.append(" AND COALESCE(join_request_status, 'accepted') <> 'rejected'");
-		List<Object> params = new ArrayList<>(match.binds());
+		PhoneLookup.Clause probe = lookup.writeProbe("phone",
+				"id, phone, country_code, COALESCE(join_request_status, 'accepted') <> 'rejected' AS counts",
+				"employees");
+		StringBuilder sql = new StringBuilder(probe.sql());
+		List<Object> params = new ArrayList<>(probe.binds());
 		if (excludeEmployeeId != null && excludeEmployeeId > 0) {
 			sql.append(" AND id <> ?");
 			params.add(excludeEmployeeId);
 		}
-		return !lookup.verified(jdbcTemplate.queryForList(sql.toString(), params.toArray())).isEmpty();
+		for (Map<String, Object> row : jdbcTemplate.queryForList(sql.toString(), params.toArray())) {
+			if (PhoneLookup.holdsWrittenDigits(row)
+					|| (LegacyValues.toPhpLong(row.get("counts")) != 0
+							&& lookup.matches(row.get("phone"), row.get("country_code")))) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**

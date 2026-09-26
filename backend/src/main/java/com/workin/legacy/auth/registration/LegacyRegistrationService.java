@@ -236,10 +236,19 @@ public class LegacyRegistrationService {
 			throw new LegacyApiException(400, "phone_already_registered");
 		}
 
-		long companyId = store.insertCompany(
-				firstName, lastName, phone.dialCode(), phone.nationalDigits(),
-				passwordEncoder.encode(LegacyValues.toPhpString(body.get("password"))),
-				LegacyEmployeeName.normalizeOptionalEmail(body.get("email")));
+		long companyId;
+		try {
+			companyId = store.insertCompany(
+					firstName, lastName, phone.dialCode(), phone.nationalDigits(),
+					passwordEncoder.encode(LegacyValues.toPhpString(body.get("password"))),
+					LegacyEmployeeName.normalizeOptionalEmail(body.get("email")));
+		} catch (RuntimeException ex) {
+			// A number taken between the probe and the insert (D-291).
+			if (LegacyPhoneNumbers.isPhoneDuplicate(ex)) {
+				throw new LegacyApiException(400, "phone_already_registered");
+			}
+			throw ex;
+		}
 
 		// The OTP is issued after the row exists, so a delivery failure leaves a
 		// registered-but-unverified company behind. That is legacy's ordering.
@@ -434,8 +443,20 @@ public class LegacyRegistrationService {
 			throw new LegacyApiException(400, "phone_registered_in_company");
 		}
 
-		long employeeId = store.insertEmployeeMinimal(companyId, phone,
-				passwordEncoder.encode(LegacyValues.toPhpString(body.get("password"))));
+		long employeeId;
+		try {
+			employeeId = store.insertEmployeeMinimal(companyId, phone,
+					passwordEncoder.encode(LegacyValues.toPhpString(body.get("password"))));
+		} catch (RuntimeException ex) {
+			// employees.phone is unique globally while the probe above looks in
+			// one company: a number held elsewhere, or held as another country's
+			// national digits, is refused with this route's duplicate answer
+			// rather than a 500 (D-291).
+			if (LegacyPhoneNumbers.isPhoneDuplicate(ex)) {
+				throw new LegacyApiException(400, "phone_registered_in_company");
+			}
+			throw ex;
+		}
 
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("company_id", companyId);

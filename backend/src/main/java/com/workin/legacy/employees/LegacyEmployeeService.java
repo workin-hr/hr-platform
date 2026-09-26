@@ -18,6 +18,7 @@ import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.phone.CanonicalPhone;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
+import com.workin.legacy.phone.PhoneLookup;
 import com.workin.legacy.uploads.LegacyFileUploads;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.authorization.LegacyHrPermissionEnforcer;
@@ -372,7 +373,16 @@ public class LegacyEmployeeService {
 		if (hasAnyBranchColumn) {
 			columns.put("can_check_in_any_branch", exactTruthFlag(body, "can_check_in_any_branch", 0));
 		}
-		long employeeId = store.insertEmployee(columns);
+		long employeeId;
+		try {
+			employeeId = store.insertEmployee(columns);
+		} catch (org.springframework.dao.DataIntegrityViolationException ex) {
+			// A phone taken between the probe and the insert (D-291).
+			if (LegacyPhoneNumbers.isPhoneDuplicate(ex)) {
+				throw new LegacyApiException(409, "phone_already_exists");
+			}
+			throw ex;
+		}
 
 		Object salary = body.get("salary");
 		if (!LegacyValues.isPhpEmpty(salary)) {
@@ -678,11 +688,19 @@ public class LegacyEmployeeService {
 				}
 				CanonicalPhone newPhone = phoneNumbers.forAccount(body.get("phone"), countryCode)
 						.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
-				if (store.phoneExistsGlobally(newPhone, employeeId)) {
-					throw new LegacyApiException(409, "phone_already_exists");
+				if (PhoneLookup.of(newPhone).matches(employee.get("phone"), employee.get("country_code"))) {
+					// The number the row already is: written back as stored, byte
+					// for byte, so it cannot collide with another country's row
+					// holding the national digits (D-291).
+					body.put("phone", employee.get("phone"));
+					body.put("country_code", employee.get("country_code"));
+				} else {
+					if (store.phoneExistsGlobally(newPhone, employeeId)) {
+						throw new LegacyApiException(409, "phone_already_exists");
+					}
+					body.put("phone", newPhone.nationalDigits());
+					body.put("country_code", newPhone.dialCode());
 				}
-				body.put("phone", newPhone.nationalDigits());
-				body.put("country_code", newPhone.dialCode());
 			}
 		}
 
@@ -770,6 +788,11 @@ public class LegacyEmployeeService {
 				return null;
 			});
 		} catch (Throwable ex) { // NOPMD - catch (Throwable $e), around the transaction only
+			// A phone another row took between the probe and the write is the
+			// duplicate the probe answers, not a 500 (D-291).
+			if (LegacyPhoneNumbers.isPhoneDuplicate(ex)) {
+				throw new LegacyApiException(409, "phone_already_exists");
+			}
 			// fail(ERROR_WITH_MESSAGE, 500, $e->getMessage()) -- a different key
 			// from create's, and the same exception-text-as-data shape.
 			throw new LegacyApiException(500, "error_with_message", messageOf(ex));

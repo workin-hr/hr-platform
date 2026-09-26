@@ -165,7 +165,7 @@ public interface PlatformAdminCompanyDirectory {
 	java.util.Optional<EditableCompany> editable(long companyId);
 
 	/** The stored logo and commercial-registration URLs, for an edit that uploads neither. */
-	record StoredFiles(String logoUrl, String commercialRegUrl) {
+	record StoredFiles(String logoUrl, String commercialRegUrl, String phone, String countryCode) {
 	}
 
 	java.util.Optional<StoredFiles> storedFiles(long companyId);

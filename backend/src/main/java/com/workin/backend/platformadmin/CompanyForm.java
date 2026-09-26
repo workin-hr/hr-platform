@@ -46,6 +46,16 @@ public final class CompanyForm {
 			String mainBranchAddress,
 			long activityId, long titleId, long sizeId,
 			String companyCode, CanonicalPhone number) {
+
+		/**
+		 * This write with the row's stored phone and code in place of the
+		 * number's national form: for an edit that leaves the number as it is,
+		 * so the row keeps its spelling byte for byte (D-291).
+		 */
+		public CompanyWrite withStoredPhone(String storedPhone, String storedCountryCode) {
+			return new CompanyWrite(companyName, firstName, lastName, storedCountryCode, storedPhone, password,
+					mainBranchAddress, activityId, titleId, sizeId, companyCode, number);
+		}
 	}
 
 	/** @param errorKey a message key, or null when {@link #write} is present */

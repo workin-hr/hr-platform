@@ -76,6 +76,7 @@ class LegacyCanonicalPhoneEndToEndTest {
 	private static final long MISCODED = 291012L;
 	private static final long PADDED = 291013L;
 	private static final long NO_PHONE = 291014L;
+	private static final long UAE_DIGITS_COMPANY = 29111L;
 
 	private static final String EMPLOYEE_PHONE = "01012910001";
 	private static final String CODE = "CANON01";
@@ -554,6 +555,66 @@ class LegacyCanonicalPhoneEndToEndTest {
 		}
 	}
 
+	// ---------------- a phone whose digits another country's row holds ----------------
+
+	@Test
+	void anEmployeesOwnNumberIsWrittenBackAsStoredOnTheProfile() throws Exception {
+		// 501234570 in +966 is this employee; 0501234570 is another employee's
+		// +971 number, and the column's unique key is on the raw digits.
+		String token = token(post("login_employee", Map.of("phone", "+966501234570", "password", PASSWORD)));
+		try {
+			for (String typed : List.of("501234570", "0501234570", "+966 50 123 4570")) {
+				ResponseEntity<Map<String, Object>> response = send("/apis/api/profile/employee.php", HttpMethod.PUT,
+						token, Map.of("phone", typed, "country_code", "+966", "first_name", "Twin"));
+				assertThat(response.getStatusCode().value()).as("%s: %s", typed, response.getBody()).isEqualTo(200);
+				assertThat(row("SELECT CONCAT(first_name, '|', phone, '|', country_code) FROM employees WHERE id = "
+						+ SAUDI_HOLDER)).as(typed).isEqualTo("Twin|501234570|+966");
+			}
+		} finally {
+			execute("UPDATE employees SET first_name = 'Canon' WHERE id = " + SAUDI_HOLDER);
+		}
+	}
+
+	@Test
+	void anEmployeesOwnNumberIsWrittenBackAsStoredOnUpdate() throws Exception {
+		ResponseEntity<Map<String, Object>> response = send("/apis/api/employees/update.php?id=" + SAUDI_HOLDER,
+				HttpMethod.PUT, companyToken("01012911001"), Map.of("phone", "+966501234570", "country_code", "+966"));
+		assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(200);
+		assertThat(row("SELECT CONCAT(phone, '|', country_code) FROM employees WHERE id = " + SAUDI_HOLDER))
+				.isEqualTo("501234570|+966");
+	}
+
+	@Test
+	void aCompanyCodeWhoseNewNumberIsWrittenAsAnotherRowsDigitsIsRefusedNotA500() throws Exception {
+		// 501234572 in +971 re-read in +966 is written 0501234572 -- a landline
+		// row's exact digits, which the raw unique key refuses.
+		ResponseEntity<Map<String, Object>> response = send("/apis/api/company/update.php", HttpMethod.PUT,
+				companyToken("+971501234572"), Map.of("country_code", "+966"));
+		assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(400);
+		assertThat(response.getBody()).containsEntry("message", "Phone already registered");
+		assertThat(row("SELECT CONCAT(phone, '|', country_code) FROM companies WHERE id = " + UAE_DIGITS_COMPANY))
+				.isEqualTo("501234572|+971");
+	}
+
+	@Test
+	void aPhoneChangeToDigitsAnotherRowHoldsIsRefusedNotA500() throws Exception {
+		String token = companyToken("01012911006");
+		// Written internationally: this route reads a national number in a
+		// phone_countries row, and the test database has none.
+		Map<String, Object> change = Map.of("phone", "+966501234573", "country_code", "+966");
+		ResponseEntity<Map<String, Object>> requested =
+				send("/apis/api/profile/request_phone_change.php", HttpMethod.POST, token, change);
+		List<RecordingWhatsAppSender.Sent> sent = ((RecordingWhatsAppSender) this.whatsAppSender).sent();
+		String code = sent.isEmpty() ? "0000" : ((RecordingWhatsAppSender) this.whatsAppSender).lastCode();
+		ResponseEntity<Map<String, Object>> confirmed = send("/apis/api/profile/confirm_phone_change.php",
+				HttpMethod.POST, token, Map.of("phone", "+966501234573", "country_code", "+966", "otp", code));
+		assertThat(confirmed.getStatusCode().value()).as("%s", confirmed.getBody()).isEqualTo(409);
+		assertThat(confirmed.getBody()).containsEntry("message", "Phone already registered");
+		assertThat(requested.getStatusCode().value()).as("%s", requested.getBody()).isEqualTo(409);
+		assertThat(row("SELECT CONCAT(phone, '|', country_code) FROM companies WHERE id = " + RECODED_COMPANY))
+				.isEqualTo("01012911006|+20");
+	}
+
 	@Test
 	void aStoredCodePaddedWithNulIsReadAsTheCodeItPads() throws Exception {
 		for (String spelling : List.of("0501234595", "+966 50 123 4595")) {
@@ -753,6 +814,11 @@ class LegacyCanonicalPhoneEndToEndTest {
 			// PHP's trim() reads through the NUL; so must every Java reader.
 			st.execute("UPDATE employees SET country_code = CONCAT('+966', CHAR(0)) WHERE id = " + PADDED);
 			employee(st, NO_PHONE, "0", "+20", "employee");
+			// 0501234572 and 0501234573 are Egyptian landlines here: no account's
+			// number, but exactly the digits a Saudi 50 123 4572/3 is written as.
+			company(st, UAE_DIGITS_COMPANY, "UAE Digits", "501234572", "+971", null);
+			company(st, 29112L, "Landline A", "0501234572", "+20", null);
+			company(st, 29113L, "Landline B", "0501234573", "+20", null);
 			st.execute("UPDATE employees SET phone = NULL, country_code = NULL WHERE id = " + NO_PHONE);
 			company(st, SAUDI_DIGITS_COMPANY, "Saudi Digits", "501234593", "+966", null);
 			company(st, EMIRATI_DIGITS_COMPANY, "Emirati Digits", "0501234593", "+971", null);

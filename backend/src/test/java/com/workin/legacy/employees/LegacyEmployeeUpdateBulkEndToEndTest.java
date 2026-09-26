@@ -169,16 +169,18 @@ class LegacyEmployeeUpdateBulkEndToEndTest {
 
 	/**
 	 * The employee's own number in another spelling is not a duplicate of
-	 * itself, and is stored as the national digits beside its dial code.
+	 * itself, and is not rewritten: the stored spelling and code are written
+	 * back byte for byte, so the row cannot collide with another country's
+	 * row holding the national digits under the raw unique key (D-291).
 	 */
 	@Test
-	void anEmployeesOwnNumberInAnotherSpellingIsStoredCanonically() {
+	void anEmployeesOwnNumberInAnotherSpellingKeepsItsStoredSpelling() {
 		ResponseEntity<Map<String, Object>> response =
 				post(rows("{\"employee_code\":\"2002\",\"phone\":\"1000199022\"}"), ADMIN);
 
 		assertThat(data(response)).containsEntry("updated", 1);
-		assertThat(stringField(TARGET_B, "phone")).isEqualTo("01000199022");
-		assertThat(stringField(TARGET_B, "country_code")).isEqualTo("+20");
+		assertThat(stringField(TARGET_B, "phone")).isEqualTo("+201000199022");
+		assertThat(stringField(TARGET_B, "country_code")).as("NULL, as stored").isEmpty();
 	}
 
 	/** A row that resolves but asks for nothing is an error, not a no-op success. */

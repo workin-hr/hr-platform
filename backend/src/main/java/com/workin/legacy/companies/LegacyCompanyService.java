@@ -150,6 +150,11 @@ public class LegacyCompanyService {
 		try {
 			store.updateColumns(companyId, columns);
 		} catch (RuntimeException ex) {
+			// The phone a country_code re-read writes, taken between the probe
+			// and the write, is refused as the probe refuses it (D-291).
+			if (LegacyPhoneNumbers.isPhoneDuplicate(ex)) {
+				throw new LegacyApiException(400, "phone_already_registered");
+			}
 			if (isDuplicateEntry(ex)) {
 				throw new LegacyApiException(409, "already_exists", null, Map.of("field", "email"));
 			}

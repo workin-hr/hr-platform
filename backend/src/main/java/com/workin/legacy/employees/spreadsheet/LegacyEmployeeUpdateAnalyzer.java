@@ -16,6 +16,7 @@ import com.workin.legacy.employees.LegacyEmployeeStore;
 import com.workin.legacy.phone.LegacyPhoneCountries;
 import com.workin.legacy.phone.CanonicalPhone;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
+import com.workin.legacy.phone.PhoneLookup;
 
 /**
  * {@code employee_excel_row_to_update_payload()} and
@@ -364,6 +365,14 @@ public class LegacyEmployeeUpdateAnalyzer {
 			return;
 		}
 
+		if (PhoneLookup.of(resolved).matches(employee.get("phone"), employee.get("country_code"))) {
+			// The employee's own number: the stored spelling and code are kept
+			// byte for byte, so the write cannot collide with another country's
+			// row holding the national digits (D-291).
+			payload.put("phone", employee.get("phone"));
+			payload.put("country_code", employee.get("country_code"));
+			return;
+		}
 		if (this.store.phoneExistsGlobally(resolved, employeeId)) {
 			// Reported, and neither field written: the row fails, so the
 			// payload must not carry a number that was rejected.

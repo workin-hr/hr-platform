@@ -42,13 +42,21 @@ public class EmployeeStore {
 	 */
 	public boolean phoneTaken(CanonicalPhone phone, long excludeEmployeeId) {
 		PhoneLookup lookup = PhoneLookup.of(phone);
-		PhoneLookup.Clause match = lookup.clause("phone");
-		List<Object> binds = new ArrayList<>(match.binds());
+		PhoneLookup.Clause probe = lookup.writeProbe("phone",
+				"id, phone, country_code, COALESCE(join_request_status, 'accepted') <> 'rejected' AS counts",
+				"employees");
+		List<Object> binds = new ArrayList<>(probe.binds());
 		binds.add(excludeEmployeeId);
-		return !lookup.verified(this.jdbcTemplate.queryForList(
-				"SELECT id, phone, country_code FROM employees WHERE " + match.sql()
-						+ " AND COALESCE(join_request_status, 'accepted') <> 'rejected' AND id <> ?",
-				binds.toArray())).isEmpty();
+		// A rejected row is absent to the number check, but a row holding the
+		// exact digits to be written blocks the raw unique index whatever it is.
+		for (java.util.Map<String, Object> row
+				: this.jdbcTemplate.queryForList(probe.sql() + " AND id <> ?", binds.toArray())) {
+			if (PhoneLookup.holdsWrittenDigits(row) || (row.get("counts") instanceof Number counts
+					&& counts.longValue() != 0 && lookup.matches(row.get("phone"), row.get("country_code")))) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**

@@ -113,8 +113,11 @@ public class LegacyRegistrationStore {
 	 * to share one number under two spellings (ADR-0020).
 	 */
 	public boolean companyPhoneExists(CanonicalPhone phone) {
-		return !verified(PhoneLookup.of(phone), "phone",
-				"SELECT id, phone, country_code FROM companies WHERE %s").isEmpty();
+		// Or a company holding the exact digits the insert stores, which the
+		// raw unique index would refuse (PhoneLookup#writeProbe).
+		PhoneLookup lookup = PhoneLookup.of(phone);
+		PhoneLookup.Clause probe = lookup.writeProbe("phone", "id, phone, country_code", "companies");
+		return jdbcTemplate.queryForList(probe.sql(), probe.binds().toArray()).stream().anyMatch(lookup::blocksWrite);
 	}
 
 	/**

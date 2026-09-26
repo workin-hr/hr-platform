@@ -158,7 +158,14 @@ public class LegacyProfileService {
 			throw new LegacyApiException(400, "nothing_to_update");
 		}
 
-		store.updateEmployee(assignments, binds, employeeId, companyId);
+		try {
+			store.updateEmployee(assignments, binds, employeeId, companyId);
+		} catch (org.springframework.dao.DataIntegrityViolationException ex) {
+			if (LegacyPhoneNumbers.isPhoneDuplicate(ex)) {
+				throw new LegacyApiException(409, "phone_already_exists");
+			}
+			throw ex;
+		}
 		return attachAll(store.profileAfterUpdate(employeeId, companyId), companyId);
 	}
 
@@ -197,6 +204,14 @@ public class LegacyProfileService {
 		}
 		CanonicalPhone phone = phoneNumbers.forAccount(raw, context)
 				.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
+		if (PhoneLookup.of(phone).matches(employee.get("phone"), employee.get("country_code"))) {
+			// The number the row already is: its stored spelling and code are
+			// written back byte for byte, so the write cannot collide with
+			// another country's row holding the national digits (D-291).
+			body.put("phone", employee.get("phone"));
+			body.put("country_code", employee.get("country_code"));
+			return;
+		}
 		if (employeeStore.phoneExistsGlobally(phone, employeeId)) {
 			throw new LegacyApiException(409, "phone_already_exists");
 		}
@@ -565,7 +580,14 @@ public class LegacyProfileService {
 			throw new LegacyApiException(400, "invalid_expired_otp");
 		}
 
-		otpAuthStore.changeCompanyPhone(context.companyId(), phone.nationalDigits(), phone.dialCode());
+		try {
+			otpAuthStore.changeCompanyPhone(context.companyId(), phone.nationalDigits(), phone.dialCode());
+		} catch (org.springframework.dao.DataIntegrityViolationException ex) {
+			if (LegacyPhoneNumbers.isPhoneDuplicate(ex)) {
+				throw new LegacyApiException(409, "phone_already_registered");
+			}
+			throw ex;
+		}
 		otpService.clearForPhone(phone);
 		return com.workin.legacy.LegacyPublicRow.of(otpAuthStore.company(context.companyId()));
 	}

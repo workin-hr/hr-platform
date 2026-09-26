@@ -274,7 +274,11 @@ public class LegacyEmployeeBulkUpdater {
 		for (int index = 0; index < fields.size(); index++) {
 			String field = fields.get(index);
 			String current = stored == null ? LegacyValues.toPhpString(employee.get(field)) : stored[index];
-			if (payload.containsKey(field) && !LegacyValues.toPhpString(payload.get(field)).equals(current)) {
+			String written = LegacyValues.toPhpString(payload.get(field));
+			// The employee's own number is written back as stored (D-291), which
+			// is no change either.
+			if (payload.containsKey(field) && !written.equals(current)
+					&& !written.equals(LegacyValues.toPhpString(employee.get(field)))) {
 				changed.add(field);
 			}
 		}
