@@ -323,11 +323,13 @@
 					fields = @`
 						<div class="form-row">
 							<label for="att_edit_check_in">${t.apply("check_in")}</label>
-							<input type="datetime-local" id="att_edit_check_in" name="check_in" required data-dialog-field="check_in">
+							<%-- step="1": a device punch is stored to the second, and the picker
+							     keeps the seconds only when the field allows them (D-288). --%>
+							<input type="datetime-local" id="att_edit_check_in" name="check_in" required step="1" data-dialog-field="check_in">
 						</div>
 						<div class="form-row">
 							<label for="att_edit_check_out">${t.apply("check_out")}</label>
-							<input type="datetime-local" id="att_edit_check_out" name="check_out" data-dialog-field="check_out">
+							<input type="datetime-local" id="att_edit_check_out" name="check_out" step="1" data-dialog-field="check_out">
 						</div>
 						<div class="form-row">
 							@if(editChoosesType)

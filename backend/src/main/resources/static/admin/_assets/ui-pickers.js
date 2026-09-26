@@ -45,6 +45,12 @@
             if (event.key === 'ArrowDown' && !instance.isOpen) {
               event.preventDefault();
               instance.open();
+            } else if (event.key === 'Escape' && instance.isOpen) {
+              // The calendar, not the dialog around it: flatpickr ignores
+              // Escape in a typable field, and modal-a11y would close the dialog.
+              event.preventDefault();
+              event.stopPropagation();
+              instance.close();
             }
           });
           instance.altInput.classList.add('ui-picker');
@@ -80,37 +86,20 @@
     return Object.assign(base, { dateFormat: 'Y-m-d', altFormat: 'd/m/Y' });
   }
 
-  // A stored punch has seconds (08:00:45) and a picked time has none. A
-  // datetime-local field posts in the shape it was given, so an edit that only
-  // changes the exception type does not rewrite 08:00:45 as 08:00:00.
-  //
-  // `set` rewrites the field from the current selection, so the caller reads
-  // the value first and passes it in.
-  function keepSeconds(input, value) {
-    const instance = input._flatpickr;
-    if (!instance || input.getAttribute('data-picker-type') !== 'datetime-local' || instance.config.enableSeconds) {
-      return;
-    }
-    const format = /T\d{2}:\d{2}:\d{2}$/.test(value || '') ? 'Y-m-d\\TH:i:S' : 'Y-m-d\\TH:i';
-    if (instance.config.dateFormat !== format) {
-      instance.set('dateFormat', format);
-    }
-  }
-
   function attach(input) {
     if (input._flatpickr || input.hasAttribute('data-no-picker') || !input.closest('.main, .modal')) {
       return;
     }
-    input.setAttribute('data-picker-type', input.getAttribute('type'));
     // What form.reset() restores. flatpickr turns the input into a hidden one,
     // and assigning .value to a hidden input rewrites its value attribute, so
     // without this a reset would restore the last date picked.
     input.setAttribute('data-picker-default', input.getAttribute('value') || '');
-    const value = input.value;
-    window.flatpickr(input, options(input));
-    keepSeconds(input, value);
-    if (value) {
-      input._flatpickr.setDate(value, false);
+    // modal-a11y may already have focused this field (a dialog rendered open);
+    // flatpickr is about to hide it, so the focus moves to the visible copy.
+    const focused = document.activeElement === input;
+    const instance = window.flatpickr(input, options(input));
+    if (focused && instance.altInput && !instance.isMobile) {
+      instance.altInput.focus();
     }
   }
 
@@ -123,9 +112,7 @@
   // updates the hidden original but not the visible copy; bring it along.
   function refresh(input) {
     if (input && input._flatpickr) {
-      const value = input.value;
-      keepSeconds(input, value);
-      input._flatpickr.setDate(value || null, false);
+      input._flatpickr.setDate(input.value || null, false);
     }
   }
 
