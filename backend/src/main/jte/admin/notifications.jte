@@ -91,7 +91,7 @@
 				<div class="data-table-head__actions">
 					@if(canWrite)
 						<button type="button" class="btn btn-blue btn-sm"
-								onclick="crudOpenAdd('notifModal')">+ ${t.apply("nav_notifications")}</button>
+								onclick="crudOpenAdd('notifModal')">+ ${t.apply("send_notification")}</button>
 					@endif
 				</div>
 			</div>

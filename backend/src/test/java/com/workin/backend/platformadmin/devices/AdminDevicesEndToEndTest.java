@@ -677,6 +677,49 @@ class AdminDevicesEndToEndTest {
 		return this.restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(headers), String.class);
 	}
 
+	/**
+	 * An action returns to the view it came from with every list's page (#347):
+	 * the overview for an overview action, the terminal's own page for a
+	 * terminal action -- and a terminal action from anywhere else still lands on
+	 * that terminal.
+	 */
+	@Test
+	void anActionReturnsToThePagesItCameFrom() {
+		long deviceId = device("PRET-1", "Return terminal", 1);
+		this.jdbc.update("INSERT INTO device_agents (company_id, name, token_sha256, token_hint, is_active,"
+				+ " created_at, updated_at) VALUES (?, 'Return agent', SHA2('ret', 256), 'abcd', 1, NOW(), NOW())",
+				this.company);
+		long agentId = this.jdbc.queryForObject("SELECT id FROM device_agents WHERE name = 'Return agent'", Long.class);
+
+		assertThat(postFrom("http://localhost/admin/devices?per_page=3&dev_page=2&agent_page=2",
+				"action", "agent_active", "id", String.valueOf(agentId), "active", "0")
+				.getHeaders().getLocation()).asString()
+				.endsWith("/admin/devices?per_page=3&dev_page=2&agent_page=2");
+		assertThat(postFrom("http://localhost/admin/devices?device=" + deviceId + "&punch_page=2",
+				"action", "device_active", "id", String.valueOf(deviceId), "active", "0")
+				.getHeaders().getLocation()).asString()
+				.endsWith("/admin/devices?device=" + deviceId + "&punch_page=2");
+		assertThat(postFrom("http://localhost/admin/devices?dev_page=2",
+				"action", "device_active", "id", String.valueOf(deviceId), "active", "1")
+				.getHeaders().getLocation()).asString()
+				.as("a terminal action from the overview still lands on the terminal")
+				.endsWith("/admin/devices?device=" + deviceId);
+	}
+
+	private ResponseEntity<String> postFrom(String referer, String... fields) {
+		String[] csrf = csrfOf(get("/admin/devices", this.cookie));
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+		headers.add(HttpHeaders.COOKIE, "WORKIN_ADMIN_SESSION=" + this.cookie);
+		headers.add(HttpHeaders.REFERER, referer);
+		MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+		for (int index = 0; index < fields.length; index += 2) {
+			form.add(fields[index], fields[index + 1]);
+		}
+		form.add(csrf[0], csrf[1]);
+		return this.restTemplate.exchange("/admin/devices", HttpMethod.POST, new HttpEntity<>(form, headers), String.class);
+	}
+
 	private ResponseEntity<String> post(String path, String sessionCookie, String[] csrf, String... fields) {
 		HttpHeaders headers = new HttpHeaders();
 		headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);

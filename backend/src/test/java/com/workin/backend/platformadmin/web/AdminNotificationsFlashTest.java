@@ -83,6 +83,20 @@ class AdminNotificationsFlashTest {
 		assertThat(redirect.getFlashAttributes().get("flashType")).isEqualTo("error");
 	}
 
+	@Test
+	void aDeleteReturnsToThePageAndFiltersItWasMadeFrom() {
+		MockHttpServletRequest request = new MockHttpServletRequest();
+		request.addHeader("Referer", "https://admin.example/admin/notifications?page=3&search=pay");
+
+		assertThat(controller(new BroadcastAdminService.Result(true, 0, null))
+				.delete(ADMIN, 9L, request, model(), new RedirectAttributesModelMap()))
+				.isEqualTo(REDIRECT + "?page=3&search=pay");
+		assertThat(controller(new BroadcastAdminService.Result(false, 0, "error_not_found"))
+				.delete(ADMIN, 9L, request, model(), new RedirectAttributesModelMap()))
+				.as("a refusal keeps them too, with its own message")
+				.isEqualTo(REDIRECT + "?page=3&search=pay&error=error_not_found");
+	}
+
 	/** The advice's translator, answering with the key, as it does for a missing message. */
 	private static ExtendedModelMap model() {
 		ExtendedModelMap model = new ExtendedModelMap();

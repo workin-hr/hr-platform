@@ -69,11 +69,14 @@ public class AdminNotificationsController {
 		BroadcastAdminService.Result result = this.service.delete(
 				DashboardSession.admin(DashboardOrgScope.current(request.getSession(false))),
 				principal.platformAdminId(), id);
+		// The page and filters the row was deleted from (D-286). A send keeps
+		// the bare path: its row is the newest, at the top of page one.
+		String path = PlatformAdminWebSecurityConfig.NOTIFICATIONS_PATH;
 		if (!result.ok()) {
-			return REDIRECT + "?error=" + result.errorKey();
+			return "redirect:" + path + AdminReturnTo.queryWithError(request, path, result.errorKey());
 		}
 		AdminFlash.deleted(redirect, model);
-		return REDIRECT;
+		return "redirect:" + path + AdminReturnTo.query(request, path, 0L);
 	}
 
 	@AuthenticatedUseCase(reason = "Sends one broadcast. Gated in the service by the surface "

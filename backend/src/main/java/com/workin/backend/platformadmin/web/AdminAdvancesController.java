@@ -171,9 +171,9 @@ public class AdminAdvancesController {
 				case "reject" -> AdminFlash.rejected(redirect, model);
 				default -> AdminFlash.saved(redirect, model);
 			}
-			return "redirect:" + PATH;
+			return "redirect:" + PATH + AdminReturnTo.query(request, PATH, wrote);
 		} catch (AdvanceAdminService.RefusedException refused) {
-			return "redirect:" + PATH + "?error=" + messageKey(refused);
+			return "redirect:" + PATH + AdminReturnTo.queryWithError(request, PATH, messageKey(refused));
 		}
 	}
 
