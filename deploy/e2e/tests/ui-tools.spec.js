@@ -580,6 +580,71 @@ test.describe('a read-only date-time field (review round 4)', () => {
 		expect(posts).toEqual([]);
 	});
 
+	test('Enter in a typable field with its calendar open keeps what was typed, without submitting', async ({ page }) => {
+		await page.locator('#edit-trigger').click();
+		await page.locator('#day-picker').click();
+		await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(1);
+		await page.locator('#day-picker').fill('14/09/2026');
+		await page.keyboard.press('Enter');
+		await expect(page.locator('#day')).toHaveValue('2026-09-14');
+		await expect(page.locator('#edit')).toHaveClass(/open/);
+		await page.waitForTimeout(200);
+		expect(posts).toEqual([]);
+	});
+
+	test('a typo in a date field, by Enter or by leaving it, keeps the value it replaced', async ({ page }) => {
+		await page.locator('#edit-trigger').click();
+		await page.locator('#day-picker').click();
+		await page.locator('#day-picker').fill('not a date at all');
+		await page.keyboard.press('Enter');
+		await expect(page.locator('#day')).toHaveValue('2026-01-05');
+		await expect(page.locator('#day-picker')).toHaveValue('05/01/2026');
+		await page.locator('#day-picker').fill('32/13/nope');
+		await page.keyboard.press('Tab');
+		await expect(page.locator('#day')).toHaveValue('2026-01-05');
+		await expect(page.locator('#day-picker')).toHaveValue('05/01/2026');
+	});
+
+	test('a typo left by clicking Save posts the date it replaced, not a rolled-over or empty one', async ({ page }) => {
+		for (const typo of ['32/13/2026', 'garbage']) {
+			posts.length = 0;
+			await page.locator('#edit-trigger').click();
+			// Typed into the focused field, calendar closed, then Save clicked.
+			await page.locator('#day-picker').fill(typo);
+			await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(0);
+			await page.locator('#edit form button[type="submit"]').click();
+			await expect.poll(() => posts.length).toBe(1);
+			expect(new URLSearchParams(posts[0].body).get('day'), typo).toBe('2026-01-05');
+			await page.goto(`${ORIGIN}/`);
+		}
+	});
+
+	test('a typo left by clicking elsewhere with the calendar open keeps the date it replaced', async ({ page }) => {
+		for (const typo of ['32/13/2026', 'garbage']) {
+			await page.locator('#edit-trigger').click();
+			await page.locator('#day-picker').click();
+			await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(1);
+			await page.locator('#day-picker').fill(typo);
+			await page.locator('#edit-title').click();
+			await expect(page.locator('#day'), typo).toHaveValue('2026-01-05');
+			await page.goto(`${ORIGIN}/`);
+		}
+	});
+
+	test('a well-typed time still commits through the guard, without leading zeros', async ({ page }) => {
+		await page.locator('#at-picker').fill('3:15 م');
+		await page.keyboard.press('Tab');
+		await expect(page.locator('#at')).toHaveValue('15:15');
+	});
+
+	test('ArrowDown on a closed read-only field only opens the calendar', async ({ page }) => {
+		await page.locator('#edit-trigger').click();
+		await page.locator('#punch-picker').focus();
+		await page.keyboard.press('ArrowDown');
+		await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(1);
+		await expect(page.locator('#punch-picker')).toBeFocused();
+	});
+
 	test('Backspace cannot empty a required read-only field', async ({ page }) => {
 		await page.locator('#edit-trigger').click();
 		await page.locator('#punch-picker').click();

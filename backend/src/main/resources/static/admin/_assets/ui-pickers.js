@@ -50,13 +50,24 @@
           // Escape without stopping the key, which then closed the dialog.
           instance.altInput.addEventListener('keydown', function (event) {
             if (event.key === 'ArrowDown' && !instance.isOpen) {
+              // Stopped: flatpickr would otherwise act on the same key with the
+              // calendar now open, and a time-only calendar has no days to reach.
               event.preventDefault();
+              event.stopPropagation();
               instance.open();
             } else if ((event.key === 'Escape' || event.key === 'Enter') && instance.isOpen) {
               // The calendar, not the dialog around it: Escape would close the
               // dialog and Enter would submit it with the picker still open.
               event.preventDefault();
               event.stopPropagation();
+              if (event.key === 'Enter' && instance.config.allowInput) {
+                // What flatpickr's own Enter did: keep what was typed -- when
+                // it is a date. flatpickr clears the field on text it cannot
+                // parse; a typo must not wipe the value it replaced.
+                if (keepsTyped(instance)) {
+                  instance.setDate(instance.altInput.value, true, instance.config.altFormat);
+                }
+              }
               instance.close();
             } else if ((event.key === 'Backspace' || event.key === 'Delete')
                 && input.required && instance.config.allowInput === false) {
@@ -77,6 +88,14 @@
               instance.altInput.focus();
             }
           });
+          // The same guard when the field is left: flatpickr re-reads it on
+          // blur and would clear it for a typo. Capture phase, ahead of that.
+          instance.altInput.addEventListener('blur', function () {
+            if (instance.config.allowInput) {
+              keepsTyped(instance);
+            }
+          }, true);
+          typable.set(instance.altInput, instance);
           instance.altInput.classList.add('ui-picker');
           instance.altInput.setAttribute('dir', 'auto');
           if (input.id) {
@@ -108,6 +127,40 @@
       });
     }
     return Object.assign(base, { dateFormat: 'Y-m-d', altFormat: 'd/m/Y' });
+  }
+
+  // A click away is the common way to leave a field -- onto Save, or the next
+  // field -- and flatpickr commits the typed text on the document's mousedown,
+  // before the field's blur. This listener is on the document in the capture
+  // phase, so it runs first and puts a typo back before flatpickr reads it.
+  const typable = new WeakMap();
+  function beforeLeaving(event) {
+    const field = document.activeElement;
+    const instance = field && typable.get(field);
+    if (instance && instance.config.allowInput && !field.contains(event.target)) {
+      keepsTyped(instance);
+    }
+  }
+  document.addEventListener('mousedown', beforeLeaving, true);
+  document.addEventListener('touchstart', beforeLeaving, true);
+
+  // True when the typed text is a date or empty (a deliberate clear); otherwise
+  // the field goes back to its last committed value and false is returned.
+  function keepsTyped(instance) {
+    const text = instance.altInput.value.trim();
+    if (text === '') {
+      return true;
+    }
+    // flatpickr's parse is lenient -- "32/13/2026" rolls over into 2027 -- so
+    // the date must also format back to what was typed, leading zeros aside.
+    const parsed = instance.parseDate(text, instance.config.altFormat);
+    const numbers = (value) => value.replace(/\s+/g, ' ').replace(/\d+/g, (digits) => String(Number(digits)));
+    if (parsed && numbers(instance.formatDate(parsed, instance.config.altFormat)) === numbers(text)) {
+      return true;
+    }
+    instance.altInput.value = instance.selectedDates.length
+      ? instance.formatDate(instance.selectedDates[0], instance.config.altFormat) : '';
+    return false;
   }
 
   function attach(input) {
