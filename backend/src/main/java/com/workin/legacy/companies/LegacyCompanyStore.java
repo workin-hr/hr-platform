@@ -15,6 +15,8 @@ import org.springframework.stereotype.Repository;
 
 import com.workin.legacy.LegacyJdbcValues;
 import com.workin.legacy.LegacyPublicRow;
+import com.workin.legacy.phone.CanonicalPhone;
+import com.workin.legacy.phone.PhoneLookup;
 
 /**
  * Frozen {@code companies} row access for Wave 12.10 ({@code company/*.php}).
@@ -46,6 +48,17 @@ public class LegacyCompanyStore {
 				"SELECT COUNT(*) FROM companies WHERE UPPER(company_code)=? AND id<>?",
 				Long.class, normalizedCode, excludeCompanyId);
 		return count != null && count > 0;
+	}
+
+	/** Another company holding the number, in any spelling -- register_company's rule. */
+	public boolean companyPhoneTaken(CanonicalPhone phone, long excludeCompanyId) {
+		PhoneLookup lookup = PhoneLookup.of(phone);
+		PhoneLookup.Clause match = lookup.clause("phone");
+		List<Object> binds = new ArrayList<>(match.binds());
+		binds.add(excludeCompanyId);
+		return !lookup.verified(jdbc.queryForList(
+				"SELECT id, phone, country_code FROM companies WHERE " + match.sql() + " AND id<>?",
+				binds.toArray())).isEmpty();
 	}
 
 	/** {@code company_email_is_taken()} ({@code functions.php:31-43}). */

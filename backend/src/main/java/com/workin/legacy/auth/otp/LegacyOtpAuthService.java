@@ -74,18 +74,14 @@ public class LegacyOtpAuthService {
 	 */
 	public void verifyOtp(Map<String, Object> body) {
 		required(body, "phone", "otp", "type");
-		// A phone that is not a number holds no code, so it is answered as an
-		// unknown code is.
-		CanonicalPhone phone = otp.resolvePhone(body.get("phone"))
-				.orElseThrow(() -> new LegacyApiException(400, "invalid_expired_otp"));
+		// The reading whose code this is. A phone that is not a number holds no
+		// code, so it is answered as an unknown code is.
 		Object authType = body.get("type");
+		CanonicalPhone phone = otp.verifiedReading(body.get("phone"), body.get("otp"))
+				.orElseThrow(() -> new LegacyApiException(400, "invalid_expired_otp"));
 		String purpose = body.get("purpose") == null
 				? "" : LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("purpose")));
 		boolean isPasswordReset = "password_reset".equals(purpose);
-
-		if (otp.verifyLatestForPhone(phone, body.get("otp")) == null) {
-			throw new LegacyApiException(400, "invalid_expired_otp");
-		}
 
 		if (COMPANY.equals(authType) && !isPasswordReset) {
 			store.markCompanyOtpVerified(phone, body.get("phone"));
@@ -105,14 +101,18 @@ public class LegacyOtpAuthService {
 	 * same 60-second window again and would answer 429; in practice the 400
 	 * always wins because it is checked first.
 	 *
-	 * <p>It does not verify that the phone belongs to anybody. Any number can
-	 * be sent an OTP through this route, once a minute.
+	 * <p>It does not verify that the phone belongs to anybody -- it also
+	 * resends the code {@code request_phone_change} sent to a number no account
+	 * holds yet -- so what bounds it is where it delivers: a number in a
+	 * country the product offers, once a minute. Any other number is refused
+	 * as an invalid one is, and nothing is sent (D-291).
 	 */
 	public void resendOtp(HttpServletRequest request, Map<String, Object> body, String locale) {
 		required(body, "phone");
 		// PHP refused a phone with no digits with this key; a phone that is
 		// not a valid number is refused with it now (D-291).
 		CanonicalPhone phone = otp.resolvePhone(body.get("phone"))
+				.filter(phoneNumbers::offered)
 				.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
 		if (otp.hasRecentForPhone(phone, 60)) {
 			throw new LegacyApiException(400, "please_wait_before_resending");
@@ -163,9 +163,11 @@ public class LegacyOtpAuthService {
 		// The code goes to the account's own number, read in the account's own
 		// country -- PHP's trim(COUNTRY_CODE) ?: '+20' is that country, Egypt
 		// when blank -- and is keyed on it, so reset_password finds it under any
-		// spelling (D-291).
+		// spelling (D-291). An account in a country the product does not offer
+		// is not delivered to, and is answered as no account.
 		CanonicalPhone phone = CanonicalPhones.parse(account.get("phone"),
 				account.get("country_code") == null ? null : LegacyValues.toPhpString(account.get("country_code")))
+				.filter(phoneNumbers::offered)
 				.orElseThrow(() -> new LegacyApiException(404, "phone_not_found"));
 		otp.issueAndSendWhatsApp(request, phone, LegacyOtpService.SMS_OTP_PASSWORD_RESET, 10, locale);
 	}
@@ -185,13 +187,9 @@ public class LegacyOtpAuthService {
 	 */
 	public void resetPassword(Map<String, Object> body) {
 		required(body, "phone", "password", "otp", "type");
-		CanonicalPhone phone = otp.resolvePhone(body.get("phone"))
-				.orElseThrow(() -> new LegacyApiException(400, "invalid_expired_otp"));
 		Object authType = body.get("type");
-
-		if (otp.verifyLatestForPhone(phone, body.get("otp")) == null) {
-			throw new LegacyApiException(400, "invalid_expired_otp");
-		}
+		CanonicalPhone phone = otp.verifiedReading(body.get("phone"), body.get("otp"))
+				.orElseThrow(() -> new LegacyApiException(400, "invalid_expired_otp"));
 
 		String hash = passwordEncoder.encode(LegacyValues.toPhpString(body.get("password")));
 

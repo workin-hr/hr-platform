@@ -43,6 +43,9 @@ import tools.jackson.databind.ObjectMapper;
 public class LegacyPhoneNumbers {
 
 	private static final Pattern NON_DIGITS = Pattern.compile("\\D+");
+
+	/** {@link CanonicalPhones#DEFAULT_REGION}'s dial code: what a blank {@code country_code} reads as. */
+	private static final String DEFAULT_DIAL_CODE = "+20";
 	private static final Pattern PREFIX_SEPARATORS = Pattern.compile("[\\s,;]+");
 	private static final Pattern SCIENTIFIC = Pattern.compile("^\\d+\\.?\\d*E[+-]?\\d+$", Pattern.CASE_INSENSITIVE);
 	private static final Pattern TRAILING_ZEROS = Pattern.compile("^\\d+\\.0+$");
@@ -211,11 +214,58 @@ public class LegacyPhoneNumbers {
 		if (phone.isEmpty() || !phone.get().mobile()) {
 			return Optional.empty();
 		}
-		String dialCode = phone.get().dialCode();
-		if (!ALWAYS_OFFERED.contains(dialCode) && !offeredDialCodes().contains(dialCode)) {
-			return Optional.empty();
+		return offered(phone.get()) ? phone : Optional.empty();
+	}
+
+	/**
+	 * Whether the number is in a country the product offers -- the set
+	 * {@link #forAccount} admits, and the only numbers an OTP is delivered to.
+	 */
+	public boolean offered(CanonicalPhone phone) {
+		String dialCode = phone.dialCode();
+		return ALWAYS_OFFERED.contains(dialCode) || offeredDialCodes().contains(dialCode);
+	}
+
+	/**
+	 * What a write carrying a {@code country_code} but no {@code phone} must
+	 * validate, or {@code null} when it leaves the number alone. A national
+	 * number is read in its row's {@code country_code}, so changing the code
+	 * alone can change which number the row is.
+	 *
+	 * <p>Codes are compared as they are <em>read</em>: a blank one reads as
+	 * Egypt's, and {@code 20} as {@code +20}, so a code under which the stored
+	 * phone is the same number as before -- or the very code already stored --
+	 * is no change, and the caller writes it as sent, as PHP did. Any other
+	 * code is a change, and the caller runs the stored phone through
+	 * {@link #forAccount} in {@link Reread#countryCode()} (a blank one as
+	 * Egypt's dial code) and its own uniqueness check, as for a new phone,
+	 * storing the number's own dial code.
+	 */
+	public static Reread storedPhoneRereadBy(Object newCountryCode, Object storedPhone, Object storedCountryCode) {
+		String stored = storedPhone == null ? "" : LegacyValues.phpTrim(LegacyValues.toPhpString(storedPhone));
+		if (digitsOnly(stored).isEmpty()) {
+			return null;
 		}
-		return phone;
+		String before = storedCountryCode == null ? "" : LegacyValues.phpTrim(LegacyValues.toPhpString(storedCountryCode));
+		String after = newCountryCode == null ? "" : LegacyValues.phpTrim(LegacyValues.toPhpString(newCountryCode));
+		if (after.equals(before)) {
+			return null;
+		}
+		Optional<CanonicalPhone> was = CanonicalPhones.parse(stored, before);
+		Optional<CanonicalPhone> is = CanonicalPhones.parse(stored, after);
+		if (was.isPresent() && is.isPresent() && was.get().e164().equals(is.get().e164())) {
+			return null;
+		}
+		return new Reread(stored, after.isEmpty() ? DEFAULT_DIAL_CODE : after);
+	}
+
+	/**
+	 * The stored phone and the non-blank code to read it in.
+	 *
+	 * @param phone the stored phone, trimmed
+	 * @param countryCode the written code, or Egypt's for a blank one
+	 */
+	public record Reread(String phone, String countryCode) {
 	}
 
 	/**
