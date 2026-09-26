@@ -38,18 +38,21 @@ final class LegacyWarmedDays<T> {
 
 	/**
 	 * The most employee-days one kind of warm may hold over a request (D-292).
+	 * Each kind -- the calendar holds one {@code LegacyWarmedDays} per kind --
+	 * has its own budget of this size.
 	 *
 	 * <p>Measured, not guessed: a slot is one compressed reference, and a warm
 	 * at this budget retained 11.8-12.4 MB per kind under {@code -Xmx768m}
 	 * (D-292 records the run), so the three kinds a request warms --
 	 * shifts, leave, timed requests -- stay under 40 MB whatever it asks for.
 	 * The same request at {@code 2a5baf0d}'s string-keyed maps was ~100 bytes a
-	 * slot. The budget still admits every range a caller warmed before D-292:
-	 * the dashboard aggregate's 200-row page over two years is 150,000 slots, a
-	 * year's report over 7,700 employees fits, and so does a single employee's
-	 * stats back to the year 1 when they stop at today. What it refuses is a
-	 * range no roster needs -- {@code 0001-01-01..9999-12-31} is 3.65 million
-	 * days for one employee -- and those dates go to the per-date statements.
+	 * slot, so past this budget that code held over 300 MB for one kind: the
+	 * budget admits every warm it could hold without exhausting the heap, not
+	 * every range it tried. The dashboard aggregate's 200-row page is warmed up
+	 * to 15,000 days (about 41 years), a year's report up to about 7,700
+	 * employees, and a single employee's stats back to the year 1 when they stop
+	 * at today. {@code 0001-01-01..9999-12-31} (3.65 million days) is refused for
+	 * any roster. A warm that does not fit goes to the per-date statements.
 	 */
 	static final long MAX_SLOTS = 3_000_000L;
 
