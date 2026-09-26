@@ -173,18 +173,14 @@ public final class LegacyEmployeeSpreadsheetColumns {
 	public static String normalizeHeaderKey(String header) {
 		String key = trimUnderscores(fold(header));
 
-		for (Column column : COLUMNS) {
+		for (int index = 0; index < COLUMNS.size(); index++) {
+			Column column = COLUMNS.get(index);
 			// PHP's second arm, `rtrim($col['key'] . ($col['required'] ? '' : ''), '_')`,
 			// concatenates the empty string either way, so it is the first test again.
 			if (key.equals(column.key())) {
 				return column.key();
 			}
-			List<String> candidates = new ArrayList<>();
-			candidates.add(column.labelAr() == null ? "" : column.labelAr());
-			candidates.add(column.labelEn() == null ? "" : column.labelEn());
-			candidates.addAll(column.aliases());
-			for (String alias : candidates) {
-				String aliasKey = trimUnderscores(fold(alias));
+			for (String aliasKey : AliasKeys.BY_COLUMN.get(index)) {
 				if (aliasKey.isEmpty()) {
 					continue;
 				}
@@ -194,6 +190,23 @@ public final class LegacyEmployeeSpreadsheetColumns {
 			}
 		}
 		return key;
+	}
+
+	/**
+	 * Each column's Arabic label, English label and aliases, folded once. PHP
+	 * folds them again for every header cell; the answer is the same, and a
+	 * 16,384-column header folded them some four million times -- about 5 GB
+	 * of garbage and ten seconds per upload (D-289).
+	 */
+	private static final class AliasKeys {
+
+		static final List<List<String>> BY_COLUMN = COLUMNS.stream().map(column -> {
+			List<String> candidates = new ArrayList<>();
+			candidates.add(column.labelAr() == null ? "" : column.labelAr());
+			candidates.add(column.labelEn() == null ? "" : column.labelEn());
+			candidates.addAll(column.aliases());
+			return candidates.stream().map(alias -> trimUnderscores(fold(alias))).toList();
+		}).toList();
 	}
 
 	/** {@code rtrim($key, '_')}. */

@@ -137,7 +137,12 @@ public final class LegacyAttendanceImportReader {
 		if (detected == LegacySpreadsheetFormat.XLS) {
 			// The whole `if ($format === 'xls')` branch, which returns before
 			// the CSV/XLSX path below ever runs.
-			List<Map<String, Object>> rows = xlsAssoc(LegacySimpleXlsReader.readFirstSheet(content));
+			List<Map<String, Object>> rows;
+			try {
+				rows = xlsAssoc(LegacySimpleXlsReader.readFirstSheet(content));
+			} catch (LegacySpreadsheetRows.TooManyCellsException ex) {
+				throw new LegacyAttendanceImportException("Cannot read XLS file. Invalid or corrupted file");
+			}
 			List<String> keys = rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).keySet());
 			String importFormat = detectFormat(keys);
 			return new Loaded("unknown".equals(importFormat) ? "punch_log" : importFormat, rows, keys);
@@ -152,7 +157,13 @@ public final class LegacyAttendanceImportReader {
 				detected = LegacySpreadsheetFormat.CSV;
 			} else {
 				workbookParsed = true;
-				rows.addAll(assoc(matrix));
+				try {
+					rows.addAll(assoc(matrix));
+				} catch (LegacySpreadsheetRows.TooManyCellsException ex) {
+					// Refused, not re-read as CSV: the workbook parsed, and
+					// what it holds is too large to key (D-289).
+					throw new LegacyAttendanceImportException("Empty or unreadable file");
+				}
 			}
 		}
 
@@ -162,7 +173,11 @@ public final class LegacyAttendanceImportReader {
 		// CSV, over its own ZIP bytes.
 		if (detected == LegacySpreadsheetFormat.CSV || (workbookParsed && rows.isEmpty())) {
 			rows.clear();
-			rows.addAll(readCsv(content));
+			try {
+				rows.addAll(readCsv(content));
+			} catch (LegacySpreadsheetRows.TooManyCellsException ex) {
+				throw new LegacyAttendanceImportException("Empty or unreadable file");
+			}
 		}
 
 		if (rows.isEmpty()) {
@@ -722,8 +737,9 @@ public final class LegacyAttendanceImportReader {
 			return rows;
 		}
 		List<String> header = LegacySpreadsheetRows.normalizeHeaderRow(matrix.get(0));
+		LegacySpreadsheetRows.KeyedCells budget = new LegacySpreadsheetRows.KeyedCells();
 		for (int index = 1; index < matrix.size(); index++) {
-			Map<String, Object> combined = LegacySpreadsheetRows.assocRow(header, matrix.get(index));
+			Map<String, Object> combined = LegacySpreadsheetRows.assocRow(header, matrix.get(index), budget);
 			if (combined != null) {
 				rows.add(combined);
 			}
@@ -748,6 +764,7 @@ public final class LegacyAttendanceImportReader {
 			return rows;
 		}
 		List<String> header = LegacySpreadsheetRows.normalizeHeaderRow(grid.get(0));
+		LegacySpreadsheetRows.KeyedCells budget = new LegacySpreadsheetRows.KeyedCells();
 		for (int index = 1; index < grid.size(); index++) {
 			List<String> record = grid.get(index);
 			int filled = 0;
@@ -759,7 +776,7 @@ public final class LegacyAttendanceImportReader {
 			if (filled < 2) {
 				continue;
 			}
-			Map<String, Object> combined = LegacySpreadsheetRows.assocRow(header, record);
+			Map<String, Object> combined = LegacySpreadsheetRows.assocRow(header, record, budget);
 			if (combined != null) {
 				rows.add(combined);
 			}
@@ -805,6 +822,7 @@ public final class LegacyAttendanceImportReader {
 			return rows;
 		}
 		List<String> header = LegacySpreadsheetRows.normalizeHeaderRow(records.get(0));
+		LegacySpreadsheetRows.KeyedCells budget = new LegacySpreadsheetRows.KeyedCells();
 		for (int index = 1; index < records.size(); index++) {
 			List<String> record = records.get(index);
 			// `if (count($csvRow) >= 2)` -- a blank line is one empty field and
@@ -812,7 +830,7 @@ public final class LegacyAttendanceImportReader {
 			if (record.size() < 2) {
 				continue;
 			}
-			Map<String, Object> combined = LegacySpreadsheetRows.assocRow(header, record);
+			Map<String, Object> combined = LegacySpreadsheetRows.assocRow(header, record, budget);
 			if (combined != null) {
 				rows.add(combined);
 			}

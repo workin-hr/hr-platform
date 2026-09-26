@@ -78,15 +78,57 @@ public final class LegacySpreadsheetRows {
 	}
 
 	/**
+	 * How many header-keyed cells one uploaded sheet may build (D-289).
+	 *
+	 * <p>The readers bound the sheet, but every data row is then turned into
+	 * a map with one entry per <em>header</em> column, and header names are
+	 * unique by construction. A header ending at {@code XFD} and a few
+	 * thousand two-cell rows is a 25 KB upload, well inside every reader
+	 * bound, and 49 million map entries. So each keyed row is charged its
+	 * full width here, before it is built, against the same
+	 * {@link LegacyXlsxReader#MAX_TOTAL_CELLS} the reader keeps. One instance
+	 * per sheet; every spreadsheet endpoint builds its rows through
+	 * {@link #assocRow(List, List, KeyedCells)} with it.
+	 */
+	public static final class KeyedCells {
+
+		private long remaining = LegacyXlsxReader.MAX_TOTAL_CELLS;
+
+		/** Charges one row of {@code width} keyed cells, refusing the sheet once the budget is spent. */
+		public void charge(int width) {
+			this.remaining -= width;
+			if (this.remaining < 0) {
+				throw new TooManyCellsException();
+			}
+		}
+	}
+
+	/**
+	 * A sheet whose keyed rows would pass {@link KeyedCells}' budget. Each
+	 * endpoint answers it as the unreadable workbook it already answers for.
+	 */
+	public static final class TooManyCellsException extends RuntimeException {
+
+		private static final long serialVersionUID = 1L;
+
+		TooManyCellsException() {
+			super("Spreadsheet has too many cells");
+		}
+	}
+
+	/**
 	 * {@code spreadsheet_assoc_row()}: the data row keyed by the header, padded
-	 * with nulls when it is short and truncated when it is long.
+	 * with nulls when it is short and truncated when it is long -- charged to
+	 * {@code budget} at the header's width before the map exists.
 	 *
 	 * @return {@code null} for an empty header, exactly as PHP returns null
+	 * @throws TooManyCellsException once the sheet's keyed cells pass the budget
 	 */
-	public static Map<String, Object> assocRow(List<String> header, List<String> row) {
+	public static Map<String, Object> assocRow(List<String> header, List<String> row, KeyedCells budget) {
 		if (header == null || header.isEmpty()) {
 			return null;
 		}
+		budget.charge(header.size());
 		Map<String, Object> combined = new LinkedHashMap<>();
 		for (int index = 0; index < header.size(); index++) {
 			// array_combine over a padded/truncated value list. A duplicate key
