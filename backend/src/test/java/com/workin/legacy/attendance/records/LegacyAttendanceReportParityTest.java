@@ -167,6 +167,58 @@ class LegacyAttendanceReportParityTest {
 		}
 	}
 
+	/**
+	 * Past {@code LegacyIdBatches.SIZE} employees every roster-wide read becomes
+	 * two statements. Here, at 1,512 employees -- over a thousand of them in each
+	 * report's roster once the inactive and pending ones each report leaves out
+	 * are left out -- the answers must still be the old code's,
+	 * and the count must have grown by exactly one statement per batched read --
+	 * the reads that bind the roster as an {@code IN} list -- and by nothing else.
+	 */
+	@org.junit.jupiter.api.Test
+	void pastTheBatchBoundaryTheAnswersAreUnchangedAndOnlyTheBatchedReadsDouble() {
+		DataSource db = boundaryDatabase();
+		String from = "2026-03-09";
+		String to = "2026-03-15";
+		LegacyRequestContext admin = context(AttendanceReportFixture.ADMIN_A, AttendanceReportFixture.COMPANY_A,
+				LegacyEmployee.Role.COMPANY_ADMIN);
+		String query = "fill_days=1&date_from=" + from + "&date_to=" + to;
+		assertFillDaysSame(db, admin, query);
+		assertOverallSame(db, AttendanceReportFixture.COMPANY_A, null, null, from, to, 0, 0, 0, 0, null);
+		assertSame("fingerprints boundary", db, graph -> graph.fingerprints(
+				AttendanceReportFixture.COMPANY_A, null, null, from, to, 0, null, false));
+
+		long branch = AttendanceReportFixture.BRANCH_A1;
+		assertOnlyBatchedReadsDouble("fill_days", db,
+				graph -> graph.fillDays(admin, query + "&branch_id=" + branch), graph -> graph.fillDays(admin, query));
+		assertOnlyBatchedReadsDouble("overall", db,
+				graph -> graph.overall(AttendanceReportFixture.COMPANY_A, null, null, from, to, 0, 0, 0, branch, null),
+				graph -> graph.overall(AttendanceReportFixture.COMPANY_A, null, null, from, to, 0, 0, 0, 0, null));
+		assertOnlyBatchedReadsDouble("fingerprints", db,
+				graph -> graph.fingerprints(AttendanceReportFixture.COMPANY_A, null, null, from, to, branch, null,
+						false),
+				graph -> graph.fingerprints(AttendanceReportFixture.COMPANY_A, null, null, from, to, 0, null,
+						false));
+	}
+
+	private void assertOnlyBatchedReadsDouble(String what, DataSource db,
+			java.util.function.Function<Graph, Object> small, java.util.function.Function<Graph, Object> large) {
+		DataSource counted = counter.wrap(db);
+		List<String> smallIssued = counter.measure(() -> small.apply(Graph.current(counted)));
+		List<String> largeIssued = counter.measure(() -> large.apply(Graph.current(counted)));
+		long batched = smallIssued.stream().filter(sql -> sql.contains(" IN (")).count();
+		System.out.println("[boundary] " + what + ": 11 employees " + smallIssued.size() + " statements ("
+				+ batched + " batched), whole roster " + largeIssued.size());
+		assertThat(batched).as(what + " reads its roster in batches at all").isPositive();
+		assertThat(largeIssued).as(what + ": a roster past 1,000 is two batches of each batched read, nothing more")
+				.hasSize((int) (smallIssued.size() + batched));
+	}
+
+	private static synchronized DataSource boundaryDatabase() {
+		return DATABASES.computeIfAbsent(-1L, key -> seeded(
+				AttendanceReportFixture.sizedOver(356L, 10, 1500, "2026-02-20", "2026-03-18")));
+	}
+
 	// ------------------------------------------------------------------
 
 	private void assertFillDaysSame(DataSource db, LegacyRequestContext context, String query) {
@@ -265,23 +317,27 @@ class LegacyAttendanceReportParityTest {
 	}
 
 	private static synchronized DataSource database(long seed) {
-		return DATABASES.computeIfAbsent(seed, key -> {
-			LegacyMariaDb.Handle handle = LegacyMariaDb.freshDatabase();
-			try (Connection connection = handle.connect(); Statement st = connection.createStatement()) {
-				st.execute("SET SESSION sql_mode = ''");
-				for (String sql : AttendanceReportFixture.varied(key, 14).statements()) {
-					st.execute(sql);
-				}
-			} catch (Exception ex) {
-				throw new IllegalStateException("could not seed the parity fixture", ex);
+		return DATABASES.computeIfAbsent(seed, key -> seeded(AttendanceReportFixture.varied(key, 14)));
+	}
+
+	private static DataSource seeded(AttendanceReportFixture fixture) {
+		LegacyMariaDb.Handle handle = LegacyMariaDb.freshDatabase();
+		try (Connection connection = handle.connect(); Statement st = connection.createStatement()) {
+			st.execute("SET SESSION sql_mode = ''");
+			connection.setAutoCommit(false);
+			for (String sql : fixture.statements()) {
+				st.execute(sql);
 			}
-			// One connection, kept open: a DriverManagerDataSource connects afresh for
-			// every statement, and the baseline issues tens of thousands of them.
-			SingleConnectionDataSource dataSource = new SingleConnectionDataSource(
-					handle.getJdbcUrl(), handle.getUsername(), handle.getPassword(), true);
-			dataSource.setAutoCommit(true);
-			return dataSource;
-		});
+			connection.commit();
+		} catch (Exception ex) {
+			throw new IllegalStateException("could not seed the parity fixture", ex);
+		}
+		// One connection, kept open: a DriverManagerDataSource connects afresh for
+		// every statement, and the baseline issues tens of thousands of them.
+		SingleConnectionDataSource dataSource = new SingleConnectionDataSource(
+				handle.getJdbcUrl(), handle.getUsername(), handle.getPassword(), true);
+		dataSource.setAutoCommit(true);
+		return dataSource;
 	}
 
 	/** {@code today()} and {@code now()} pinned, so both sides answer for the same instant. */

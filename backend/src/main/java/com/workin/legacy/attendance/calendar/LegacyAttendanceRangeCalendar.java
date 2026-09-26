@@ -106,7 +106,12 @@ public class LegacyAttendanceRangeCalendar {
 		LocalDate end = LocalDate.parse(to);
 		for (int index = 0; index < employeeIds.size(); index++) {
 			long employeeId = employeeIds.get(index);
-			List<LegacyAttendanceRangeRows.Row> rows = rowsByEmployee.getOrDefault(employeeId, List.of());
+			// Removed, not read: the roster's rows are released one employee at a
+			// time as each calendar is built, rather than held for the whole loop.
+			List<LegacyAttendanceRangeRows.Row> rows = rowsByEmployee.remove(employeeId);
+			if (rows == null) {
+				rows = List.of();
+			}
 			Map<String, LegacyAttendanceRangeRows.Row> byDate = new LinkedHashMap<>();
 			for (LegacyAttendanceRangeRows.Row row : LegacyAttendanceRangeRows.between(rows, from, to)) {
 				// Later rows for the same date overwrite earlier ones, PHP's own

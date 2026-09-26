@@ -21,7 +21,9 @@ import java.util.Random;
  * (overlapping, multi-day, and one with no to-time), missing punches, open
  * punches, exception-only markers, two punches on one day with an identical
  * check-in, inactive and pending employees, and employee codes that sort
- * differently under the report's and the listing's orderings.
+ * differently under the report's and the listing's orderings. "Hired
+ * mid-range" here means a first shift assignment mid-range: nothing reads
+ * {@code hire_date}.
  *
  * <p>The punches are drawn from a seeded {@link Random}, so the same seed is the
  * same database, and the differential test can run several seeds.
@@ -79,8 +81,29 @@ public final class AttendanceReportFixture {
 	private long nextRequestId = 356_000L;
 	private long nextAssignmentId = 356_000L;
 
+	/** The days punches are drawn for; the whole fixture window unless narrowed. */
+	private LocalDate punchFrom = DATA_FROM;
+	private LocalDate punchTo = DATA_TO;
+
 	private AttendanceReportFixture(long seed) {
 		this.random = new Random(seed);
+	}
+
+	/**
+	 * {@link #sized} with punches only over {@code [from, to]}, for a roster
+	 * large enough that seeding every day of the full window would dominate the
+	 * test -- the batch boundary at {@code LegacyIdBatches.SIZE} employees.
+	 */
+	public static AttendanceReportFixture sizedOver(long seed, int small, int large, String from, String to) {
+		AttendanceReportFixture fixture = new AttendanceReportFixture(seed);
+		fixture.punchFrom = LocalDate.parse(from);
+		fixture.punchTo = LocalDate.parse(to);
+		fixture.reference();
+		for (int i = 0; i < small + large; i++) {
+			fixture.employee(COMPANY_A, 356_300L + i, i, i < small ? BRANCH_A1 : BRANCH_A2);
+		}
+		fixture.edgeCases();
+		return fixture;
 	}
 
 	/**
@@ -224,7 +247,7 @@ public final class AttendanceReportFixture {
 		}
 		boolean night = kind == 4 && a;
 
-		for (LocalDate day = DATA_FROM; !day.isAfter(DATA_TO); day = day.plusDays(1)) {
+		for (LocalDate day = punchFrom; !day.isAfter(punchTo); day = day.plusDays(1)) {
 			punches(id, day, night, a);
 		}
 		requests(id, a);

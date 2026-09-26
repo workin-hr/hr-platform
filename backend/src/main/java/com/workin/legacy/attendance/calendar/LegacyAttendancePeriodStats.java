@@ -62,8 +62,13 @@ public class LegacyAttendancePeriodStats {
 			long companyId, long employeeId, String from, String to, String weeklyRestLabel, LocalDate today) {
 		// Every per-day answer below -- shift, holiday, fallback hours, timed
 		// request, approved leave -- read once for the period rather than once per
-		// day (D-292), so a year costs what a week does.
-		calendar.warmReportRange(companyId, List.of(employeeId), from, to);
+		// day (D-292), so a year costs what a week does. Only up to today: the
+		// loop below skips every later date, and stats.php takes any range it is
+		// given, so warming to `to` would allocate for days nothing reads.
+		// warmReportRange itself declines a span longer than a report's widest.
+		String todayStr = today.toString();
+		String warmTo = to.compareTo(todayStr) > 0 ? todayStr : to;
+		calendar.warmReportRange(companyId, List.of(employeeId), from, warmTo);
 		Map<String, ByDate> byDate = new LinkedHashMap<>();
 		for (DayRow row : jdbcTemplate.query(
 				ATTENDANCE_IN_RANGE,
@@ -89,7 +94,6 @@ public class LegacyAttendancePeriodStats {
 		}
 
 		Map<String, String> holidayByDate = calendar.holidaysByDate(companyId, from, to);
-		String todayStr = today.toString();
 		LocalDate start = LocalDate.parse(from);
 		LocalDate end = LocalDate.parse(to);
 		// One statement for the whole period instead of one per date: the loop
@@ -97,7 +101,7 @@ public class LegacyAttendancePeriodStats {
 		// creditStatus asks it again for the workdays before each rest block --
 		// which reach up to fourteen days behind `from`.
 		calendar.warmApprovedLeaveForEmployees(
-				List.of(employeeId), start.minusDays(14).toString(), to);
+				List.of(employeeId), start.minusDays(14).toString(), warmTo);
 
 		int presentDays = 0;
 		int leaveDays = 0;

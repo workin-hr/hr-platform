@@ -165,7 +165,7 @@ public class LegacyOverallReportService {
 	private Prefetched prefetch(
 			long companyId, List<Long> employeeIds, String periodFrom, String rangeTo, Labels labels) {
 		if (employeeIds.isEmpty()) {
-			return new Prefetched(Map.of(), Map.of(), Map.of());
+			return new Prefetched(new java.util.HashMap<>(), new java.util.HashMap<>(), Map.of());
 		}
 		calendar.warmReportRange(companyId, employeeIds, periodFrom, rangeTo);
 		String lookbackFrom = LocalDate.parse(periodFrom).minusDays(7).toString();
@@ -185,7 +185,12 @@ public class LegacyOverallReportService {
 		int present = employee.presentDays();
 		// periodFrom - 7 to rangeTo: exactly the window the weekly-rest flags
 		// read, and a superset of every other figure's.
-		List<LegacyAttendanceRangeRows.Row> rows = prefetched.rows().getOrDefault(employeeId, List.of());
+		// Removed, not read: once this row is built nothing reads this employee's
+		// attendance again, so a roster's rows are not all held to the end.
+		List<LegacyAttendanceRangeRows.Row> rows = prefetched.rows().remove(employeeId);
+		if (rows == null) {
+			rows = List.of();
+		}
 
 		// The credit is earned only once the employee has covered enough
 		// workdays; the gate is applied here, on the query's present_days, not
@@ -236,7 +241,8 @@ public class LegacyOverallReportService {
 		Map<String, Object> row = identity(employee);
 		row.put("total_days_in_month", totalDaysInPeriod);
 		row.put("present_days", present);
-		row.put("present_details", prefetched.presentDetails().getOrDefault(employeeId, List.of()));
+		List<Map<String, Object>> presentDetails = prefetched.presentDetails().remove(employeeId);
+		row.put("present_details", presentDetails == null ? List.of() : presentDetails);
 		row.put("official_holiday_days", holidayCredit);
 		row.put("paid_leave_days", paidLeaveDays);
 		row.put("earned_weekly_rest_days", earnedWeeklyRest);
