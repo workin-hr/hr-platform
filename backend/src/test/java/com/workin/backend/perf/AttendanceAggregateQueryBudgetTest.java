@@ -315,6 +315,27 @@ class AttendanceAggregateQueryBudgetTest extends AbstractLegacyMySqlTest {
 				.isLessThanOrEqualTo(8);
 	}
 
+	/**
+	 * The dashboard takes any range, and a year or two is one an administrator
+	 * asks for. Before D-292 this page warmed its shifts and leave for whatever
+	 * range it was given and cost the same 17 statements for two years as for
+	 * a month; D-292's first bound on a warm counted days alone, so past 374
+	 * days it declined, and three rows over 396 days cost 2,214 statements, over
+	 * 730 days 4,086 (review round 2). The bound is in employee-days now, and
+	 * two years of a page must cost what a month does.
+	 */
+	@Test
+	void anAggregateOverMoreThanAYearCostsWhatAMonthDoes() {
+		int month = measure(REST_COMPANY, "", "2026-03-01", "2026-03-31", REST_EMPLOYEES.length);
+		int thirteenMonths = measure(REST_COMPANY, "", "2025-03-01", "2026-03-31", REST_EMPLOYEES.length);
+		int twoYears = measure(REST_COMPANY, "", "2024-04-01", "2026-03-31", REST_EMPLOYEES.length);
+
+		System.out.println("[budget] rest-day " + REST_EMPLOYEES.length + " rows: month " + month
+				+ ", 396 days " + thirteenMonths + ", 730 days " + twoYears + " statements");
+		assertThat(thirteenMonths).as("396 days must cost what 31 do").isEqualTo(month);
+		assertThat(twoYears).as("730 days must cost what 31 do").isEqualTo(month);
+	}
+
 	/** Kept so a compile error names the type if the row shape moves. */
 	@SuppressWarnings("unused")
 	private AttendanceRecord.AggregateRow shape;

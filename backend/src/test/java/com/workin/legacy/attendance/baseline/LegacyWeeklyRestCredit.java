@@ -1,5 +1,6 @@
-package com.workin.legacy.attendance.calendar;
+package com.workin.legacy.attendance.baseline;
 
+import com.workin.legacy.attendance.calendar.*;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -25,7 +26,6 @@ import org.springframework.stereotype.Component;
  * holidays do not count toward that coverage threshold. Below the minimum,
  * the rest day is void: neither present, leave, nor absent.
  */
-@Component
 public class LegacyWeeklyRestCredit {
 
 	public static final String EARNED = "earned";
@@ -161,33 +161,20 @@ public class LegacyWeeklyRestCredit {
 			long companyId, long employeeId, String from, String to) {
 		// Expand lookback so weeks starting before `from` still resolve correctly.
 		String lookbackFrom = LocalDate.parse(from).minusDays(7).toString();
-		List<LegacyAttendanceRangeRows.Row> rows = jdbcTemplate.query(
+		List<AttendanceRow> rows = jdbcTemplate.query(
 				ATTENDANCE_FLAGS_IN_RANGE,
-				(rs, index) -> new LegacyAttendanceRangeRows.Row(
-						0L, rs.getString("check_in"), rs.getString("check_out"), rs.getObject("exception_type_id"),
-						null, 0),
+				(rs, index) -> new AttendanceRow(
+						rs.getString("check_in"), rs.getString("check_out"), rs.getObject("exception_type_id")),
 				employeeId, lookbackFrom, to);
-		return attendanceFlags(rows);
-	}
 
-	/**
-	 * {@code weekly_rest_attendance_flags_in_range()}'s loop over rows already
-	 * read -- by the query above for one employee, or by
-	 * {@link LegacyAttendanceRangeRows} for a whole report (D-292). The caller
-	 * hands exactly the rows of the window it wants flags for.
-	 *
-	 * <p>The answer does not depend on the rows' order: a date is a punch when
-	 * any of its rows is, and exception-only otherwise.
-	 */
-	public static Map<String, AttendanceFlag> attendanceFlags(List<LegacyAttendanceRangeRows.Row> rows) {
 		Map<String, AttendanceFlag> byDate = new LinkedHashMap<>();
-		for (LegacyAttendanceRangeRows.Row row : rows) {
+		for (AttendanceRow row : rows) {
 			if (row.checkIn() == null || row.checkIn().isEmpty()) {
 				continue;
 			}
 			String checkOut = row.checkOut() != null && !row.checkOut().trim().isEmpty() ? row.checkOut() : null;
 			String dateKey = row.checkIn().length() >= 10 ? row.checkIn().substring(0, 10) : row.checkIn();
-			boolean isExceptionOnly = com.workin.legacy.attendance.session.LegacyAttendanceSessions
+			boolean isExceptionOnly = com.workin.legacy.attendance.baseline.LegacyAttendanceSessions
 					.isExceptionOnlyRow(row.checkIn(), checkOut, row.exceptionTypeId());
 			boolean hasPunch = !isExceptionOnly;
 
@@ -200,6 +187,9 @@ public class LegacyWeeklyRestCredit {
 			}
 		}
 		return byDate;
+	}
+
+	private record AttendanceRow(String checkIn, String checkOut, Object exceptionTypeId) {
 	}
 
 }

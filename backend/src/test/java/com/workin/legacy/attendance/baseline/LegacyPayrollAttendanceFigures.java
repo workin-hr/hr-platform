@@ -1,5 +1,6 @@
-package com.workin.legacy.payroll;
+package com.workin.legacy.attendance.baseline;
 
+import com.workin.legacy.payroll.*;
 import java.sql.ResultSet;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
@@ -14,11 +15,9 @@ import org.springframework.stereotype.Component;
 
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.attendance.LegacyWeeklyOffDays;
-import com.workin.legacy.attendance.calendar.LegacyAttendanceCalendar;
-import com.workin.legacy.attendance.calendar.LegacyAttendanceRangeRows;
-import com.workin.legacy.attendance.calendar.LegacyAttendanceWorkedMinutes;
-import com.workin.legacy.attendance.calendar.LegacyIdBatches;
-import com.workin.legacy.attendance.calendar.LegacyWeeklyRestCredit;
+import com.workin.legacy.attendance.baseline.LegacyAttendanceCalendar;
+import com.workin.legacy.attendance.baseline.LegacyAttendanceWorkedMinutes;
+import com.workin.legacy.attendance.baseline.LegacyWeeklyRestCredit;
 
 /**
  * {@code payroll_attendance_summary()}, {@code payroll_expected_work_days_until()}
@@ -46,7 +45,6 @@ import com.workin.legacy.attendance.calendar.LegacyWeeklyRestCredit;
  * (the same class of issue {@code PayrollCalculationService}'s own javadoc
  * cites as hr-legacy#12/#13), not a typo to be silently unified.
  */
-@Component
 public class LegacyPayrollAttendanceFigures {
 
 	/** {@code WEEKLY_REST_MIN_COVERED_WORKDAYS} ({@code weekly_rest_credit_helper.php}). */
@@ -335,10 +333,7 @@ public class LegacyPayrollAttendanceFigures {
 
 	/** {@code payroll_employee_work_hours_per_day()} ({@code payroll_calculation.php:743-757}). */
 	public java.math.BigDecimal employeeWorkHoursPerDay(long employeeId) {
-		// The calendar's report-wide read is this statement for every employee at
-		// once (D-292); the same expression, so the same value and scale.
-		java.math.BigDecimal warmed = calendar.warmedFallbackHours(employeeId);
-		java.math.BigDecimal hours = warmed != null ? warmed : jdbcTemplate.queryForObject(
+		java.math.BigDecimal hours = jdbcTemplate.queryForObject(
 				WORK_HOURS_PER_DAY, java.math.BigDecimal.class, employeeId);
 		return hours != null && hours.signum() > 0 ? hours : java.math.BigDecimal.valueOf(8);
 	}
@@ -348,37 +343,6 @@ public class LegacyPayrollAttendanceFigures {
 		Long days = jdbcTemplate.queryForObject(
 				APPROVED_LEAVE_DAYS, Long.class, to, from, employeeId, to, from);
 		return days == null ? 0 : (int) Math.max(0, days);
-	}
-
-	/**
-	 * {@link #approvedLeaveDays(long, String, String)} for a whole roster, one
-	 * statement per batch (D-292): the same {@code SUM}, grouped by employee,
-	 * so the database still does the date arithmetic. An employee with no
-	 * qualifying request has no group and is absent from the map, which the
-	 * caller reads as the zero {@code COALESCE(SUM(...), 0)} would have given.
-	 */
-	public Map<Long, Integer> approvedLeaveDays(java.util.Collection<Long> employeeIds, String from, String to) {
-		Map<Long, Integer> byEmployee = new java.util.HashMap<>();
-		for (List<Long> batch : LegacyIdBatches.of(LegacyIdBatches.usable(employeeIds))) {
-			List<Object> args = new java.util.ArrayList<>(List.of(to, from));
-			args.addAll(batch);
-			args.add(to);
-			args.add(from);
-			jdbcTemplate.query("""
-					SELECT r.employee_id AS range_employee_id,
-					  COALESCE(SUM(DATEDIFF(LEAST(r.to_date, ?), GREATEST(r.from_date, ?)) + 1), 0) AS days
-					FROM requests r
-					INNER JOIN request_types t ON t.id = r.request_type_id
-					WHERE r.employee_id IN (%s) AND r.status = 'approved' AND t.counts_as_paid_leave = 1
-					  AND r.from_date <= ? AND r.to_date >= ?
-					GROUP BY r.employee_id""".formatted(LegacyIdBatches.placeholders(batch.size())),
-					rs -> {
-						long days = rs.getLong("days");
-						byEmployee.put(rs.getLong("range_employee_id"),
-								rs.wasNull() ? 0 : (int) Math.max(0, days));
-					}, args.toArray());
-		}
-		return byEmployee;
 	}
 
 	/**
@@ -437,91 +401,15 @@ public class LegacyPayrollAttendanceFigures {
 	 */
 	public List<Map<String, Object>> attendancePresentDetails(
 			long employeeId, String from, String to, String presentLabel) {
-		return jdbcTemplate.query(PRESENT_DETAILS, (rs, rowNum) -> presentDetail(rs, presentLabel),
-				employeeId, from, to);
-	}
-
-	/**
-	 * {@link #attendancePresentDetails(long, String, String, String)} for a
-	 * whole roster, from attendance already read (D-292).
-	 *
-	 * <p>Legacy's statement groups by {@code DATE(check_in)} and reads three
-	 * aggregates. Two are properties of the rows in hand: the dates are their
-	 * distinct check-in dates, ascending because the rows are in check-in
-	 * order, and {@code MAX(exception_type_id)} is their largest type id. The
-	 * third, {@code MAX(et.name)}, is a maximum under the column's collation,
-	 * which only the database computes exactly -- so it is still asked of the
-	 * database, but only over the rows that carry an exception type, grouped
-	 * the same way. A row without a type has a null name and {@code MAX} skips
-	 * nulls, so leaving those rows out changes no group's maximum. Grouping all
-	 * of a year's rows to read that one column was measured at 3.6 s for 500
-	 * employees; grouping only the typed ones is a few milliseconds.
-	 *
-	 * @param rowsByEmployee the roster's attendance over a window covering
-	 *        {@code [from, to]}; an employee with no rows gets no entry
-	 */
-	public Map<Long, List<Map<String, Object>>> attendancePresentDetails(
-			Map<Long, List<LegacyAttendanceRangeRows.Row>> rowsByEmployee, String from, String to,
-			String presentLabel) {
-		Map<Long, List<Map<String, Object>>> byEmployee = new java.util.HashMap<>();
-		if (to.compareTo(from) < 0 || rowsByEmployee.isEmpty()) {
-			return byEmployee;
-		}
-		Map<String, String> maxNames = exceptionNameMaxima(rowsByEmployee.keySet(), from, to);
-		rowsByEmployee.forEach((employeeId, rows) -> {
-			Map<String, Long> maxTypeByDate = new LinkedHashMap<>();
-			for (LegacyAttendanceRangeRows.Row row : LegacyAttendanceRangeRows.between(rows, from, to)) {
-				long type = row.exceptionTypeId() == null ? 0L : LegacyValues.toPhpLong(row.exceptionTypeId());
-				maxTypeByDate.merge(row.dateKey(), type, Math::max);
+		return jdbcTemplate.query(PRESENT_DETAILS, (rs, rowNum) -> {
+			String exceptionName = LegacyValues.phpTrim(rs.getString("exception_name"));
+			long exceptionId = rs.getLong("exception_type_id");
+			if (exceptionId > 0 && !exceptionName.isEmpty()) {
+				return Map.of("date", rs.getString("present_date"), "day_type", "exception", "label", exceptionName);
 			}
-			if (maxTypeByDate.isEmpty()) {
-				return;
-			}
-			List<Map<String, Object>> details = new java.util.ArrayList<>();
-			maxTypeByDate.forEach((date, type) -> details.add(presentDetail(
-					date, type, maxNames.get(employeeId + "|" + date), presentLabel)));
-			byEmployee.put(employeeId, details);
-		});
-		return byEmployee;
-	}
-
-	/** {@code MAX(et.name)} per employee and check-in date, over the rows that have an exception type. */
-	private Map<String, String> exceptionNameMaxima(java.util.Collection<Long> employeeIds, String from, String to) {
-		Map<String, String> maxima = new java.util.HashMap<>();
-		String endExclusive = LocalDate.parse(to).plusDays(1).toString();
-		for (List<Long> batch : LegacyIdBatches.of(LegacyIdBatches.usable(employeeIds))) {
-			List<Object> args = new java.util.ArrayList<>(batch);
-			args.add(from);
-			args.add(endExclusive);
-			jdbcTemplate.query("""
-					SELECT a.employee_id AS range_employee_id, DATE(a.check_in) AS present_date,
-					  MAX(et.name) AS exception_name
-					FROM attendance AS a
-					INNER JOIN exception_types AS et ON et.id = a.exception_type_id
-					WHERE a.employee_id IN (%s) AND a.check_in >= ? AND a.check_in < ?
-					  AND a.exception_type_id IS NOT NULL
-					GROUP BY a.employee_id, DATE(a.check_in)""".formatted(LegacyIdBatches.placeholders(batch.size())),
-					rs -> {
-						maxima.put(rs.getLong("range_employee_id") + "|" + rs.getString("present_date"),
-								rs.getString("exception_name"));
-					}, args.toArray());
-		}
-		return maxima;
-	}
-
-	private static Map<String, Object> presentDetail(ResultSet rs, String presentLabel) throws java.sql.SQLException {
-		return presentDetail(rs.getString("present_date"), rs.getLong("exception_type_id"),
-				rs.getString("exception_name"), presentLabel);
-	}
-
-	/** One {@code attendance_present_details_for_period()} row from its three aggregates. */
-	private static Map<String, Object> presentDetail(
-			String date, long exceptionId, String maxExceptionName, String presentLabel) {
-		String exceptionName = LegacyValues.phpTrim(maxExceptionName);
-		if (exceptionId > 0 && !exceptionName.isEmpty()) {
-			return Map.of("date", date, "day_type", "exception", "label", exceptionName);
-		}
-		return Map.<String, Object>of("date", date, "day_type", "attendance", "label", presentLabel);
+			return Map.<String, Object>of(
+					"date", rs.getString("present_date"), "day_type", "attendance", "label", presentLabel);
+		}, employeeId, from, to);
 	}
 
 	/**

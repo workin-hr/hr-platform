@@ -1,15 +1,19 @@
-package com.workin.legacy.attendance.calendar;
+package com.workin.legacy.attendance.baseline;
 
+import com.workin.legacy.attendance.calendar.*;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import javax.sql.DataSource;
+
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import com.workin.legacy.LegacyPhpStrtotime;
-import com.workin.legacy.attendance.session.LegacyAttendanceSessions;
+import com.workin.legacy.attendance.baseline.LegacyAttendanceSessions;
 
 /**
  * {@code attendance_build_employee_range_calendar()} and
@@ -18,32 +22,40 @@ import com.workin.legacy.attendance.session.LegacyAttendanceSessions;
  * in an inclusive range for one employee, real attendance, rest/holiday and
  * missing days alike.
  */
-@Component
 public class LegacyAttendanceRangeCalendar {
 
+	private static final String ATTENDANCE_IN_RANGE = """
+			SELECT a.id, a.check_in, a.check_out, a.exception_type_id, et.name AS exception_type_name,
+				TIMESTAMPDIFF(MINUTE, a.check_in, a.check_out) AS duration_minutes
+			FROM attendance a
+			LEFT JOIN exception_types et ON et.id = a.exception_type_id
+			WHERE a.employee_id = ?
+			  AND DATE(a.check_in) >= ?
+			  AND DATE(a.check_in) <= ?
+			ORDER BY a.check_in ASC""";
+
+	private final JdbcTemplate jdbcTemplate;
 	private final LegacyAttendanceCalendar calendar;
 	private final LegacyWeeklyRestCredit weeklyRestCredit;
 	private final LegacyAttendanceWorkedMinutes workedMinutes;
-	private final LegacyAttendanceRangeRows rangeRows;
 
 	/** For the monthly wrapper's bounds, which are a fiscal period rather than a calendar month. */
 	private final com.workin.legacy.payroll.LegacyPayrollFiscalSettings fiscalSettings;
 
 	public LegacyAttendanceRangeCalendar(
-			LegacyAttendanceCalendar calendar, LegacyWeeklyRestCredit weeklyRestCredit,
-			LegacyAttendanceWorkedMinutes workedMinutes, LegacyAttendanceRangeRows rangeRows,
+			DataSource legacyDataSource, LegacyAttendanceCalendar calendar,
+			LegacyWeeklyRestCredit weeklyRestCredit, LegacyAttendanceWorkedMinutes workedMinutes,
 			com.workin.legacy.payroll.LegacyPayrollFiscalSettings fiscalSettings) {
+		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
 		this.calendar = calendar;
 		this.weeklyRestCredit = weeklyRestCredit;
 		this.workedMinutes = workedMinutes;
-		this.rangeRows = rangeRows;
 		this.fiscalSettings = fiscalSettings;
 	}
 
-	/** Receives one employee's calendar, by the employee's position in the list asked for. */
-	@FunctionalInterface
-	public interface EmployeeCalendar {
-		void accept(int index, List<Map<String, Object>> days);
+	private record AttendanceRow(
+			long id, String checkIn, String checkOut, Object exceptionTypeId, String exceptionTypeName,
+			int durationMinutes) {
 	}
 
 	/**
@@ -55,93 +67,15 @@ public class LegacyAttendanceRangeCalendar {
 	public List<Map<String, Object>> buildEmployeeRangeCalendar(
 			long companyId, long employeeId, String fromRaw, String toRaw, boolean capAtToday,
 			String weeklyRestLabel, LocalDate today) {
-		List<List<Map<String, Object>>> built = new ArrayList<>(1);
-		forEachEmployeeRangeCalendar(companyId, List.of(employeeId), fromRaw, toRaw, capAtToday, weeklyRestLabel,
-				today, (index, days) -> built.add(days));
-		return built.get(0);
-	}
-
-	/**
-	 * {@link #buildEmployeeRangeCalendar} for a whole roster, with the reads
-	 * made once for all of them (D-292).
-	 *
-	 * <p>Legacy builds each employee's calendar with its own reads, and the
-	 * per-day rules inside it read again per day: the fingerprints export over a
-	 * quarter for 500 employees was 26 s a month locally, and every one of those
-	 * seconds was statements. Here the roster's attendance is one statement per
-	 * {@link LegacyIdBatches batch} and every per-day answer is warmed by
-	 * {@link LegacyAttendanceCalendar#warmReportRange}, so the count does not
-	 * depend on the roster or the range. The per-day rules themselves are
-	 * unchanged and run in the same order.
-	 *
-	 * <p>Each employee's calendar is handed to {@code sink} as soon as it is
-	 * built, in the order of {@code employeeIds}, so a caller that writes it out
-	 * does not hold every employee's days at once.
-	 */
-	public void forEachEmployeeRangeCalendar(
-			long companyId, List<Long> employeeIds, String fromRaw, String toRaw, boolean capAtToday,
-			String weeklyRestLabel, LocalDate today, EmployeeCalendar sink) {
-		if (employeeIds.isEmpty()) {
-			return;
-		}
-		String[] range = range(fromRaw, toRaw, capAtToday, today);
-		if (range == null) {
-			for (int index = 0; index < employeeIds.size(); index++) {
-				sink.accept(index, List.of());
-			}
-			return;
-		}
-		String from = range[0];
-		String to = range[1];
-		String lookbackFrom = LocalDate.parse(from).minusDays(7).toString();
-
-		calendar.warmReportRange(companyId, employeeIds, from, to);
-		// The widest window any of the reads below used: the weekly-rest flags
-		// look back seven days before `from`, the day rows start at `from`.
-		Map<Long, List<LegacyAttendanceRangeRows.Row>> rowsByEmployee =
-				rangeRows.byEmployee(employeeIds, lookbackFrom, to);
-		Map<String, String> holidayByDate = calendar.holidaysByDate(companyId, lookbackFrom, to);
-
-		LocalDate start = LocalDate.parse(from);
-		LocalDate end = LocalDate.parse(to);
-		for (int index = 0; index < employeeIds.size(); index++) {
-			long employeeId = employeeIds.get(index);
-			// Removed, not read: the roster's rows are released one employee at a
-			// time as each calendar is built, rather than held for the whole loop.
-			List<LegacyAttendanceRangeRows.Row> rows = rowsByEmployee.remove(employeeId);
-			if (rows == null) {
-				rows = List.of();
-			}
-			Map<String, LegacyAttendanceRangeRows.Row> byDate = new LinkedHashMap<>();
-			for (LegacyAttendanceRangeRows.Row row : LegacyAttendanceRangeRows.between(rows, from, to)) {
-				// Later rows for the same date overwrite earlier ones, PHP's own
-				// last-write-wins $by_date[$date_key] = $row assignment.
-				byDate.put(row.dateKey(), row);
-			}
-			Map<String, LegacyWeeklyRestCredit.AttendanceFlag> attendanceFlags =
-					LegacyWeeklyRestCredit.attendanceFlags(rows);
-
-			List<Map<String, Object>> days = new ArrayList<>();
-			for (LocalDate day = start; !day.isAfter(end); day = day.plusDays(1)) {
-				days.add(buildDay(
-						companyId, employeeId, day.toString(), byDate, holidayByDate, attendanceFlags,
-						weeklyRestLabel, today));
-			}
-			sink.accept(index, days);
-		}
-	}
-
-	/** The parsed, clamped {@code [from, to]}, or null when the calendar is empty. */
-	private static String[] range(String fromRaw, String toRaw, boolean capAtToday, LocalDate today) {
 		var fromParsed = LegacyPhpStrtotime.dateOf(fromRaw, today);
 		var toParsed = LegacyPhpStrtotime.dateOf(toRaw, today);
 		if (fromParsed == null || toParsed == null) {
-			return null;
+			return List.of();
 		}
 		String from = fromParsed.toString();
 		String to = toParsed.toString();
 		if (to.compareTo(from) < 0) {
-			return null;
+			return List.of();
 		}
 		if (capAtToday) {
 			String todayStr = today.toString();
@@ -149,10 +83,38 @@ public class LegacyAttendanceRangeCalendar {
 				to = todayStr;
 			}
 			if (to.compareTo(from) < 0) {
-				return null;
+				return List.of();
 			}
 		}
-		return new String[] { from, to };
+
+		Map<String, AttendanceRow> byDate = new LinkedHashMap<>();
+		for (AttendanceRow row : jdbcTemplate.query(
+				ATTENDANCE_IN_RANGE,
+				(rs, index) -> new AttendanceRow(
+						rs.getLong("id"), rs.getString("check_in"), rs.getString("check_out"),
+						rs.getObject("exception_type_id"), rs.getString("exception_type_name"),
+						rs.getInt("duration_minutes")),
+				employeeId, from, to)) {
+			String dateKey = row.checkIn().length() >= 10 ? row.checkIn().substring(0, 10) : row.checkIn();
+			// Later rows for the same date overwrite earlier ones, PHP's own
+			// last-write-wins $by_date[$date_key] = $row assignment.
+			byDate.put(dateKey, row);
+		}
+
+		String lookbackFrom = LocalDate.parse(from).minusDays(7).toString();
+		Map<String, String> holidayByDate = calendar.holidaysByDate(companyId, lookbackFrom, to);
+		Map<String, LegacyWeeklyRestCredit.AttendanceFlag> attendanceFlags =
+				weeklyRestCredit.attendanceFlagsInRange(companyId, employeeId, from, to);
+
+		List<Map<String, Object>> days = new ArrayList<>();
+		LocalDate start = LocalDate.parse(from);
+		LocalDate end = LocalDate.parse(to);
+		for (LocalDate day = start; !day.isAfter(end); day = day.plusDays(1)) {
+			days.add(buildDay(
+					companyId, employeeId, day.toString(), byDate, holidayByDate, attendanceFlags, weeklyRestLabel,
+					today));
+		}
+		return days;
 	}
 
 	/**
@@ -176,7 +138,7 @@ public class LegacyAttendanceRangeCalendar {
 	}
 
 	private Map<String, Object> buildDay(
-			long companyId, long employeeId, String dateStr, Map<String, LegacyAttendanceRangeRows.Row> byDate,
+			long companyId, long employeeId, String dateStr, Map<String, AttendanceRow> byDate,
 			Map<String, String> holidayByDate, Map<String, LegacyWeeklyRestCredit.AttendanceFlag> attendanceFlags,
 			String weeklyRestLabel, LocalDate today) {
 		Map<String, Object> shift = calendar.shiftForEmployeeOnDate(employeeId, dateStr);
@@ -190,7 +152,7 @@ public class LegacyAttendanceRangeCalendar {
 				: null;
 		boolean isWeeklyRestVoid = LegacyWeeklyRestCredit.VOID.equals(weeklyRestCreditStatus);
 
-		LegacyAttendanceRangeRows.Row att = byDate.get(dateStr);
+		AttendanceRow att = byDate.get(dateStr);
 		if (att != null) {
 			String exceptionName = att.exceptionTypeName() == null ? "" : att.exceptionTypeName().trim();
 			if (exceptionName.isEmpty() && isRestOrHoliday) {
