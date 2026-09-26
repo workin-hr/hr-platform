@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.workin.legacy.LegacyValues;
+import com.workin.legacy.phone.CanonicalPhone;
+import com.workin.legacy.phone.LegacyPhoneNumbers;
 import com.workin.legacy.uploads.LegacyFileUploads;
 import com.workin.legacy.wire.LegacyApiException;
 
@@ -18,10 +20,13 @@ public class LegacyCompanyService {
 
 	private final LegacyCompanyStore store;
 	private final LegacyFileUploads uploads;
+	private final LegacyPhoneNumbers phoneNumbers;
 
-	public LegacyCompanyService(LegacyCompanyStore store, LegacyFileUploads uploads) {
+	public LegacyCompanyService(LegacyCompanyStore store, LegacyFileUploads uploads,
+			LegacyPhoneNumbers phoneNumbers) {
 		this.store = store;
 		this.uploads = uploads;
+		this.phoneNumbers = phoneNumbers;
 	}
 
 	/**
@@ -68,7 +73,24 @@ public class LegacyCompanyService {
 			columns.put("last_name", body.get("last_name"));
 		}
 		if (body.get("country_code") != null) {
-			columns.put("country_code", body.get("country_code"));
+			// The company's phone is read in its country_code, so a new code
+			// changes which number the login is: the stored phone must hold
+			// under it, as a registered number would (D-291).
+			Map<String, Object> current = store.findById(companyId);
+			String stored = current == null ? null : LegacyPhoneNumbers.storedPhoneRereadBy(
+					body.get("country_code"), current.get("phone"), current.get("country_code"));
+			if (stored == null) {
+				columns.put("country_code", body.get("country_code"));
+			} else {
+				CanonicalPhone phone = phoneNumbers.forAccount(stored,
+						LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("country_code"))))
+						.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
+				if (store.companyPhoneTaken(phone, companyId)) {
+					throw new LegacyApiException(400, "phone_already_registered");
+				}
+				columns.put("country_code", phone.dialCode());
+				columns.put("phone", phone.nationalDigits());
+			}
 		}
 
 		if (body.containsKey("email")) {

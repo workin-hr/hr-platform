@@ -70,10 +70,18 @@ public class LegacyOtpService {
 	 * <p>Written internationally, or read the same in every country the
 	 * product offers, it has one reading and that is the answer. A national
 	 * number with several readings takes the country of the stored account it
-	 * belongs to -- companies first, then employees, as PHP's country lookup
-	 * orders them -- and with no account, Egypt's. Anything else is empty.
+	 * belongs to, and with no account, Egypt's. Anything else is empty.
+	 *
+	 * <p>The account is searched for among the request's own kind first: a
+	 * {@code type} of {@code "employee"} reads employees before companies, so
+	 * an employee's {@code 0501234567} in +971 is not taken for a company's
+	 * {@code 501234567} in +966 -- the code {@code forgot_password} keyed on
+	 * the employee's number is then the one {@code reset_password} checks.
+	 * Any other type keeps PHP's country lookup order, companies first.
+	 *
+	 * @param authType the body's {@code type}, or null for a route without one
 	 */
-	public Optional<CanonicalPhone> resolvePhone(Object rawPhone) {
+	public Optional<CanonicalPhone> resolvePhone(Object rawPhone, Object authType) {
 		PhoneLookup lookup = phoneNumbers.lookup(rawPhone);
 		if (lookup.isEmpty()) {
 			return Optional.empty();
@@ -82,7 +90,9 @@ public class LegacyOtpService {
 		if (only.isPresent()) {
 			return only;
 		}
-		for (String table : new String[] {"companies", "employees"}) {
+		String[] tables = "employee".equals(authType)
+				? new String[] {"employees", "companies"} : new String[] {"companies", "employees"};
+		for (String table : tables) {
 			PhoneLookup.Clause match = lookup.clause("phone");
 			List<Map<String, Object>> rows = lookup.verified(jdbcTemplate.queryForList(
 					"SELECT phone, country_code FROM " + table + " WHERE " + match.sql() + " ORDER BY id ASC",

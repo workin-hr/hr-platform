@@ -24,7 +24,8 @@ class LegacyCompanyServiceTest {
 
 	private final LegacyCompanyStore store = mock(LegacyCompanyStore.class);
 	private final LegacyFileUploads uploads = mock(LegacyFileUploads.class);
-	private final LegacyCompanyService service = new LegacyCompanyService(store, uploads);
+	private final LegacyCompanyService service = new LegacyCompanyService(store, uploads,
+			mock(com.workin.legacy.phone.LegacyPhoneNumbers.class));
 
 	@Test
 	void emptyBodyIsNothingToUpdate() {

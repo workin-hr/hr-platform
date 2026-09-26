@@ -654,7 +654,16 @@ public class LegacyEmployeeService {
 		// Phone: PHP's normalize_employee_phone() only stripped to digits, with
 		// no validity check, so update accepted numbers create rejected. A phone
 		// is a login identifier, so update validates it as create does now and
-		// stores it canonically (D-291). No digits still clears it.
+		// stores it canonically (D-291). No digits still clears it. A new
+		// country_code alone re-reads the stored phone in it, so it is
+		// validated as that phone would be.
+		if (!body.containsKey("phone") && body.containsKey("country_code")) {
+			String stored = LegacyPhoneNumbers.storedPhoneRereadBy(
+					body.get("country_code"), employee.get("phone"), employee.get("country_code"));
+			if (stored != null) {
+				body.put("phone", stored);
+			}
+		}
 		if (body.containsKey("phone")) {
 			if (normalizeEmployeePhone(body.get("phone")) == null) {
 				body.put("phone", null);

@@ -211,11 +211,35 @@ public class LegacyPhoneNumbers {
 		if (phone.isEmpty() || !phone.get().mobile()) {
 			return Optional.empty();
 		}
-		String dialCode = phone.get().dialCode();
-		if (!ALWAYS_OFFERED.contains(dialCode) && !offeredDialCodes().contains(dialCode)) {
-			return Optional.empty();
+		return offered(phone.get()) ? phone : Optional.empty();
+	}
+
+	/**
+	 * Whether the number is in a country the product offers -- the set
+	 * {@link #forAccount} admits, and the only numbers an OTP is delivered to.
+	 */
+	public boolean offered(CanonicalPhone phone) {
+		String dialCode = phone.dialCode();
+		return ALWAYS_OFFERED.contains(dialCode) || offeredDialCodes().contains(dialCode);
+	}
+
+	/**
+	 * The stored phone a write must validate again when it carries a
+	 * {@code country_code} but no {@code phone}, or {@code null} when that write
+	 * leaves the number alone -- the row holds no phone, or the code is the one
+	 * already stored. A national number is read in its row's
+	 * {@code country_code}, so changing the code alone changes which number
+	 * the row is; the caller runs the stored phone through {@link #forAccount}
+	 * under the new code and its own uniqueness check, as for a new phone.
+	 */
+	public static String storedPhoneRereadBy(Object newCountryCode, Object storedPhone, Object storedCountryCode) {
+		String stored = storedPhone == null ? "" : LegacyValues.phpTrim(LegacyValues.toPhpString(storedPhone));
+		if (digitsOnly(stored).isEmpty()) {
+			return null;
 		}
-		return phone;
+		String before = storedCountryCode == null ? "" : LegacyValues.phpTrim(LegacyValues.toPhpString(storedCountryCode));
+		String after = newCountryCode == null ? "" : LegacyValues.phpTrim(LegacyValues.toPhpString(newCountryCode));
+		return after.equals(before) ? null : stored;
 	}
 
 	/**

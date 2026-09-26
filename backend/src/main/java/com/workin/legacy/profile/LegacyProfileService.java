@@ -120,6 +120,13 @@ public class LegacyProfileService {
 		}
 
 		Map<String, Object> resolved = new LinkedHashMap<>(body);
+		if (!resolved.containsKey("phone") && resolved.containsKey("country_code")) {
+			String stored = LegacyPhoneNumbers.storedPhoneRereadBy(
+					resolved.get("country_code"), employee.get("phone"), employee.get("country_code"));
+			if (stored != null) {
+				resolved.put("phone", stored);
+			}
+		}
 		if (resolved.containsKey("phone")) {
 			applyPhoneChange(resolved, employeeId, employee);
 		}
