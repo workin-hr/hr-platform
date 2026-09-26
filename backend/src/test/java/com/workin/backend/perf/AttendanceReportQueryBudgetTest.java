@@ -37,11 +37,12 @@ import com.workin.legacy.attendance.records.AttendanceReportFixture;
  *
  * <p>{@code list.php?fill_days=1}, {@code overall_report.php} and
  * {@code export.php} (both sheets) used to read per employee and per day, so
- * their statement count was the roster times the range: measured here before
- * D-292, the fingerprints export over a month was 3,396 statements for 12
- * employees and 29,112 for 102. Against the remote database, 106 ms a round
- * trip, the statement count <em>is</em> the response time. The ratchet is on
- * both axes, because either alone can be satisfied by an accident: ten times
+ * their statement count was the roster times the range: measured here at
+ * {@code 8f7505a0}, the fingerprints export over a month was 1,055 statements
+ * for 11 employees and 8,486 for 102, and the overall report 1,615 and 14,101;
+ * a week of the overall report for 102 was 3,849. Against the remote
+ * database, 106 ms a round trip, the statement count <em>is</em> the response
+ * time. The ratchet is on both axes, because either alone can be satisfied by an accident: ten times
  * the employees and four times the days must each leave the count exactly
  * where it was.
  *
