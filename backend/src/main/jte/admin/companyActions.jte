@@ -46,7 +46,7 @@
 		@endif
 		@if("active".equals(status))
 			<form method="post" action="/admin/companies/action" class="row-actions__form" role="none"
-			      onsubmit="return confirm('${t.apply("confirm_action")}')">
+			      data-confirm="${t.apply("confirm_action")}" data-confirm-tone="danger">
 				<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 				<input type="hidden" name="companyId" value="${companyId}">
 				<input type="hidden" name="action" value="COMPANY_SUSPEND">

@@ -124,7 +124,7 @@
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
 							<td class="bold">${row.name() == null ? "—" : row.name()}</td>
-							<td class="text-muted">${row.phone() == null ? "—" : row.phone()}</td>
+							<td class="text-muted"><span data-copy dir="ltr">${row.phone() == null ? "—" : row.phone()}</span></td>
 							<td class="text-muted" title="${row.message() == null ? "" : row.message()}">${ListDisplay.notes(row.message(), 50)}</td>
 							<td class="text-muted" title="${row.reply() == null ? "" : row.reply()}">${ListDisplay.notes(row.reply(), 40)}</td>
 							<td>
@@ -170,7 +170,7 @@
 												data-dialog-reply="${row.reply() == null ? "" : row.reply()}"
 												data-dialog-status="${row.status()}">${t.apply("admin_reply")}</button>
 										<form method="POST" class="row-actions__form" role="none"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+										      data-confirm="${t.apply("confirm_delete")}" data-confirm-tone="danger">
 											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 											<input type="hidden" name="action" value="delete">
 											<input type="hidden" name="id" value="${row.id()}">

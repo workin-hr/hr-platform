@@ -142,7 +142,7 @@
 						!{boolean canEdit = row.isPending() || (row.isApproved() && !row.isSettled());}
 						<tr>
 							<td>${result.from() + index}</td>
-							<td class="nowrap text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
+							<td class="nowrap text-muted"><span data-copy dir="ltr">${row.employeeCode() == null ? "—" : row.employeeCode()}</span></td>
 							<td class="bold">${employeeName}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
@@ -177,7 +177,7 @@
 													data-dialog-request_date="${row.requestDate() == null ? "" : row.requestDate()}">${t.apply("edit")}</button>
 										@endif
 										<form method="POST" class="row-actions__form" role="none"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+										      data-confirm="${t.apply("confirm_delete")}" data-confirm-tone="danger">
 											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 											<input type="hidden" name="action" value="delete_advance">
 											<input type="hidden" name="id" value="${row.id()}">
@@ -186,7 +186,7 @@
 										</form>
 										@if(row.isPending())
 											<form method="POST" class="row-actions__form" role="none"
-											      onsubmit="return confirm('${t.apply("confirm_approve_advance")}')">
+											      data-confirm="${t.apply("confirm_approve_advance")}">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 												<input type="hidden" name="action" value="approve">
 												<input type="hidden" name="id" value="${row.id()}">

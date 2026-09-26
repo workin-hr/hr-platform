@@ -24,7 +24,7 @@ const template = (name) => readFileSync(
 /** The shared stylesheets `layout.jte` links, in its order; see nav-drawer.spec.js. */
 function layoutSheets() {
 	const layout = template('layout.jte');
-	const sheets = [...layout.matchAll(/<link rel="stylesheet" href="\/admin\/_assets\/([\w-]+\.css)">/g)].map((match) => match[1]);
+	const sheets = [...layout.matchAll(/<link rel="stylesheet" href="\/admin\/_assets\/((?:vendor\/)?[\w.-]+\.css)">/g)].map((match) => match[1]);
 	const links = [...layout.matchAll(/<link\b[^>]*\brel=["']?stylesheet\b[^>]*>/g)]
 		.filter((link) => !link[0].includes('href="/admin/_assets/${pageStyle}"'));
 	if (sheets.length !== links.length || !sheets.includes('app-ui.css') || !sheets.includes('admin-extra.css')) {
@@ -91,9 +91,33 @@ const BOX = ['width', 'height', 'box-sizing', 'margin-top', 'margin-right', 'mar
 	'border-top-left-radius', 'border-top-right-radius', 'border-bottom-left-radius', 'border-bottom-right-radius',
 	...['top', 'right', 'bottom', 'left'].flatMap((side) => [`border-${side}-width`, `border-${side}-style`, `border-${side}-color`])];
 
+/**
+ * D-284 re-pointed legacy's literal colours at the design tokens; the rest of each
+ * style attribute is legacy's to the pixel. The legacy side is drawn through that
+ * table, so every property -- colours included -- is still compared exactly: a class
+ * that drifts from the token D-284 chose for legacy's colour fails, as one that
+ * drifts from legacy's spacing does.
+ */
+const D284 = {
+	'#fff': 'var(--ui-surface)',
+	'#e8e6e0': 'var(--ui-border-soft)',
+	'#eee': 'var(--ui-neutral-2)',
+	'#e6f1fb': 'var(--ui-info-weak)',
+	'#185fa5': 'var(--ui-accent-500)',
+	'#5f5e5a': 'var(--ui-text-soft)',
+	'#888': 'var(--ui-text-muted)',
+};
+const throughD284 = (markup) => markup.replace(/(?<!&)#[0-9a-fA-F]{3,6}\b/g, (hex) => {
+	const token = D284[hex.toLowerCase()];
+	if (!token) {
+		throw new Error(`legacy colour ${hex} has no D-284 token in this spec's table`);
+	}
+	return token;
+});
+
 /** One side of the page: each pair's markup for that side, a direct child of `.content`, in order. */
 function page(side, pairs) {
-	const blocks = Object.entries(pairs).map(([pair, sides]) => sides[side === 'port' ? 0 : 1].replace('%', `data-pair="${pair}"`));
+	const blocks = Object.entries(pairs).map(([pair, sides]) => (side === 'port' ? sides[0] : throughD284(sides[1])).replace('%', `data-pair="${pair}"`));
 	return `<!doctype html><html lang="ar" dir="rtl"><body class="lang-ar">
 <div class="shell"><main class="main" id="main-content"><div class="content">${blocks.join('\n')}</div></main></div>
 </body></html>`;

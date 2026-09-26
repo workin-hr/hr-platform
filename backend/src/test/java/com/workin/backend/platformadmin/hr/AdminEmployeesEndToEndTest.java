@@ -1522,15 +1522,15 @@ class AdminEmployeesEndToEndTest {
 		String html = body("/admin/employees?company_id=" + this.companyA);
 
 		String deactivate = formOf(row(html, active), "deactivate");
-		assertThat(deactivate).contains("onsubmit=\"return confirm('هل تريد الحذف؟ لا يمكن التراجع!')\"")
+		assertThat(deactivate).contains("data-confirm=\"هل تريد الحذف؟ لا يمكن التراجع!\" data-confirm-tone=\"danger\"")
 				.contains("class=\"row-actions__item row-actions__item--danger\">إيقاف</button>");
 		String reactivate = formOf(row(html, suspended), "reactivate");
 		assertThat(reactivate).as("legacy asks nothing to switch an employee back on")
-				.doesNotContain("onsubmit");
+				.doesNotContain("data-confirm");
 		assertThat(reactivate)
 				.contains("class=\"row-actions__item row-actions__item--success\">تفعيل</button>");
 		assertThat(formOf(row(html, active), "delete")).as("the delete item keeps its own prompt")
-				.contains("onsubmit=\"return confirm('هل تريد الحذف؟ لا يمكن التراجع!')\"")
+				.contains("data-confirm=\"هل تريد الحذف؟ لا يمكن التراجع!\" data-confirm-tone=\"danger\"")
 				.contains("class=\"row-actions__item row-actions__item--danger\">حذف</button>");
 	}
 

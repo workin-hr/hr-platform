@@ -297,21 +297,6 @@
 	background: var(--ui-warning-edge);
 }
 
-/* —— Turnover rates ——
-   Percentages, not headcounts. Their own row, and three across at most: a rate
-   sitting in the sixteen-card grid reads as one more count, which is how
-   "2.01" gets mistaken for two people. */
-/* Two classes: home.css loads after this sheet and sets the four-column grid
-   on .home-stats-grid, which would otherwise win on order. */
-.home-stats-grid.home-stats-grid--rates {
-	grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-@media (max-width: 760px) {
-	.home-stats-grid.home-stats-grid--rates {
-		grid-template-columns: minmax(0, 1fr);
-	}
-}
-
 /* The placeholder img-fallback.js puts where a banner preview would be. */
 .tbl-photo-missing {
 	display: inline-flex;

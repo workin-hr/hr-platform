@@ -383,11 +383,11 @@ class AdminAssetsEndToEndTest {
 
 		String html = body("/admin/assets?company_id=" + this.companyA);
 		assertThat(row(html, blank))
-				.containsPattern("<td class=\"nowrap text-muted\">A200</td>\\s*<td class=\"bold\">—</td>")
+				.containsPattern("<td class=\"nowrap text-muted\"><span data-copy dir=\"ltr\">A200</span></td>\\s*<td class=\"bold\">—</td>")
 				.containsPattern("data-dialog=\"asset-edit\"[^>]*data-dialog-subject=\"—\"")
 				.contains("data-dialog-employee_label=\"— (A200)\"");
 		assertThat(row(html, named))
-				.containsPattern("<td class=\"nowrap text-muted\">A100</td>\\s*<td class=\"bold\">Aya Alpha</td>")
+				.containsPattern("<td class=\"nowrap text-muted\"><span data-copy dir=\"ltr\">A100</span></td>\\s*<td class=\"bold\">Aya Alpha</td>")
 				.containsPattern("data-dialog=\"asset-edit\"[^>]*data-dialog-subject=\"Aya Alpha\"")
 				.contains("data-dialog-employee_label=\"Aya Alpha (A100)\"");
 	}

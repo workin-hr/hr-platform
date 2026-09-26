@@ -158,11 +158,11 @@ class AdminPayrollEndToEndTest extends AdminPayrollTestSupport {
 
 		String html = body(PATH);
 
-		String asks = "onsubmit=\"return confirm\\('[^'?]+\\?'\\)\"";
+		String asks = "data-confirm=\"[^\"?]+\\?\"";
 		assertThat(formOpening(html, draft, "calculate")).as("calculate asks first").containsPattern(asks);
 		assertThat(formOpening(html, draft, "finalize")).as("finalize asks first").containsPattern(asks);
 		assertThat(formOpening(html, finalized, "reopen")).as("reopen does not ask, as in legacy")
-				.doesNotContain("onsubmit");
+				.doesNotContain("data-confirm");
 	}
 
 	/** The opening tag of the form in a batch's row menu that posts {@code action}. */

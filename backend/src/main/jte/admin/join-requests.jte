@@ -95,7 +95,7 @@
 				<tr>
 					<td>${result.from() + i}</td>
 					<td class="bold">${row.label()}</td>
-					<td>${row.phone() == null || row.phone().isBlank() ? "—" : row.phone()}</td>
+					<td><span data-copy dir="ltr">${row.phone() == null || row.phone().isBlank() ? "—" : row.phone()}</span></td>
 					<td>
 						@template.admin.statusBadge(status = "approved".equals(row.badge()) ? "approved"
 				: "rejected".equals(row.badge()) ? "rejected" : "pending", t = t)
@@ -121,7 +121,7 @@
 										<button type="submit" role="menuitem" class="row-actions__item row-actions__item--success">${t.apply("approve")}</button>
 									</form>
 									<form method="POST" class="row-actions__form" role="none" action="/admin/join_requests"
-									      onsubmit="return confirm('${t.apply("confirm_action")}')">
+									      data-confirm="${t.apply("confirm_action")}">
 										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 										<input type="hidden" name="action" value="reject_join">
 										<input type="hidden" name="id" value="${row.id()}">

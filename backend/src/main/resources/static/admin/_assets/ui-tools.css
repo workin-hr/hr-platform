@@ -1,0 +1,423 @@
+/* The shared interaction tools (D-288): copy buttons, searchable selects, the
+   confirm window and the date/time pickers. Tokens only -- the vendored
+   flatpickr sheet in vendor/ is restyled here rather than edited, so an
+   upgrade replaces its file and nothing else. */
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* —— Copy ———————————————————————————————————————————————— */
+.ui-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-inline-start: 6px;
+  padding: 0;
+  vertical-align: middle;
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius-xs);
+  background: transparent;
+  color: var(--ui-text-faint);
+  cursor: pointer;
+  transition: color var(--ui-duration-fast) var(--ui-ease),
+    background var(--ui-duration-fast) var(--ui-ease),
+    border-color var(--ui-duration-fast) var(--ui-ease);
+}
+.ui-copy:hover,
+.ui-copy:focus-visible {
+  color: var(--ui-accent-600);
+  background: var(--ui-accent-50);
+  border-color: var(--ui-accent-200);
+}
+.ui-copy:focus-visible {
+  outline: none;
+  box-shadow: var(--ui-focus-ring-soft);
+}
+.ui-copy.is-copied {
+  color: var(--ui-success-strong);
+  background: var(--ui-success-weak);
+  border-color: var(--ui-success-edge);
+}
+.ui-copy.is-failed {
+  color: var(--ui-danger-strong);
+  background: var(--ui-danger-weak);
+  border-color: var(--ui-danger-edge);
+}
+/* A value and its button stay on one line: a narrow cell wrapped the icon
+   under the code, doubling the row's height for a 24px glyph. */
+:has(> [data-copy] + .ui-copy) {
+  white-space: nowrap;
+}
+.tbl .ui-copy {
+  width: 20px;
+  height: 20px;
+  margin-inline-start: 4px;
+}
+/* In a table the button stays faint until the row is pointed at, so a column
+   of codes does not become a column of icons. */
+.tbl tbody tr:not(:hover) .ui-copy:not(:focus-visible):not(.is-copied) {
+  opacity: .45;
+}
+
+/* —— Searchable select —————————————————————————————————— */
+.ui-select {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+.hr-page .filter-field .ui-select {
+  min-width: 200px;
+  max-width: 280px;
+}
+/* The native select stays in the form and under the button, so `required`
+   still blocks the submit and its message points at the right place. */
+.main .ui-select > select.ui-select__native,
+.modal .ui-select > select.ui-select__native {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+.ui-select__button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 42px;
+  padding-block: 9px;
+  padding-inline: 14px 34px;
+  border: 1.5px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background-color: var(--ui-neutral-1);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b6862' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-size: 12px 12px;
+  background-position: left 12px center;
+  color: var(--ui-text);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: start;
+  cursor: pointer;
+  transition: border-color var(--ui-duration-fast) var(--ui-ease),
+    box-shadow var(--ui-duration-fast) var(--ui-ease);
+}
+[dir="ltr"] .ui-select__button {
+  background-position: right 12px center;
+}
+.hr-page .filter-field .ui-select__button {
+  border-width: 1px;
+  border-color: var(--ui-border-soft);
+  border-radius: 10px;
+  background-color: var(--ui-surface);
+  font-size: 14px;
+}
+.ui-select__button:hover {
+  border-color: var(--ui-info-edge);
+}
+.ui-select__button:focus-visible,
+.ui-select__button[aria-expanded="true"] {
+  outline: none;
+  border-color: var(--ui-accent-500);
+  box-shadow: var(--ui-focus-ring-soft);
+  background-color: var(--ui-surface);
+}
+.ui-select__button:disabled {
+  cursor: not-allowed;
+  opacity: .6;
+}
+.ui-select__button.is-invalid {
+  border-color: var(--ui-danger);
+}
+.ui-select__value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-select__button.is-placeholder .ui-select__value {
+  color: var(--ui-text-soft);
+}
+.ui-select__popup {
+  position: fixed;
+  z-index: 1300;
+  display: flex;
+  flex-direction: column;
+  max-height: 360px;
+  padding: 8px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-lg);
+  font-family: var(--ui-font);
+}
+.ui-select__popup[hidden] {
+  display: none;
+}
+.ui-select__search {
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 9px 12px;
+  border: 1.5px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-neutral-1);
+  color: var(--ui-text);
+  font: inherit;
+  font-size: 13.5px;
+}
+.ui-select__search:focus {
+  outline: none;
+  border-color: var(--ui-accent-500);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-focus-ring-soft);
+}
+.ui-select__list {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  overscroll-behavior: contain;
+}
+.ui-select__option {
+  padding: 8px 10px;
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-text);
+  font-size: 13.5px;
+  line-height: var(--ui-leading-tight);
+  cursor: pointer;
+}
+.ui-select__option.is-placeholder {
+  color: var(--ui-text-soft);
+}
+.ui-select__option.is-active {
+  background: var(--ui-accent-50);
+  color: var(--ui-accent-700);
+}
+.ui-select__option[aria-selected="true"] {
+  font-weight: var(--ui-weight-semibold);
+  color: var(--ui-accent-700);
+}
+.ui-select__option[aria-selected="true"]::after {
+  content: "✓";
+  float: inline-end;
+  color: var(--ui-accent-600);
+}
+.ui-select__option[aria-disabled="true"] {
+  color: var(--ui-text-faint);
+  cursor: not-allowed;
+}
+.ui-select__group {
+  padding: 10px 10px 4px;
+  color: var(--ui-text-muted);
+  font-size: 11.5px;
+  font-weight: var(--ui-weight-semibold);
+  letter-spacing: var(--ui-tracking-caps);
+}
+.ui-select__empty {
+  margin: 0;
+  padding: 14px 10px;
+  color: var(--ui-text-soft);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* —— Confirm window ——————————————————————————————————— */
+.modal.ui-confirm {
+  max-width: 440px;
+  text-align: center;
+}
+.ui-confirm__icon {
+  width: 52px;
+  height: 52px;
+  margin: 4px auto 12px;
+  border-radius: 50%;
+  background-color: var(--ui-accent-50);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2314528f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 16v-4M12 8h.01'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+}
+.ui-confirm--danger .ui-confirm__icon {
+  background-color: var(--ui-danger-weak);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23a32d2d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 9v4M12 17h.01'/%3E%3Cpath d='M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z'/%3E%3C/svg%3E");
+}
+.ui-confirm h2 {
+  margin: 0 0 6px;
+  font-size: var(--ui-text-lg);
+}
+.ui-confirm__message {
+  margin: 0 0 6px;
+  color: var(--ui-text);
+  font-size: var(--ui-text-md);
+  line-height: var(--ui-leading);
+}
+.ui-confirm__detail {
+  margin: 0 0 4px;
+  color: var(--ui-text-muted);
+  font-size: var(--ui-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+.ui-confirm .form-footer {
+  justify-content: center;
+  gap: 10px;
+}
+
+/* —— Date and time pickers (flatpickr, vendor/) ————————————— */
+.flatpickr-calendar {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-lg);
+  font-family: var(--ui-font);
+}
+.flatpickr-calendar.arrowTop::before,
+.flatpickr-calendar.arrowTop::after,
+.flatpickr-calendar.arrowBottom::before,
+.flatpickr-calendar.arrowBottom::after {
+  display: none;
+}
+.flatpickr-months .flatpickr-month,
+.flatpickr-current-month .flatpickr-monthDropdown-months,
+.flatpickr-current-month input.cur-year {
+  color: var(--ui-text);
+  fill: var(--ui-text);
+  font-weight: var(--ui-weight-semibold);
+}
+.flatpickr-months .flatpickr-prev-month,
+.flatpickr-months .flatpickr-next-month {
+  color: var(--ui-text-soft);
+  fill: var(--ui-text-soft);
+}
+.flatpickr-months .flatpickr-prev-month:hover svg,
+.flatpickr-months .flatpickr-next-month:hover svg {
+  fill: var(--ui-accent-600);
+}
+span.flatpickr-weekday {
+  color: var(--ui-text-muted);
+  font-weight: var(--ui-weight-medium);
+}
+.flatpickr-day {
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-text);
+}
+.flatpickr-day:hover,
+.flatpickr-day:focus {
+  border-color: var(--ui-accent-50);
+  background: var(--ui-accent-50);
+}
+.flatpickr-day.today {
+  border-color: var(--ui-accent-300);
+}
+.flatpickr-day.today:hover {
+  border-color: var(--ui-accent-500);
+  background: var(--ui-accent-50);
+  color: var(--ui-accent-700);
+}
+.flatpickr-day.selected,
+.flatpickr-day.selected:hover,
+.flatpickr-day.selected:focus {
+  border-color: var(--ui-accent-500);
+  background: var(--ui-accent-500);
+  color: var(--ui-text-on-accent);
+}
+.flatpickr-day.flatpickr-disabled,
+.flatpickr-day.prevMonthDay,
+.flatpickr-day.nextMonthDay {
+  color: var(--ui-text-faint);
+}
+.flatpickr-time input,
+.flatpickr-time .flatpickr-am-pm {
+  color: var(--ui-text);
+}
+.flatpickr-time input:hover,
+.flatpickr-time input:focus,
+.flatpickr-time .flatpickr-am-pm:hover,
+.flatpickr-time .flatpickr-am-pm:focus {
+  background: var(--ui-accent-50);
+}
+/* The visible copy of a date field. It is an input under .main, so it already
+   has the fields' look; this adds the calendar glyph a date field is expected
+   to carry. */
+/* The :not() chain is the field rule's own (app-ui.css), repeated so this
+   outranks its `background` shorthand instead of losing to it. */
+.main input.ui-picker:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=file]),
+.modal input.ui-picker:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=file]) {
+  padding-inline-end: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b6862' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2'/%3E%3Cpath d='M16 2v4M8 2v4M3 10h18'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-size: 16px 16px;
+  background-position: left 12px center;
+  cursor: pointer;
+}
+[dir="ltr"] .main input.ui-picker:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=file]),
+[dir="ltr"] .modal input.ui-picker:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=file]) {
+  background-position: right 12px center;
+}
+/* flatpickr lays its grid out left to right whatever the page's direction,
+   so on an Arabic page Saturday -- the first day -- sat in the last column
+   read from the right, and the arrows pointed away from the months they
+   lead to. The grid and the weekday row flow with the page, and the arrows
+   trade places and turn. */
+[dir="rtl"] .flatpickr-weekdaycontainer,
+[dir="rtl"] .flatpickr-days .dayContainer,
+[dir="rtl"] .flatpickr-time {
+  direction: rtl;
+}
+[dir="rtl"] .flatpickr-months .flatpickr-prev-month {
+  left: auto;
+  right: 0;
+  transform: scaleX(-1);
+}
+[dir="rtl"] .flatpickr-months .flatpickr-next-month {
+  right: auto;
+  left: 0;
+  transform: scaleX(-1);
+}
+.flatpickr-current-month span.cur-month {
+  font-family: var(--ui-font);
+  font-weight: var(--ui-weight-semibold);
+}
+
+/* —— Filters on a phone (ui-filters.js) ————————————————— */
+.ui-filters-toggle {
+  display: none;
+}
+@media (max-width: 639.98px) {
+  .ui-filters-toggle {
+    display: inline-flex;
+    width: 100%;
+    justify-content: center;
+    margin-bottom: 12px;
+  }
+  .page-toolbar-filters.is-folded form.toolbar-form--labeled {
+    display: none;
+  }
+  /* One column of full-width fields: hr-pages.css caps a filter at 280px for
+     the desktop bar, which left a phone's fields two thirds wide. Its input
+     rule names a [type] and loads after this sheet, so this one names it too. */
+  .hr-page .page-toolbar-filters .filter-field,
+  .hr-page .page-toolbar-filters .filter-field select,
+  .hr-page .page-toolbar-filters .filter-field input[type],
+  .hr-page .page-toolbar-filters .filter-field .ui-select {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    flex: 1 1 100%;
+  }
+  .hr-page .page-toolbar-filters .toolbar-form--labeled > .btn {
+    width: 100%;
+  }
+}

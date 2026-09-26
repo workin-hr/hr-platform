@@ -329,7 +329,9 @@ test.describe.serial('the platform-admin dashboard', () => {
 		await expect(pager, 'the dashboard component, not the invented one').toHaveCount(1);
 		await expect(page.locator('.pager'), 'and not the class nothing styles').toHaveCount(0);
 
-		const numbered = await pager.locator('.pager-pages .pager-btn').count();
+		// The numbered links only: first, previous, next and last sit in the
+		// same row as chevrons (D-287) and are not pages.
+		const numbered = await pager.locator('.pager-pages .pager-btn:not(.pager-btn--nav)').count();
 		expect(numbered, 'a window of pages, not all of them').toBeLessThanOrEqual(7);
 		await expect(pager.locator('.pager-dots').first(), 'with an ellipsis for the rest')
 			.toBeVisible();
@@ -339,7 +341,7 @@ test.describe.serial('the platform-admin dashboard', () => {
 		// per_page travels with the page links. Legacy drops it, so choosing
 		// 100 and turning the page silently returned you to 10.
 		await page.goto('/admin/employees?per_page=25', { waitUntil: 'domcontentloaded' });
-		const next = pager.locator('.pager-pages .pager-btn').nth(1);
+		const next = pager.locator('.pager-pages .pager-btn:not(.pager-btn--nav)').nth(1);
 		await expect(next).toHaveAttribute('href', /per_page=25/);
 		await expect(page.locator('.pager-size-select'), 'the selector says what is on screen')
 			.toHaveValue('25');
