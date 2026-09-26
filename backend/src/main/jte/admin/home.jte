@@ -29,6 +29,9 @@
      travel beside the single-series map rather than inside it. --%>
 @param HomeChart planned = null
 @param HomeChart actual = null
+<%-- Hires and exits over the last six months (D-290); the same two-series card. --%>
+@param HomeChart hires = null
+@param HomeChart exits = null
 <%-- dashboard/index.php. The class names are the dashboard's own
      (pages/home/assets/style.css, copied to home.css), so the layout is
      legacy's; what differs is the audience. Every block here is the
@@ -102,60 +105,81 @@
 			</div>
 		@endif
 
-			<%-- The counts. Each card is a number and what it counts; the ones
-			     that lead somewhere are links, because a number nobody can act
-			     on is decoration. --%>
-			<div class="home-stats-grid">
-				@template.admin.statCard(href = "/admin/companies", value = String.valueOf(summary.companiesTotal()),
-						label = t.apply("total_companies"), icon = "companies", tone = "blue")
-				@template.admin.statCard(href = "/admin/companies?filter=active", value = String.valueOf(summary.companiesActive()),
-						label = t.apply("active_companies"), icon = "approved", tone = "green")
-				@template.admin.statCard(href = "/admin/companies?filter=pending", value = String.valueOf(summary.companiesPending()),
-						label = t.apply("pending_companies"), icon = "awaiting", tone = "yellow")
-				@template.admin.statCard(href = "/admin/employees", value = String.valueOf(summary.employeesTotal()),
-						label = t.apply("total_employees"), icon = "employees", tone = "violet")
-				@template.admin.statCard(href = "/admin/attendance", value = String.valueOf(summary.checkedInToday()),
-						label = t.apply("checked_in_today"), icon = "attendance", tone = "green")
-				@template.admin.statCard(href = "/admin/requests?status=pending", value = String.valueOf(summary.pendingRequests()),
-						label = t.apply("pending_requests"), icon = "requests", tone = "yellow")
-				@template.admin.statCard(href = "/admin/complaints", value = String.valueOf(summary.openComplaints()),
-						label = t.apply("open_complaints"), icon = "complaints", tone = "red")
-				@template.admin.statCard(href = "/admin/advances?status=pending", value = String.valueOf(summary.pendingAdvances()),
-						label = t.apply("pending_advances"), icon = "advances", tone = "yellow")
-				@template.admin.statCard(href = "/admin/penalties", value = String.valueOf(summary.penaltiesTotal()),
-						label = t.apply("total_penalties"), icon = "penalties", tone = "red")
-				@template.admin.statCard(href = "/admin/penalties?applied=0", value = String.valueOf(summary.penaltiesUnapplied()),
-						label = t.apply("unapplied_penalties"), icon = "alert", tone = "red")
-				@template.admin.statCard(href = "/admin/branches", value = String.valueOf(summary.branchesTotal()),
-						label = t.apply("total_branches"), icon = "branch", tone = "blue")
-				@template.admin.statCard(href = "/admin/payroll", value = String.valueOf(summary.payrollDraft()),
-						label = t.apply("payroll_draft"), icon = "payroll", tone = "yellow")
-				@template.admin.statCard(href = null, value = summary.gross() + " " + t.apply("currency_egp"),
-						wide = true, label = t.apply("total_gross_salaries"), icon = "coins", tone = "yellow")
-				@template.admin.statCard(href = null, value = summary.basic() + " " + t.apply("currency_egp"),
-						wide = true, label = t.apply("total_basic_salaries"), icon = "money", tone = "violet")
-				@template.admin.statCard(href = "/admin/payroll", value = summary.net() + " " + t.apply("currency_egp"),
-						wide = true, label = t.apply("monthly_net"), icon = "payroll_group", tone = "green")
-				@template.admin.statCard(href = "/admin/employees?filter=inactive", value = String.valueOf(summary.resignations()),
-						wide = true, label = t.apply("resignations_year"), icon = "logout", tone = "gray")
-			</div>
-
-			<%-- The three rates. Percentages rather than counts, so they sit in
-			     their own row: a rate beside sixteen headcounts reads as one
-			     more headcount, which is how "2.01" gets mistaken for two
-			     people. --%>
-			@if(turnover != null)
-				<%-- Legacy's order, icons and tones (index.php): monthly, annual,
-				     then the 90-day cohort rate. --%>
-				<div class="home-stats-grid home-stats-grid--rates">
-					@template.admin.statCard(href = null, value = turnover.monthlyDisplay() + "%",
-							label = t.apply("turnover_monthly"), icon = "trend", tone = "blue")
-					@template.admin.statCard(href = null, value = turnover.annualDisplay() + "%",
-							label = t.apply("turnover_annual"), icon = "reports", tone = "violet")
-					@template.admin.statCard(href = null, value = turnover.newHiresDisplay() + "%",
-							label = t.apply("turnover_new_3mo"), icon = "profile", tone = "yellow")
+			<%-- The counts, in four labelled groups (D-290) rather than one grid
+			     of sixteen: what is waiting on someone, the workforce, the money,
+			     and who is leaving. Each card is a number and what it counts; the
+			     ones that lead somewhere are links, because a number nobody can
+			     act on is decoration. --%>
+			<section class="home-section" aria-labelledby="home-section-action">
+				<h3 class="home-section-title" id="home-section-action">${t.apply("home_section_action")}</h3>
+				<div class="home-stats-grid home-stats-grid--three">
+					@template.admin.statCard(href = "/admin/companies?filter=pending", value = String.valueOf(summary.companiesPending()),
+							label = t.apply("pending_companies"), icon = "awaiting", tone = "yellow", quiet = summary.companiesPending() == 0)
+					@template.admin.statCard(href = "/admin/requests?status=pending", value = String.valueOf(summary.pendingRequests()),
+							label = t.apply("pending_requests"), icon = "requests", tone = "yellow", quiet = summary.pendingRequests() == 0)
+					@template.admin.statCard(href = "/admin/complaints", value = String.valueOf(summary.openComplaints()),
+							label = t.apply("open_complaints"), icon = "complaints", tone = "red", quiet = summary.openComplaints() == 0)
+					@template.admin.statCard(href = "/admin/advances?status=pending", value = String.valueOf(summary.pendingAdvances()),
+							label = t.apply("pending_advances"), icon = "advances", tone = "yellow", quiet = summary.pendingAdvances() == 0)
+					@template.admin.statCard(href = "/admin/penalties?applied=0", value = String.valueOf(summary.penaltiesUnapplied()),
+							label = t.apply("unapplied_penalties"), icon = "alert", tone = "red", quiet = summary.penaltiesUnapplied() == 0)
+					@template.admin.statCard(href = "/admin/payroll", value = String.valueOf(summary.payrollDraft()),
+							label = t.apply("payroll_draft"), icon = "payroll", tone = "yellow", quiet = summary.payrollDraft() == 0)
 				</div>
-			@endif
+			</section>
+
+			<section class="home-section" aria-labelledby="home-section-workforce">
+				<h3 class="home-section-title" id="home-section-workforce">${t.apply("home_section_workforce")}</h3>
+				<div class="home-stats-grid home-stats-grid--three">
+					@template.admin.statCard(href = "/admin/companies", value = String.valueOf(summary.companiesTotal()),
+							label = t.apply("total_companies"), icon = "companies", tone = "blue")
+					@template.admin.statCard(href = "/admin/companies?filter=active", value = String.valueOf(summary.companiesActive()),
+							label = t.apply("active_companies"), icon = "approved", tone = "green")
+					@template.admin.statCard(href = "/admin/employees", value = String.valueOf(summary.employeesTotal()),
+							label = t.apply("total_employees"), icon = "employees", tone = "violet")
+					@template.admin.statCard(href = "/admin/attendance", value = String.valueOf(summary.checkedInToday()),
+							label = t.apply("checked_in_today"), icon = "attendance", tone = "green",
+							note = summary.attendanceRate() == null ? null
+									: summary.attendanceRate() + "% " + t.apply("of_active_employees"))
+					@template.admin.statCard(href = "/admin/branches", value = String.valueOf(summary.branchesTotal()),
+							label = t.apply("total_branches"), icon = "branch", tone = "blue")
+					@template.admin.statCard(href = "/admin/penalties", value = String.valueOf(summary.penaltiesTotal()),
+							label = t.apply("total_penalties"), icon = "penalties", tone = "red")
+				</div>
+			</section>
+
+			<section class="home-section" aria-labelledby="home-section-payroll">
+				<h3 class="home-section-title" id="home-section-payroll">${t.apply("home_section_payroll")}</h3>
+				<div class="home-stats-grid home-stats-grid--three home-stats-grid--money">
+					@template.admin.statCard(href = null, value = summary.gross() + " " + t.apply("currency_egp"),
+							wide = true, label = t.apply("total_gross_salaries"), icon = "coins", tone = "yellow")
+					@template.admin.statCard(href = null, value = summary.basic() + " " + t.apply("currency_egp"),
+							wide = true, label = t.apply("total_basic_salaries"), icon = "money", tone = "violet")
+					@template.admin.statCard(href = "/admin/payroll", value = summary.net() + " " + t.apply("currency_egp"),
+							wide = true, label = t.apply("monthly_net"), icon = "payroll_group", tone = "green")
+				</div>
+			</section>
+
+			<%-- Who is leaving: the year's resignations beside the three rates.
+			     Percentages sit apart from the headcounts: a rate among sixteen
+			     counts reads as one more count, which is how "2.01" gets mistaken
+			     for two people. Legacy's order, icons and tones (index.php):
+			     monthly, annual, then the 90-day cohort rate. --%>
+			<section class="home-section" aria-labelledby="home-section-turnover">
+				<h3 class="home-section-title" id="home-section-turnover">${t.apply("home_section_turnover")}</h3>
+				<div class="home-stats-grid home-stats-grid--four">
+					@template.admin.statCard(href = "/admin/employees?filter=inactive", value = String.valueOf(summary.resignations()),
+							label = t.apply("resignations_year"), icon = "logout", tone = "gray")
+					@if(turnover != null)
+						@template.admin.statCard(href = null, value = turnover.monthlyDisplay() + "%",
+								label = t.apply("turnover_monthly"), icon = "trend", tone = "blue")
+						@template.admin.statCard(href = null, value = turnover.annualDisplay() + "%",
+								label = t.apply("turnover_annual"), icon = "reports", tone = "violet")
+						@template.admin.statCard(href = null, value = turnover.newHiresDisplay() + "%",
+								label = t.apply("turnover_new_3mo"), icon = "profile", tone = "yellow")
+					@endif
+				</div>
+			</section>
 
 			<div class="home-panels">
 				<%-- What happened, and what is waiting. The two panels legacy
@@ -268,19 +292,30 @@
 				<%-- Series travel on data- attributes, not in an inline script:
 				     JTE escapes an attribute, so a company named "</script>" is
 				     a string in a JSON array and nothing else. --%>
+				<h3 class="home-section-title">${t.apply("home_section_analytics")}</h3>
+				!{java.util.Set<String> fullRow = HomeDisplay.fullRow(java.util.List.copyOf(charts.keySet()),
+						java.util.Set.of("chart_new_monthly", "chart_salary_dept"));}
 				<div class="home-charts-grid">
 					@for(java.util.Map.Entry<String, HomeChart> entry : charts.entrySet())
 						!{String key = entry.getKey();}
-						!{String kind = key.equals("chart_gender") ? "doughnut"
+						!{String kind = key.equals("chart_gender") || key.equals("chart_requests_status") ? "doughnut"
 								: (key.equals("chart_new_monthly") || key.equals("chart_daily_att") ? "line" : "bar");}
-						!{boolean wide = key.equals("chart_new_monthly") || key.equals("chart_salary_dept");}
+						!{boolean wide = fullRow.contains(key);}
+						!{String colors = key.equals("chart_requests_status")
+								? HomeDisplay.tokensJson(entry.getValue().labels(), java.util.Map.of(
+										t.apply("status_pending"), "--ui-warning",
+										t.apply("status_approved"), "--ui-success",
+										t.apply("status_rejected"), "--ui-danger"))
+								: null;}
 						!{boolean horizontal = key.equals("chart_emp_dept") || key.equals("chart_emp_branch")
-								|| key.equals("chart_salary_dept") || key.equals("chart_age");}
+								|| key.equals("chart_salary_dept") || key.equals("chart_age")
+								|| key.equals("chart_pen_dept");}
 						<div class="home-chart-card${wide ? " wide" : ""}"
 								data-chart="${kind}"
 								data-axis="${horizontal ? "y" : "x"}"
 								data-labels="${entry.getValue().labelsJson()}"
-								data-values="${entry.getValue().valuesJson()}">
+								data-values="${entry.getValue().valuesJson()}"
+								data-colors="${colors}">
 							<h4>${t.apply(key)}</h4>
 							<div class="chart-box"><canvas></canvas></div>
 						</div>
@@ -298,6 +333,20 @@
 								data-series="${t.apply("planned")}"
 								data-series2="${t.apply("actual")}">
 							<h4>${t.apply("chart_workforce")}</h4>
+							<div class="chart-box"><canvas></canvas></div>
+						</div>
+					@endif
+					@if(hires != null && !hires.isEmpty())
+						<div class="home-chart-card wide"
+								data-chart="bar"
+								data-axis="x"
+								data-labels="${hires.labelsJson()}"
+								data-values="${hires.valuesJson()}"
+								data-values2="${exits.valuesJson()}"
+								data-series="${t.apply("hires")}"
+								data-series2="${t.apply("exits")}"
+								data-colors='["--ui-success","--ui-danger"]'>
+							<h4>${t.apply("chart_hires_exits")}</h4>
 							<div class="chart-box"><canvas></canvas></div>
 						</div>
 					@endif

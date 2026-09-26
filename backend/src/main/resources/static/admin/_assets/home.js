@@ -63,6 +63,31 @@
     },
   };
 
+  // A month axis ("2026-09") reads in the page's language: "سبتمبر 26" or
+  // "Sep 26". Latin digits in Arabic too, as every other figure on the page.
+  const lang = document.documentElement.lang === 'ar' ? 'ar-u-nu-latn' : 'en';
+  const monthName = new Intl.DateTimeFormat(lang, { month: 'short', year: '2-digit', timeZone: 'UTC' });
+  function readable(label) {
+    const month = /^(\d{4})-(\d{2})$/.exec(label);
+    return month ? monthName.format(Date.UTC(Number(month[1]), Number(month[2]) - 1, 1)) : label;
+  }
+
+  // data-colors: a token name per slice (D-290), for series whose colours
+  // mean something -- pending, approved, rejected -- rather than a position.
+  function colorsFor(card, count) {
+    let tokens = null;
+    try {
+      tokens = JSON.parse(card.dataset.colors || 'null');
+    } catch (error) {
+      tokens = null;
+    }
+    return Array.from({ length: count }, (_, at) => {
+      const token = tokens && tokens[at];
+      const value = token ? styles.getPropertyValue(token).trim() : '';
+      return value || PALETTE[at % PALETTE.length];
+    });
+  }
+
   function build(card) {
     const canvas = card.querySelector('canvas');
     if (!canvas) {
@@ -79,12 +104,13 @@
     if (!labels.length) {
       return;
     }
+    labels = labels.map(readable);
 
     const kind = card.dataset.chart || 'bar';
     if (kind === 'doughnut') {
       new Chart(canvas, {
         type: 'doughnut',
-        data: { labels, datasets: [{ data: values, backgroundColor: PALETTE, borderWidth: 0 }] },
+        data: { labels, datasets: [{ data: values, backgroundColor: colorsFor(card, values.length), borderWidth: 0 }] },
         options: {
           ...base,
           cutout: '62%',
@@ -118,10 +144,19 @@
     // otherwise: a rotated Arabic label is unreadable, and the department and
     // branch names are the long ones.
     const horizontal = card.dataset.axis === 'y';
+    // Every bar named: Chart.js skips category ticks that would crowd, which on
+    // a twelve-department chart left every other bar without its name. The box
+    // grows with the bars instead, so each gets a readable row.
+    if (horizontal) {
+      const box = canvas.parentElement;
+      box.style.height = Math.max(box.clientHeight, labels.length * 26 + 48) + 'px';
+    }
 
     // A second series, when the card carries one: workforce planning is
     // planned against actual, and the comparison is the whole point of it.
-    const datasets = [{ data: values, backgroundColor: BLUE, borderRadius: 6,
+    const seriesColors = colorsFor(card, 2);
+    const tokened = Boolean(card.dataset.colors);
+    const datasets = [{ data: values, backgroundColor: tokened ? seriesColors[0] : BLUE, borderRadius: 6,
                         maxBarThickness: 34, label: card.dataset.series || '' }];
     if (card.dataset.values2) {
       let second;
@@ -131,7 +166,7 @@
         second = null;
       }
       if (second) {
-        datasets.push({ data: second, backgroundColor: PALETTE[1], borderRadius: 6,
+        datasets.push({ data: second, backgroundColor: tokened ? seriesColors[1] : PALETTE[1], borderRadius: 6,
                         maxBarThickness: 34, label: card.dataset.series2 || '' });
       }
     }
@@ -150,7 +185,7 @@
         scales: horizontal
           ? { x: { beginAtZero: true, grid: { color: grid }, border: { display: false },
                    ticks: { precision: 0, maxTicksLimit: 5 } },
-              y: { grid: { display: false } } }
+              y: { grid: { display: false }, ticks: { autoSkip: false } } }
           : cartesian.scales,
       },
     });

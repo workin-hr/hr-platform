@@ -56,6 +56,23 @@ public record HomeSummary(
 		return money(this.monthlyNet);
 	}
 
+	/**
+	 * Today's attendance as a share of the active headcount, to one decimal
+	 * place (D-290), or {@code null} when there is nobody to divide by.
+	 *
+	 * <p>Capped at 100: {@code checkedInToday} counts anyone who punched today,
+	 * as legacy's card does, so a person deactivated after punching is in the
+	 * numerator and not the denominator. Over 100% would be that edge case
+	 * reading as a bug on the page's most-looked-at figure.
+	 */
+	public String attendanceRate() {
+		if (this.employeesTotal <= 0) {
+			return null;
+		}
+		double rate = Math.min(100d, this.checkedInToday * 100d / this.employeesTotal);
+		return String.format(java.util.Locale.ROOT, "%.1f", rate);
+	}
+
 	private static String money(BigDecimal amount) {
 		return PhpMath.numberFormat(amount == null ? 0d : amount.doubleValue());
 	}

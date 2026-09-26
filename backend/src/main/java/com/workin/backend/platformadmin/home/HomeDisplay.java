@@ -101,4 +101,53 @@ public final class HomeDisplay {
 		return digits.isEmpty() ? null : "https://wa.me/" + digits;
 	}
 
+
+	/**
+	 * Which charts take a whole row (D-290): the ones that are wide by nature,
+	 * and any other left alone in its row -- a half-width card beside an empty
+	 * half reads as a chart that failed to load. Charts are dropped when their
+	 * series is empty, so which one ends up alone depends on the data and has
+	 * to be worked out per render.
+	 *
+	 * @param keys the charts in page order
+	 * @param wide the charts that always take a whole row
+	 * @return {@code wide}, plus every chart that would otherwise sit alone
+	 */
+	public static java.util.Set<String> fullRow(java.util.List<String> keys, java.util.Set<String> wide) {
+		java.util.Set<String> full = new java.util.HashSet<>();
+		String open = null;
+		for (String key : keys) {
+			if (wide.contains(key)) {
+				if (open != null) {
+					full.add(open);
+					open = null;
+				}
+				full.add(key);
+			} else if (open == null) {
+				open = key;
+			} else {
+				open = null;
+			}
+		}
+		if (open != null) {
+			full.add(open);
+		}
+		return full;
+	}
+
+	/**
+	 * The colour token for each slice, by label, as a JSON array for
+	 * {@code data-colors} (D-290): a status chart draws pending, approved and
+	 * rejected in the colours their badges use everywhere else, not in
+	 * whichever palette entry their position picks. A label with no token
+	 * gets {@code null}, and the script falls back to the palette for it.
+	 */
+	public static String tokensJson(java.util.List<String> labels, java.util.Map<String, String> tokens) {
+		StringBuilder json = new StringBuilder("[");
+		for (int at = 0; at < labels.size(); at++) {
+			String token = tokens.get(labels.get(at));
+			json.append(at == 0 ? "" : ",").append(token == null ? "null" : "\"" + token + "\"");
+		}
+		return json.append(']').toString();
+	}
 }

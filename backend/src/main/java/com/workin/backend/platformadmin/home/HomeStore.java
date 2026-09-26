@@ -46,62 +46,79 @@ public class HomeStore {
 		return companyId > 0 ? new Object[] { companyId } : new Object[0];
 	}
 
-	private long count(String sql, long companyId) {
-		Long value = this.jdbcTemplate.queryForObject(sql, Long.class, scopeArgs(companyId));
-		return value == null ? 0L : value;
-	}
-
-	private BigDecimal sum(String sql, long companyId) {
-		BigDecimal value = this.jdbcTemplate.queryForObject(sql, BigDecimal.class, scopeArgs(companyId));
-		return value == null ? BigDecimal.ZERO : value;
-	}
-
+	/**
+	 * The sixteen figures across the top of the page, in one statement (D-290).
+	 *
+	 * <p>Each figure is its own scalar subquery, the same SQL it was when each
+	 * was a statement of its own, so every number means what it did. What
+	 * changed is the round trips: sixteen of them at the remote database's
+	 * ~106 ms each were over a second and a half before the page drew anything,
+	 * and {@code HomePageQueryBudgetTest} now holds the page to its count.
+	 */
 	public HomeSummary summary(long companyId) {
 		String employees = scope("e", companyId);
-		return new HomeSummary(
+		boolean scoped = companyId > 0;
+		List<String> figures = List.of(
 				// Counted, not assumed: the filter takes any positive number, so a
 				// typo or a stale session names a company that is not there. It
 				// used to report one company beside metrics that were all zero.
-				companyId > 0
-						? count("SELECT COUNT(*) FROM companies WHERE id=?", companyId)
-						: count("SELECT COUNT(*) FROM companies", 0),
-				companyId > 0
-						? count("SELECT COUNT(*) FROM companies WHERE status='active' AND id=?", companyId)
-						: count("SELECT COUNT(*) FROM companies WHERE status='active'", 0),
-				companyId > 0
-						? count("SELECT COUNT(*) FROM companies WHERE status='pending' AND id=?", companyId)
-						: count("SELECT COUNT(*) FROM companies WHERE status='pending'", 0),
-				count("SELECT COUNT(*) FROM employees e WHERE " + employees + " AND e.is_active=1", companyId),
-				count("SELECT COUNT(*) FROM branches e WHERE " + employees, companyId),
-				count("SELECT COUNT(DISTINCT a.employee_id) FROM attendance a"
+				scoped ? "SELECT COUNT(*) FROM companies WHERE id=?" : "SELECT COUNT(*) FROM companies",
+				scoped ? "SELECT COUNT(*) FROM companies WHERE status='active' AND id=?"
+						: "SELECT COUNT(*) FROM companies WHERE status='active'",
+				scoped ? "SELECT COUNT(*) FROM companies WHERE status='pending' AND id=?"
+						: "SELECT COUNT(*) FROM companies WHERE status='pending'",
+				"SELECT COUNT(*) FROM employees e WHERE " + employees + " AND e.is_active=1",
+				"SELECT COUNT(*) FROM branches e WHERE " + employees,
+				"SELECT COUNT(DISTINCT a.employee_id) FROM attendance a"
 						+ " JOIN employees e ON e.id=a.employee_id"
-						+ " WHERE " + employees + " AND DATE(a.check_in)=CURDATE()", companyId),
-				count("SELECT COUNT(*) FROM requests r JOIN employees e ON e.id=r.employee_id"
-						+ " WHERE " + employees + " AND r.status='pending'", companyId),
+						+ " WHERE " + employees + " AND DATE(a.check_in)=CURDATE()",
+				"SELECT COUNT(*) FROM requests r JOIN employees e ON e.id=r.employee_id"
+						+ " WHERE " + employees + " AND r.status='pending'",
 				// The administrator's queue is the one addressed to the
 				// platform; a company's own HR sees `source='employee'`.
-				companyId > 0
-						? count("SELECT COUNT(*) FROM complaints WHERE status='pending'"
-								+ " AND source='employee' AND company_id=?", companyId)
-						: count("SELECT COUNT(*) FROM complaints WHERE status='pending'"
-								+ " AND source='company_support'", 0),
-				count("SELECT COUNT(*) FROM advances a JOIN employees e ON e.id=a.employee_id"
-						+ " WHERE " + employees + " AND a.status='pending'", companyId),
-				count("SELECT COUNT(*) FROM penalties pen JOIN employees e ON e.id=pen.employee_id"
-						+ " WHERE " + employees, companyId),
-				count("SELECT COUNT(*) FROM penalties pen JOIN employees e ON e.id=pen.employee_id"
-						+ " WHERE " + employees + " AND pen.applied_to_payroll=0", companyId),
-				sum(latestContracts("SUM(sc.basic_salary + sc.transport_allowance + sc.food_allowance"
-						+ " + sc.risk_allowance + sc.incentives)", employees), companyId),
-				sum(latestContracts("SUM(sc.basic_salary)", employees), companyId),
-				count("SELECT COUNT(*) FROM payroll_batches e WHERE " + employees
-						+ " AND e.status='draft'", companyId),
-				sum("SELECT COALESCE(SUM(ps.net_salary),0) FROM payslips ps"
+				scoped
+						? "SELECT COUNT(*) FROM complaints WHERE status='pending'"
+								+ " AND source='employee' AND company_id=?"
+						: "SELECT COUNT(*) FROM complaints WHERE status='pending'"
+								+ " AND source='company_support'",
+				"SELECT COUNT(*) FROM advances a JOIN employees e ON e.id=a.employee_id"
+						+ " WHERE " + employees + " AND a.status='pending'",
+				"SELECT COUNT(*) FROM penalties pen JOIN employees e ON e.id=pen.employee_id"
+						+ " WHERE " + employees,
+				"SELECT COUNT(*) FROM penalties pen JOIN employees e ON e.id=pen.employee_id"
+						+ " WHERE " + employees + " AND pen.applied_to_payroll=0",
+				latestContracts("SUM(sc.basic_salary + sc.transport_allowance + sc.food_allowance"
+						+ " + sc.risk_allowance + sc.incentives)", employees),
+				latestContracts("SUM(sc.basic_salary)", employees),
+				"SELECT COUNT(*) FROM payroll_batches e WHERE " + employees + " AND e.status='draft'",
+				"SELECT COALESCE(SUM(ps.net_salary),0) FROM payslips ps"
 						+ " JOIN payroll_batches e ON e.id=ps.batch_id"
 						+ " WHERE " + employees
-						+ " AND e.month=MONTH(CURDATE()) AND e.year=YEAR(CURDATE())", companyId),
-				count("SELECT COUNT(*) FROM employees e WHERE " + employees
-						+ " AND e.is_active=0 AND YEAR(e.updated_at)=YEAR(CURDATE())", companyId));
+						+ " AND e.month=MONTH(CURDATE()) AND e.year=YEAR(CURDATE())",
+				"SELECT COUNT(*) FROM employees e WHERE " + employees
+						+ " AND e.is_active=0 AND YEAR(e.updated_at)=YEAR(CURDATE())");
+		StringBuilder sql = new StringBuilder("SELECT ");
+		List<Object> args = new ArrayList<>();
+		for (int at = 0; at < figures.size(); at++) {
+			sql.append(at == 0 ? "" : ", ").append('(').append(figures.get(at)).append(") AS f").append(at);
+			// Every subquery binds the company exactly once when scoped, and
+			// nothing otherwise -- the invariant the argument list relies on.
+			if (scoped) {
+				args.add(companyId);
+			}
+		}
+		return this.jdbcTemplate.queryForObject(sql.toString(), (rs, row) -> new HomeSummary(
+				rs.getLong("f0"), rs.getLong("f1"), rs.getLong("f2"),
+				rs.getLong("f3"), rs.getLong("f4"), rs.getLong("f5"),
+				rs.getLong("f6"), rs.getLong("f7"), rs.getLong("f8"),
+				rs.getLong("f9"), rs.getLong("f10"),
+				money(rs.getBigDecimal("f11")), money(rs.getBigDecimal("f12")),
+				rs.getLong("f13"), money(rs.getBigDecimal("f14")), rs.getLong("f15")),
+				args.toArray());
+	}
+
+	private static BigDecimal money(BigDecimal value) {
+		return value == null ? BigDecimal.ZERO : value;
 	}
 
 	/**
@@ -442,6 +459,82 @@ public class HomeStore {
 								rs.getString("button_action_type")),
 						rs.getString("button_action_value"),
 						rs.getString("created_at")));
+	}
+
+	/**
+	 * Every leave and permission request in scope, by status (D-290).
+	 *
+	 * <p>Scoped through the employee, as {@code pendingRequests} is: a request
+	 * has no company of its own. The labels are the enum's values; the page
+	 * translates them.
+	 */
+	public HomeChart requestsByStatus(long companyId) {
+		return chart("SELECT r.status AS label, COUNT(*) AS value"
+				+ " FROM requests r JOIN employees e ON e.id=r.employee_id"
+				+ " WHERE " + scope("e", companyId)
+				+ " GROUP BY r.status ORDER BY FIELD(r.status,'pending','approved','rejected')", companyId);
+	}
+
+	/**
+	 * Hires and exits in each of the last six calendar months, today's included
+	 * (D-290): two series over one label set, like {@link #workforcePlanning}.
+	 *
+	 * <p>One statement for both series. A hire starts on {@link #HIRE}, the
+	 * date the turnover rates use; an exit is a row deactivated in the month,
+	 * dated by {@code updated_at} -- the same approximation, since the schema
+	 * keeps no separate date for it. Unlike the rates, which reproduce legacy's
+	 * numbers, a join request that was never accepted is neither: a pending or
+	 * rejected applicant is inactive by construction, and counting one as an
+	 * exit would show people leaving who never started.
+	 *
+	 * <p>Every month is present, zero when nothing happened in it, so the axis
+	 * is always the same six months rather than only the busy ones.
+	 *
+	 * @return hires first, then exits, labelled {@code yyyy-MM}
+	 */
+	public List<HomeChart> hiresAndExits(long companyId, LocalDate today) {
+		LocalDate first = today.withDayOfMonth(1).minusMonths(5);
+		LocalDate end = today.withDayOfMonth(1).plusMonths(1);
+		List<Object> args = new ArrayList<>();
+		for (int series = 0; series < 2; series++) {
+			if (companyId > 0) {
+				args.add(companyId);
+			}
+			args.add(first);
+			args.add(end);
+		}
+		List<Map<String, Object>> rows = this.jdbcTemplate.queryForList(
+				"SELECT m, SUM(h) AS hires, SUM(x) AS exits FROM ("
+						+ " SELECT DATE_FORMAT(" + HIRE + ", '%Y-%m') AS m, 1 AS h, 0 AS x"
+						+ " FROM employees e WHERE " + scope("e", companyId)
+						+ " AND e.join_request_status = 'accepted'"
+						+ " AND " + HIRE + " >= ? AND " + HIRE + " < ?"
+						+ " UNION ALL"
+						+ " SELECT DATE_FORMAT(e.updated_at, '%Y-%m'), 0, 1"
+						+ " FROM employees e WHERE " + scope("e", companyId)
+						+ " AND e.join_request_status = 'accepted' AND e.is_active = 0"
+						+ " AND e.updated_at >= ? AND e.updated_at < ?"
+						+ ") t GROUP BY m",
+				args.toArray());
+		Map<String, double[]> byMonth = new java.util.LinkedHashMap<>();
+		for (LocalDate month = first; month.isBefore(end); month = month.plusMonths(1)) {
+			byMonth.put(month.toString().substring(0, 7), new double[2]);
+		}
+		for (Map<String, Object> row : rows) {
+			double[] cell = byMonth.get(String.valueOf(row.get("m")));
+			if (cell != null) {
+				cell[0] = row.get("hires") instanceof Number number ? number.doubleValue() : 0d;
+				cell[1] = row.get("exits") instanceof Number number ? number.doubleValue() : 0d;
+			}
+		}
+		List<String> labels = new ArrayList<>(byMonth.keySet());
+		List<Double> hires = new ArrayList<>();
+		List<Double> exits = new ArrayList<>();
+		byMonth.values().forEach(cell -> {
+			hires.add(cell[0]);
+			exits.add(cell[1]);
+		});
+		return List.of(new HomeChart(labels, hires), new HomeChart(labels, exits));
 	}
 
 	public HomeChart dailyAttendance(long companyId) {
