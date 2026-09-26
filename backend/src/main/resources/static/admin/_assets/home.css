@@ -523,9 +523,24 @@ html[dir="ltr"] .home-activity-side {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+/* A phone keeps two across -- one per row made sixteen screens of cards --
+   and a money total takes its row, as statCard's `wide` says. */
 @media (max-width: 560px) {
   .home-stats-grid {
-    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .home-stat-card {
+    padding: 12px;
+  }
+  .home-stat-card .num {
+    font-size: 18px;
+  }
+  .home-stat-card .ico {
+    width: 34px;
+    height: 34px;
+  }
+  .home-stat-card--wide {
+    grid-column: 1 / -1;
   }
 }
 

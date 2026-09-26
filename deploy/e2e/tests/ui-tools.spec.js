@@ -30,12 +30,16 @@ if (!SHEETS.includes('vendor/flatpickr.min.css') || !SHEETS.includes('ui-tools.c
 }
 
 const SCRIPTS = ['crud.js', 'row-dialog.js', 'modal-a11y.js', 'vendor/flatpickr.min.js', 'vendor/flatpickr-ar.js',
-	'ui-pickers.js', 'ui-select-search.js', 'ui-copy.js', 'ui-confirm.js'];
+	'ui-pickers.js', 'ui-select-search.js', 'ui-copy.js', 'ui-confirm.js', 'ui-filters.js'];
+
+// A list page's own sheet, after the layout's as its pageStyles load: it caps a
+// filter at 280px with a rule that outranks ui-tools.css by order alone.
+const PAGE_SHEETS = [...SHEETS, 'hr-pages.css'];
 
 // The layout's #ui-strings and #ui-confirm, as layout.jte renders them in Arabic.
 const SHELL_TAIL = `
 <div id="ui-strings" hidden data-str-copy="نسخ" data-str-copied="تم النسخ" data-str-copy-failed="تعذّر النسخ"
-     data-str-select-search="ابحث…" data-str-select-no-results="لا توجد نتائج"></div>
+     data-str-select-search="ابحث…" data-str-select-no-results="لا توجد نتائج" data-str-filters="الفلاتر"></div>
 <div class="modal-bg" id="ui-confirm" aria-hidden="true">
   <div class="modal ui-confirm" role="alertdialog" aria-modal="true"
        aria-labelledby="ui-confirm-title" aria-describedby="ui-confirm-message">
@@ -53,7 +57,26 @@ const SHELL_TAIL = `
 
 const NAMES = ['أحمد سالم', 'إيمان علي', 'مدرسة النور', 'سارة', 'يوسف', 'مريم', 'خالد', 'ليلى', 'نور', 'عمر'];
 
-const BODY = `
+// employees.jte's filter bar: each select's first option is its "all", with
+// the value that page gives it ("", "all", "0").
+const FILTERS = `
+<div class="toolbar page-toolbar page-toolbar-filters" id="filters">
+  <form method="GET" class="toolbar-form toolbar-form--labeled">
+    <div class="filter-field"><label for="f-company">الشركة</label>
+      <select id="f-company" name="company_id"><option value="">كل الشركات</option><option value="4">شركة</option></select></div>
+    <div class="filter-field"><label for="f-search">بحث</label>
+      <input type="search" id="f-search" name="search" placeholder="بحث..."></div>
+    <div class="filter-field"><label for="f-status">الحالة</label>
+      <select id="f-status" name="filter"><option value="all">الكل</option><option value="active">نشط</option></select></div>
+    <div class="filter-field"><label for="f-branch">الفرع</label>
+      <select id="f-branch" name="filter_branch"><option value="0">الكل</option><option value="9">فرع</option></select></div>
+    <div class="filter-field"><label for="f-from">تاريخ التعيين</label>
+      <input type="date" id="f-from" name="date_from"></div>
+    <button type="submit" class="btn btn-blue">بحث</button>
+  </form>
+</div>`;
+
+const BODY = `${FILTERS}
 <form method="POST" action="/delete" data-confirm="هل تريد الحذف؟" data-confirm-detail="2026-09-01 → 2026-09-30"
       data-confirm-tone="danger" id="delete-form">
   <input type="hidden" name="id" value="7">
@@ -110,7 +133,7 @@ const BODY = `
 
 const PAGE = `<!doctype html>
 <html lang="ar" dir="rtl"><head><meta charset="utf-8">
-${SHEETS.map((sheet) => `<style>${asset(sheet)}</style>`).join('\n')}
+${PAGE_SHEETS.map((sheet) => `<style>${asset(sheet)}</style>`).join('\n')}
 </head><body class="lang-ar">
 <div class="shell"><main class="main" id="main-content"><div class="content hr-page">${BODY}</div></main></div>
 ${SHELL_TAIL}
@@ -129,7 +152,10 @@ test.beforeEach(async ({ page, context }) => {
 			await route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><p>posted</p>' });
 			return;
 		}
-		await route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: PAGE });
+		// /filtered is the same list rendered with one filter in force.
+		const body = new URL(request.url()).pathname === '/filtered'
+			? PAGE.replace('<option value="active">', '<option value="active" selected>') : PAGE;
+		await route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body });
 	});
 	await page.goto(`${ORIGIN}/`);
 });
@@ -190,7 +216,7 @@ test.describe('searchable select', () => {
 			document.getElementById('employee').addEventListener('change', () => { window.changes += 1; });
 		});
 		await page.getByRole('combobox', { name: /الموظف/ }).click();
-		const search = page.getByRole('searchbox');
+		const search = page.locator('.ui-select__popup:not([hidden])').getByRole('searchbox');
 		await expect(search).toBeFocused();
 		await search.fill('احمد');
 		await expect(page.locator('.ui-select__popup:not([hidden])').getByRole('option')).toHaveText(['أحمد سالم']);
@@ -206,7 +232,7 @@ test.describe('searchable select', () => {
 
 	test('nothing matching says so, and Escape closes without changing the value', async ({ page }) => {
 		await page.getByRole('combobox', { name: /الموظف/ }).click();
-		await page.getByRole('searchbox').fill('zzz');
+		await page.locator('.ui-select__popup:not([hidden])').getByRole('searchbox').fill('zzz');
 		await expect(page.locator('.ui-select__empty')).toBeVisible();
 		await page.keyboard.press('Escape');
 		await expect(page.locator('.ui-select__popup')).toBeHidden();
@@ -278,5 +304,57 @@ test.describe('date and time pickers', () => {
 		await expect(page.locator('#edit')).toHaveClass(/open/);
 		await expect(page.locator('#day')).toHaveValue('2026-01-05');
 		await expect(page.locator('#day-picker')).toHaveValue('05/01/2026');
+	});
+});
+
+test.describe('layout on a phone', () => {
+	test('a wide table scrolls in its card and never widens the page', async ({ page }) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await page.evaluate(() => {
+			const cells = Array.from({ length: 14 }, (_, i) => `<td>عمود ${i} قيمة طويلة نسبيًا<span class="sr-only">label</span></td>`).join('');
+			document.querySelector('.content').insertAdjacentHTML('beforeend',
+				`<div class="data-table-card"><div class="table-wrap"><table class="tbl" id="wide"><tbody><tr>${cells}</tr></tbody></table></div></div>`);
+		});
+		// Measured once the entrance animations end: while .content still animates, its
+		// transform makes it the containing block and hides exactly this defect (D-288).
+		await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== 'running'));
+		const wide = await page.locator('#wide').evaluate((table) => table.getBoundingClientRect().width);
+		expect(wide, 'the table really is wider than the screen').toBeGreaterThan(600);
+		expect(await page.evaluate(() => document.documentElement.scrollWidth), 'the document stays one screen wide').toBe(390);
+		expect(await page.locator('.table-wrap').last().evaluate((wrap) => wrap.scrollWidth > wrap.clientWidth),
+			'the card scrolls instead').toBe(true);
+	});
+
+	test('an unfiltered filter bar folds behind one button, and opens to full-width fields', async ({ page }) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await page.reload();
+		const toggle = page.locator('#filters .ui-filters-toggle');
+		const form = page.locator('#filters form');
+		await expect(toggle, 'every select still shows its "all" option').toHaveText('الفلاتر');
+		await expect(form).toBeHidden();
+		await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+		await toggle.click();
+		await expect(form).toBeVisible();
+		await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+		const widths = await form.locator('.filter-field').evaluateAll((fields) => fields.map((field) => {
+			const control = field.querySelector('.ui-picker, input[type="search"], select');
+			return [field.getBoundingClientRect().width, control.getBoundingClientRect().width];
+		}));
+		for (const [field, control] of widths) {
+			expect(control, 'a field fills the phone\'s width, the search box and the date picker too').toBeCloseTo(field, 0);
+		}
+	});
+
+	test('a filtered list keeps its filters open and counts them', async ({ page }) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await page.goto(`${ORIGIN}/filtered`);
+		await expect(page.locator('#filters .ui-filters-toggle')).toHaveText('الفلاتر (1)');
+		await expect(page.locator('#filters form'), 'a filtered list never hides why it is filtered').toBeVisible();
+	});
+
+	test('from 640px up the filter bar is unchanged', async ({ page }) => {
+		await expect(page.locator('#filters form')).toBeVisible();
+		await expect(page.locator('#filters .ui-filters-toggle')).toBeHidden();
 	});
 });

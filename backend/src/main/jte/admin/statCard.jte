@@ -15,6 +15,10 @@
 @param String icon
 @param String tone = "blue"
 @param String href = null
+<%-- A money total: on a phone's two-column grid it takes the whole row, since
+     "27,643,220 ج.م" does not fit half of 390px and wrapping a figure from its
+     currency is worse. --%>
+@param boolean wide = false
 !{Content card = @`
 	<div>
 		<div class="num">${value}</div>
@@ -23,7 +27,7 @@
 	<div class="ico ico--${tone}" aria-hidden="true">$unsafe{AdminIcons.of(icon, "stat-icon")}</div>
 `;}
 @if(href == null)
-	<div class="home-stat-card">${card}</div>
+	<div class="home-stat-card${wide ? " home-stat-card--wide" : ""}">${card}</div>
 @else
-	<a class="home-stat-card home-stat-card--link" href="${href}">${card}</a>
+	<a class="home-stat-card home-stat-card--link${wide ? " home-stat-card--wide" : ""}" href="${href}">${card}</a>
 @endif

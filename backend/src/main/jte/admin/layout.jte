@@ -131,7 +131,8 @@
 	     data-str-copy="${t.apply("copy")}" data-str-copied="${t.apply("copied")}"
 	     data-str-copy-failed="${t.apply("copy_failed")}"
 	     data-str-select-search="${t.apply("select_search")}"
-	     data-str-select-no-results="${t.apply("select_no_results")}"></div>
+	     data-str-select-no-results="${t.apply("select_no_results")}"
+	     data-str-filters="${t.apply("filters_toggle")}"></div>
 	<%-- One window for every data-confirm form (ui-confirm.js), in place of the
 	     browser's confirm(): legible, in the page's language, and with the
 	     destructive choice styled as one. --%>
@@ -157,6 +158,7 @@
 	<script src="/admin/_assets/ui-select-search.js"></script>
 	<script src="/admin/_assets/ui-copy.js"></script>
 	<script src="/admin/_assets/ui-confirm.js"></script>
+	<script src="/admin/_assets/ui-filters.js"></script>
 	<%-- $pageScripts in dashboard/includes/layout.php: after the shared ones,
 	     so a page's script can rely on them having run. --%>
 @for(String pageScript : pageScripts)

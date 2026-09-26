@@ -264,6 +264,13 @@ body:not(.login-body) {
 
 /* —— Tables —— */
 .table-wrap {
+  /* The containing block of whatever is absolutely positioned in a cell (a
+     visually hidden label, a badge): without it, such an element was
+     positioned against an ancestor outside this scroller, so overflow did not
+     clip it, and a wide RTL table widened the whole document -- a phone could
+     swipe the page, shell and all, 640px to the side (measured at 390, 768
+     and 1024px). */
+  position: relative;
   border-radius: var(--app-radius-lg);
   border: 1px solid var(--app-border-soft);
   box-shadow: var(--app-shadow-sm);

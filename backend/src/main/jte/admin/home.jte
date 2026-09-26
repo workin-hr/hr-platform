@@ -131,13 +131,13 @@
 				@template.admin.statCard(href = "/admin/payroll", value = String.valueOf(summary.payrollDraft()),
 						label = t.apply("payroll_draft"), icon = "payroll", tone = "yellow")
 				@template.admin.statCard(href = null, value = summary.gross() + " " + t.apply("currency_egp"),
-						label = t.apply("total_gross_salaries"), icon = "coins", tone = "yellow")
+						wide = true, label = t.apply("total_gross_salaries"), icon = "coins", tone = "yellow")
 				@template.admin.statCard(href = null, value = summary.basic() + " " + t.apply("currency_egp"),
-						label = t.apply("total_basic_salaries"), icon = "money", tone = "violet")
+						wide = true, label = t.apply("total_basic_salaries"), icon = "money", tone = "violet")
 				@template.admin.statCard(href = "/admin/payroll", value = summary.net() + " " + t.apply("currency_egp"),
-						label = t.apply("monthly_net"), icon = "payroll_group", tone = "green")
+						wide = true, label = t.apply("monthly_net"), icon = "payroll_group", tone = "green")
 				@template.admin.statCard(href = "/admin/employees?filter=inactive", value = String.valueOf(summary.resignations()),
-						label = t.apply("resignations_year"), icon = "logout", tone = "gray")
+						wide = true, label = t.apply("resignations_year"), icon = "logout", tone = "gray")
 			</div>
 
 			<%-- The three rates. Percentages rather than counts, so they sit in

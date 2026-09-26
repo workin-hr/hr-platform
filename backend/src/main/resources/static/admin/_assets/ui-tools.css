@@ -390,3 +390,34 @@ span.flatpickr-weekday {
   font-family: var(--ui-font);
   font-weight: var(--ui-weight-semibold);
 }
+
+/* —— Filters on a phone (ui-filters.js) ————————————————— */
+.ui-filters-toggle {
+  display: none;
+}
+@media (max-width: 639.98px) {
+  .ui-filters-toggle {
+    display: inline-flex;
+    width: 100%;
+    justify-content: center;
+    margin-bottom: 12px;
+  }
+  .page-toolbar-filters.is-folded form.toolbar-form--labeled {
+    display: none;
+  }
+  /* One column of full-width fields: hr-pages.css caps a filter at 280px for
+     the desktop bar, which left a phone's fields two thirds wide. Its input
+     rule names a [type] and loads after this sheet, so this one names it too. */
+  .hr-page .page-toolbar-filters .filter-field,
+  .hr-page .page-toolbar-filters .filter-field select,
+  .hr-page .page-toolbar-filters .filter-field input[type],
+  .hr-page .page-toolbar-filters .filter-field .ui-select {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    flex: 1 1 100%;
+  }
+  .hr-page .page-toolbar-filters .toolbar-form--labeled > .btn {
+    width: 100%;
+  }
+}
