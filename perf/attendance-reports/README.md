@@ -18,6 +18,8 @@ its warm-up and its garbage.
   holidays, three approved leaves and two approved timed requests per employee,
   missing days, open punches and exception-only markers. Rosters of 10, 100 and
   500 are the same company filtered by branch 1, department 1, or nothing.
+  `EMPLOYEES=3000 ./bench.sh db` seeds the same shape at 3,000 employees for
+  the `3000x...` cases.
 - **The application jar**, started by [`bench.py`](bench.py) the way the
   production container runs it: `-Xmx768m -XX:+ExitOnOutOfMemoryError`
   (`APP_MEMORY_LIMIT=1g` at `MaxRAMPercentage=75`), pinned to 4 CPUs with

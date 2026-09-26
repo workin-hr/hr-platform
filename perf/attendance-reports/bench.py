@@ -38,8 +38,9 @@ SECRET = "bench-only-secret-not-used-anywhere-else-0000000000"
 APP_PORT = 18356
 DB_CONTAINER = "rpt356-db"
 
-# Rosters by filter: branch 1 = 10 employees, department 1 = 100, none = 500.
-ROSTERS = {10: "&branch_id=1", 100: "&department_id=1", 500: ""}
+# Rosters by filter: branch 1 = 10 employees, department 1 = 100, none = the
+# whole company -- 500 as seeded by default, 3000 with EMPLOYEES=3000.
+ROSTERS = {10: "&branch_id=1", 100: "&department_id=1", 500: "", 3000: ""}
 RANGES = {7: ("2025-03-03", "2025-03-09"), 31: ("2025-03-01", "2025-03-31"),
           93: ("2025-01-01", "2025-04-03"), 366: ("2025-01-01", "2026-01-01")}
 

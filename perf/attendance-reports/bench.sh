@@ -2,6 +2,7 @@
 # Attendance report benchmark (D-292). See README.md in this directory.
 #
 #   bench.sh db                         start rpt356-db (MariaDB 11.8, 4 CPUs) and seed it
+#                                       (EMPLOYEES=3000 for the larger roster; default 500)
 #   bench.sh proxy                      start rpt356-toxiproxy: ~106 ms per round trip in front of it
 #   bench.sh run <jar> <label> [lat]    measure every case; lat = use the proxy
 #   bench.sh explain                    EXPLAIN the report reads against the seeded data
@@ -177,7 +178,8 @@ db)
   db_sql -e 'SELECT 1' >/dev/null
   { echo "SET SESSION sql_mode='';"; cat "$SCHEMA"; } | db_sql workin
   { echo "SET SESSION sql_mode='';"; cat "$RES/phase1_extensions.sql" "$RES/slice_b_attendance_method.sql"; } | db_sql workin
-  seed_sql | db_sql workin
+  # EMPLOYEES=3000 bench.sh db seeds a larger company; the 10/100 filters are unchanged.
+  seed_sql | sed "s/seq_1_to_500/seq_1_to_${EMPLOYEES:-500}/g" | db_sql workin
   db_sql workin -N -e "SELECT 'employees', COUNT(*) FROM employees UNION ALL SELECT 'attendance', COUNT(*) FROM attendance UNION ALL SELECT 'requests', COUNT(*) FROM requests"
   ;;
 proxy)
