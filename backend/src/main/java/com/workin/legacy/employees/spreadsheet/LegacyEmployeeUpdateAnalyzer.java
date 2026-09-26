@@ -10,7 +10,9 @@ import java.util.regex.Pattern;
 
 import javax.sql.DataSource;
 
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyValues;
@@ -54,6 +56,9 @@ public class LegacyEmployeeUpdateAnalyzer {
 	/** Handed to {@link PhoneCountriesSnapshot}'s superclass, which never queries it. */
 	private final DataSource legacyDataSource;
 
+	/** One connection for all of {@link #prepare}'s reads. */
+	private final TransactionTemplate reads;
+
 	public LegacyEmployeeUpdateAnalyzer(
 			LegacyEmployeeStore store, LegacyPhoneCountries phoneCountries, LegacyClock clock,
 			LegacyEmployeeUpdateSheetStore sheetStore, DataSource legacyDataSource) {
@@ -62,6 +67,7 @@ public class LegacyEmployeeUpdateAnalyzer {
 		this.clock = clock;
 		this.sheetStore = sheetStore;
 		this.legacyDataSource = legacyDataSource;
+		this.reads = new TransactionTemplate(new DataSourceTransactionManager(legacyDataSource));
 	}
 
 	/** {@code ['payload' => ..., 'errors' => ..., 'warnings' => ...]}. */
@@ -164,8 +170,19 @@ public class LegacyEmployeeUpdateAnalyzer {
 	 * current department, a phone on a row that later fails -- because a
 	 * set that is too large answers the same questions, and one that is too
 	 * small would answer "not found" for a row the per-row check accepted.
+	 *
+	 * <p>In one transaction, for one connection: every checkout from the
+	 * legacy pool costs two statements of its own (the offset read and
+	 * {@code SET time_zone}, D-099), so eight reads on eight checkouts are
+	 * twenty-four round trips where one checkout makes them thirteen. It
+	 * also makes the reads one consistent snapshot.
 	 */
 	LegacyEmployeeUpdateSheet prepare(List<Map<String, Object>> rows, long companyId,
+			LegacyEmployeeSpreadsheetLookups lookups) {
+		return this.reads.execute(status -> read(rows, companyId, lookups));
+	}
+
+	private LegacyEmployeeUpdateSheet read(List<Map<String, Object>> rows, long companyId,
 			LegacyEmployeeSpreadsheetLookups lookups) {
 		Map<String, Map<String, Object>> employeesByCode = this.store.employeesByCode(companyId);
 		PhoneCountriesSnapshot countries =
