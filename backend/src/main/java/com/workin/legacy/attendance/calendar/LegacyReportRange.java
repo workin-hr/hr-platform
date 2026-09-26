@@ -20,6 +20,16 @@ public final class LegacyReportRange {
 
 	public static final int MAX_DAYS = 366;
 
+	/**
+	 * The fingerprints export's own cap, a quarter. It holds every row of
+	 * the range in memory before it writes the workbook: measured on 500
+	 * employees with a punch per working day, a year took 253 s and peaked
+	 * at 1.9 GB of heap -- past the production container's 768 MB, whose
+	 * {@code ExitOnOutOfMemoryError} would stop it for every tenant -- while
+	 * a quarter completed at 560 MB under a 768 MB heap (D-289).
+	 */
+	public static final int MAX_EXPORT_DAYS = 93;
+
 	private LegacyReportRange() {
 	}
 
@@ -28,7 +38,12 @@ public final class LegacyReportRange {
 	 * @param errorKey the key the caller's inverted-range refusal uses
 	 */
 	public static void requireWithinCap(String from, String to, String errorKey) {
-		if (ChronoUnit.DAYS.between(LocalDate.parse(from), LocalDate.parse(to)) + 1 > MAX_DAYS) {
+		requireWithinCap(from, to, MAX_DAYS, errorKey);
+	}
+
+	/** The same refusal against a cap of the caller's own. */
+	public static void requireWithinCap(String from, String to, int maxDays, String errorKey) {
+		if (ChronoUnit.DAYS.between(LocalDate.parse(from), LocalDate.parse(to)) + 1 > maxDays) {
 			throw new LegacyApiException(400, errorKey);
 		}
 	}

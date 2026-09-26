@@ -154,7 +154,7 @@ public class LegacyAttendanceExportService {
 		if (to.compareTo(from) < 0) {
 			throw new LegacyApiException(400, "invalid_input");
 		}
-		LegacyReportRange.requireWithinCap(from, to, "invalid_input");
+		LegacyReportRange.requireWithinCap(from, to, LegacyReportRange.MAX_EXPORT_DAYS, "invalid_input");
 
 		List<List<String>> rows = new ArrayList<>();
 		List<Integer> rowStyles = new ArrayList<>();

@@ -333,7 +333,7 @@ class LegacyClientApiHardeningEndToEndTest {
 	}
 
 	// ------------------------------------------------------------------
-	// Item 2 -- a report range is capped at 366 days
+	// Item 2 -- a report range is capped at 366 days, the fingerprints export at 93
 	// ------------------------------------------------------------------
 
 	@Test
@@ -348,12 +348,13 @@ class LegacyClientApiHardeningEndToEndTest {
 		assertThat(rawCall("/apis/api/attendance/export.php?type=fingerprints&from=2016-01-01&to=2026-01-01",
 				admin).getStatusCode().value()).isEqualTo(400);
 
-		// 367 days is the first span refused, on each endpoint.
+		// 367 days is the first span the list and the overall report refuse.
 		assertBadRequest(call("/apis/api/attendance/list.php?fill_days=1&date_from=2025-01-01&date_to=2026-01-02",
 				HttpMethod.GET, admin, null), "Invalid input");
 		assertBadRequest(call("/apis/api/attendance/overall_report.php?from=2025-01-01&to=2026-01-02",
 				HttpMethod.GET, admin, null), "Invalid date");
-		assertThat(rawCall("/apis/api/attendance/export.php?type=fingerprints&from=2025-01-01&to=2026-01-02",
+		// The fingerprints export stops at a quarter: 94 days is its first span refused.
+		assertThat(rawCall("/apis/api/attendance/export.php?type=fingerprints&from=2025-01-01&to=2025-04-04",
 				admin).getStatusCode().value()).isEqualTo(400);
 	}
 
@@ -361,12 +362,13 @@ class LegacyClientApiHardeningEndToEndTest {
 	void aYearLongRangeIsStillServed() throws Exception {
 		String admin = token(ADMIN, "company_admin", 1);
 
-		// 2025-01-01 to 2026-01-01 is 366 days, the widest span served.
+		// 2025-01-01 to 2026-01-01 is 366 days, the widest span the list and the report serve.
 		assertThat(call("/apis/api/attendance/list.php?fill_days=1&date_from=2025-01-01&date_to=2026-01-01",
 				HttpMethod.GET, admin, null).getStatusCode().value()).isEqualTo(200);
 		assertThat(call("/apis/api/attendance/overall_report.php?from=2025-01-01&to=2026-01-01",
 				HttpMethod.GET, admin, null).getStatusCode().value()).isEqualTo(200);
-		assertThat(rawCall("/apis/api/attendance/export.php?type=fingerprints&from=2025-01-01&to=2026-01-01",
+		// 2025-01-01 to 2025-04-03 is 93 days, the widest export served.
+		assertThat(rawCall("/apis/api/attendance/export.php?type=fingerprints&from=2025-01-01&to=2025-04-03",
 				admin).getStatusCode().value()).isEqualTo(200);
 	}
 
