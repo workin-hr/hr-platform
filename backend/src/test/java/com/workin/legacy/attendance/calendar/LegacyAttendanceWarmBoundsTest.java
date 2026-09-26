@@ -93,6 +93,48 @@ class LegacyAttendanceWarmBoundsTest extends AbstractLegacyMySqlTest {
 	}
 
 	/**
+	 * The employee-day half of the budget: the dashboard's largest page from
+	 * 0001-01-01 is about 740,000 days -- under the budget as a span, but 148
+	 * million slots per kind across 200 employees, some 590 MB each for shifts
+	 * and leave. Neither warm is made, and neither issues its statement.
+	 */
+	@Test
+	void theDashboardsLargestPageFromTheYearOneIsNotWarmed() {
+		LegacyAttendanceCalendar calendar = calendar(counter.wrap(dataSource()));
+		List<Long> page = java.util.stream.LongStream.rangeClosed(1, 200).boxed().toList();
+		List<String> issued = counter.measure(() -> {
+			calendar.warmShiftsForEmployees(page, "0001-01-01", "2026-03-31");
+			calendar.warmApprovedLeaveForEmployees(page, "0001-01-01", "2026-03-31");
+		});
+
+		assertThat(calendar.warmedSlotCount()).as("no per-day slot for 200 employees since the year 1").isZero();
+		assertThat(issued).as("and no statement read for them").isEmpty();
+	}
+
+	/**
+	 * The budget is what a kind holds over the whole request, not what one warm
+	 * asks for: a second warm of 2,000,000 employee-days after a first of the
+	 * same size would hold 4,000,000, so it is not made.
+	 */
+	@Test
+	void aSecondWarmPastWhatTheRequestAlreadyHoldsIsNotMade() {
+		LegacyAttendanceCalendar calendar = calendar(counter.wrap(dataSource()));
+		List<Long> first = java.util.stream.LongStream.rangeClosed(1, 1000).boxed().toList();
+		List<Long> second = java.util.stream.LongStream.rangeClosed(1001, 2000).boxed().toList();
+		// 2,000 days: 2020-01-01 .. 2025-06-22.
+		List<String> firstIssued = counter.measure(
+				() -> calendar.warmShiftsForEmployees(first, "2020-01-01", "2025-06-22"));
+		assertThat(firstIssued).as("the first warm fits and reads").isNotEmpty();
+		assertThat(calendar.warmedSlotCount()).isEqualTo(2_000_000L);
+
+		List<String> secondIssued = counter.measure(
+				() -> calendar.warmShiftsForEmployees(second, "2020-01-01", "2025-06-22"));
+
+		assertThat(secondIssued).as("the second would pass the request's budget, so it is not read").isEmpty();
+		assertThat(calendar.warmedSlotCount()).as("and nothing more is held").isEqualTo(2_000_000L);
+	}
+
+	/**
 	 * The request the review found: period stats for a range that runs far past
 	 * today. What is warmed stops at today, whatever {@code to} says -- at
 	 * {@code 2a5baf0d} this held a slot per day to 2100.
