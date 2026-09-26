@@ -445,7 +445,7 @@ class LegacyCanonicalPhoneEndToEndTest {
 	}
 
 	@Test
-	void aCodePaddedWithNulIsTheCodeItPads() throws Exception {
+	void aProfileCodePaddedWithNulIsTheCodeItPads() throws Exception {
 		// Stored by the write as it is read -- never as a value a reader would
 		// take for another code -- so the account keeps signing in.
 		String token = token(post("login_employee", Map.of("phone", "+966501234570", "password", PASSWORD)));
@@ -458,7 +458,10 @@ class LegacyCanonicalPhoneEndToEndTest {
 				.isEqualTo(SAUDI_HOLDER);
 		assertThat(post("forgot_password", Map.of("phone", "+966501234570", "type", "employee"))
 				.getStatusCode().value()).isEqualTo(200);
+	}
 
+	@Test
+	void aBareNulCodeIsABlankOneOnUpdate() throws Exception {
 		try {
 			ResponseEntity<Map<String, Object>> update = send("/apis/api/employees/update.php?id=" + RECODED,
 					HttpMethod.PUT, companyToken("01012911001"), Map.of("country_code", "\u0000"));
@@ -466,7 +469,14 @@ class LegacyCanonicalPhoneEndToEndTest {
 			assertThat(row("SELECT HEX(country_code) FROM employees WHERE id = " + RECODED)).isEmpty();
 			assertThat(employeeId(post("login_employee", Map.of("phone", "01012910004", "password", PASSWORD))))
 					.isEqualTo(RECODED);
+		} finally {
+			execute("UPDATE employees SET country_code = '+20' WHERE id = " + RECODED);
+		}
+	}
 
+	@Test
+	void aCompanyCodePaddedWithNulIsTheCodeItPads() throws Exception {
+		try {
 			ResponseEntity<Map<String, Object>> company = send("/apis/api/company/update.php", HttpMethod.PUT,
 					companyToken("01012911006"), Map.of("country_code", "+20\u0000"));
 			assertThat(company.getStatusCode().value()).as("%s", company.getBody()).isEqualTo(200);
@@ -475,7 +485,6 @@ class LegacyCanonicalPhoneEndToEndTest {
 			assertThat(companyId(post("login_company", Map.of("phone", "01012911006", "password", PASSWORD))))
 					.isEqualTo(RECODED_COMPANY);
 		} finally {
-			execute("UPDATE employees SET country_code = '+20' WHERE id = " + RECODED);
 			execute("UPDATE companies SET country_code = '+20' WHERE id = " + RECODED_COMPANY);
 		}
 	}

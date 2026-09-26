@@ -170,10 +170,14 @@ its own dial code, never the request's. Because a national number is read
 in its row's `country_code`, a write carrying `country_code` without `phone`
 (the profile PUT, `update.php`, the company's `update.php`) is compared
 with the stored code as they are read -- a blank code reads as Egypt's -- so
-a code under which the stored phone is the same number is written as sent,
-as PHP wrote it; any other code re-reads the stored phone under it through
+a code under which the stored phone is the same number is written as read,
+as PHP wrote it less its padding; any other code re-reads the stored phone under it through
 `forAccount` and the route's uniqueness check, is refused as a new phone
 would be when it does not hold, and stores the number's own dial code.
+Every rule reads a `country_code` through one trim
+(`CanonicalPhones.countryCodeAsRead`: PHP's `trim()` set, NUL included, plus
+whitespace) -- the comparison, the value stored, and every lookup, login and
+OTP route -- so a padded `+966\0` is `+966` everywhere, as PHP read it.
 
 **Phase 2 (not now).** After PHP is retired and the 16 company pairs are
 resolved, add a stored E.164 column to `employees` and `companies`, backfill
