@@ -13,6 +13,7 @@ import com.workin.backend.platformadmin.PlatformAdminAuditService;
 import com.workin.backend.platformadmin.web.DashboardSession;
 import com.workin.legacy.PhpCast;
 import com.workin.legacy.phone.CanonicalPhone;
+import com.workin.legacy.phone.CanonicalPhones;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
 
 /**
@@ -319,7 +320,8 @@ public class EmployeeAdminService {
 		String phone;
 		String countryCode;
 		if (trimmed(command.phone()).equals(current.phone().trim())
-				&& trimmed(command.countryCode()).equals(current.countryCode().trim())) {
+				&& java.util.Objects.equals(CanonicalPhones.countryCodeAsRead(trimmed(command.countryCode())),
+						CanonicalPhones.countryCodeAsRead(current.countryCode()))) {
 			phone = current.phone();
 			countryCode = current.countryCode();
 		}

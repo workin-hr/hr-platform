@@ -75,6 +75,7 @@ class LegacyCanonicalPhoneEndToEndTest {
 	private static final long EMIRATI_DIGITS = 291011L;
 	private static final long MISCODED = 291012L;
 	private static final long PADDED = 291013L;
+	private static final long NO_PHONE = 291014L;
 
 	private static final String EMPLOYEE_PHONE = "01012910001";
 	private static final String CODE = "CANON01";
@@ -412,7 +413,7 @@ class LegacyCanonicalPhoneEndToEndTest {
 	@Test
 	void aBlankCountryCodeUnderWhichTheNumberIsUnchangedIsNoChange() throws Exception {
 		// 01012910004 in +20 is the same number read in Egypt, which is what a
-		// blank code means: the write is saved and the code stored as sent.
+		// blank code means: the write is saved and the stored code kept.
 		String token = token(post("login_employee", Map.of("phone", "01012910004", "password", PASSWORD)));
 		try {
 			Map<String, Object> body = new java.util.HashMap<>();
@@ -422,13 +423,13 @@ class LegacyCanonicalPhoneEndToEndTest {
 					send("/apis/api/profile/employee.php", HttpMethod.PUT, token, body);
 			assertThat(profile.getStatusCode().value()).as("%s", profile.getBody()).isEqualTo(200);
 			assertThat(row("SELECT CONCAT(first_name, '|', COALESCE(country_code, 'NULL')) FROM employees WHERE id = "
-					+ RECODED)).isEqualTo("Blank|NULL");
+					+ RECODED)).isEqualTo("Blank|+20");
 
 			ResponseEntity<Map<String, Object>> update = send("/apis/api/employees/update.php?id=" + RECODED,
 					HttpMethod.PUT, companyToken("01012911001"), Map.of("country_code", "", "last_name", "Blank"));
 			assertThat(update.getStatusCode().value()).as("%s", update.getBody()).isEqualTo(200);
 			assertThat(row("SELECT CONCAT(last_name, '|', country_code) FROM employees WHERE id = " + RECODED))
-					.isEqualTo("Blank|");
+					.isEqualTo("Blank|+20");
 			assertThat(employeeId(post("login_employee", Map.of("phone", "01012910004", "password", PASSWORD))))
 					.isEqualTo(RECODED);
 
@@ -436,7 +437,7 @@ class LegacyCanonicalPhoneEndToEndTest {
 					companyToken("01012911006"), Map.of("country_code", ""));
 			assertThat(company.getStatusCode().value()).as("%s", company.getBody()).isEqualTo(200);
 			assertThat(row("SELECT CONCAT(phone, '|', country_code) FROM companies WHERE id = " + RECODED_COMPANY))
-					.as("stored as sent, as on the employee routes").isEqualTo("01012911006|");
+					.as("the stored code kept, as on the employee routes").isEqualTo("01012911006|+20");
 		} finally {
 			execute("UPDATE employees SET first_name = 'Canon', last_name = 'Subject', country_code = '+20'"
 					+ " WHERE id = " + RECODED);
@@ -466,7 +467,7 @@ class LegacyCanonicalPhoneEndToEndTest {
 			ResponseEntity<Map<String, Object>> update = send("/apis/api/employees/update.php?id=" + RECODED,
 					HttpMethod.PUT, companyToken("01012911001"), Map.of("country_code", "\u0000"));
 			assertThat(update.getStatusCode().value()).as("%s", update.getBody()).isEqualTo(200);
-			assertThat(row("SELECT HEX(country_code) FROM employees WHERE id = " + RECODED)).isEmpty();
+			assertThat(row("SELECT HEX(country_code) FROM employees WHERE id = " + RECODED)).isEqualTo("2B3230");
 			assertThat(employeeId(post("login_employee", Map.of("phone", "01012910004", "password", PASSWORD))))
 					.isEqualTo(RECODED);
 		} finally {
@@ -486,6 +487,70 @@ class LegacyCanonicalPhoneEndToEndTest {
 					.isEqualTo(RECODED_COMPANY);
 		} finally {
 			execute("UPDATE companies SET country_code = '+20' WHERE id = " + RECODED_COMPANY);
+		}
+	}
+
+	@Test
+	void aCodeWithLeadingZerosNamesItsCountryAndIsNeverStoredAsSent() throws Exception {
+		// "+0000000966" reads as +966, so the stored number is unchanged -- and
+		// eleven characters would be truncated by varchar(10) to +000000096.
+		String employee = token(post("login_employee", Map.of("phone", "+966501234570", "password", PASSWORD)));
+		String company = companyToken("01012911001");
+		String saudiCompany = companyToken("+966501234593");
+		for (String code : List.of("+0000000966", "00000000966")) {
+			ResponseEntity<Map<String, Object>> profile = send("/apis/api/profile/employee.php", HttpMethod.PUT,
+					employee, Map.of("country_code", code));
+			assertThat(profile.getStatusCode().value()).as("profile %s: %s", code, profile.getBody()).isEqualTo(200);
+			ResponseEntity<Map<String, Object>> update = send("/apis/api/employees/update.php?id=" + SAUDI_HOLDER,
+					HttpMethod.PUT, company, Map.of("country_code", code));
+			assertThat(update.getStatusCode().value()).as("update %s: %s", code, update.getBody()).isEqualTo(200);
+			assertThat(row("SELECT country_code FROM employees WHERE id = " + SAUDI_HOLDER)).as(code).isEqualTo("+966");
+			assertThat(employeeId(post("login_employee", Map.of("phone", "+966501234570", "password", PASSWORD))))
+					.as(code).isEqualTo(SAUDI_HOLDER);
+			employee = token(post("login_employee", Map.of("phone", "+966501234570", "password", PASSWORD)));
+
+			ResponseEntity<Map<String, Object>> companyUpdate = send("/apis/api/company/update.php", HttpMethod.PUT,
+					saudiCompany, Map.of("country_code", code));
+			assertThat(companyUpdate.getStatusCode().value()).as("company %s: %s", code, companyUpdate.getBody())
+					.isEqualTo(200);
+			assertThat(row("SELECT country_code FROM companies WHERE id = " + SAUDI_DIGITS_COMPANY)).as(code)
+					.isEqualTo("+966");
+			assertThat(companyId(post("login_company", Map.of("phone", "+966501234593", "password", PASSWORD))))
+					.as(code).isEqualTo(SAUDI_DIGITS_COMPANY);
+		}
+		assertThat(post("forgot_password", Map.of("phone", "+966501234570", "type", "employee"))
+				.getStatusCode().value()).isEqualTo(200);
+	}
+
+	@Test
+	void aCodeThatChangesNoNumberLeavesTheStoredCodeByteForByte() throws Exception {
+		String token = token(post("login_employee", Map.of("phone", "+966501234570", "password", PASSWORD)));
+		String before = row("SELECT HEX(country_code) FROM employees WHERE id = " + SAUDI_HOLDER);
+		for (String code : List.of("+966", "966", "00966", " +966 ", "+966\u0000", "\u000B+966", "+0000000966")) {
+			ResponseEntity<Map<String, Object>> response = send("/apis/api/profile/employee.php", HttpMethod.PUT,
+					token, Map.of("country_code", code, "address", "Riyadh"));
+			assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(200);
+			assertThat(row("SELECT HEX(country_code) FROM employees WHERE id = " + SAUDI_HOLDER))
+					.as(code.replace("\u0000", "<NUL>").replace("\u000B", "<VT>")).isEqualTo(before);
+		}
+	}
+
+	@Test
+	void aCodeOnARowWithNoPhoneIsStoredAsTheCanonicalCodeItNames() throws Exception {
+		String company = companyToken("01012911001");
+		try {
+			for (String code : List.of("+0000000966", "00966", "966\u0000")) {
+				ResponseEntity<Map<String, Object>> response = send("/apis/api/employees/update.php?id=" + NO_PHONE,
+						HttpMethod.PUT, company, Map.of("country_code", code));
+				assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(200);
+				assertThat(row("SELECT country_code FROM employees WHERE id = " + NO_PHONE)).as(code).isEqualTo("+966");
+			}
+			// A code naming no country leaves the stored one.
+			assertThat(send("/apis/api/employees/update.php?id=" + NO_PHONE, HttpMethod.PUT, company,
+					Map.of("country_code", "Egypt")).getStatusCode().value()).isEqualTo(200);
+			assertThat(row("SELECT country_code FROM employees WHERE id = " + NO_PHONE)).isEqualTo("+966");
+		} finally {
+			execute("UPDATE employees SET country_code = NULL WHERE id = " + NO_PHONE);
 		}
 	}
 
@@ -687,6 +752,8 @@ class LegacyCanonicalPhoneEndToEndTest {
 			employee(st, PADDED, "0501234595", "+966", "employee");
 			// PHP's trim() reads through the NUL; so must every Java reader.
 			st.execute("UPDATE employees SET country_code = CONCAT('+966', CHAR(0)) WHERE id = " + PADDED);
+			employee(st, NO_PHONE, "0", "+20", "employee");
+			st.execute("UPDATE employees SET phone = NULL, country_code = NULL WHERE id = " + NO_PHONE);
 			company(st, SAUDI_DIGITS_COMPANY, "Saudi Digits", "501234593", "+966", null);
 			company(st, EMIRATI_DIGITS_COMPANY, "Emirati Digits", "0501234593", "+971", null);
 		}

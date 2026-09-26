@@ -658,13 +658,13 @@ public class LegacyEmployeeService {
 		// country_code alone re-reads the stored phone in it, so it is
 		// validated as that phone would be.
 		if (!body.containsKey("phone") && body.containsKey("country_code")) {
-			LegacyPhoneNumbers.Reread reread = LegacyPhoneNumbers.storedPhoneRereadBy(
-					body.get("country_code"), employee.get("phone"), employee.get("country_code"));
-			if (reread != null) {
-				body.put("phone", reread.phone());
-				body.put("country_code", reread.countryCode());
-			} else {
-				body.put("country_code", LegacyPhoneNumbers.countryCodeWritten(body.get("country_code")));
+			switch (LegacyPhoneNumbers.countryCodeWrite(
+					body.get("country_code"), employee.get("phone"), employee.get("country_code"))) {
+				case LegacyPhoneNumbers.Reread reread -> {
+					body.put("phone", reread.phone());
+					body.put("country_code", reread.countryCode());
+				}
+				case LegacyPhoneNumbers.Written written -> body.put("country_code", written.value());
 			}
 		}
 		if (body.containsKey("phone")) {

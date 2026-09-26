@@ -77,18 +77,19 @@ public class LegacyCompanyService {
 			// changes which number the login is: the stored phone must hold
 			// under it, as a registered number would (D-291).
 			Map<String, Object> current = store.findById(companyId);
-			LegacyPhoneNumbers.Reread reread = current == null ? null : LegacyPhoneNumbers.storedPhoneRereadBy(
-					body.get("country_code"), current.get("phone"), current.get("country_code"));
-			if (reread == null) {
-				columns.put("country_code", LegacyPhoneNumbers.countryCodeWritten(body.get("country_code")));
-			} else {
-				CanonicalPhone phone = phoneNumbers.forAccount(reread.phone(), reread.countryCode())
-						.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
-				if (store.companyPhoneTaken(phone, companyId)) {
-					throw new LegacyApiException(400, "phone_already_registered");
+			LegacyPhoneNumbers.CountryCodeWrite write = LegacyPhoneNumbers.countryCodeWrite(body.get("country_code"),
+					current == null ? null : current.get("phone"), current == null ? null : current.get("country_code"));
+			switch (write) {
+				case LegacyPhoneNumbers.Written written -> columns.put("country_code", written.value());
+				case LegacyPhoneNumbers.Reread reread -> {
+					CanonicalPhone phone = phoneNumbers.forAccount(reread.phone(), reread.countryCode())
+							.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
+					if (store.companyPhoneTaken(phone, companyId)) {
+						throw new LegacyApiException(400, "phone_already_registered");
+					}
+					columns.put("country_code", phone.dialCode());
+					columns.put("phone", phone.nationalDigits());
 				}
-				columns.put("country_code", phone.dialCode());
-				columns.put("phone", phone.nationalDigits());
 			}
 		}
 

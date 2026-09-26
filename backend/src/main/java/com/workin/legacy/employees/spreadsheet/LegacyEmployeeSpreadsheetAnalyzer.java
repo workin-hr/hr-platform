@@ -15,6 +15,7 @@ import com.workin.legacy.LegacyValues;
 import com.workin.legacy.employees.LegacyEmployeeStore;
 import com.workin.legacy.phone.LegacyPhoneCountries;
 import com.workin.legacy.phone.CanonicalPhone;
+import com.workin.legacy.phone.CanonicalPhones;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
 
 /**
@@ -348,8 +349,9 @@ public class LegacyEmployeeSpreadsheetAnalyzer {
 			return new Phone(phone.nationalDigits(), phone.dialCode());
 		}
 		if (!LegacyValues.isPhpEmpty(row.get("country_code"))) {
-			// No phone, but a country cell: the code is kept on its own.
-			return new Phone(null, LegacyPhoneNumbers.normalizeDialCode(trimmed(row.get("country_code"))));
+			// No phone, but a country cell: the code is kept on its own -- as the
+			// canonical code it names, never the cell's text (D-291).
+			return new Phone(null, CanonicalPhones.canonicalDialCode(trimmed(row.get("country_code"))).orElse(null));
 		}
 		return new Phone(null, null);
 	}

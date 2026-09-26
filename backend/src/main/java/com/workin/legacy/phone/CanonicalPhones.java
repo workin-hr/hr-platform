@@ -140,6 +140,16 @@ public final class CanonicalPhones {
 		return text.substring(start, end);
 	}
 
+	/**
+	 * The canonical {@code +<cc>} a code names -- {@code 966},
+	 * {@code +0000000966} and {@code "+966\0"} are all {@code +966} -- or
+	 * empty when it names no country with national numbers.
+	 */
+	public static Optional<String> canonicalDialCode(Object countryCode) {
+		return regionForDialCode(countryCodeAsRead(countryCode))
+				.map(region -> "+" + UTIL.getCountryCodeForRegion(region));
+	}
+
 	private static boolean trimmed(char c) {
 		// PHP's trim() set is " \t\n\r\0\x0B"; all but NUL are Java whitespace.
 		return c == '\0' || Character.isWhitespace(c);

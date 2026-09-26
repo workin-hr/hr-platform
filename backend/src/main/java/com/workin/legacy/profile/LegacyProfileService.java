@@ -121,13 +121,13 @@ public class LegacyProfileService {
 
 		Map<String, Object> resolved = new LinkedHashMap<>(body);
 		if (!resolved.containsKey("phone") && resolved.containsKey("country_code")) {
-			LegacyPhoneNumbers.Reread reread = LegacyPhoneNumbers.storedPhoneRereadBy(
-					resolved.get("country_code"), employee.get("phone"), employee.get("country_code"));
-			if (reread != null) {
-				resolved.put("phone", reread.phone());
-				resolved.put("country_code", reread.countryCode());
-			} else {
-				resolved.put("country_code", LegacyPhoneNumbers.countryCodeWritten(resolved.get("country_code")));
+			switch (LegacyPhoneNumbers.countryCodeWrite(
+					resolved.get("country_code"), employee.get("phone"), employee.get("country_code"))) {
+				case LegacyPhoneNumbers.Reread reread -> {
+					resolved.put("phone", reread.phone());
+					resolved.put("country_code", reread.countryCode());
+				}
+				case LegacyPhoneNumbers.Written written -> resolved.put("country_code", written.value());
 			}
 		}
 		if (resolved.containsKey("phone")) {

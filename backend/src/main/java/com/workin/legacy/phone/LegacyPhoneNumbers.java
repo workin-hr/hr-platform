@@ -170,7 +170,7 @@ public class LegacyPhoneNumbers {
 
 	/** {@code phone_country_normalize_dial_code()}: {@code 20} and {@code 020} both become {@code +20}. */
 	public static String normalizeDialCode(String countryCode) {
-		String code = countryCode == null ? "" : countryCode.trim();
+		String code = Objects.toString(CanonicalPhones.countryCodeAsRead(countryCode), "");
 		if (code.isEmpty()) {
 			return "";
 		}
@@ -228,57 +228,65 @@ public class LegacyPhoneNumbers {
 	}
 
 	/**
-	 * What a write carrying a {@code country_code} but no {@code phone} must
-	 * validate, or {@code null} when it leaves the number alone. A national
-	 * number is read in its row's {@code country_code}, so changing the code
-	 * alone can change which number the row is.
+	 * What a write carrying a {@code country_code} but no {@code phone} stores.
+	 * A client's code is never stored as sent: only a code a parse derived, or
+	 * the value already stored.
 	 *
-	 * <p>Codes are compared as they are <em>read</em>: a blank one reads as
-	 * Egypt's, and {@code 20} as {@code +20}, so a code under which the stored
-	 * phone is the same number as before -- or the very code already stored --
-	 * is no change, and the caller writes it as read
-	 * ({@link #countryCodeWritten}), as PHP did less its padding. Any other
-	 * code is a change, and the caller runs the stored phone through
-	 * {@link #forAccount} in {@link Reread#countryCode()} (a blank one as
-	 * Egypt's dial code) and its own uniqueness check, as for a new phone,
-	 * storing the number's own dial code.
+	 * <p>A national number is read in its row's {@code country_code}, so the
+	 * new code is compared with the stored one as they are <em>read</em>
+	 * ({@link CanonicalPhones#countryCodeAsRead}; a blank one reads as
+	 * Egypt's, {@code 20} and {@code +0000000966} as the codes they name):
+	 * <ul>
+	 * <li>under which the stored phone is the same number -- no change, and
+	 *     {@link Written} carries the stored value back byte for byte, so the
+	 *     write still answers as PHP's did and changes nothing;</li>
+	 * <li>under which it is another number, or none -- {@link Reread}: the
+	 *     caller runs the stored phone through {@link #forAccount} in
+	 *     {@link Reread#countryCode()} and its own uniqueness check, as for a
+	 *     new phone, and stores the number's own dial code;</li>
+	 * <li>on a row with no phone, where the code identifies nothing --
+	 *     {@link Written} carries the code's canonical {@code +<cc>}, or the
+	 *     stored value when the code names no country.</li>
+	 * </ul>
 	 */
-	public static Reread storedPhoneRereadBy(Object newCountryCode, Object storedPhone, Object storedCountryCode) {
+	public static CountryCodeWrite countryCodeWrite(Object newCountryCode, Object storedPhone,
+			Object storedCountryCode) {
 		String stored = storedPhone == null ? "" : LegacyValues.phpTrim(LegacyValues.toPhpString(storedPhone));
 		if (digitsOnly(stored).isEmpty()) {
-			return null;
+			return new Written(CanonicalPhones.canonicalDialCode(newCountryCode)
+					.<Object>map(code -> code).orElse(storedCountryCode));
 		}
 		String before = Objects.toString(CanonicalPhones.countryCodeAsRead(storedCountryCode), "");
 		String after = Objects.toString(CanonicalPhones.countryCodeAsRead(newCountryCode), "");
 		if (after.equals(before)) {
-			return null;
+			return new Written(storedCountryCode);
 		}
 		Optional<CanonicalPhone> was = CanonicalPhones.parse(stored, before);
 		Optional<CanonicalPhone> is = CanonicalPhones.parse(stored, after);
 		if (was.isPresent() && is.isPresent() && was.get().e164().equals(is.get().e164())) {
-			return null;
+			return new Written(storedCountryCode);
 		}
 		return new Reread(stored, after.isEmpty() ? DEFAULT_DIAL_CODE : after);
 	}
 
-	/**
-	 * The value a {@code country_code} that changes no number is stored as: a
-	 * string as {@link CanonicalPhones#countryCodeAsRead} reads it -- so a
-	 * padded {@code "+966\0"} is stored {@code "+966"}, never a value the
-	 * readers would take for another code -- and anything else (null, a JSON
-	 * number) as sent.
-	 */
-	public static Object countryCodeWritten(Object countryCode) {
-		return countryCode instanceof String text ? CanonicalPhones.countryCodeAsRead(text) : countryCode;
+	/** {@link #countryCodeWrite}'s answer. */
+	public sealed interface CountryCodeWrite permits Reread, Written {
 	}
 
 	/**
-	 * The stored phone and the non-blank code to read it in.
+	 * The stored phone must be validated under the new code.
 	 *
 	 * @param phone the stored phone, trimmed
 	 * @param countryCode the written code, or Egypt's for a blank one
 	 */
-	public record Reread(String phone, String countryCode) {
+	public record Reread(String phone, String countryCode) implements CountryCodeWrite {
+	}
+
+	/**
+	 * The value {@code country_code} is written as: the stored value, or a
+	 * canonical {@code +<cc>} -- never the request's text.
+	 */
+	public record Written(Object value) implements CountryCodeWrite {
 	}
 
 	/**
