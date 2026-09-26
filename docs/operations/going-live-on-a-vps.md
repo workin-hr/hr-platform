@@ -69,6 +69,7 @@ git-ignored copies of the `env.*.example` beside them; neither may be committed.
 | `ADMIN_PASSWORD` | the dashboard's one password | ADR-0018. Rotating it later is: change this, restart |
 | `ADMIN_ACTIONS_ENABLED` | `false` until PHP is off | ADR-0015 prerequisite 7. The same password opens both dashboards, so while PHP is up the guards here protect nothing — an attacker uses the weaker surface |
 | `WHATSAPP_*` (**A**) | real credentials | Unset, every OTP route answers 503, which breaks registration, password reset and phone change without an error anyone sees |
+| `APP_MEMORY_LIMIT` | `2g`, or leave it out | D-295. The heap is 75% of it, and the JVM needs ~300 MB more outside the heap. At `1g` a full heap is past the limit and the kernel kills the container with no log line |
 
 ## 4. Uploads, which have two modes
 
@@ -101,6 +102,31 @@ docker compose -f compose.prod.yaml -f compose.tls.yaml --env-file .env.prod up 
 
 `--build` matters: without it compose reuses whatever image is already on the
 host, which on a second deployment is the previous release.
+
+### An installation from before D-295
+
+An `.env.prod` copied from the example before D-295 says
+`APP_MEMORY_LIMIT=1g`, and a value in the env file beats the compose default,
+so redeploying keeps 1g. `env.remote-db.example` never set it, so **B** is
+affected only if someone added the line. Look, edit, redeploy, then check:
+
+```sh
+cd deploy
+ENV_FILE=.env.prod                      # B: .env.remote-db
+grep -n '^APP_MEMORY_LIMIT=' "$ENV_FILE" || echo "not set: the 2g default applies"
+$EDITOR "$ENV_FILE"                     # make it APP_MEMORY_LIMIT=2g, or delete the line
+docker compose -f compose.prod.yaml -f compose.tls.yaml --env-file "$ENV_FILE" up -d --build
+                                        # B: -f compose.remote-db.yaml -f compose.tls.yaml
+cid=$(docker compose -f compose.prod.yaml -f compose.tls.yaml --env-file "$ENV_FILE" ps -q app)
+if [ -n "$cid" ] && [ "$(docker inspect -f '{{.HostConfig.Memory}}' "$cid")" = 2147483648 ]; then
+  echo "app limit is 2g"
+else
+  echo "app limit is NOT 2g: check $ENV_FILE and that the container was recreated" >&2
+fi
+```
+
+A container killed at its limit shows `OOMKilled: true` in `docker inspect` and
+exit code 137, with nothing in the application log.
 
 ## 6. Tell whether it worked
 

@@ -172,6 +172,14 @@ jobs:
           python3 scripts/check_remote_db_pins.py
           python3 scripts/test_check_remote_db_pins.py
 
+      # D-295: the app's memory limit is written in both production compose
+      # files and env.prod.example, and the heap is 75% of it. Rendered with
+      # docker compose, so one copy edited alone fails here.
+      - name: Check the app memory limit agrees on every production path
+        run: |
+          python3 scripts/check_app_memory_limit.py
+          python3 scripts/test_check_app_memory_limit.py
+
       # deploy/e2e/run.sh decides where the integration proxy's TLS key is
       # written, and nothing else runs it here. This runs a copy with docker
       # and npm stubbed: the key goes under the user's state directory, never
