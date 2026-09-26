@@ -55,6 +55,9 @@ const SHELL_TAIL = `
   </div>
 </div>`;
 
+const MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر',
+	'أكتوبر', 'نوفمبر', 'ديسمبر'];
+
 const NAMES = ['أحمد سالم', 'إيمان علي', 'مدرسة النور', 'سارة', 'يوسف', 'مريم', 'خالد', 'ليلى', 'نور', 'عمر'];
 
 // employees.jte's filter bar: each select's first option is its "all", with
@@ -116,7 +119,7 @@ const BODY = `${FILTERS}
 </tr></tbody></table>
 
 <button type="button" data-dialog="edit" data-dialog-id="3" data-dialog-subject="row"
-        data-dialog-day="2026-01-05" id="edit-trigger">edit</button>
+        data-dialog-day="2026-01-05" data-dialog-check_in="2026-09-26T08:00:45" id="edit-trigger">edit</button>
 <div class="modal-bg" id="edit" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-title">
     <button type="button" class="modal-close" aria-label="close">&times;</button>
@@ -126,10 +129,41 @@ const BODY = `${FILTERS}
       <input type="hidden" name="id" data-dialog-field="id">
       <div class="form-row"><label for="day">اليوم</label>
         <input type="date" id="day" name="day" data-dialog-field="day"></div>
+      <div class="form-row"><label for="punch">الحضور</label>
+        <input type="datetime-local" id="punch" name="check_in" data-dialog-field="check_in"></div>
       <div class="form-footer"><button type="submit" class="btn btn-blue">save</button></div>
     </form>
   </div>
-</div>`;
+</div>
+
+<button type="button" data-dialog="run" id="run-trigger">run</button>
+<div class="modal-bg" id="run" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="run-title">
+    <button type="button" class="modal-close" aria-label="close">&times;</button>
+    <h2 id="run-title">run</h2>
+    <form method="POST" action="/run" data-confirm="تشغيل؟" id="run-form">
+      <div class="form-row"><label for="run-month">الشهر</label>
+        <select id="run-month" name="month">${MONTHS.map((name, index) => `<option value="${index + 1}">${name}</option>`).join('')}</select></div>
+      <div class="form-row"><label for="run-note">ملاحظة</label><input id="run-note" name="note"></div>
+      <div class="form-footer"><button type="submit" class="btn btn-blue" id="run-submit">run</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="form-row">
+  <label for="kind">النوع</label>
+  <select id="kind" name="kind">
+    <option value="">— اختر —</option>
+    <option value="zd" disabled>زد</option>
+    <option value="zy">زيد</option>
+    ${['أ', 'ب', 'ت', 'ث', 'ج', 'ح'].map((name) => `<option value="${name}">${name}</option>`).join('')}
+  </select>
+</div>
+
+<form method="POST" action="/named" data-confirm="حفظ؟" id="named-form">
+  <input id="named" name="name" required value="x">
+  <button type="submit" id="named-submit">save</button>
+</form>`;
 
 const PAGE = `<!doctype html>
 <html lang="ar" dir="rtl"><head><meta charset="utf-8">
@@ -233,9 +267,9 @@ test.describe('searchable select', () => {
 	test('nothing matching says so, and Escape closes without changing the value', async ({ page }) => {
 		await page.getByRole('combobox', { name: /الموظف/ }).click();
 		await page.locator('.ui-select__popup:not([hidden])').getByRole('searchbox').fill('zzz');
-		await expect(page.locator('.ui-select__empty')).toBeVisible();
+		await expect(page.locator('.ui-select__popup:not([hidden]) .ui-select__empty')).toBeVisible();
 		await page.keyboard.press('Escape');
-		await expect(page.locator('.ui-select__popup')).toBeHidden();
+		await expect(page.locator('.ui-select__popup:not([hidden])')).toHaveCount(0);
 		await expect(page.locator('#employee')).toHaveValue('');
 	});
 
@@ -356,5 +390,89 @@ test.describe('layout on a phone', () => {
 	test('from 640px up the filter bar is unchanged', async ({ page }) => {
 		await expect(page.locator('#filters form')).toBeVisible();
 		await expect(page.locator('#filters .ui-filters-toggle')).toBeHidden();
+	});
+});
+
+test.describe('inside a dialog, and after a round of review (D-288)', () => {
+	test('a long select in a dialog opens its list above the backdrop, and a choice keeps the dialog open', async ({ page }) => {
+		await page.locator('#run-trigger').click();
+		const dialog = page.locator('#run');
+		await expect(dialog).toHaveClass(/open/);
+		await dialog.getByRole('combobox').click();
+		const popup = page.locator('.ui-select__popup:not([hidden])');
+		await expect(popup).toBeVisible();
+		const hit = await popup.evaluate((node) => {
+			const box = node.getBoundingClientRect();
+			const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+			return node.contains(top);
+		});
+		expect(hit, 'the list is what a click at its centre reaches, not the backdrop').toBe(true);
+		await popup.getByRole('option', { name: 'مارس' }).click();
+		await expect(page.locator('#run-month')).toHaveValue('3');
+		await expect(dialog, 'choosing did not close the dialog').toHaveClass(/open/);
+	});
+
+	test('Tab out of an open list moves to the next field, inside the dialog', async ({ page }) => {
+		await page.locator('#run-trigger').click();
+		await page.locator('#run').getByRole('combobox').click();
+		await expect(page.locator('.ui-select__popup:not([hidden])')).toBeVisible();
+		await page.keyboard.press('Tab');
+		await expect(page.locator('#run-note')).toBeFocused();
+		await expect(page.locator('.ui-select__popup:not([hidden])')).toHaveCount(0);
+	});
+
+	test('Escape on a confirm window over a dialog closes the window and leaves the dialog', async ({ page }) => {
+		await page.locator('#run-trigger').click();
+		await page.locator('#run-submit').click();
+		await expect(page.locator('#ui-confirm')).toHaveClass(/open/);
+		await page.keyboard.press('Escape');
+		await expect(page.locator('#ui-confirm')).not.toHaveClass(/open/);
+		await expect(page.locator('#run')).toHaveClass(/open/);
+		expect(posts).toEqual([]);
+	});
+
+	test('a row whose punch has seconds posts them back unchanged', async ({ page }) => {
+		await page.locator('#edit-trigger').click();
+		await expect(page.locator('#punch')).toHaveValue('2026-09-26T08:00:45');
+		await page.locator('#edit form button[type="submit"]').click();
+		await expect.poll(() => posts.length).toBe(1);
+		expect(new URLSearchParams(posts[0].body).get('check_in')).toBe('2026-09-26T08:00:45');
+	});
+
+	test('a reset puts back the date the page rendered, not the last one picked', async ({ page }) => {
+		await page.locator('#from-picker').click();
+		await page.locator('.flatpickr-calendar.open .flatpickr-day:not(.prevMonthDay):not(.nextMonthDay)', { hasText: /^14$/ }).click();
+		await expect(page.locator('#from')).toHaveValue('2026-09-14');
+		await page.locator('#pick-form').evaluate((form) => form.reset());
+		await expect(page.locator('#from')).toHaveValue('2026-09-26');
+		await expect(page.locator('#from-picker')).toHaveValue('26/09/2026');
+	});
+
+	test('Enter never chooses a disabled option', async ({ page }) => {
+		await page.locator('#kind').locator('xpath=..').getByRole('combobox').click();
+		await page.keyboard.type('ز');
+		await page.keyboard.press('Enter');
+		await expect(page.locator('#kind')).toHaveValue('zy');
+	});
+
+	test('a confirmed submit that validation refuses asks again next time', async ({ page }) => {
+		await page.locator('#named-submit').click();
+		await expect(page.locator('#ui-confirm')).toHaveClass(/open/);
+		await page.locator('#named').evaluate((input) => { input.value = ''; });
+		await page.locator('#ui-confirm [data-confirm-ok]').click();
+		await page.waitForTimeout(200);
+		expect(posts, 'the empty required field stopped the post').toEqual([]);
+		await page.locator('#named').fill('y');
+		await page.locator('#named-submit').click();
+		await expect(page.locator('#ui-confirm'), 'the window asks again rather than posting unasked').toHaveClass(/open/);
+		expect(posts).toEqual([]);
+	});
+
+	test('a dialog that focuses a date field does not open its calendar over the footer', async ({ page }) => {
+		await page.locator('#edit-trigger').click();
+		await expect(page.locator('#day-picker')).toBeFocused();
+		await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(0);
+		await page.keyboard.press('ArrowDown');
+		await expect(page.locator('.flatpickr-calendar.open'), 'ArrowDown opens it from the keyboard').toHaveCount(1);
 	});
 });

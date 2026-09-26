@@ -72,6 +72,9 @@
     const submitter = target.submitter && target.submitter.form === target.form ? target.submitter : undefined;
     if (typeof target.form.requestSubmit === 'function') {
       target.form.requestSubmit(submitter);
+      // requestSubmit fires no submit event when validation refuses the form,
+      // and the mark would then let the next submit through unasked.
+      confirmed.delete(target.form);
     } else {
       confirmed.delete(target.form);
       target.form.submit();
