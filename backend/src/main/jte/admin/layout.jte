@@ -46,6 +46,10 @@
 	     padding tightens, targets grow. Last of the shared sheets so its
 	     media queries win over the copied ones, which carry none for the
 	     shell at all. --%>
+	<%-- flatpickr's own sheet before app-responsive.css, so ui-tools.css,
+	     which restyles it with the dashboard's tokens, wins. --%>
+	<link rel="stylesheet" href="/admin/_assets/vendor/flatpickr.min.css">
+	<link rel="stylesheet" href="/admin/_assets/ui-tools.css">
 	<link rel="stylesheet" href="/admin/_assets/app-responsive.css">
 	<%-- $pageStyles in dashboard/includes/layout.php: the per-page stylesheets,
 	     appended after the shared ones so a page's own rules win. Naming them
@@ -121,6 +125,40 @@
 	     had. Legacy checks the file server-side; the stored value here is a
 	     URL, which may not be this application's to stat. --%>
 	<script src="/admin/_assets/img-fallback.js"></script>
+	<%-- The shared interaction tools (D-288). Their labels are rendered here,
+	     translated, rather than written into the scripts. --%>
+	<div id="ui-strings" hidden
+	     data-str-copy="${t.apply("copy")}" data-str-copied="${t.apply("copied")}"
+	     data-str-copy-failed="${t.apply("copy_failed")}"
+	     data-str-select-search="${t.apply("select_search")}"
+	     data-str-select-no-results="${t.apply("select_no_results")}"
+	     data-str-filters="${t.apply("filters_toggle")}"></div>
+	<%-- One window for every data-confirm form (ui-confirm.js), in place of the
+	     browser's confirm(): legible, in the page's language, and with the
+	     destructive choice styled as one. --%>
+	<div class="modal-bg" id="ui-confirm" aria-hidden="true">
+		<div class="modal ui-confirm" role="alertdialog" aria-modal="true"
+		     aria-labelledby="ui-confirm-title" aria-describedby="ui-confirm-message">
+			<button type="button" class="modal-close" aria-label="${t.apply("close")}">&times;</button>
+			<div class="ui-confirm__icon" aria-hidden="true"></div>
+			<h2 id="ui-confirm-title">${t.apply("confirm_title")}</h2>
+			<p class="ui-confirm__message" id="ui-confirm-message"></p>
+			<p class="ui-confirm__detail" data-confirm-slot="detail" dir="auto"></p>
+			<div class="form-footer">
+				<button type="button" class="btn btn-gray" data-confirm-cancel>${t.apply("cancel")}</button>
+				<button type="button" class="btn btn-blue" data-confirm-ok>${t.apply("confirm_ok")}</button>
+			</div>
+		</div>
+	</div>
+	<script src="/admin/_assets/vendor/flatpickr.min.js"></script>
+@if("ar".equals(lang))
+	<script src="/admin/_assets/vendor/flatpickr-ar.js"></script>
+@endif
+	<script src="/admin/_assets/ui-pickers.js"></script>
+	<script src="/admin/_assets/ui-select-search.js"></script>
+	<script src="/admin/_assets/ui-copy.js"></script>
+	<script src="/admin/_assets/ui-confirm.js"></script>
+	<script src="/admin/_assets/ui-filters.js"></script>
 	<%-- $pageScripts in dashboard/includes/layout.php: after the shared ones,
 	     so a page's script can rely on them having run. --%>
 @for(String pageScript : pageScripts)

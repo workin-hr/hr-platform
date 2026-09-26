@@ -1,0 +1,4 @@
+# file | package@version | source path in the package | sha256
+flatpickr.min.js | flatpickr@4.6.13 | dist/flatpickr.min.js | 1eeab1cb779471a0b0aaa93dd91c2eb1aa537d696f01ab05ea9dabc55e8525a1
+flatpickr.min.css | flatpickr@4.6.13 | dist/flatpickr.min.css | 1b34a42552c96f10e4dfaaa4a367276b03868aacff63c1ac42ffe331352bc754
+flatpickr-ar.js | flatpickr@4.6.13 | dist/l10n/ar.js | ae0584eb50898ce251667bdcb3eae30f9ea1eb009af6b87773f1a9fb87bae90b

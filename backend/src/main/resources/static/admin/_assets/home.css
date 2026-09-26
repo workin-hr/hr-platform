@@ -10,7 +10,7 @@
 /* —— Welcome —— */
 .home-welcome {
   margin-bottom: 20px;
-  animation: appFadeUp .5s cubic-bezier(.22, 1, .36, 1) .05s both;
+  animation: appFadeUp .5s cubic-bezier(.22, 1, .36, 1) .05s backwards;
 }
 .home-welcome h2 {
   font-size: 24px;
@@ -28,7 +28,7 @@
   overflow: hidden;
   background: var(--ui-hero-bg);
   min-height: 260px;
-  animation: appFadeUp .55s cubic-bezier(.22, 1, .36, 1) .08s both;
+  animation: appFadeUp .55s cubic-bezier(.22, 1, .36, 1) .08s backwards;
 }
 .home-banner-track {
   display: flex;
@@ -203,7 +203,7 @@ html[dir="ltr"] .home-banner-slide {
   display: flex;
   flex-direction: column;
   box-shadow: 0 1px 3px rgb(var(--ui-ink-rgb) / .04);
-  animation: appFadeUp .55s cubic-bezier(.22, 1, .36, 1) .12s both;
+  animation: appFadeUp .55s cubic-bezier(.22, 1, .36, 1) .12s backwards;
 }
 .home-panel-head {
   display: flex;
@@ -523,9 +523,24 @@ html[dir="ltr"] .home-activity-side {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+/* A phone keeps two across -- one per row made sixteen screens of cards --
+   and a money total takes its row, as statCard's `wide` says. */
 @media (max-width: 560px) {
   .home-stats-grid {
-    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .home-stat-card {
+    padding: 12px;
+  }
+  .home-stat-card .num {
+    font-size: 18px;
+  }
+  .home-stat-card .ico {
+    width: 34px;
+    height: 34px;
+  }
+  .home-stat-card--wide {
+    grid-column: 1 / -1;
   }
 }
 

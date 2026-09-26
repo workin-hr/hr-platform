@@ -32,7 +32,7 @@ const asset = (name) => readFileSync(
  */
 function layoutSheets() {
 	const layout = readFileSync(new URL('../../../backend/src/main/jte/admin/layout.jte', import.meta.url), 'utf8');
-	const sheets = [...layout.matchAll(/<link rel="stylesheet" href="\/admin\/_assets\/([\w-]+\.css)">/g)].map((match) => match[1]);
+	const sheets = [...layout.matchAll(/<link rel="stylesheet" href="\/admin\/_assets\/((?:vendor\/)?[\w.-]+\.css)">/g)].map((match) => match[1]);
 	// Every stylesheet link but the per-page one: one that gains a query string,
 	// an attribute or other quotes must fail here, not drop its sheet.
 	const links = [...layout.matchAll(/<link\b[^>]*\brel=["']?stylesheet\b[^>]*>/g)]

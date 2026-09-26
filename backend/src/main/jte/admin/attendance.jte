@@ -164,7 +164,7 @@
 					     range, because "bulk delete" alone does not say how much. --%>
 					@if(canWrite && filters.companyId() > 0)
 						<form method="POST" class="inline-form"
-						      onsubmit="return confirm('${t.apply("att_range_delete_confirm")}\n${from} → ${to}')">
+						      data-confirm="${t.apply("att_range_delete_confirm")}" data-confirm-detail="${from} → ${to}" data-confirm-tone="danger">
 							<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 							<input type="hidden" name="action" value="delete_range">
 							<input type="hidden" name="company_id" value="${filters.companyId()}">
@@ -204,7 +204,7 @@
 						!{String employeeName = EmployeeDisplay.displayName(row.employeeName(), "—");}
 						<tr>
 							<td>${result.from() + index}</td>
-							<td class="text-muted nowrap">${row.empCode() == null ? "—" : row.empCode()}</td>
+							<td class="text-muted nowrap"><span data-copy dir="ltr">${row.empCode() == null ? "—" : row.empCode()}</span></td>
 							<td class="bold">${employeeName}</td>
 							<%-- page.php:202-206. Whether a punch fell on a Friday is the
 							     difference between an absence and a weekend; legacy puts it in
@@ -237,7 +237,7 @@
 												data-dialog-exception_type_id="${row.exceptionTypeId() == null ? "0" : String.valueOf(row.exceptionTypeId())}"
 												data-dialog-exception_name="${row.exceptionName() == null ? "—" : row.exceptionName()}">${t.apply("edit")}</button>
 										<form method="POST" class="row-actions__form" role="none"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+										      data-confirm="${t.apply("confirm_delete")}" data-confirm-tone="danger">
 											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 											<input type="hidden" name="action" value="delete">
 											<input type="hidden" name="id" value="${row.id()}">
@@ -323,11 +323,13 @@
 					fields = @`
 						<div class="form-row">
 							<label for="att_edit_check_in">${t.apply("check_in")}</label>
-							<input type="datetime-local" id="att_edit_check_in" name="check_in" required data-dialog-field="check_in">
+							<%-- step="1": a device punch is stored to the second, and the picker
+							     keeps the seconds only when the field allows them (D-288). --%>
+							<input type="datetime-local" id="att_edit_check_in" name="check_in" required step="1" data-dialog-field="check_in">
 						</div>
 						<div class="form-row">
 							<label for="att_edit_check_out">${t.apply("check_out")}</label>
-							<input type="datetime-local" id="att_edit_check_out" name="check_out" data-dialog-field="check_out">
+							<input type="datetime-local" id="att_edit_check_out" name="check_out" step="1" data-dialog-field="check_out">
 						</div>
 						<div class="form-row">
 							@if(editChoosesType)

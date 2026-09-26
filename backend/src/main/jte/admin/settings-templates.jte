@@ -104,7 +104,7 @@
 									        data-in-use="${option.inUse() ? "true" : "false"}">${t.apply("edit")}</button>
 									@if(!option.inUse() && canWrite)
 										<form method="POST" action="/admin/settings" class="row-actions__form" role="none"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+										      data-confirm="${t.apply("confirm_delete")}" data-confirm-tone="danger">
 											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 											<input type="hidden" name="action" value="delete_option">
 											<input type="hidden" name="id" value="${option.id()}">

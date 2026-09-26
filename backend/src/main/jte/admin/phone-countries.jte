@@ -104,7 +104,7 @@
 													data-dialog-sortOrder="${country.sortOrder()}"
 													data-dialog-isActive="${country.active() ? "1" : "0"}">${t.apply("edit")}</button>
 											<form method="post" class="row-actions__form"
-											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											      data-confirm="${t.apply("confirm_delete")}" data-confirm-tone="danger">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 												<input type="hidden" name="action" value="delete">
 												<input type="hidden" name="id" value="${country.id()}">

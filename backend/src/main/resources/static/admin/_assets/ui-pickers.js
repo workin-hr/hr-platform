@@ -1,0 +1,233 @@
+// Date and time pickers in the page's language (D-288).
+//
+// The browser's own <input type="date"> takes its format and its calendar from
+// the browser's locale, not the page's: an Arabic dashboard showed
+// "mm/dd/yyyy" in English, differently in every browser, with a calendar that
+// ignores RTL and the Saturday week. flatpickr (vendor/, MIT) draws one picker
+// everywhere, in Arabic with Saturday first when the page is Arabic.
+//
+// The server contract does not change. The original input keeps its name and
+// receives the same ISO value it always did -- 2026-09-26, 14:30,
+// 2026-09-26T14:30 -- while a second, visible input shows it as a person
+// reads it. On phones flatpickr hands over to the native picker, which is the
+// better control there.
+//
+// An input opts out with data-no-picker.
+(function () {
+  if (typeof window.flatpickr !== 'function') {
+    return;
+  }
+  const arabic = document.documentElement.lang === 'ar';
+  const locale = arabic && window.flatpickr.l10ns && window.flatpickr.l10ns.ar
+    ? Object.assign({}, window.flatpickr.l10ns.ar) : undefined;
+
+  function options(input) {
+    const type = input.getAttribute('type');
+    const seconds = input.step && Number(input.step) > 0 && Number(input.step) < 60;
+    const base = {
+      locale: locale,
+      altInput: true,
+      // A field with seconds is set with the spinner, not typed: flatpickr
+      // parses typed text strictly left to right against the format, so an
+      // Arabic "05:30 م" typed without seconds lost its م with them and saved
+      // as 05:30 in the morning. The spinner always writes all three parts.
+      allowInput: !seconds,
+      disableMobile: false,
+      // Not on focus: a dialog focuses its first field as it opens, and a
+      // calendar that pops open over the footer then is in the way. A click or
+      // ArrowDown opens it; a date can always be typed.
+      clickOpens: false,
+      // The month as text beside the arrows: the dropdown sized itself to Latin
+      // names and clipped the Arabic ones ("سبتمبر" read "ستمبر").
+      monthSelectorType: 'static',
+      minDate: input.min || null,
+      maxDate: input.max || null,
+      onReady: function (_, __, instance) {
+        if (instance.altInput && !instance.isMobile) {
+          instance.altInput.addEventListener('click', function () { instance.open(); });
+          // Capture phase: flatpickr's own keydown on this field runs first
+          // otherwise, and on a read-only field it closes the calendar on
+          // Escape without stopping the key, which then closed the dialog.
+          instance.altInput.addEventListener('keydown', function (event) {
+            if (event.key === 'ArrowDown' && !instance.isOpen) {
+              // Stopped: flatpickr would otherwise act on the same key with the
+              // calendar now open, and a time-only calendar has no days to reach.
+              event.preventDefault();
+              event.stopPropagation();
+              instance.open();
+            } else if ((event.key === 'Escape' || event.key === 'Enter') && instance.isOpen) {
+              // The calendar, not the dialog around it: Escape would close the
+              // dialog and Enter would submit it with the picker still open.
+              event.preventDefault();
+              event.stopPropagation();
+              if (event.key === 'Enter' && instance.config.allowInput) {
+                // What flatpickr's own Enter did: keep what was typed -- when
+                // it is a date. flatpickr clears the field on text it cannot
+                // parse; a typo must not wipe the value it replaced.
+                if (keepsTyped(instance)) {
+                  instance.setDate(instance.altInput.value, true, instance.config.altFormat);
+                }
+              }
+              instance.close();
+            } else if ((event.key === 'Backspace' || event.key === 'Delete')
+                && input.required && instance.config.allowInput === false) {
+              // flatpickr clears a read-only field on these keys, and the
+              // browser does not check `required` on a read-only field.
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          }, true);
+          // Escape anywhere in the calendar -- the hour and minute fields of a
+          // date-time are in it, and it lives in <body>, outside the dialog --
+          // closes the calendar and returns to the field.
+          instance.calendarContainer.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              event.stopPropagation();
+              instance.close();
+              instance.altInput.focus();
+            }
+          });
+          // The same guard when the field is left: flatpickr re-reads it on
+          // blur and would clear it for a typo. Capture phase, ahead of that.
+          instance.altInput.addEventListener('blur', function () {
+            if (instance.config.allowInput) {
+              keepsTyped(instance);
+            }
+          }, true);
+          typable.set(instance.altInput, instance);
+          instance.altInput.classList.add('ui-picker');
+          instance.altInput.setAttribute('dir', 'auto');
+          if (input.id) {
+            // The label still names the field a person types into.
+            const label = document.querySelector('label[for="' + CSS.escape(input.id) + '"]');
+            if (label) {
+              instance.altInput.id = input.id + '-picker';
+              label.htmlFor = instance.altInput.id;
+            }
+          }
+          if (input.getAttribute('aria-label')) {
+            instance.altInput.setAttribute('aria-label', input.getAttribute('aria-label'));
+          }
+        }
+      },
+    };
+    if (type === 'time') {
+      return Object.assign(base, {
+        enableTime: true, noCalendar: true, time_24hr: !arabic, enableSeconds: seconds,
+        dateFormat: seconds ? 'H:i:S' : 'H:i',
+        altFormat: arabic ? (seconds ? 'h:i:S K' : 'h:i K') : (seconds ? 'H:i:S' : 'H:i'),
+      });
+    }
+    if (type === 'datetime-local') {
+      return Object.assign(base, {
+        enableTime: true, time_24hr: !arabic, enableSeconds: seconds,
+        dateFormat: seconds ? 'Y-m-d\\TH:i:S' : 'Y-m-d\\TH:i',
+        altFormat: arabic ? (seconds ? 'd/m/Y h:i:S K' : 'd/m/Y h:i K') : (seconds ? 'd/m/Y H:i:S' : 'd/m/Y H:i'),
+      });
+    }
+    return Object.assign(base, { dateFormat: 'Y-m-d', altFormat: 'd/m/Y' });
+  }
+
+  // A click away is the common way to leave a field -- onto Save, or the next
+  // field -- and flatpickr commits the typed text on the document's mousedown,
+  // before the field's blur. This listener is on the document in the capture
+  // phase, so it runs first and puts a typo back before flatpickr reads it.
+  const typable = new WeakMap();
+  function beforeLeaving(event) {
+    const field = document.activeElement;
+    const instance = field && typable.get(field);
+    if (instance && instance.config.allowInput && !field.contains(event.target)) {
+      keepsTyped(instance);
+    }
+  }
+  document.addEventListener('mousedown', beforeLeaving, true);
+  document.addEventListener('touchstart', beforeLeaving, true);
+
+  // True when the typed text is a date or empty (a deliberate clear); otherwise
+  // the field goes back to its last committed value and false is returned.
+  function keepsTyped(instance) {
+    const text = instance.altInput.value.trim();
+    if (text === '') {
+      return true;
+    }
+    // flatpickr's parse is lenient -- "32/13/2026" rolls over into 2027 -- so
+    // the date must also format back to what was typed, leading zeros aside.
+    const parsed = instance.parseDate(text, instance.config.altFormat);
+    const numbers = (value) => value.replace(/\s+/g, ' ').replace(/\d+/g, (digits) => String(Number(digits)));
+    if (parsed && numbers(instance.formatDate(parsed, instance.config.altFormat)) === numbers(text)) {
+      return true;
+    }
+    instance.altInput.value = instance.selectedDates.length
+      ? instance.formatDate(instance.selectedDates[0], instance.config.altFormat) : '';
+    return false;
+  }
+
+  function attach(input) {
+    if (input._flatpickr || input.hasAttribute('data-no-picker') || !input.closest('.main, .modal')) {
+      return;
+    }
+    // What form.reset() restores. flatpickr turns the input into a hidden one,
+    // and assigning .value to a hidden input rewrites its value attribute, so
+    // without this a reset would restore the last date picked.
+    input.setAttribute('data-picker-default', input.getAttribute('value') || '');
+    // modal-a11y may already have focused this field (a dialog rendered open);
+    // flatpickr is about to hide it, so the focus moves to the visible copy.
+    const focused = document.activeElement === input;
+    const instance = window.flatpickr(input, options(input));
+    if (focused) {
+      const visible = instance.isMobile ? instance.mobileInput : instance.altInput;
+      if (visible) {
+        visible.focus();
+      }
+    }
+  }
+
+  function scan(root) {
+    root.querySelectorAll('input[type="date"], input[type="time"], input[type="datetime-local"]')
+      .forEach(attach);
+  }
+
+  // A script that fills an input by assigning .value (row-dialog.js, a reset)
+  // updates the hidden original but not the visible copy; bring it along.
+  function refresh(input) {
+    if (input && input._flatpickr) {
+      input._flatpickr.setDate(input.value || null, false);
+    }
+  }
+
+  document.addEventListener('row-dialog:filled', function (event) {
+    event.target.querySelectorAll('input').forEach(refresh);
+  });
+  // The reset event fires before the form resets, so the value attribute is
+  // put back first and the browser's own reset then reads it. Only the
+  // visible copy is redrawn afterwards -- from whatever the field then holds,
+  // since row-dialog.js resets a form and fills it in the same turn.
+  document.addEventListener('reset', function (event) {
+    const form = event.target;
+    form.querySelectorAll('input[data-picker-default]').forEach(function (input) {
+      input.setAttribute('value', input.getAttribute('data-picker-default'));
+    });
+    setTimeout(function () {
+      form.querySelectorAll('input').forEach(refresh);
+    }, 0);
+  }, true);
+
+  scan(document);
+  new MutationObserver(function (records) {
+    records.forEach(function (record) {
+      record.addedNodes.forEach(function (node) {
+        if (node.nodeType === 1 && !node.closest('.flatpickr-calendar')) {
+          if (node.matches && node.matches('input')) {
+            if (['date', 'time', 'datetime-local'].includes(node.getAttribute('type'))) {
+              attach(node);
+            }
+          } else {
+            scan(node);
+          }
+        }
+      });
+    });
+  }).observe(document.body, { childList: true, subtree: true });
+
+})();

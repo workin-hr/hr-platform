@@ -425,14 +425,14 @@
 										@if(canWrite)
 											@if(!"finalized".equals(row.status()))
 												<form method="POST" class="row-actions__form" role="none"
-												      onsubmit="return confirm('${t.apply("calculate")}?')">
+												      data-confirm="${t.apply("calculate")}?">
 													<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 													<input type="hidden" name="action" value="calculate">
 													<input type="hidden" name="id" value="${row.id()}">
 													<button type="submit" role="menuitem" class="row-actions__item">${t.apply("calculate")}</button>
 												</form>
 												<form method="POST" class="row-actions__form" role="none"
-												      onsubmit="return confirm('${t.apply("finalize")}?')">
+												      data-confirm="${t.apply("finalize")}?">
 													<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 													<input type="hidden" name="action" value="finalize">
 													<input type="hidden" name="id" value="${row.id()}">
@@ -447,7 +447,7 @@
 												</form>
 											@endif
 											<form method="POST" class="row-actions__form" role="none"
-											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											      data-confirm="${t.apply("confirm_delete")}" data-confirm-tone="danger">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 												<input type="hidden" name="action" value="delete_run">
 												<input type="hidden" name="id" value="${row.id()}">

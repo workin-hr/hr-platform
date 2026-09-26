@@ -136,7 +136,7 @@
 									@if(canWrite)
 										@template.admin.rowActions(rowId = row.id(), t = t, items = @`
 											<form method="post" class="row-actions__form" role="none"
-											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											      data-confirm="${t.apply("confirm_delete")}" data-confirm-tone="danger">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 												<input type="hidden" name="action" value="delete">
 												<input type="hidden" name="id" value="${row.id()}">
@@ -179,7 +179,7 @@
 							aria-label="${t.apply("cancel")}">&times;</button>
 					<h2 id="notifModal-title">${t.apply("send_notification")}</h2>
 					<form method="post"
-				      onsubmit="return confirm('${t.apply("confirm_broadcast")}')">
+				      data-confirm="${t.apply("confirm_broadcast")}">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<%-- One field to a row, with notifModal's ids (notifications/page.php:233-296). --%>
 					<div class="form-row">

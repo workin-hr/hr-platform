@@ -265,7 +265,7 @@
 										   role="menuitem" class="row-actions__item">${t.apply("edit")}</a>
 										@if(canWrite)
 											<form method="POST" class="row-actions__form" role="none"
-											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											      data-confirm="${t.apply("confirm_delete")}" data-confirm-tone="danger">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 												<input type="hidden" name="action" value="delete">
 												<input type="hidden" name="id" value="${row.id()}">

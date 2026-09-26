@@ -38,7 +38,7 @@ body:not(.login-body) {
   background: var(--app-surface);
   border-bottom: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-sm);
-  animation: appFadeUp .45s var(--app-ease) both;
+  animation: appFadeUp .45s var(--app-ease) backwards;
 }
 
 .page-title {
@@ -58,14 +58,14 @@ body:not(.login-body) {
 
 .content {
   padding: 24px 28px 32px;
-  animation: appFadeUp .5s var(--app-ease) .06s both;
+  animation: appFadeUp .5s var(--app-ease) .06s backwards;
 }
 
 /* —— Flash —— */
 .main > .flash {
   margin: 16px 28px 0;
   border-radius: var(--app-radius);
-  animation: appAlertIn .4s var(--app-ease) both;
+  animation: appAlertIn .4s var(--app-ease) backwards;
 }
 
 /* —— Form fields (مثل login) —— */
@@ -243,7 +243,7 @@ body:not(.login-body) {
   border: 1px solid var(--app-border-soft);
   box-shadow: var(--app-shadow-sm);
   transition: transform .2s var(--app-ease), box-shadow .2s;
-  animation: appFadeUp .5s var(--app-ease) both;
+  animation: appFadeUp .5s var(--app-ease) backwards;
 }
 .stat-card:nth-child(1) { animation-delay: .04s; }
 .stat-card:nth-child(2) { animation-delay: .08s; }
@@ -264,13 +264,20 @@ body:not(.login-body) {
 
 /* —— Tables —— */
 .table-wrap {
+  /* The containing block of whatever is absolutely positioned in a cell (a
+     visually hidden label, a badge): without it, such an element was
+     positioned against an ancestor outside this scroller, so overflow did not
+     clip it, and a wide RTL table widened the whole document -- a phone could
+     swipe the page, shell and all, 640px to the side (measured at 390, 768
+     and 1024px). */
+  position: relative;
   border-radius: var(--app-radius-lg);
   border: 1px solid var(--app-border-soft);
   box-shadow: var(--app-shadow-sm);
   overflow-x: auto;
   overflow-y: hidden;
   max-width: 100%;
-  animation: appFadeUp .55s var(--app-ease) .1s both;
+  animation: appFadeUp .55s var(--app-ease) .1s backwards;
 }
 
 /* 10px, not 14px. Fourteen columns at 14px each side is 392px of padding on a
@@ -434,7 +441,7 @@ body:not(.login-body) {
   border-radius: var(--app-radius-lg);
   border: 1px solid var(--app-border-soft);
   box-shadow: var(--app-shadow-sm);
-  animation: appFadeUp .55s var(--app-ease) .08s both;
+  animation: appFadeUp .55s var(--app-ease) .08s backwards;
   transition: box-shadow .2s;
 }
 
@@ -474,7 +481,7 @@ body:not(.login-body) {
 /* —— Section head —— */
 .section-head {
   margin-bottom: 14px;
-  animation: appFadeUp .45s var(--app-ease) both;
+  animation: appFadeUp .45s var(--app-ease) backwards;
 }
 
 .section-head h2 {
@@ -486,11 +493,11 @@ body:not(.login-body) {
 /* —— Modals —— */
 .modal-bg {
   backdrop-filter: blur(4px);
-  animation: appModalBg .25s ease both;
+  animation: appModalBg .25s ease backwards;
 }
 
 .modal-bg.open .modal {
-  animation: appModalIn .35s var(--app-ease) both;
+  animation: appModalIn .35s var(--app-ease) backwards;
 }
 
 .modal {
@@ -754,7 +761,7 @@ header.home-topbar {
   overflow: visible;
   position: relative;
   z-index: 40;
-  animation: appFadeUp .45s var(--app-ease) both;
+  animation: appFadeUp .45s var(--app-ease) backwards;
 }
 
 .home-topbar-inner {
