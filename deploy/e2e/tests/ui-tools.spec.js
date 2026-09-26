@@ -592,6 +592,25 @@ test.describe('a read-only date-time field (review round 4)', () => {
 		expect(posts).toEqual([]);
 	});
 
+	test('a typo in a date field, by Enter or by leaving it, keeps the value it replaced', async ({ page }) => {
+		await page.locator('#edit-trigger').click();
+		await page.locator('#day-picker').click();
+		await page.locator('#day-picker').fill('not a date at all');
+		await page.keyboard.press('Enter');
+		await expect(page.locator('#day')).toHaveValue('2026-01-05');
+		await expect(page.locator('#day-picker')).toHaveValue('05/01/2026');
+		await page.locator('#day-picker').fill('32/13/nope');
+		await page.keyboard.press('Tab');
+		await expect(page.locator('#day')).toHaveValue('2026-01-05');
+		await expect(page.locator('#day-picker')).toHaveValue('05/01/2026');
+	});
+
+	test('a well-typed time still commits through the guard, without leading zeros', async ({ page }) => {
+		await page.locator('#at-picker').fill('3:15 م');
+		await page.keyboard.press('Tab');
+		await expect(page.locator('#at')).toHaveValue('15:15');
+	});
+
 	test('ArrowDown on a closed read-only field only opens the calendar', async ({ page }) => {
 		await page.locator('#edit-trigger').click();
 		await page.locator('#punch-picker').focus();

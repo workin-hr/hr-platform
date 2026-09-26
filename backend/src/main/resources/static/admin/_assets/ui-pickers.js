@@ -61,8 +61,12 @@
               event.preventDefault();
               event.stopPropagation();
               if (event.key === 'Enter' && instance.config.allowInput) {
-                // What flatpickr's own Enter did: keep what was typed.
-                instance.setDate(instance.altInput.value, true, instance.config.altFormat);
+                // What flatpickr's own Enter did: keep what was typed -- when
+                // it is a date. flatpickr clears the field on text it cannot
+                // parse; a typo must not wipe the value it replaced.
+                if (keepsTyped(instance)) {
+                  instance.setDate(instance.altInput.value, true, instance.config.altFormat);
+                }
               }
               instance.close();
             } else if ((event.key === 'Backspace' || event.key === 'Delete')
@@ -84,6 +88,13 @@
               instance.altInput.focus();
             }
           });
+          // The same guard when the field is left: flatpickr re-reads it on
+          // blur and would clear it for a typo. Capture phase, ahead of that.
+          instance.altInput.addEventListener('blur', function () {
+            if (instance.config.allowInput) {
+              keepsTyped(instance);
+            }
+          }, true);
           instance.altInput.classList.add('ui-picker');
           instance.altInput.setAttribute('dir', 'auto');
           if (input.id) {
@@ -115,6 +126,25 @@
       });
     }
     return Object.assign(base, { dateFormat: 'Y-m-d', altFormat: 'd/m/Y' });
+  }
+
+  // True when the typed text is a date or empty (a deliberate clear); otherwise
+  // the field goes back to its last committed value and false is returned.
+  function keepsTyped(instance) {
+    const text = instance.altInput.value.trim();
+    if (text === '') {
+      return true;
+    }
+    // flatpickr's parse is lenient -- "32/13/2026" rolls over into 2027 -- so
+    // the date must also format back to what was typed, leading zeros aside.
+    const parsed = instance.parseDate(text, instance.config.altFormat);
+    const numbers = (value) => value.replace(/\s+/g, ' ').replace(/\d+/g, (digits) => String(Number(digits)));
+    if (parsed && numbers(instance.formatDate(parsed, instance.config.altFormat)) === numbers(text)) {
+      return true;
+    }
+    instance.altInput.value = instance.selectedDates.length
+      ? instance.formatDate(instance.selectedDates[0], instance.config.altFormat) : '';
+    return false;
   }
 
   function attach(input) {
