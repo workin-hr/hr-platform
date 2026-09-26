@@ -109,6 +109,17 @@ class LegacyXlsxReaderBoundsTest {
 	}
 
 	@Test
+	void aRowWithMoreCellsThanExcelHasColumnsIsRefusedWithoutWaitingForTheTotal() throws IOException {
+		byte[] crowded = sheetZip(zip -> {
+			zip.write("<row r=\"1\">".getBytes(StandardCharsets.US_ASCII));
+			zip.write("<c/>".repeat(LegacyXlsxReader.MAX_COLUMN_INDEX + 2).getBytes(StandardCharsets.US_ASCII));
+			zip.write("</row>".getBytes(StandardCharsets.US_ASCII));
+		});
+
+		assertRefusedCheaply(crowded, "too many cells");
+	}
+
+	@Test
 	void cellsAcrossRowsAreCountedAgainstTheSheetsTotal() throws IOException {
 		// Each row within its own column count, the sheet past the total.
 		byte[] crowded = sheetZip(zip -> {
