@@ -161,14 +161,27 @@ public class LegacyWeeklyRestCredit {
 			long companyId, long employeeId, String from, String to) {
 		// Expand lookback so weeks starting before `from` still resolve correctly.
 		String lookbackFrom = LocalDate.parse(from).minusDays(7).toString();
-		List<AttendanceRow> rows = jdbcTemplate.query(
+		List<LegacyAttendanceRangeRows.Row> rows = jdbcTemplate.query(
 				ATTENDANCE_FLAGS_IN_RANGE,
-				(rs, index) -> new AttendanceRow(
-						rs.getString("check_in"), rs.getString("check_out"), rs.getObject("exception_type_id")),
+				(rs, index) -> new LegacyAttendanceRangeRows.Row(
+						0L, rs.getString("check_in"), rs.getString("check_out"), rs.getObject("exception_type_id"),
+						null, 0),
 				employeeId, lookbackFrom, to);
+		return attendanceFlags(rows);
+	}
 
+	/**
+	 * {@code weekly_rest_attendance_flags_in_range()}'s loop over rows already
+	 * read -- by the query above for one employee, or by
+	 * {@link LegacyAttendanceRangeRows} for a whole report (D-292). The caller
+	 * hands exactly the rows of the window it wants flags for.
+	 *
+	 * <p>The answer does not depend on the rows' order: a date is a punch when
+	 * any of its rows is, and exception-only otherwise.
+	 */
+	public static Map<String, AttendanceFlag> attendanceFlags(List<LegacyAttendanceRangeRows.Row> rows) {
 		Map<String, AttendanceFlag> byDate = new LinkedHashMap<>();
-		for (AttendanceRow row : rows) {
+		for (LegacyAttendanceRangeRows.Row row : rows) {
 			if (row.checkIn() == null || row.checkIn().isEmpty()) {
 				continue;
 			}
@@ -187,9 +200,6 @@ public class LegacyWeeklyRestCredit {
 			}
 		}
 		return byDate;
-	}
-
-	private record AttendanceRow(String checkIn, String checkOut, Object exceptionTypeId) {
 	}
 
 }

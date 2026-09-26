@@ -63,14 +63,20 @@ public class LegacyAttendanceWorkedMinutes {
 	 * "mission"), or null.
 	 */
 	public TimedRequest approvedTimedRequestForDay(long employeeId, String dateYmd) {
-		List<TimedRequest> rows = jdbcTemplate.query(
-				APPROVED_TIMED_REQUEST_FOR_DAY,
-				(rs, index) -> new TimedRequest(rs.getString("from_time"), rs.getString("to_time")),
-				employeeId, dateYmd, dateYmd);
-		if (rows.isEmpty()) {
+		TimedRequest row;
+		if (calendar.timedRequestWarmed(employeeId, dateYmd)) {
+			// A report read this for its whole roster and range at once (D-292).
+			row = calendar.warmedTimedRequest(employeeId, dateYmd);
+		} else {
+			List<TimedRequest> rows = jdbcTemplate.query(
+					APPROVED_TIMED_REQUEST_FOR_DAY,
+					(rs, index) -> new TimedRequest(rs.getString("from_time"), rs.getString("to_time")),
+					employeeId, dateYmd, dateYmd);
+			row = rows.isEmpty() ? null : rows.get(0);
+		}
+		if (row == null) {
 			return null;
 		}
-		TimedRequest row = rows.get(0);
 		String from = row.fromTime() == null ? "" : row.fromTime().trim();
 		String to = row.toTime() == null ? "" : row.toTime().trim();
 		return from.isEmpty() || to.isEmpty() ? null : new TimedRequest(from, to);

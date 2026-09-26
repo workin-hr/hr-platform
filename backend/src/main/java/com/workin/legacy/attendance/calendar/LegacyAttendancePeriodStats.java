@@ -60,6 +60,10 @@ public class LegacyAttendancePeriodStats {
 
 	public PeriodStats employeePeriodStats(
 			long companyId, long employeeId, String from, String to, String weeklyRestLabel, LocalDate today) {
+		// Every per-day answer below -- shift, holiday, fallback hours, timed
+		// request, approved leave -- read once for the period rather than once per
+		// day (D-292), so a year costs what a week does.
+		calendar.warmReportRange(companyId, List.of(employeeId), from, to);
 		Map<String, ByDate> byDate = new LinkedHashMap<>();
 		for (DayRow row : jdbcTemplate.query(
 				ATTENDANCE_IN_RANGE,

@@ -158,24 +158,29 @@ public class LegacyAttendanceExportService {
 
 		List<List<String>> rows = new ArrayList<>();
 		List<Integer> rowStyles = new ArrayList<>();
-		int rowNumber = 0;
 
-		for (LegacyOverallReportStore.EmployeeRow employee
-				: reportStore.fingerprintEmployees(scopeFor(companyId, selfEmployeeId, managerEmployeeId, filters))) {
-			// capAtToday = true, exactly as PHP passes it
-			// (`data_export_helper.php:268`). A default export before month-end
-			// therefore stops at today even though the filename names the whole
-			// month -- legacy's behaviour, and changing it here would diverge.
-			for (Map<String, Object> day : rangeCalendar.buildEmployeeRangeCalendar(
-					companyId, employee.id(), from, to, true, weeklyRestLabel, today)) {
-				rowNumber++;
+		List<LegacyOverallReportStore.EmployeeRow> employees =
+				reportStore.fingerprintEmployees(scopeFor(companyId, selfEmployeeId, managerEmployeeId, filters));
+		// capAtToday = true, exactly as PHP passes it
+		// (`data_export_helper.php:268`). A default export before month-end
+		// therefore stops at today even though the filename names the whole
+		// month -- legacy's behaviour, and changing it here would diverge.
+		// One read for the whole roster (D-292); each employee's days are turned
+		// into cells as soon as they are built and then dropped.
+		int[] rowNumber = { 0 };
+		rangeCalendar.forEachEmployeeRangeCalendar(
+				companyId, employees.stream().map(LegacyOverallReportStore.EmployeeRow::id).toList(),
+				from, to, true, weeklyRestLabel, today, (index, days) -> {
+			LegacyOverallReportStore.EmployeeRow employee = employees.get(index);
+			for (Map<String, Object> day : days) {
+				rowNumber[0]++;
 				String dateStr = text(day.get("date"));
 				String checkIn = blankToNull(day.get("check_in"));
 				String checkOut = blankToNull(day.get("check_out"));
 				boolean incomplete = checkIn == null || checkOut == null;
 
 				rows.add(List.of(
-						String.valueOf(rowNumber),
+						String.valueOf(rowNumber[0]),
 						text(employee.employeeCode()),
 						text(employee.name()),
 						dateStr.isEmpty() ? "" : LegacyAttendanceExportFormat.attendanceDate(dateStr, today),
@@ -190,7 +195,7 @@ public class LegacyAttendanceExportService {
 						truthy(day.get("is_missing")), truthy(day.get("is_weekly_rest")),
 						truthy(day.get("is_official_holiday")), checkIn != null, checkOut != null));
 			}
-		}
+		});
 
 		return new Sheet("fingerprints_" + from + "_" + to + ".xlsx", rows, rowStyles);
 	}

@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyPhpStrtotime;
 import com.workin.legacy.attendance.calendar.LegacyAttendanceCalendar;
+import com.workin.legacy.attendance.calendar.LegacyAttendanceRangeRows;
 import com.workin.legacy.attendance.calendar.LegacyAttendanceReportDetails;
 import com.workin.legacy.attendance.calendar.LegacyReportRange;
 import com.workin.legacy.attendance.calendar.LegacyWeeklyRestCredit;
@@ -53,18 +54,18 @@ public class LegacyOverallReportService {
 	private final LegacyAttendanceReportDetails details;
 	private final LegacyPayrollAttendanceFigures figures;
 	private final LegacyAttendanceCalendar calendar;
-	private final LegacyWeeklyRestCredit weeklyRestCredit;
+	private final LegacyAttendanceRangeRows rangeRows;
 	private final LegacyClock clock;
 
 	public LegacyOverallReportService(
 			LegacyOverallReportStore store, LegacyAttendanceReportDetails details,
 			LegacyPayrollAttendanceFigures figures, LegacyAttendanceCalendar calendar,
-			LegacyWeeklyRestCredit weeklyRestCredit, LegacyClock clock) {
+			LegacyAttendanceRangeRows rangeRows, LegacyClock clock) {
 		this.store = store;
 		this.details = details;
 		this.figures = figures;
 		this.calendar = calendar;
-		this.weeklyRestCredit = weeklyRestCredit;
+		this.rangeRows = rangeRows;
 		this.clock = clock;
 	}
 
@@ -123,35 +124,80 @@ public class LegacyOverallReportService {
 				positiveOrNull(filters.departmentId()),
 				filters.search() == null || filters.search().isBlank() ? null : filters.search().trim());
 
+		List<LegacyOverallReportStore.EmployeeRow> employees = store.employees(scope, periodFrom, rangeTo);
+		boolean computed = totalDaysInPeriod > 0 && rangeTo.compareTo(periodFrom) >= 0;
+		List<Long> computedIds = computed
+				? employees.stream().map(LegacyOverallReportStore.EmployeeRow::id).filter(id -> id > 0).toList()
+				: List.of();
+		Prefetched prefetched = prefetch(companyId, computedIds, periodFrom, rangeTo, labels);
+
 		List<Map<String, Object>> report = new ArrayList<>();
-		for (LegacyOverallReportStore.EmployeeRow employee : store.employees(scope, periodFrom, rangeTo)) {
-			report.add(totalDaysInPeriod <= 0 || employee.id() <= 0 || rangeTo.compareTo(periodFrom) < 0
+		for (LegacyOverallReportStore.EmployeeRow employee : employees) {
+			report.add(!computed || employee.id() <= 0
 					? emptyRow(employee, periodFrom, periodTo, labels)
-					: row(companyId, employee, periodFrom, periodTo, rangeTo, asOf, totalDaysInPeriod, labels));
+					: row(companyId, employee, periodFrom, periodTo, rangeTo, asOf, totalDaysInPeriod, labels,
+							prefetched));
 		}
 		return report;
+	}
+
+	/**
+	 * What every computed row reads, read once for all of them (D-292).
+	 *
+	 * <p>Legacy reads per employee -- its attendance four times over, its leave
+	 * days, its work hours, its present days -- and per employee per day for
+	 * everything the day rules ask. Here each is one statement per
+	 * {@link com.workin.legacy.attendance.calendar.LegacyIdBatches batch} of the
+	 * roster, and the day rules are answered from
+	 * {@link LegacyAttendanceCalendar#warmReportRange}, so the report's statement
+	 * count is the same for ten employees as for five hundred, and for a week as
+	 * for a year. The arithmetic below is untouched.
+	 *
+	 * @param rows the attendance from {@code periodFrom - 7} -- the weekly-rest
+	 *        look-back -- to {@code rangeTo}, the widest window any figure reads
+	 */
+	private record Prefetched(
+			Map<Long, List<LegacyAttendanceRangeRows.Row>> rows,
+			Map<Long, List<Map<String, Object>>> presentDetails,
+			Map<Long, Integer> paidLeaveDays) {
+	}
+
+	private Prefetched prefetch(
+			long companyId, List<Long> employeeIds, String periodFrom, String rangeTo, Labels labels) {
+		if (employeeIds.isEmpty()) {
+			return new Prefetched(Map.of(), Map.of(), Map.of());
+		}
+		calendar.warmReportRange(companyId, employeeIds, periodFrom, rangeTo);
+		String lookbackFrom = LocalDate.parse(periodFrom).minusDays(7).toString();
+		return new Prefetched(
+				rangeRows.byEmployee(employeeIds, lookbackFrom, rangeTo),
+				figures.attendancePresentDetails(employeeIds, periodFrom, rangeTo, labels.presentDay()),
+				figures.approvedLeaveDays(employeeIds, periodFrom, rangeTo));
 	}
 
 	private Map<String, Object> row(
 			long companyId, LegacyOverallReportStore.EmployeeRow employee,
 			String periodFrom, String periodTo, String rangeTo, String asOf,
-			int totalDaysInPeriod, Labels labels) {
+			int totalDaysInPeriod, Labels labels, Prefetched prefetched) {
 
 		long employeeId = employee.id();
 		int present = employee.presentDays();
+		// periodFrom - 7 to rangeTo: exactly the window the weekly-rest flags
+		// read, and a superset of every other figure's.
+		List<LegacyAttendanceRangeRows.Row> rows = prefetched.rows().getOrDefault(employeeId, List.of());
 
 		// The credit is earned only once the employee has covered enough
 		// workdays; the gate is applied here, on the query's present_days, not
 		// inside the helper.
 		int holidayCredit = present < MIN_COVERED_WORKDAYS
 				? 0
-				: details.holidayCreditDays(companyId, employeeId, periodFrom, rangeTo);
+				: details.holidayCreditDays(companyId, employeeId, rows, periodFrom, rangeTo);
 
-		int paidLeaveDays = figures.approvedLeaveDays(employeeId, periodFrom, rangeTo);
+		int paidLeaveDays = prefetched.paidLeaveDays().getOrDefault(employeeId, 0);
 		BigDecimal workHoursPerDay = figures.employeeWorkHoursPerDay(employeeId);
 
 		Map<String, LegacyWeeklyRestCredit.AttendanceFlag> attendanceFlags =
-				weeklyRestCredit.attendanceFlagsInRange(companyId, employeeId, periodFrom, rangeTo);
+				LegacyWeeklyRestCredit.attendanceFlags(rows);
 		String lookbackFrom = LocalDate.parse(periodFrom).minusDays(7).toString();
 		Map<String, String> holidayByDate = calendar.holidaysByDate(companyId, lookbackFrom, rangeTo);
 
@@ -177,21 +223,19 @@ public class LegacyOverallReportService {
 				present + holidayCredit + paidLeaveDays + earnedWeeklyRest);
 
 		LegacyAttendanceReportDetails.WorkMinutes workMinutes =
-				details.periodWorkMinutes(companyId, employeeId, periodFrom, rangeTo, labels.weeklyRest());
+				details.periodWorkMinutes(companyId, employeeId, rows, periodFrom, rangeTo, labels.weeklyRest());
 
 		List<Map<String, Object>> absentDetails = new ArrayList<>(details.absentDetails(
-				companyId, employeeId, periodFrom, rangeTo, asOf,
-				labels.absentDay(), labels.presentDay(), labels.weeklyRest()));
+				companyId, employeeId, rows, periodFrom, rangeTo, asOf, labels.absentDay(), labels.weeklyRest()));
 		absentDetails.addAll(details.voidWeeklyRestAbsentDetails(
 				companyId, employeeId, periodFrom, rangeTo, attendanceFlags, holidayByDate, asOf,
-				labels.voidWeeklyRest()));
+				labels.voidWeeklyRest(), rows));
 		absentDetails.sort(Comparator.comparing(entry -> (String) entry.getOrDefault("date", "")));
 
 		Map<String, Object> row = identity(employee);
 		row.put("total_days_in_month", totalDaysInPeriod);
 		row.put("present_days", present);
-		row.put("present_details", figures.attendancePresentDetails(
-				employeeId, periodFrom, rangeTo, labels.presentDay()));
+		row.put("present_details", prefetched.presentDetails().getOrDefault(employeeId, List.of()));
 		row.put("official_holiday_days", holidayCredit);
 		row.put("paid_leave_days", paidLeaveDays);
 		row.put("earned_weekly_rest_days", earnedWeeklyRest);
@@ -201,7 +245,7 @@ public class LegacyOverallReportService {
 		row.put("absent_days", absent);
 		row.put("absent_details", absentDetails);
 		row.put("exception_days", employee.exceptionDays());
-		row.put("exception_details", details.exceptionDetails(employeeId, periodFrom, rangeTo));
+		row.put("exception_details", details.exceptionDetails(rows, periodFrom, rangeTo));
 		row.put("total_duration_minutes", workMinutes.workedMinutes());
 		row.put("paid_rest_days", paidRestDays);
 		row.put("paid_rest_minutes", paidRestMinutes);
