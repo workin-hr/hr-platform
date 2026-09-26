@@ -242,6 +242,3 @@ is expand-migrate-contract on a live table and needs its own decision.
 
 - The 16 company pairs: which of each pair is the real account is an owner
   decision, and phase 2 cannot start until it is made.
-- Whether the dashboard's employee form (`EmployeeAdminService`), which has
-  no uniqueness pre-check in legacy either, should gain one over the
-  canonical number rather than relying on the exact-spelling unique index.

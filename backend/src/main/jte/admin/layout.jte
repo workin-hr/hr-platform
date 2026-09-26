@@ -101,10 +101,10 @@
 	<%-- The drawer: opening, the backdrop, Escape, and the focus trap
 	     that a drawer over a backdrop needs to be honest about. --%>
 	<script src="/admin/_assets/nav-drawer.js"></script>
-	<%-- A form with a country_code and a phone gets legacy's number checks:
-	     digits only, the country's length, and a refused submit. Legacy loads
-	     these on every page; here they come with a page's rules, because
-	     phone-form-bind.js with no rules refuses every number. --%>
+	<%-- A form with a country_code and a phone refuses a phone with no
+	     country; whether the number is valid is the server's libphonenumber
+	     check alone (D-291), so no length or prefix is enforced here. The
+	     rules tag publishes phone_countries for display only. --%>
 @if(phoneCountryRules != null)
 	<script src="/admin/_assets/phone-countries-rules.js" data-rules="${phoneCountryRules}"></script>
 	<script src="/admin/_assets/phone-validator.js"></script>

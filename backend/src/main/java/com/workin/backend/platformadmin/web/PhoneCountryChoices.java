@@ -10,19 +10,21 @@ import com.workin.legacy.phone.LegacyPhoneNumbers;
 
 /**
  * What a company or employee form needs from {@code phone_countries}: the country
- * select's options and the rules {@code phone-validator.js} judges a number by.
+ * select's options and each country's length and prefixes, published for display
+ * only. Legacy's {@code phone-validator.js} judged a number by them; since D-291 the
+ * browser enforces none of it and the server's libphonenumber check is the one
+ * authority (ADR-0020).
  *
  * <p>{@link #options()} are {@code phone_country_codes_for_select()}, each labelled
  * by {@code phone_country_option_label()} ({@code phone_countries_helper.php:375-397}):
  * flag, localized name, then the code in brackets. {@link #rules()} is
  * {@code phone_countries_validation_rules_for_js()} ({@code :358-373}) as JSON, the
  * value legacy's layout assigns to {@code window.WorkinPhoneCountriesRules}. Both come
- * from one read of the active rows, the table the save's own check reads too; like
- * legacy's, that check judges {@code +20} by a fixed pattern rather than by its row.
+ * from one read of the active rows, the table that decides which countries are
+ * offered.
  *
  * <p>{@link #NONE} where the legacy database is not there to read. Its rules are
- * null, and the layout loads no phone script without rules, because
- * {@code phone-form-bind.js} with no rules refuses every number.
+ * null, and the layout loads no phone script without rules.
  */
 public record PhoneCountryChoices(String rules, List<Option> options) {
 
