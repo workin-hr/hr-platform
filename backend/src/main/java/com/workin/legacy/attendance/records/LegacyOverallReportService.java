@@ -169,9 +169,10 @@ public class LegacyOverallReportService {
 		}
 		calendar.warmReportRange(companyId, employeeIds, periodFrom, rangeTo);
 		String lookbackFrom = LocalDate.parse(periodFrom).minusDays(7).toString();
+		Map<Long, List<LegacyAttendanceRangeRows.Row>> rows = rangeRows.byEmployee(employeeIds, lookbackFrom, rangeTo);
 		return new Prefetched(
-				rangeRows.byEmployee(employeeIds, lookbackFrom, rangeTo),
-				figures.attendancePresentDetails(employeeIds, periodFrom, rangeTo, labels.presentDay()),
+				rows,
+				figures.attendancePresentDetails(rows, periodFrom, rangeTo, labels.presentDay()),
 				figures.approvedLeaveDays(employeeIds, periodFrom, rangeTo));
 	}
 
