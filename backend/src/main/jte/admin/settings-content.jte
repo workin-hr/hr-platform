@@ -1,6 +1,7 @@
 @import java.util.List
 @import java.util.function.Function
 @import com.workin.backend.platformadmin.settings.AppContentEntry
+@import com.workin.backend.platformadmin.web.AdminIcons
 @param List<AppContentEntry> content
 @param String activeKey
 @param String csrfParameterName
@@ -20,9 +21,9 @@
 			        role="tab"
 			        data-app-content-tab="${entry.key()}"
 			        aria-selected="${entry.key().equals(activeKey)}">
-				<span class="app-content-tab__icon">${"shield".equals(entry.icon()) ? "🛡"
-					: "guide".equals(entry.icon()) ? "📖"
-					: "document".equals(entry.icon()) ? "📄" : "📝"}</span>
+				<span class="app-content-tab__icon" aria-hidden="true">$unsafe{AdminIcons.of(
+					"shield".equals(entry.icon()) ? "shield"
+					: "guide".equals(entry.icon()) ? "app_content" : "requests", "inline-icon")}</span>
 				<span>${"ar".equals(lang) ? entry.labelAr() : entry.labelEn()}</span>
 			</button>
 		@endfor

@@ -110,7 +110,7 @@ public class AdminShiftsController {
 				case "delete" -> AdminFlash.deleted(redirect, model);
 				default -> AdminFlash.saved(redirect, model);
 			}
-			return "redirect:" + PATH;
+			return "redirect:" + PATH + AdminReturnTo.query(request, PATH, wrote);
 		} catch (ShiftAdminService.RefusedException refused) {
 			return "redirect:" + PATH + failureTail(action, id) + "&error=" + messageKey(refused);
 		}

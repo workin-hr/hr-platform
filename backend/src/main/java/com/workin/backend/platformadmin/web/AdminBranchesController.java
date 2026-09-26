@@ -143,7 +143,7 @@ public class AdminBranchesController {
 			}
 			return "generate_qr".equals(action)
 					? "redirect:" + PATH + "?action=qr&id=" + id
-					: "redirect:" + PATH;
+					: "redirect:" + PATH + AdminReturnTo.query(request, PATH, wrote);
 		} catch (BranchAdminService.RefusedException refused) {
 			return "redirect:" + PATH + failureTail(action, id) + "&error=" + messageKey(refused);
 		}

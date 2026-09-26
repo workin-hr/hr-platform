@@ -187,6 +187,15 @@ public class AdminDevicesController {
 		long adminId = principal.platformAdminId();
 		DashboardSession session = DashboardSession.admin(DashboardOrgScope.current(request.getSession(false)));
 		String back = "device_active".equals(action) || "import".equals(action) ? PATH + "?device=" + id : PATH;
+		// Every list's page and the page size come back with the action (#347),
+		// when the referring page is the view the action returns to: the overview
+		// for an overview action, this terminal's page for a terminal action.
+		String carried = AdminReturnTo.query(request, PATH, 0L);
+		String carriedDevice = AdminReturnTo.parameter(carried, "device");
+		if (!carried.isEmpty() && (back.equals(PATH)
+				? carriedDevice == null : String.valueOf(id).equals(carriedDevice))) {
+			back = PATH + carried;
+		}
 		try {
 			switch (action) {
 				case "allocate" -> {

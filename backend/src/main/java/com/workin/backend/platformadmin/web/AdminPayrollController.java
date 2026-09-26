@@ -233,10 +233,10 @@ public class AdminPayrollController {
 			// administrator stays unfiltered after finalizing one company's batch
 			// and can go straight on to another's -- which is R-044's reach and
 			// is what AdminPayrollTenantIsolationTest asserts.
-			return "redirect:" + PATH;
+			return "redirect:" + PATH + AdminReturnTo.query(request, PATH, 0L);
 		}
 		catch (PayrollAdminService.RefusedException refused) {
-			return "redirect:" + PATH + "?error=" + messageKey(refused);
+			return "redirect:" + PATH + AdminReturnTo.queryWithError(request, PATH, messageKey(refused));
 		}
 	}
 

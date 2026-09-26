@@ -110,7 +110,10 @@ public class PlatformAdminCompaniesController {
 				default -> {
 				}
 			}
-			return "redirect:" + PlatformAdminWebSecurityConfig.COMPANIES_PATH;
+			// Back to the page and filters the ⋮ menu was used on (D-286). The
+			// POST goes to /action, but the referrer is the list itself.
+			return "redirect:" + PlatformAdminWebSecurityConfig.COMPANIES_PATH
+					+ AdminReturnTo.query(request, PlatformAdminWebSecurityConfig.COMPANIES_PATH, 0L);
 		}
 		render(model, request);
 		model.addAttribute("errorKey", switch (outcome) {

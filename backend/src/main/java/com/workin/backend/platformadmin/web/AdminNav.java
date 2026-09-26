@@ -111,7 +111,7 @@ public final class AdminNav {
 				new Item("requests", "nav_employee_requests", "requests"),
 				new Item("leave_balances", "nav_leave_balances", "leave"),
 				new Item("penalties", "nav_penalties", "penalties"),
-				new Item("administrative_decisions", "nav_administrative_decisions", "requests"),
+				new Item("administrative_decisions", "nav_administrative_decisions", "decision"),
 				new Item("assets", "nav_assets", "asset"),
 				new Item("advances", "nav_advances", "advances"),
 				new Item("workforce_planning", "nav_workforce_planning", "workforce")));
@@ -127,9 +127,9 @@ public final class AdminNav {
 		List<Item> items = new ArrayList<>();
 		addIf(items, session, DashboardAccess::canViewPayrollSection, List.of(
 				new Item("salary_calculator", "nav_salary_calculator", "calculator"),
-				new Item("attendance", "nav_fingerprints", "attendance")));
+				new Item("attendance", "nav_fingerprints", "fingerprint")));
 		if (DashboardAccess.canViewPage(session, "devices")) {
-			items.add(new Item("devices", "nav_devices", "attendance"));
+			items.add(new Item("devices", "nav_devices", "device"));
 		}
 		addIf(items, session, DashboardAccess::canViewPayrollSection, List.of(
 				new Item("payroll", "nav_payroll", "payroll")));

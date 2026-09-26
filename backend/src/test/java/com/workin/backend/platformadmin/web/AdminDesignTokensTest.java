@@ -314,7 +314,7 @@ class AdminDesignTokensTest {
 		assertThat(dataUriColours)
 				.as("the colours read inside data: URIs, every one a token's value; pinned so the "
 						+ "arm that reads them cannot stop matching unnoticed")
-				.isEqualTo(18);
+				.isEqualTo(19);
 		assertThat(literals).isEmpty();
 		assertThat(exemptionsUsed)
 				.as("an exemption whose literal is gone is a stale entry to delete, the same way "
@@ -798,7 +798,9 @@ class AdminDesignTokensTest {
 		assertThat(skipped)
 				.as("skipped, because a stop is transparent or the resolver cannot reach "
 						+ "it at build time (a var() fallback, a runtime override)")
-				.hasSize(10);
+				// 12: D-287's two accent glows on a banner slide without a picture
+				// fade to transparent by design.
+				.hasSize(12);
 	}
 
 	/** The tokens that paint text a reader has to read. */

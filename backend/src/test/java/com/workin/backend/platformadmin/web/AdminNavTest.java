@@ -179,4 +179,26 @@ class AdminNavTest {
 		assertThat(AdminIcons.of(AdminNav.HOME.icon())).isNotEmpty();
 	}
 
+	@Test
+	void noTwoEntriesInOneMenuDrawTheSameGlyph() {
+		// Two pages under one picture read as one page twice: devices and
+		// fingerprints, requests and decisions, advances and the salaries
+		// group all did (D-287). Compared by the drawing, not the name, so
+		// two names aliasing one path are caught too.
+		for (DashboardSession session : List.of(ADMIN, OWNER)) {
+			java.util.Map<String, String> seen = new java.util.HashMap<>();
+			java.util.function.BiConsumer<String, String> check = (entry, icon) -> {
+				String previous = seen.putIfAbsent(AdminIcons.of(icon), entry);
+				assertThat(previous).as("%s draws the same glyph as %s", entry, previous).isNull();
+			};
+			check.accept("home", AdminNav.HOME.icon());
+			for (AdminNav.Group group : AdminNav.groups(session)) {
+				check.accept("group " + group.icon(), group.icon());
+				for (AdminNav.Item item : group.items()) {
+					check.accept(item.page(), item.icon());
+				}
+			}
+		}
+	}
+
 }

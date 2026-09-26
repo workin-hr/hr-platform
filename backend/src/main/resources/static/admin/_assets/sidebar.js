@@ -37,12 +37,15 @@
         g.open = saved[id];
       }
     });
+    // The current page's group is the one open. A saved state kept every
+    // group the operator had ever passed through open, and by the third page
+    // the menu was taller than the screen with its last groups out of view.
     const active = nav.querySelector('.nav-link.active');
-    if (active) {
-      const parent = active.closest('details.nav-group');
-      if (parent) {
-        parent.open = true;
-      }
+    const parent = active ? active.closest('details.nav-group') : null;
+    if (parent) {
+      groups.forEach((g) => {
+        g.open = g === parent;
+      });
     }
   }
 
@@ -66,8 +69,19 @@
     });
   });
 
+  // An accordion: opening a group closes the others, so the menu stays one
+  // screen tall.
   groups.forEach((g) => {
-    g.addEventListener('toggle', saveGroupsState);
+    g.addEventListener('toggle', () => {
+      if (g.open) {
+        groups.forEach((other) => {
+          if (other !== g && other.open) {
+            other.open = false;
+          }
+        });
+      }
+      saveGroupsState();
+    });
   });
 
   nav.addEventListener('click', (e) => {
