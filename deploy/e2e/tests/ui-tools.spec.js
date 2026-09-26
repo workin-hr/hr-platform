@@ -130,7 +130,7 @@ const BODY = `${FILTERS}
       <div class="form-row"><label for="day">اليوم</label>
         <input type="date" id="day" name="day" data-dialog-field="day"></div>
       <div class="form-row"><label for="punch">الحضور</label>
-        <input type="datetime-local" id="punch" name="check_in" step="1" data-dialog-field="check_in"></div>
+        <input type="datetime-local" id="punch" name="check_in" required step="1" data-dialog-field="check_in"></div>
       <div class="form-footer"><button type="submit" class="btn btn-blue">save</button></div>
     </form>
   </div>
@@ -557,6 +557,34 @@ test.describe('inside a dialog, and after a round of review (D-288)', () => {
 		await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(0);
 		await expect(page.locator('#edit')).toHaveClass(/open/);
 		await expect(page.locator('#punch-picker')).toBeFocused();
+	});
+});
+
+test.describe('a read-only date-time field (review round 4)', () => {
+	test('Escape in the field closes its calendar and keeps the dialog', async ({ page }) => {
+		await page.locator('#edit-trigger').click();
+		await page.locator('#punch-picker').click();
+		await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(1);
+		await page.keyboard.press('Escape');
+		await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(0);
+		await expect(page.locator('#edit')).toHaveClass(/open/);
+		await expect(page.locator('#punch-picker')).toBeFocused();
+	});
+
+	test('Enter with the calendar open closes it without submitting', async ({ page }) => {
+		await page.locator('#edit-trigger').click();
+		await page.locator('#punch-picker').click();
+		await page.keyboard.press('Enter');
+		await expect(page.locator('.flatpickr-calendar.open')).toHaveCount(0);
+		await page.waitForTimeout(200);
+		expect(posts).toEqual([]);
+	});
+
+	test('Backspace cannot empty a required read-only field', async ({ page }) => {
+		await page.locator('#edit-trigger').click();
+		await page.locator('#punch-picker').click();
+		await page.keyboard.press('Backspace');
+		await expect(page.locator('#punch')).toHaveValue('2026-09-26T08:00:45');
 	});
 });
 

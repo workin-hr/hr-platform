@@ -45,18 +45,27 @@
       onReady: function (_, __, instance) {
         if (instance.altInput && !instance.isMobile) {
           instance.altInput.addEventListener('click', function () { instance.open(); });
+          // Capture phase: flatpickr's own keydown on this field runs first
+          // otherwise, and on a read-only field it closes the calendar on
+          // Escape without stopping the key, which then closed the dialog.
           instance.altInput.addEventListener('keydown', function (event) {
             if (event.key === 'ArrowDown' && !instance.isOpen) {
               event.preventDefault();
               instance.open();
-            } else if (event.key === 'Escape' && instance.isOpen) {
-              // The calendar, not the dialog around it: flatpickr ignores
-              // Escape in a typable field, and modal-a11y would close the dialog.
+            } else if ((event.key === 'Escape' || event.key === 'Enter') && instance.isOpen) {
+              // The calendar, not the dialog around it: Escape would close the
+              // dialog and Enter would submit it with the picker still open.
               event.preventDefault();
               event.stopPropagation();
               instance.close();
+            } else if ((event.key === 'Backspace' || event.key === 'Delete')
+                && input.required && instance.config.allowInput === false) {
+              // flatpickr clears a read-only field on these keys, and the
+              // browser does not check `required` on a read-only field.
+              event.preventDefault();
+              event.stopPropagation();
             }
-          });
+          }, true);
           // Escape anywhere in the calendar -- the hour and minute fields of a
           // date-time are in it, and it lives in <body>, outside the dialog --
           // closes the calendar and returns to the field.
