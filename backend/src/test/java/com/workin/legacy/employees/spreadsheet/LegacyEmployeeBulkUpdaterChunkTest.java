@@ -59,12 +59,18 @@ class LegacyEmployeeBulkUpdaterChunkTest {
 				st.execute("DELETE FROM " + table);
 			}
 			st.execute("DROP TRIGGER IF EXISTS bulk359_refuse_shift");
+			st.execute("DROP TRIGGER IF EXISTS bulk359_retire_title");
 			st.execute("INSERT IGNORE INTO companies (id, company_name, phone, status, created_at) VALUES"
 					+ " (35951, 'Chunk Co', '+201000035951', 'active', '2025-01-15 09:00:00')");
 			st.execute("INSERT IGNORE INTO branches (id, company_id, name, is_active, created_at) VALUES"
 					+ " (359511, 35951, 'Main', 1, '2025-03-01 10:00:00')");
 			st.execute("INSERT IGNORE INTO shifts (id, company_id, name, start_time, end_time, created_at) VALUES"
 					+ " (359541, 35951, 'Day', '09:00:00', '17:00:00', '2025-04-12 10:00:00')");
+			st.execute("INSERT IGNORE INTO departments (id, company_id, name, is_active, created_at) VALUES"
+					+ " (359521, 35951, 'Ops', 1, '2025-04-10 10:00:00')");
+			st.execute("INSERT IGNORE INTO job_titles (id, company_id, department_id, name, is_active, created_at)"
+					+ " VALUES (359531, 35951, 359521, 'Welder', 1, '2025-04-10 10:00:00')");
+			st.execute("UPDATE job_titles SET is_active = 1 WHERE id = 359531");
 			StringBuilder values = new StringBuilder("(" + ADMIN + ", 35951, 359511, '1', 'Rana', 'Admin',"
 					+ " '01059599999', '+20', 'company_admin', 1, '2025-04-01 08:00:00')");
 			for (int n = 0; n < EMPLOYEES; n++) {
@@ -74,6 +80,7 @@ class LegacyEmployeeBulkUpdaterChunkTest {
 			}
 			st.execute("INSERT INTO employees (id, company_id, branch_id, employee_code, first_name, last_name,"
 					+ " phone, country_code, role, is_active, created_at) VALUES " + values);
+			st.execute("UPDATE employees SET department_id = 359521 WHERE company_id = 35951");
 		}
 
 		DataSource plain = new DriverManagerDataSource(MARIADB.getJdbcUrl(), MARIADB.getUsername(),
@@ -132,6 +139,38 @@ class LegacyEmployeeBulkUpdaterChunkTest {
 	}
 
 	/**
+	 * A job title retired while the sheet is being applied is seen by the
+	 * next chunk, as the per-row check saw it on the next row: each chunk's
+	 * references are read just before it is validated, not once per request.
+	 */
+	@Test
+	void aReferenceRetiredWhileTheSheetAppliesIsSeenByTheNextChunk() throws Exception {
+		try (Connection connection = MARIADB.connect(); Statement st = connection.createStatement()) {
+			// The first chunk's shift assignment retires the title the second chunk names.
+			st.execute("CREATE TRIGGER bulk359_retire_title AFTER INSERT ON employee_shift_assignments"
+					+ " FOR EACH ROW UPDATE job_titles SET is_active = 0 WHERE id = 359531");
+		}
+		List<Object> rows = new ArrayList<>();
+		for (int n = 0; n < CHUNK + 1; n++) {
+			Map<String, Object> row = new LinkedHashMap<>();
+			row.put("employee_code", String.valueOf(80000 + n));
+			row.put("first_name", "Renamed" + n);
+			row.put(n < CHUNK ? "shift_name" : "job_title_name", n < CHUNK ? "Day" : "Welder");
+			rows.add(row);
+		}
+
+		Map<String, Object> result = update(rows);
+
+		@SuppressWarnings("unchecked")
+		List<Map<String, Object>> failed = (List<Map<String, Object>>) result.get("failed");
+		assertThat(failed).singleElement().satisfies(row -> {
+			assertThat(row).containsEntry("row_index", (long) CHUNK + 1);
+			assertThat(row).containsEntry("errors", List.of("job_title_department_mismatch"));
+		});
+		assertThat(firstName(CHUNK)).isEqualTo("Original");
+	}
+
+	/**
 	 * A chunk whose commit fails may or may not have landed, so it is not
 	 * replayed -- a replay could write each row's shift assignment twice.
 	 * Its rows are reported failed, as PHP reports a row whose commit failed;
@@ -169,6 +208,10 @@ class LegacyEmployeeBulkUpdaterChunkTest {
 			row.put("shift_name", "Day");
 			rows.add(row);
 		}
+		return update(rows);
+	}
+
+	private Map<String, Object> update(List<Object> rows) {
 		LegacyRequestContext admin = new LegacyRequestContext(ADMIN, COMPANY, LegacyEmployee.Role.COMPANY_ADMIN, "");
 		LegacyEmployeeSpreadsheetLookups lookups = new LegacyEmployeeSpreadsheetLookups(
 				this.store.spreadsheetLookup("branches", COMPANY, true),

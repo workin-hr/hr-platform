@@ -18,15 +18,17 @@ import com.workin.legacy.phone.LegacyPhoneNumbers;
 import com.workin.legacy.phone.PhoneLookup;
 
 /**
- * Everything one bulk-update sheet reads from the database, read before its
- * first row is validated (D-294).
+ * What one bulk-update sheet knows about the database, read in sets rather
+ * than per row (D-294).
  *
  * <p>{@code employee_excel_row_to_update_payload()} asks the database up to
  * five questions per row -- shift, department-in-branch, title-in-department,
  * the phone countries, the global phone check -- and the apply step asks
- * more. Each is answered here from sets fetched once per chunk of
- * identifiers, so validating a row costs no statement and a sheet's reads
- * grow with its chunk count, not with its rows times its checks.
+ * more. Each is answered here: the company's employees and the phone
+ * countries once per sheet, and the rest from sets re-read for each chunk
+ * just before it is validated
+ * ({@link LegacyEmployeeUpdateAnalyzer#refresh}), so validating a row costs
+ * no statement and what a chunk sees is at most one chunk old.
  *
  * <h2>The one answer a sheet changes as it applies</h2>
  * <p>Rows are applied in order, and PHP validates each row after the rows
@@ -49,13 +51,14 @@ final class LegacyEmployeeUpdateSheet {
 
 	private final LegacyPhoneNumbers phoneNumbers;
 
-	private final Set<Long> shiftsInCompany;
+	/** The current chunk's references, replaced by {@link #replaceReferences} for each chunk. */
+	private Set<Long> shiftsInCompany = Set.of();
 
-	private final Set<LegacyEmployeeUpdateSheetStore.DepartmentBranch> departmentBranches;
+	private Set<LegacyEmployeeUpdateSheetStore.DepartmentBranch> departmentBranches = Set.of();
 
-	private final Set<Long> activeDepartmentsInCompany;
+	private Set<Long> activeDepartmentsInCompany = Set.of();
 
-	private final Map<Long, Long> activeJobTitleDepartments;
+	private Map<Long, Long> activeJobTitleDepartments = Map.of();
 
 	/** Holder rows by the E.164 number their own {@code (phone, country_code)} is. */
 	private final Map<String, Map<Long, Map<String, Object>>> holdersByNumber = new HashMap<>();
@@ -68,17 +71,21 @@ final class LegacyEmployeeUpdateSheet {
 
 	LegacyEmployeeUpdateSheet(long companyId, LegacyEmployeeSpreadsheetLookups lookups,
 			Map<String, Map<String, Object>> employeesByCode, LegacyPhoneCountries phoneCountries,
-			LegacyPhoneNumbers phoneNumbers, Set<Long> shiftsInCompany, Set<LegacyEmployeeUpdateSheetStore.DepartmentBranch> departmentBranches,
-			Set<Long> activeDepartmentsInCompany, Map<Long, Long> activeJobTitleDepartments) {
+			LegacyPhoneNumbers phoneNumbers) {
 		this.companyId = companyId;
 		this.lookups = lookups;
 		this.employeesByCode = employeesByCode;
 		this.phoneCountries = phoneCountries;
 		this.phoneNumbers = phoneNumbers;
-		this.shiftsInCompany = shiftsInCompany;
-		this.departmentBranches = departmentBranches;
-		this.activeDepartmentsInCompany = activeDepartmentsInCompany;
-		this.activeJobTitleDepartments = activeJobTitleDepartments;
+	}
+
+	/** The next chunk's shifts, department-branch links, active departments and job titles, as just read. */
+	void replaceReferences(Set<Long> shifts, Set<LegacyEmployeeUpdateSheetStore.DepartmentBranch> links,
+			Set<Long> activeDepartments, Map<Long, Long> activeJobTitles) {
+		this.shiftsInCompany = shifts;
+		this.departmentBranches = links;
+		this.activeDepartmentsInCompany = activeDepartments;
+		this.activeJobTitleDepartments = activeJobTitles;
 	}
 
 	long companyId() {
@@ -125,12 +132,24 @@ final class LegacyEmployeeUpdateSheet {
 		return department != null && department == departmentId;
 	}
 
-	/** Files the rows {@link LegacyEmployeeUpdateSheetStore#phoneHolders} returned. */
-	void addPhoneHolders(List<Map<String, Object>> holders) {
-		for (Map<String, Object> holder : holders) {
-			long id = ((Number) holder.get("id")).longValue();
-			file(id, holder);
+	/**
+	 * Who holds each of {@code numbers} now: {@code holders} as
+	 * {@link LegacyEmployeeUpdateSheetStore#phoneHolders} just read them,
+	 * replacing whatever was filed under those numbers. Earlier chunks'
+	 * claims are committed by then, so the read already reflects them; and
+	 * every claim before this point is final, so none is undone past it.
+	 */
+	void replacePhoneHolders(List<CanonicalPhone> numbers, List<Map<String, Object>> holders) {
+		for (CanonicalPhone number : numbers) {
+			Map<Long, Map<String, Object>> filed = this.holdersByNumber.remove(number.e164());
+			if (filed != null) {
+				filed.keySet().forEach(this.numberOfHolder::remove);
+			}
 		}
+		for (Map<String, Object> holder : holders) {
+			file(((Number) holder.get("id")).longValue(), holder);
+		}
+		this.undo.clear();
 	}
 
 	/**
@@ -192,6 +211,7 @@ final class LegacyEmployeeUpdateSheet {
 	}
 
 	private void file(long id, Map<String, Object> row) {
+		unfile(id);
 		Object country = row.get("country_code");
 		Optional<CanonicalPhone> number = CanonicalPhones.parse(row.get("phone"),
 				CanonicalPhones.countryCodeAsRead(country));

@@ -48,22 +48,24 @@ import com.workin.legacy.employees.LegacyHrPeerCredentials;
  * A row whose salary write fails leaves no half-applied employee.
  *
  * <h2>Chunks first, rows when a chunk fails (D-294)</h2>
- * <p>Everything validation reads is read before the first row
- * ({@link LegacyEmployeeUpdateAnalyzer#prepare}), and rows are written in
- * chunks of up to {@link LegacyEmployeeUpdateSheetStore#CHUNK}: one
- * transaction per chunk, one boundary re-read for the chunk, and each kind
- * of write sent as one JDBC batch. That is the only thing about the per-row
+ * <p>Rows are handled in chunks of up to
+ * {@link LegacyEmployeeUpdateSheetStore#CHUNK}. What validation reads about
+ * a chunk is read just before it, in sets
+ * ({@link LegacyEmployeeUpdateAnalyzer#prepare} and
+ * {@link LegacyEmployeeUpdateAnalyzer#refresh}); then one transaction writes
+ * the chunk, with one boundary re-read and each kind of write sent as one
+ * JDBC batch of one statement. That is the only thing about the per-row
  * transactions that changes, and only while every row of the chunk
  * succeeds -- which, when all of them commit, is indistinguishable from
  * each committing alone. The moment one write fails, or the re-read
- * disagrees with what the rows were validated against, the whole chunk is
- * rolled back and replayed <b>one row per transaction</b>, validated again
- * in order, which is exactly PHP's loop: the failing row rolls back only
- * itself and every other row lands. The cost of a failure is that chunk's
- * rows at per-row cost; the cost of success is a handful of round trips per
- * chunk instead of a dozen per row. The one failure that is not replayed is
- * the commit itself: whether the chunk landed is then unknown, so its rows
- * are reported failed, as PHP reports a row whose commit failed.
+ * disagrees with what the rows were validated against, the chunk is rolled
+ * back and <b>halved</b>, each half validated again in order and written
+ * alone, until a failing row is in a transaction of its own -- PHP's loop
+ * exactly for that row: it rolls back only itself and every other row
+ * lands. One bad row costs about twice the log of the chunk in extra
+ * transactions. The one failure that is not retried is the commit itself:
+ * whether its rows landed is then unknown, so they are reported failed, as
+ * PHP reports a row whose commit failed.
  */
 @Component
 public class LegacyEmployeeBulkUpdater {
@@ -123,7 +125,7 @@ public class LegacyEmployeeBulkUpdater {
 		this.chunkSize = chunkSize;
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
 		// Its own transaction manager over the same DataSource: each chunk's
-		// (or, on replay, each row's) writes commit independently, which an
+		// (or, once halved, each part's) writes commit independently, which an
 		// ambient request transaction would defeat by folding them all into one.
 		this.transactionTemplate =
 				new TransactionTemplate(new DataSourceTransactionManager(legacyDataSource));
@@ -157,10 +159,14 @@ public class LegacyEmployeeBulkUpdater {
 			duplicate[position] = !code.isEmpty() && !seenCodes.add(code);
 		}
 
-		Batch batch = new Batch(context, this.analyzer.prepare(sheetRows, context.companyId(), lookups),
-				sheetRows, duplicate);
+		Batch batch = new Batch(context,
+				this.analyzer.prepare(sheetRows, context.companyId(), lookups, this.chunkSize), sheetRows, duplicate);
 		for (int from = 0; from < sheetRows.size(); from += this.chunkSize) {
-			applyChunk(batch, from, Math.min(sheetRows.size(), from + this.chunkSize));
+			int to = Math.min(sheetRows.size(), from + this.chunkSize);
+			if (from > 0) {
+				this.analyzer.refresh(batch.sheet(), sheetRows.subList(from, to));
+			}
+			applyChunk(batch, from, to);
 		}
 
 		List<Map<String, Object>> failed = new ArrayList<>();
@@ -201,10 +207,10 @@ public class LegacyEmployeeBulkUpdater {
 	 * empty, the reason it will not be.
 	 */
 	private record Planned(int position, List<String> errors, Map<String, Object> payload,
-			Map<String, Object> employee, List<String> setColumns, List<Object> params) {
+			Map<String, Object> employee, Map<String, Object> columns) {
 
 		static Planned failed(int position, List<String> errors) {
-			return new Planned(position, errors, null, null, null, null);
+			return new Planned(position, errors, null, null, null);
 		}
 
 		long id() {
@@ -214,8 +220,13 @@ public class LegacyEmployeeBulkUpdater {
 
 	/**
 	 * Rows {@code from} (inclusive) to {@code to}: validated in order against
-	 * the holders the rows before them left, written as one transaction, and
-	 * replayed one row per transaction if that transaction does not commit.
+	 * the holders the rows before them left, and written as one transaction.
+	 *
+	 * <p>A transaction that does not commit is rolled back and its rows are
+	 * halved and applied again, each half validated afresh in sheet order,
+	 * until the rows that fail are alone -- where a row's own transaction is
+	 * PHP's {@code apply_update()} exactly. One bad row among {@code n} costs
+	 * about {@code 2 log2 n} extra transactions rather than {@code n}.
 	 */
 	private void applyChunk(Batch batch, int from, int to) {
 		LegacyEmployeeUpdateSheet sheet = batch.sheet();
@@ -223,16 +234,25 @@ public class LegacyEmployeeBulkUpdater {
 		List<Planned> writes = new ArrayList<>();
 		for (int position = from; position < to; position++) {
 			Planned planned = plan(batch, position);
-			if (!planned.errors().isEmpty()) {
-				batch.outcomes().set(position, planned.errors());
-				continue;
+			batch.outcomes().set(position, planned.errors().isEmpty() ? null : planned.errors());
+			if (planned.errors().isEmpty()) {
+				// Claimed now so the next row in this chunk is validated as PHP
+				// validates it: after this row's phone was written.
+				claim(sheet, planned);
+				writes.add(planned);
 			}
-			// Claimed now so the next row in this chunk is validated as PHP
-			// validates it: after this row's phone was written.
-			claim(sheet, planned);
-			writes.add(planned);
 		}
 		if (writes.isEmpty()) {
+			return;
+		}
+		if (writes.size() == 1) {
+			List<String> errors = writeAlone(batch.context(), sheet, writes.get(0));
+			if (errors.isEmpty()) {
+				succeeded(batch, writes.get(0));
+			} else {
+				sheet.rollBackTo(mark);
+				batch.outcomes().set(writes.get(0).position(), errors);
+			}
 			return;
 		}
 		try {
@@ -242,10 +262,10 @@ public class LegacyEmployeeBulkUpdater {
 			}
 			return;
 		} catch (TransactionSystemException ex) {
-			// The commit (or the rollback) itself failed, so whether the chunk
+			// The commit (or the rollback) itself failed, so whether the rows
 			// landed is unknown. Replaying could apply a shift assignment
 			// twice; PHP, whose commit fails the same way, reports the row
-			// failed. Every row of the chunk is reported so, and none is retried.
+			// failed. Every row written is reported so, and none is retried.
 			LOG.warn("employees.update_bulk.chunk_commit_failed tenant_id={} first_row={} rows={} cause={}",
 					batch.context().companyId(), from + 1, to - from, ex.getClass().getSimpleName());
 			sheet.rollBackTo(mark);
@@ -256,29 +276,17 @@ public class LegacyEmployeeBulkUpdater {
 		} catch (RuntimeException ex) {
 			// Either a write failed or the re-read disagreed with the
 			// validation; the transaction is rolled back either way, and the
-			// replay below decides each row's own outcome. Logged because a
-			// replayed chunk costs its rows' per-row round trips: an operator
-			// seeing slow sheets needs to know it happened. The class only --
-			// a driver message can quote the row's values.
+			// halves below decide each row's own outcome. Logged because a
+			// split costs extra transactions: an operator seeing slow sheets
+			// needs to know it happened. The class only -- a driver message
+			// can quote the row's values.
 			LOG.warn("employees.update_bulk.chunk_replayed tenant_id={} first_row={} rows={} cause={}",
 					batch.context().companyId(), from + 1, to - from, ex.getClass().getSimpleName());
 			sheet.rollBackTo(mark);
 		}
-		for (int position = from; position < to; position++) {
-			batch.outcomes().set(position, null);
-			Planned planned = plan(batch, position);
-			if (!planned.errors().isEmpty()) {
-				batch.outcomes().set(position, planned.errors());
-				continue;
-			}
-			List<String> errors = writeAlone(batch.context(), sheet, planned);
-			if (errors.isEmpty()) {
-				claim(sheet, planned);
-				succeeded(batch, planned);
-			} else {
-				batch.outcomes().set(position, errors);
-			}
-		}
+		int middle = writes.get(writes.size() / 2).position();
+		applyChunk(batch, from, middle);
+		applyChunk(batch, middle, to);
 	}
 
 	private static void succeeded(Batch batch, Planned planned) {
@@ -322,22 +330,19 @@ public class LegacyEmployeeBulkUpdater {
 			return Planned.failed(position, List.of("forbidden"));
 		}
 
-		List<String> setColumns = new ArrayList<>();
-		List<Object> params = new ArrayList<>();
+		Map<String, Object> columns = new LinkedHashMap<>();
 		for (String column : ALLOWED_COLUMNS) {
 			if (payload.containsKey(column)) {
-				setColumns.add(column + "=?");
-				params.add(payload.get(column));
+				columns.put(column, payload.get(column));
 			}
 		}
 		if (payload.containsKey("password")) {
 			String plain = String.valueOf(payload.get("password")).trim();
 			if (!plain.isEmpty()) {
-				setColumns.add("password_hash=?");
-				params.add(hash(batch, position, plain));
+				columns.put("password_hash", hash(batch, position, plain));
 			}
 		}
-		return new Planned(position, List.of(), payload, employee, setColumns, params);
+		return new Planned(position, List.of(), payload, employee, columns);
 	}
 
 	/** bcrypt once per row, however many times a failed chunk makes it be planned. */
@@ -400,14 +405,16 @@ public class LegacyEmployeeBulkUpdater {
 	 * again of what was just read -- the row about to be written, not the one
 	 * the request started from. A row that no longer passes throws, which
 	 * rolls the transaction back: alone, that is the row's own outcome; in a
-	 * chunk, it sends the chunk to be replayed a row at a time.
+	 * chunk, it sends the chunk to be halved.
 	 *
 	 * <p>Then each kind of write as one batch, in PHP's order: employees,
-	 * shift assignments, salary patches. Grouping by statement reorders
-	 * writes <em>between</em> rows, never within one; rows are independent
-	 * except through the phone's unique index, and a collision that ordering
-	 * created fails the chunk into the row-at-a-time replay, which writes in
-	 * sheet order.
+	 * shift assignments, salary patches, salary inserts. Each kind is <b>one
+	 * statement for every row</b> ({@link #EMPLOYEE_UPDATE},
+	 * {@link #SALARY_UPDATE}): a sheet's empty cell means "leave it alone",
+	 * so its rows write different columns, and a statement per column set
+	 * would be a batch per row on a real sheet. Within a batch the rows run in
+	 * sheet order, so a number one row gives up is released before a later
+	 * row claims it, as PHP's loop does.
 	 */
 	private void write(LegacyRequestContext context, LegacyEmployeeUpdateSheet sheet, List<Planned> rows) {
 		long companyId = context.companyId();
@@ -417,9 +424,9 @@ public class LegacyEmployeeBulkUpdater {
 		}
 		Map<Long, Map<String, Object>> targets = this.sheetStore.applyTargets(ids, companyId);
 
-		Map<String, List<Object[]>> employeeUpdates = new LinkedHashMap<>();
+		List<Object[]> employeeUpdates = new ArrayList<>();
 		List<Object[]> shiftInserts = new ArrayList<>();
-		Map<String, List<Object[]>> salaryUpdates = new LinkedHashMap<>();
+		List<Object[]> salaryUpdates = new ArrayList<>();
 		List<Object[]> salaryInserts = new ArrayList<>();
 		String today = this.clock.todayAsString();
 
@@ -432,13 +439,8 @@ public class LegacyEmployeeBulkUpdater {
 			if (refuses(context, id, target, planned.payload(), sheet)) {
 				throw new RowRefused("forbidden");
 			}
-			if (!planned.setColumns().isEmpty()) {
-				List<Object> args = new ArrayList<>(planned.params());
-				args.add(id);
-				args.add(companyId);
-				employeeUpdates.computeIfAbsent(
-						"UPDATE employees SET " + String.join(", ", planned.setColumns()) + " WHERE id=? AND company_id=?",
-						sql -> new ArrayList<>()).add(args.toArray());
+			if (!planned.columns().isEmpty()) {
+				employeeUpdates.add(keepOrSet(EMPLOYEE_COLUMNS, planned.columns(), id, companyId));
 			}
 			Object shift = planned.payload().get("shift_id");
 			if (shift != null && asLong(shift) > 0) {
@@ -454,10 +456,10 @@ public class LegacyEmployeeBulkUpdater {
 			}
 		}
 
-		employeeUpdates.forEach(this::batch);
+		batch(EMPLOYEE_UPDATE, employeeUpdates);
 		batch("INSERT INTO employee_shift_assignments (employee_id, shift_id, effective_from) VALUES (?, ?, ?)",
 				shiftInserts);
-		salaryUpdates.forEach(this::batch);
+		batch(SALARY_UPDATE, salaryUpdates);
 		batch(SALARY_INSERT, salaryInserts);
 	}
 
@@ -530,6 +532,51 @@ public class LegacyEmployeeBulkUpdater {
 		return changed;
 	}
 
+	/** The employee columns a row may write: {@link #ALLOWED_COLUMNS}, then the password's hash. */
+	private static final List<String> EMPLOYEE_COLUMNS = concat(ALLOWED_COLUMNS, List.of("password_hash"));
+
+	/**
+	 * One UPDATE for every row of a chunk, whatever columns each fills: each
+	 * column is {@code col = IF(?, ?, col)}, a flag and a value, so a column
+	 * the row leaves alone is assigned itself -- which MariaDB does not count
+	 * as a change, so {@code updated_at} moves only when a value does, as
+	 * with the per-row statement. A written value is bound exactly as the
+	 * per-row statement bound it and reaches the column through the same
+	 * conversion (checked value for value by the batching test).
+	 */
+	private static final String EMPLOYEE_UPDATE = "UPDATE employees SET " + keepOrSetClause(EMPLOYEE_COLUMNS)
+			+ " WHERE id=? AND company_id=?";
+
+	/** {@code employee_excel_apply_salary_patch()}'s UPDATE, in the same one-statement form. */
+	private static final String SALARY_UPDATE = "UPDATE salary_contracts SET "
+			+ keepOrSetClause(List.copyOf(SALARY_COLUMNS.values())) + " WHERE id=?";
+
+	private static String keepOrSetClause(List<String> columns) {
+		List<String> sets = new ArrayList<>(columns.size());
+		for (String column : columns) {
+			sets.add(column + "=IF(?, ?, " + column + ")");
+		}
+		return String.join(", ", sets);
+	}
+
+	/** The arguments for a keep-or-set statement: per column a flag and the value (null when kept), then the keys. */
+	private static Object[] keepOrSet(List<String> columns, Map<String, Object> written, Object... keys) {
+		List<Object> args = new ArrayList<>(columns.size() * 2 + keys.length);
+		for (String column : columns) {
+			boolean writes = written.containsKey(column);
+			args.add(writes ? 1 : 0);
+			args.add(writes ? written.get(column) : null);
+		}
+		args.addAll(List.of(keys));
+		return args.toArray();
+	}
+
+	private static List<String> concat(List<String> first, List<String> second) {
+		List<String> all = new ArrayList<>(first);
+		all.addAll(second);
+		return List.copyOf(all);
+	}
+
 	/** {@code employee_excel_apply_salary_patch()}'s INSERT. */
 	private static final String SALARY_INSERT = """
 			INSERT INTO salary_contracts (
@@ -552,23 +599,19 @@ public class LegacyEmployeeBulkUpdater {
 	 * not manufactured for what the operator means as a correction.
 	 */
 	private static void salaryPatch(long employeeId, Map<String, Object> salary, Map<String, Object> target,
-			String today, Map<String, List<Object[]>> updates, List<Object[]> inserts) {
+			String today, List<Object[]> updates, List<Object[]> inserts) {
 		Object latest = target.get("contract_id");
 		if (latest != null) {
-			List<String> sets = new ArrayList<>();
-			List<Object> params = new ArrayList<>();
+			Map<String, Object> sets = new LinkedHashMap<>();
 			for (Map.Entry<String, String> entry : SALARY_COLUMNS.entrySet()) {
 				if (salary.containsKey(entry.getKey())) {
-					sets.add(entry.getValue() + "=?");
-					params.add(toDouble(salary.get(entry.getKey())));
+					sets.put(entry.getValue(), toDouble(salary.get(entry.getKey())));
 				}
 			}
 			if (sets.isEmpty()) {
 				return;
 			}
-			params.add(latest);
-			updates.computeIfAbsent("UPDATE salary_contracts SET " + String.join(", ", sets) + " WHERE id=?",
-					sql -> new ArrayList<>()).add(params.toArray());
+			updates.add(keepOrSet(List.copyOf(SALARY_COLUMNS.values()), sets, latest));
 			return;
 		}
 
@@ -602,7 +645,7 @@ public class LegacyEmployeeBulkUpdater {
 		columns.put("advances_deduction", "advances_deduction");
 		columns.put("fund_deduction", "fund_deduction");
 		columns.put("penalty_deduction", "penalty_deduction");
-		return Map.copyOf(columns);
+		return java.util.Collections.unmodifiableMap(columns);
 	}
 
 	/** {@code (float) ($salary[$key] ?? 0)}. */

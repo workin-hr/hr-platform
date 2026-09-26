@@ -87,7 +87,8 @@ public class LegacyEmployeeUpdateAnalyzer {
 			LegacyEmployeeSpreadsheetLookups lookups) {
 		LegacyEmployeeSpreadsheetReader.assertTemplateStructure(content, arabic);
 		List<Map<String, Object>> rows = LegacyEmployeeSpreadsheetReader.loadRows(content);
-		LegacyEmployeeUpdateSheet sheet = prepare(rows, companyId, lookups);
+		int chunk = LegacyEmployeeUpdateSheetStore.CHUNK;
+		LegacyEmployeeUpdateSheet sheet = prepare(rows, companyId, lookups, chunk);
 		Set<String> seenCodes = new HashSet<>();
 
 		List<Map<String, Object>> outRows = new ArrayList<>(rows.size());
@@ -95,6 +96,9 @@ public class LegacyEmployeeUpdateAnalyzer {
 		long invalid = 0;
 
 		for (int index = 0; index < rows.size(); index++) {
+			if (index > 0 && index % chunk == 0) {
+				refresh(sheet, rows.subList(index, Math.min(rows.size(), index + chunk)));
+			}
 			Map<String, Object> row = rows.get(index);
 			Parsed parsed = rowToUpdatePayload(row, sheet);
 			List<String> errors = new ArrayList<>(parsed.errors());
@@ -159,42 +163,57 @@ public class LegacyEmployeeUpdateAnalyzer {
 	}
 
 	/**
-	 * Reads everything {@link #rowToUpdatePayload} and the apply step will ask
-	 * about these rows, in statements bounded by chunks of identifiers rather
-	 * than by rows (D-294): the company's employees, the phone countries, then
-	 * -- for the identifiers the rows actually name -- the shifts, the
-	 * department-branch links, the active departments and job titles, and
-	 * every row already holding one of the sheet's numbers.
+	 * Reads what {@link #rowToUpdatePayload} and the apply step will ask about
+	 * these rows, in statements bounded by chunks rather than by rows (D-294):
+	 * once per sheet the company's employees and the phone countries, and the
+	 * first chunk's references ({@link #refresh}). Every later chunk of
+	 * {@code chunk} rows is refreshed by its caller just before it is
+	 * validated, so a shift, department or title deactivated -- or a number
+	 * taken -- while the sheet is being applied is seen by the next chunk,
+	 * not missed for the rest of the request.
+	 *
+	 * <p>In one transaction, for one connection: every checkout from the
+	 * legacy pool costs two statements of its own (the offset read and
+	 * {@code SET time_zone}, D-099), so the reads share one. It also makes
+	 * them one consistent snapshot.
+	 */
+	LegacyEmployeeUpdateSheet prepare(List<Map<String, Object>> rows, long companyId,
+			LegacyEmployeeSpreadsheetLookups lookups, int chunk) {
+		return this.reads.execute(status -> {
+			PhoneCountriesSnapshot countries =
+					new PhoneCountriesSnapshot(this.legacyDataSource, this.phoneCountries.allActive());
+			LegacyEmployeeUpdateSheet sheet = new LegacyEmployeeUpdateSheet(companyId, lookups,
+					this.store.employeesByCode(companyId), countries, new LegacyPhoneNumbers(countries));
+			readReferences(sheet, rows.subList(0, Math.min(rows.size(), chunk)));
+			return sheet;
+		});
+	}
+
+	/**
+	 * Re-reads, for the rows of the next chunk, everything the sheet answers
+	 * about them from the database: the shifts, department-branch links,
+	 * active departments and job titles they name, and who holds each number
+	 * they resolve to. One statement per kind per chunk of identifiers,
+	 * replacing what earlier chunks read.
 	 *
 	 * <p>Collects more than the rows will use -- both the named and the
 	 * current department, a phone on a row that later fails -- because a
 	 * set that is too large answers the same questions, and one that is too
 	 * small would answer "not found" for a row the per-row check accepted.
-	 *
-	 * <p>In one transaction, for one connection: every checkout from the
-	 * legacy pool costs two statements of its own (the offset read and
-	 * {@code SET time_zone}, D-099), so eight reads on eight checkouts are
-	 * twenty-four round trips where one checkout makes them thirteen. It
-	 * also makes the reads one consistent snapshot.
 	 */
-	LegacyEmployeeUpdateSheet prepare(List<Map<String, Object>> rows, long companyId,
-			LegacyEmployeeSpreadsheetLookups lookups) {
-		return this.reads.execute(status -> read(rows, companyId, lookups));
+	void refresh(LegacyEmployeeUpdateSheet sheet, List<Map<String, Object>> rows) {
+		this.reads.executeWithoutResult(status -> readReferences(sheet, rows));
 	}
 
-	private LegacyEmployeeUpdateSheet read(List<Map<String, Object>> rows, long companyId,
-			LegacyEmployeeSpreadsheetLookups lookups) {
-		Map<String, Map<String, Object>> employeesByCode = this.store.employeesByCode(companyId);
-		PhoneCountriesSnapshot countries =
-				new PhoneCountriesSnapshot(this.legacyDataSource, this.phoneCountries.allActive());
-		LegacyPhoneNumbers numbers = new LegacyPhoneNumbers(countries);
-
+	private void readReferences(LegacyEmployeeUpdateSheet sheet, List<Map<String, Object>> rows) {
+		LegacyEmployeeSpreadsheetLookups lookups = sheet.lookups();
+		long companyId = sheet.companyId();
 		Set<Long> shifts = new HashSet<>();
 		Set<Long> departments = new HashSet<>();
 		Set<Long> jobTitles = new HashSet<>();
 		List<CanonicalPhone> phones = new ArrayList<>();
 		for (Map<String, Object> row : rows) {
-			Map<String, Object> employee = employeesByCode.get(
+			Map<String, Object> employee = sheet.employee(
 					LegacyEmployeeSpreadsheetErrors.normalizeEmployeeCode(text(row.get("employee_code"))));
 			if (employee == null) {
 				continue;
@@ -214,23 +233,18 @@ public class LegacyEmployeeUpdateAnalyzer {
 			}
 			if (!LegacyValues.phpTrim(LegacyPhoneNumbers.excelCellToRaw(row.get("phone"))).isEmpty()) {
 				CanonicalPhone resolved = normalizePhone(row.get("phone"), row.get("country_code"), employee,
-						countries, numbers);
+						sheet.phoneCountries(), sheet.phoneNumbers());
 				if (resolved != null) {
 					phones.add(resolved);
 				}
 			}
 		}
-
-		LegacyEmployeeUpdateSheet sheet = new LegacyEmployeeUpdateSheet(companyId, lookups, employeesByCode,
-				countries, numbers,
+		sheet.replaceReferences(
 				shifts.isEmpty() ? Set.of() : this.sheetStore.shiftsInCompany(shifts, companyId),
 				departments.isEmpty() ? Set.of() : this.sheetStore.departmentBranches(departments),
 				departments.isEmpty() ? Set.of() : this.sheetStore.activeDepartmentsInCompany(departments, companyId),
 				jobTitles.isEmpty() ? Map.of() : this.sheetStore.activeJobTitleDepartments(jobTitles));
-		if (!phones.isEmpty()) {
-			sheet.addPhoneHolders(this.sheetStore.phoneHolders(phones));
-		}
-		return sheet;
+		sheet.replacePhoneHolders(phones, phones.isEmpty() ? List.of() : this.sheetStore.phoneHolders(phones));
 	}
 
 	private static void addIfPresent(Set<Long> ids, Long id) {

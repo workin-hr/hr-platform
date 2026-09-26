@@ -81,7 +81,7 @@ class LegacyEmployeeBulkUpdateBatchingEndToEndTest {
 	private static final long ADMIN = 3599999L;
 	/** Employees {@code FIRST} to {@code FIRST + EMPLOYEES - 1}, code {@code 70000 + n}. */
 	private static final long FIRST = 3590000L;
-	private static final int EMPLOYEES = 2400;
+	private static final int EMPLOYEES = 3800;
 
 	/** Employees whose shift-assignment insert the database refuses. */
 	private static final int REFUSED_SHIFT = 1600;
@@ -144,11 +144,11 @@ class LegacyEmployeeBulkUpdateBatchingEndToEndTest {
 		// The request guard reads the actor twice whatever the sheet holds;
 		// anything else repeated would be a statement per row.
 		assertThat(repeated(full)).as("no statement is issued once per row").isEqualTo(repeated(ten));
-		// One row past the chunk is a second chunk: its re-read and its three
-		// batches (the lone row already has a contract, so it patches rather
-		// than inserts), plus the second chunk of the phone-holder read -- the
-		// only identifier set here that grows with the rows.
-		assertThat(overflow).as("statements for %d rows: %s", CHUNK + 1, overflow).hasSize(full.size() + 5);
+		// One row past the chunk is a second chunk: its five reference reads
+		// (shift, department links, departments, titles, phone holders), its
+		// re-read and its three batches -- the lone row already has a
+		// contract, so it patches rather than inserts.
+		assertThat(overflow).as("statements for %d rows: %s", CHUNK + 1, overflow).hasSize(full.size() + 9);
 		assertThat(QueryCounter.busiestRepeat(overflow)).isEqualTo(2);
 	}
 
@@ -256,12 +256,249 @@ class LegacyEmployeeBulkUpdateBatchingEndToEndTest {
 		assertThat(column(FIRST + first, "phone")).isEqualTo("01077000021");
 	}
 
+	// ---------------- sheets whose rows differ ----------------
+
+	/**
+	 * Real sheets leave cells empty -- "leave this field alone" -- so their
+	 * rows write different columns. Five hundred rows, each filling a seeded
+	 * random subset of thirteen cells, cost exactly what five hundred rows
+	 * filling all of them cost; and every row stores exactly what the
+	 * per-row legacy path stores: the filled cells as the sheet resolves
+	 * them, every other column as it was.
+	 */
+	@Test
+	void rowsFillingDifferentCellsCostTheSameAsUniformRowsAndStoreTheSameValues() throws Exception {
+		int uniformFrom = 2600;
+		// Every cell but the password: bcrypt five hundred times costs a minute
+		// and changes nothing about the statements.
+		String uniform = rows(uniformFrom, CHUNK,
+				n -> heterogeneousRow(n, ALL_CELLS.stream().filter(cell -> !"password".equals(cell)).toList()));
+		AtomicReference<Map<String, Object>> uniformData = new AtomicReference<>();
+		List<String> uniformIssued = measure(() -> uniformData.set(update(uniform)));
+		assertThat(failed(uniformData.get())).isEmpty();
+
+		int from = 2100;
+		java.util.Random random = new java.util.Random(359);
+		List<Map<String, Object>> sheet = new ArrayList<>();
+		Map<Integer, Map<String, Object>> before = new LinkedHashMap<>();
+		for (int n = from; n < from + CHUNK; n++) {
+			List<String> cells = new ArrayList<>();
+			for (String cell : ALL_CELLS) {
+				if (random.nextInt(100) < ("password".equals(cell) ? 4 : 45)) {
+					cells.add(cell);
+				}
+			}
+			if (cells.isEmpty()) {
+				cells.add("address");
+			}
+			sheet.add(heterogeneousRow(n, cells));
+			before.put(n, employeeRow(n));
+		}
+		long shapes = sheet.stream().map(Map::keySet).distinct().count();
+		assertThat(shapes).as("the rows really do differ").isGreaterThan(400);
+
+		AtomicReference<Map<String, Object>> data = new AtomicReference<>();
+		List<String> issued = measure(() -> data.set(update(rowsJson(sheet))));
+
+		assertThat(failed(data.get())).as("every row applies").isEmpty();
+		for (int index = 0; index < sheet.size(); index++) {
+			int n = from + index;
+			assertStored(n, sheet.get(index), before.get(n));
+		}
+		// Asserted after the values, so a run against the per-shape writes
+		// shows they store the same thing and differ only in what they cost.
+		assertThat(issued).as("statements for %d differing rows: %s; for uniform rows: %s", CHUNK, issued, uniformIssued)
+				.hasSameSizeAs(uniformIssued);
+	}
+
+	/**
+	 * Row 2 moves an employee off a number and row 3 takes it, while row 1 --
+	 * with row 3's column set -- comes first. Grouping the writes by column
+	 * set wrote row 3 before row 2 and hit the phone's unique key, and the
+	 * chunk was replayed. In sheet order it is one clean chunk.
+	 */
+	@Test
+	void aNumberReassignedInsideAChunkCostsNoReplay() throws Exception {
+		int first = 3100;
+		String held = column(FIRST + first + 1, "phone");
+		String reassigned = rows(
+				phoneOnlyRow(first, "01077100000"),
+				phoneRow(first + 1, "01077100001", "moved"),
+				phoneOnlyRow(first + 2, held));
+		String control = rows(
+				phoneOnlyRow(first + 3, "01077100003"),
+				phoneRow(first + 4, "01077100004", "moved"),
+				phoneOnlyRow(first + 5, "01077100005"));
+
+		AtomicReference<Map<String, Object>> data = new AtomicReference<>();
+		List<String> issued = measure(() -> data.set(update(reassigned)));
+		List<String> controlIssued = measure(() -> update(control));
+
+		assertThat(failed(data.get())).isEmpty();
+		assertThat(column(FIRST + first + 2, "phone")).isEqualTo(held);
+		assertThat(column(FIRST + first + 1, "phone")).isEqualTo("01077100001");
+		assertThat(issued).as("the reassignment's statements against a sheet without one: %s", issued)
+				.hasSameSizeAs(controlIssued);
+	}
+
+	/**
+	 * One row the database refuses among five hundred costs a few extra
+	 * transactions -- the failed chunk is halved until the row is alone --
+	 * not five hundred.
+	 */
+	@Test
+	void oneRefusedRowAmongFiveHundredCostsLogarithmicallyManyExtraStatements() throws Exception {
+		int from = 3200;
+		int bad = 250;
+		String clean = rows(from, CHUNK, n -> fullRow(n, "Clean" + n));
+		List<String> cleanIssued = measure(() -> update(clean));
+		String body = rows(from, CHUNK, n -> {
+			Map<String, Object> row = fullRow(n, "Again" + n);
+			if (n == from + bad) {
+				row.put("address", "boom");
+			}
+			return row;
+		});
+
+		AtomicReference<Map<String, Object>> data = new AtomicReference<>();
+		List<String> issued = measure(() -> data.set(update(body)));
+
+		assertThat(data.get()).containsEntry("updated", CHUNK - 1);
+		assertThat(failed(data.get())).singleElement().satisfies(row -> {
+			assertThat(row).containsEntry("row_index", bad + 1);
+			assertThat(row).containsEntry("errors", List.of("employee_update_failed"));
+		});
+		assertThat(column(FIRST + from + bad, "first_name")).isEqualTo("Clean" + (from + bad));
+		for (int n = from; n < from + CHUNK; n++) {
+			if (n != from + bad) {
+				assertThat(column(FIRST + n, "first_name")).isEqualTo("Again" + n);
+			}
+		}
+		// Halving 500 rows down to one takes 9 levels; each level writes two
+		// halves of at most five statements (a re-read and four batches).
+		System.out.println("BUDGET bisect " + cleanIssued.size() + " " + issued.size());
+		assertThat(issued.size()).as("statements with one refused row, against %d clean", cleanIssued.size())
+				.isLessThanOrEqualTo(cleanIssued.size() + 2 * 9 * 5 + 5);
+	}
+
+	private static final List<String> ALL_CELLS = List.of("first_name", "last_name", "address", "national_id",
+			"expected_daily_hours", "is_mobile_attendance_enabled", "birth_date", "gender", "hire_date",
+			"contract_duration_years", "salary_basic", "salary_transport", "move", "shift_name", "phone",
+			"password");
+
+	private static Map<String, Object> heterogeneousRow(int n, List<String> cells) {
+		Map<String, Object> row = new LinkedHashMap<>();
+		row.put("employee_code", String.valueOf(70000 + n));
+		for (String cell : cells) {
+			switch (cell) {
+				case "first_name" -> row.put(cell, "F" + n);
+				case "last_name" -> row.put(cell, "L" + n);
+				case "address" -> row.put(cell, "Addr " + n);
+				case "national_id" -> row.put(cell, String.valueOf(29000000000000L + n));
+				case "expected_daily_hours" -> row.put(cell, n % 2 == 0 ? "7.5" : "9");
+				case "is_mobile_attendance_enabled" -> row.put(cell, n % 2 == 0 ? "0" : "yes");
+				case "birth_date" -> row.put(cell, "1990-05-" + String.format("%02d", 1 + n % 28));
+				case "gender" -> row.put(cell, n % 2 == 0 ? "female" : "m");
+				case "hire_date" -> row.put(cell, "2023-01-" + String.format("%02d", 1 + n % 28));
+				case "contract_duration_years" -> row.put(cell, n % 2 == 0 ? "2" : "1.5");
+				case "salary_basic" -> row.put(cell, String.valueOf(4000 + n));
+				case "salary_transport" -> row.put(cell, "300.25");
+				case "move" -> {
+					row.put("branch_name", "North");
+					row.put("department_name", "Field");
+					row.put("job_title_name", "Driver");
+				}
+				case "shift_name" -> row.put(cell, "Day");
+				case "phone" -> row.put(cell, "0107" + String.format("%07d", n));
+				case "password" -> row.put(cell, "pw-" + n);
+				default -> throw new IllegalArgumentException(cell);
+			}
+		}
+		return row;
+	}
+
+	/** What the legacy per-row path stores for {@code row}, against the employee as it was. */
+	private void assertStored(int n, Map<String, Object> row, Map<String, Object> before) throws Exception {
+		Map<String, Object> expected = new LinkedHashMap<>(before);
+		expected.remove("updated_at");
+		expected.remove("password_hash");
+		row.forEach((cell, value) -> {
+			String text = String.valueOf(value);
+			switch (cell) {
+				case "first_name", "last_name", "address", "national_id", "birth_date", "hire_date" ->
+					expected.put(cell, text);
+				case "expected_daily_hours" -> expected.put(cell, new java.math.BigDecimal(text).setScale(2).toPlainString());
+				case "is_mobile_attendance_enabled" -> expected.put(cell, "0".equals(text) ? "0" : "1");
+				case "gender" -> expected.put(cell, "m".equals(text) ? "male" : text);
+				case "contract_duration_years" -> expected.put("contract_duration_months",
+						String.valueOf(Math.round(Double.parseDouble(text) * 12)));
+				case "branch_name" -> expected.put("branch_id", "359012");
+				case "department_name" -> expected.put("department_id", "359022");
+				case "job_title_name" -> expected.put("job_title_id", "359032");
+				case "phone" -> {
+					expected.put("phone", text);
+					expected.put("country_code", "+20");
+				}
+				default -> { }
+			}
+		});
+		Map<String, Object> after = employeeRow(n);
+		String hash = (String) after.remove("password_hash");
+		after.remove("updated_at");
+		assertThat(after).as("employee %d after %s", n, row).isEqualTo(expected);
+		if (row.containsKey("password")) {
+			assertThat(new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder()
+					.matches(String.valueOf(row.get("password")), hash)).as("employee %d's password", n).isTrue();
+		} else {
+			assertThat(hash).as("employee %d's password untouched", n).isEqualTo(before.get("password_hash"));
+		}
+		assertThat(scalar("SELECT COUNT(*) FROM employee_shift_assignments WHERE employee_id = " + (FIRST + n)))
+				.as("employee %d's shift assignments", n).isEqualTo(row.containsKey("shift_name") ? 1 : 0);
+		boolean salary = row.containsKey("salary_basic") || row.containsKey("salary_transport");
+		Map<String, Object> contract = row("SELECT CAST(basic_salary AS CHAR) AS basic,"
+				+ " CAST(transport_allowance AS CHAR) AS transport, CAST(effective_from AS CHAR) AS effective,"
+				+ " (SELECT COUNT(*) FROM salary_contracts c WHERE c.employee_id = " + (FIRST + n) + ") AS contracts"
+				+ " FROM salary_contracts WHERE employee_id = " + (FIRST + n) + " ORDER BY effective_from DESC, id DESC LIMIT 1");
+		boolean hadContract = n % 2 == 0;
+		if (!salary) {
+			assertThat(contract.isEmpty() ? 0L : ((Number) contract.get("contracts")).longValue())
+					.as("employee %d's contracts", n).isEqualTo(hadContract ? 1L : 0L);
+			return;
+		}
+		assertThat(((Number) contract.get("contracts")).longValue()).as("employee %d's contracts", n).isEqualTo(1L);
+		String basic = row.containsKey("salary_basic") ? row.get("salary_basic") + ".00" : hadContract ? "1000.00" : "0.00";
+		String transport = row.containsKey("salary_transport") ? "300.25" : "0.00";
+		assertThat(contract.get("basic")).as("employee %d's basic salary", n).isEqualTo(basic);
+		assertThat(contract.get("transport")).as("employee %d's transport", n).isEqualTo(transport);
+		// A new contract starts on the hire date as it was before this row's own write.
+		assertThat(contract.get("effective")).as("employee %d's contract start", n).isEqualTo("2024-02-01");
+	}
+
+	private static Map<String, Object> employeeRow(int n) throws Exception {
+		Map<String, Object> row = new LinkedHashMap<>();
+		try (Connection connection = connect(); Statement st = connection.createStatement();
+				ResultSet rs = st.executeQuery("SELECT * FROM employees WHERE id = " + (FIRST + n))) {
+			rs.next();
+			for (int i = 1; i <= rs.getMetaData().getColumnCount(); i++) {
+				row.put(rs.getMetaData().getColumnLabel(i), rs.getString(i));
+			}
+		}
+		return row;
+	}
+
+	private static Map<String, Object> phoneOnlyRow(int n, String phone) {
+		Map<String, Object> row = new LinkedHashMap<>();
+		row.put("employee_code", String.valueOf(70000 + n));
+		row.put("phone", phone);
+		return row;
+	}
+
 	// ---------------- helpers ----------------
 
 	private List<String> measureUpdate(int from, int count) throws Exception {
 		String body = rows(from, count, n -> fullRow(n, "Budget" + n));
 		AtomicReference<Map<String, Object>> data = new AtomicReference<>();
-		List<String> issued = COUNTER.measure(() -> data.set(update(body)));
+		List<String> issued = measure(() -> data.set(update(body)));
 		assertThat(failed(data.get())).as("every row applies").isEmpty();
 		assertThat(data.get()).containsEntry("updated", count);
 		for (int n = from; n < from + count; n++) {
@@ -279,7 +516,7 @@ class LegacyEmployeeBulkUpdateBatchingEndToEndTest {
 		}
 		byte[] file = csv(sheet);
 		AtomicReference<Map<String, Object>> body = new AtomicReference<>();
-		List<String> issued = COUNTER.measure(() -> body.set(analyze(file)));
+		List<String> issued = measure(() -> body.set(analyze(file)));
 		@SuppressWarnings("unchecked")
 		Map<String, Object> summary = (Map<String, Object>) ((Map<String, Object>) body.get().get("data")).get("summary");
 		assertThat(summary).as("every row is valid: %s", body.get()).containsEntry("valid", count);
@@ -408,6 +645,15 @@ class LegacyEmployeeBulkUpdateBatchingEndToEndTest {
 	@SuppressWarnings("unchecked")
 	private static List<Map<String, Object>> failed(Map<String, Object> data) {
 		return (List<Map<String, Object>>) data.get("failed");
+	}
+
+	/**
+	 * The statements {@code operation} issued, less Spring Session's
+	 * once-a-minute expiry sweep: it shares the DataSource and lands inside a
+	 * long measurement now and then, which is not the sheet's cost.
+	 */
+	private static List<String> measure(Runnable operation) {
+		return COUNTER.measure(operation).stream().filter(sql -> !sql.contains("SPRING_SESSION")).toList();
 	}
 
 	/** The statements issued more than once, with how many times. */
