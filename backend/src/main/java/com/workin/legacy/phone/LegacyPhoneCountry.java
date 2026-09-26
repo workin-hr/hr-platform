@@ -3,9 +3,10 @@ package com.workin.legacy.phone;
 /**
  * One row of {@code phone_countries}, as the phone helpers read it.
  *
- * <p>Carries the columns the normalization and validation path consults --
- * {@code country_code}, {@code phone_length}, the raw {@code phone_prefixes}
- * text and the ordering columns -- plus the display columns
+ * <p>Carries {@code country_code} (the offered dial code), {@code phone_length},
+ * the raw {@code phone_prefixes} text and the ordering columns -- the length
+ * and prefixes are shown by the selectors and no longer decide validity
+ * (ADR-0020) -- plus the display columns
  * {@code phone_country_public_row()} shapes into a response
  * ({@code phone_countries_helper.php:282-299}). The display columns were
  * deliberately absent until an endpoint read them; Item 13.5 delivers

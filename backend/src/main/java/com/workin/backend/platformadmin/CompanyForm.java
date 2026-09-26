@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 import com.workin.legacy.PhpCast;
+import com.workin.legacy.phone.CanonicalPhone;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
 
 /**
@@ -44,7 +45,17 @@ public final class CompanyForm {
 			String countryCode, String phone, String password,
 			String mainBranchAddress,
 			long activityId, long titleId, long sizeId,
-			String companyCode) {
+			String companyCode, CanonicalPhone number) {
+
+		/**
+		 * This write with the row's stored phone and code in place of the
+		 * number's national form: for an edit that leaves the number as it is,
+		 * so the row keeps its spelling byte for byte (D-291).
+		 */
+		public CompanyWrite withStoredPhone(String storedPhone, String storedCountryCode) {
+			return new CompanyWrite(companyName, firstName, lastName, storedCountryCode, storedPhone, password,
+					mainBranchAddress, activityId, titleId, sizeId, companyCode, number);
+		}
 	}
 
 	/** @param errorKey a message key, or null when {@link #write} is present */
@@ -99,13 +110,14 @@ public final class CompanyForm {
 			return Result.rejected("error_required");
 		}
 
-		String local = trim(phoneLocal);
-		if (!phoneNumbers.isValidLocal(code, local)) {
+		// Validity is the one normalizer's (D-291). The stored value stays the
+		// local digits PHP's company_normalize_phone() kept -- now the number's
+		// national form -- beside the number's own dial code.
+		java.util.Optional<CanonicalPhone> number = phoneNumbers.forAccount(trim(phoneLocal), code);
+		if (number.isEmpty()) {
 			return Result.rejected("error_required");
 		}
-		// company_normalize_phone() is phone_digits_only() and nothing else --
-		// the dial code is not prepended, so the stored value stays local.
-		String phone = LegacyPhoneNumbers.digitsOnly(local);
+		String phone = number.get().nationalDigits();
 
 		String secret = password == null ? "" : password;
 		if (editing) {
@@ -140,9 +152,9 @@ public final class CompanyForm {
 		}
 
 		return new Result(new CompanyWrite(name, first, last,
-				LegacyPhoneNumbers.normalizeDialCode(code), phone,
+				number.get().dialCode(), phone,
 				secret.isEmpty() ? null : secret,
-				address, activity, title, size, upperCode), null);
+				address, activity, title, size, upperCode, number.get()), null);
 	}
 
 	private static String trim(String value) {

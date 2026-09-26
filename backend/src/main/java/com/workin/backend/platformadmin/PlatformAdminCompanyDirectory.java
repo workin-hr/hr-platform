@@ -1,5 +1,6 @@
 package com.workin.backend.platformadmin;
 
+import com.workin.legacy.phone.CanonicalPhone;
 import java.util.List;
 
 /**
@@ -144,7 +145,8 @@ public interface PlatformAdminCompanyDirectory {
 	 */
 	List<String> dialCodes();
 
-	boolean phoneTaken(String phone, long excludeCompanyId);
+	/** Another company holds the number, in any stored spelling (D-291). */
+	boolean phoneTaken(CanonicalPhone phone, long excludeCompanyId);
 
 	boolean companyCodeTaken(String companyCode, long excludeCompanyId);
 
@@ -163,7 +165,7 @@ public interface PlatformAdminCompanyDirectory {
 	java.util.Optional<EditableCompany> editable(long companyId);
 
 	/** The stored logo and commercial-registration URLs, for an edit that uploads neither. */
-	record StoredFiles(String logoUrl, String commercialRegUrl) {
+	record StoredFiles(String logoUrl, String commercialRegUrl, String phone, String countryCode) {
 	}
 
 	java.util.Optional<StoredFiles> storedFiles(long companyId);

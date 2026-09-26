@@ -93,6 +93,10 @@ dependencies {
 	// on every render (#298). One small MIT-licensed package with no
 	// dependencies of its own: an encoder, not a renderer, so the SVG is ours.
 	implementation 'io.nayuki:qrcodegen:1.8.0'
+	// ADR-0020 / D-291: Google's phone metadata is the one authority for
+	// parsing, validating and canonicalising (E.164) every phone number the
+	// legacy surface reads or writes. Apache-2.0, no dependencies of its own.
+	implementation 'com.googlecode.libphonenumber:libphonenumber:9.0.40'
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'

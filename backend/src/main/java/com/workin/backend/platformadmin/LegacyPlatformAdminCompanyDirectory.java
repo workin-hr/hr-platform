@@ -1,10 +1,13 @@
 package com.workin.backend.platformadmin;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.stereotype.Component;
 
 import com.workin.legacy.companies.LegacyCompanyRepository;
+import com.workin.legacy.phone.CanonicalPhone;
+import com.workin.legacy.phone.PhoneLookup;
 
 /**
  * The legacy MySQL {@code companies} table -- the same rows the PHP dashboard's
@@ -113,11 +116,17 @@ public class LegacyPlatformAdminCompanyDirectory implements PlatformAdminCompany
 	}
 
 	@Override
-	public boolean phoneTaken(String phone, long excludeCompanyId) {
-		Long found = this.jdbc.queryForObject(
-				"SELECT COUNT(*) FROM companies WHERE phone = ? AND id <> ?",
-				Long.class, phone, excludeCompanyId);
-		return found != null && found > 0;
+	public boolean phoneTaken(CanonicalPhone phone, long excludeCompanyId) {
+		// PHP compared the column exactly, so the same number under another
+		// spelling was not taken; the canonical number is compared now (D-291).
+		PhoneLookup lookup = PhoneLookup.of(phone);
+		PhoneLookup.Clause probe = lookup.writeProbe("phone", "id, phone, country_code", "companies");
+		List<Object> binds = new ArrayList<>(probe.binds());
+		binds.add(excludeCompanyId);
+		// A row holding the exact digits to be written blocks the raw unique
+		// index too (PhoneLookup#writeProbe).
+		return this.jdbc.queryForList(probe.sql() + " AND id <> ?", binds.toArray()).stream()
+				.anyMatch(lookup::blocksWrite);
 	}
 
 	@Override
@@ -162,9 +171,9 @@ public class LegacyPlatformAdminCompanyDirectory implements PlatformAdminCompany
 	@Override
 	public java.util.Optional<StoredFiles> storedFiles(long companyId) {
 		return this.jdbc.query(
-				"SELECT logo_url, commercial_reg_url FROM companies WHERE id = ?",
+				"SELECT logo_url, commercial_reg_url, phone, country_code FROM companies WHERE id = ?",
 				(rs, row) -> new StoredFiles(rs.getString("logo_url"),
-						rs.getString("commercial_reg_url")),
+						rs.getString("commercial_reg_url"), rs.getString("phone"), rs.getString("country_code")),
 				companyId).stream().findFirst();
 	}
 

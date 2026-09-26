@@ -14,7 +14,10 @@ import com.workin.legacy.auth.otp.LegacyOtpService;
 import com.workin.legacy.authorization.LegacyHrPermissionRows;
 import com.workin.legacy.employees.LegacyEmployeeStore;
 import com.workin.legacy.notifications.LegacyNotifications;
+import com.workin.legacy.phone.CanonicalPhone;
+import com.workin.legacy.phone.CanonicalPhones;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
+import com.workin.legacy.phone.PhoneLookup;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyMessages;
 
@@ -23,17 +26,18 @@ import jakarta.servlet.http.HttpServletRequest;
 /**
  * Wave 13.1b: the nine account-lifecycle endpoints of {@code apis/api/auth/}.
  *
- * <h2>Three different ways to find a company by phone, all preserved</h2>
- * <p>{@code register_company.php} and {@code register_employee.php} and
- * {@code login_company.php} match the {@code phone} column <b>exactly</b>
- * against the submitted value. {@code join_company.php} and
- * {@code forgot_password.php} match through
- * {@code phone_sql_match_clause()}, which accepts every stored spelling. The
- * consequence is real and asymmetric: a company stored as
- * {@code +201012345678} can be joined and can reset its password, but cannot
- * <b>log in</b> unless the client sends exactly that string, and a second
- * registration under {@code 01012345678} is not detected as a duplicate.
- * Every one of these is legacy's and none is harmonised (D-058).
+ * <h2>One way to find an account by phone</h2>
+ * <p>PHP had three: {@code register_company.php}, {@code register_employee.php}
+ * and {@code login_company.php} matched the {@code phone} column exactly,
+ * while {@code join_company.php} and {@code forgot_password.php} accepted
+ * every stored spelling. So a company stored as {@code 1012345678} could be
+ * joined but could not log in as {@code 01012345678}, and a second
+ * registration under the other spelling was not a duplicate -- which is how
+ * 16 pairs of companies came to share a number. D-058 kept that asymmetry;
+ * D-291 replaces it: every route finds a number through
+ * {@link com.workin.legacy.phone.PhoneLookup}, in any spelling, and the
+ * uniqueness checks keep their own scopes (per company, global, rejected rows
+ * absent) over the canonical number.
  */
 @Service
 public class LegacyRegistrationService {
@@ -144,9 +148,7 @@ public class LegacyRegistrationService {
 	public StatusScreen checkStatus(Map<String, Object> body, String locale) {
 		required(body, "phone", "company_id");
 		Map<String, Object> row = store.employeeStatus(
-				LegacyValues.toPdoBindValue(body.get("phone")) == null
-						? null : LegacyValues.toPhpString(body.get("phone")),
-				LegacyValues.toPhpLong(body.get("company_id")));
+				phoneNumbers.lookup(body.get("phone")), LegacyValues.toPhpLong(body.get("company_id")));
 
 		Map<String, Object> data = new LinkedHashMap<>();
 		if (row == null) {
@@ -225,25 +227,32 @@ public class LegacyRegistrationService {
 		String countryCode = body == null || body.get("country_code") == null
 				? DEFAULT_COUNTRY_CODE
 				: trimmed(body, "country_code");
-		String phone = LegacyPhoneNumbers.digitsOnly(
-				LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("phone"))));
-		if (!phoneNumbers.isValidLocal(countryCode, phone)) {
-			throw new LegacyApiException(400, "invalid_phone_number");
-		}
+		CanonicalPhone phone = phoneNumbers.forAccount(body.get("phone"), countryCode)
+				.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
 
 		// fail(PHONE_ALREADY_REGISTERED) with no status -- the default 400.
-		if (store.companyPhoneExistsExactly(phone)) {
+		// Any spelling of the number is a duplicate now (D-291).
+		if (store.companyPhoneExists(phone)) {
 			throw new LegacyApiException(400, "phone_already_registered");
 		}
 
-		long companyId = store.insertCompany(
-				firstName, lastName, countryCode, phone,
-				passwordEncoder.encode(LegacyValues.toPhpString(body.get("password"))),
-				LegacyEmployeeName.normalizeOptionalEmail(body.get("email")));
+		long companyId;
+		try {
+			companyId = store.insertCompany(
+					firstName, lastName, phone.dialCode(), phone.nationalDigits(),
+					passwordEncoder.encode(LegacyValues.toPhpString(body.get("password"))),
+					LegacyEmployeeName.normalizeOptionalEmail(body.get("email")));
+		} catch (RuntimeException ex) {
+			// A number taken between the probe and the insert (D-291).
+			if (LegacyPhoneNumbers.isPhoneDuplicate(ex)) {
+				throw new LegacyApiException(400, "phone_already_registered");
+			}
+			throw ex;
+		}
 
 		// The OTP is issued after the row exists, so a delivery failure leaves a
 		// registered-but-unverified company behind. That is legacy's ordering.
-		otp.issueAndSendWhatsApp(request, phone, LegacyOtpService.SMS_OTP_VERIFY, countryCode, 10, locale);
+		otp.issueAndSendWhatsApp(request, phone, LegacyOtpService.SMS_OTP_VERIFY, 10, locale);
 
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("company", LegacyPublicRow.of(store.company(companyId)));
@@ -404,8 +413,10 @@ public class LegacyRegistrationService {
 	 * {@code register_employee.php} -- the <b>older</b> of the two join paths,
 	 * kept alongside {@code join_company.php}.
 	 *
-	 * <p>Its "company code" is the company's <b>phone number</b>, matched
-	 * exactly, not the public {@code company_code} column. It creates an
+	 * <p>Its "company code" is the company's <b>phone number</b> -- found in
+	 * any spelling now, and when two companies hold it, the one stored exactly
+	 * as sent, else none (D-291) -- not the public {@code company_code}
+	 * column. It creates an
 	 * employee with no name, no branch and <b>no {@code join_request_status}</b>
 	 * -- so the column takes its {@code 'accepted'} default and the employee is
 	 * immediately accepted, where {@code join_company.php} creates a
@@ -414,21 +425,38 @@ public class LegacyRegistrationService {
 	 */
 	public Map<String, Object> registerEmployee(Map<String, Object> body) {
 		required(body, "phone", "password", "company_code");
-		Map<String, Object> company = store.companyByPhoneExactly(
-				LegacyValues.toPhpString(body.get("company_code")));
+		Map<String, Object> company = PhoneLookup.singleRow(
+				store.companiesByPhone(phoneNumbers.lookup(body.get("company_code"))), body.get("company_code"));
 		if (company == null || !ACTIVE.equals(LegacyValues.toPhpString(company.get("status")))) {
 			throw new LegacyApiException(404, "invalid_inactive_company_code");
 		}
 		long companyId = LegacyValues.toPhpLong(company.get("id"));
 
-		String phone = LegacyValues.toPhpString(body.get("phone"));
-		if (store.employeeExistsInCompanyExactly(phone, companyId)) {
+		// PHP stored the phone exactly as sent, unvalidated. It is an account
+		// identifier, so it is validated and stored canonically now (D-291);
+		// the route takes no country, so a national number is Egyptian and any
+		// other country is written internationally.
+		CanonicalPhone phone = phoneNumbers.forAccount(body.get("phone"), null)
+				.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
+		if (store.employeeExistsInCompany(phone, companyId)) {
 			// fail() with no status -- the default 400.
 			throw new LegacyApiException(400, "phone_registered_in_company");
 		}
 
-		long employeeId = store.insertEmployeeMinimal(companyId, phone,
-				passwordEncoder.encode(LegacyValues.toPhpString(body.get("password"))));
+		long employeeId;
+		try {
+			employeeId = store.insertEmployeeMinimal(companyId, phone,
+					passwordEncoder.encode(LegacyValues.toPhpString(body.get("password"))));
+		} catch (RuntimeException ex) {
+			// employees.phone is unique globally while the probe above looks in
+			// one company: a number held elsewhere, or held as another country's
+			// national digits, is refused with this route's duplicate answer
+			// rather than a 500 (D-291).
+			if (LegacyPhoneNumbers.isPhoneDuplicate(ex)) {
+				throw new LegacyApiException(400, "phone_registered_in_company");
+			}
+			throw ex;
+		}
 
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("company_id", companyId);
@@ -464,11 +492,8 @@ public class LegacyRegistrationService {
 		String rawCountry = trimmed(body, "country_code");
 		String countryCode = phoneNumbers.resolveCode(
 				rawCountry.isEmpty() ? phoneNumbers.resolveCode("") : rawCountry);
-		String phone = LegacyPhoneNumbers.digitsOnly(
-				LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("phone"))));
-		if (!phoneNumbers.isValidLocal(countryCode, phone)) {
-			throw new LegacyApiException(400, "invalid_phone_number");
-		}
+		CanonicalPhone phone = phoneNumbers.forAccount(body.get("phone"), countryCode)
+				.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
 
 		String code = LegacyCompanyCode.normalize(body.get("company_code"));
 		if (code.isEmpty()) {
@@ -493,8 +518,7 @@ public class LegacyRegistrationService {
 			throw new LegacyApiException(400, "phone_registered_in_company");
 		}
 
-		boolean isOwnerPhone = LegacyPhoneNumbers.areEquivalent(
-				LegacyValues.toPhpString(company.get("phone")), phone);
+		boolean isOwnerPhone = PhoneLookup.of(phone).matches(company.get("phone"), company.get("country_code"));
 		if (!isOwnerPhone && employeeStore.phoneExistsGlobally(phone, null)) {
 			throw new LegacyApiException(409, "phone_already_used_try_login");
 		}
@@ -502,7 +526,7 @@ public class LegacyRegistrationService {
 			throw new LegacyApiException(409, "phone_already_used_try_login");
 		}
 
-		LegacyEmployeeName.Name name = LegacyEmployeeName.fromBody(body, phone);
+		LegacyEmployeeName.Name name = LegacyEmployeeName.fromBody(body, phone.nationalDigits());
 		long employeeId;
 		try {
 			employeeId = store.insertJoinRequestEmployee(
@@ -523,7 +547,7 @@ public class LegacyRegistrationService {
 
 		String display = LegacyValues.phpTrim(name.firstName() + " " + name.lastName());
 		if (display.isEmpty()) {
-			display = phone;
+			display = phone.nationalDigits();
 		}
 		String companyName = LegacyValues.phpTrim(LegacyValues.toPhpString(company.get("company_name")));
 		if (companyName.isEmpty()) {
@@ -583,9 +607,10 @@ public class LegacyRegistrationService {
 	 * {@code company_pending_admin}.
 	 */
 	public CompanyLoginResult companyLogin(
-			HttpServletRequest request, Map<String, Object> body, boolean desktop, String locale) {
-		Map<String, Object> company = store.companyByPhoneForLogin(
-				LegacyValues.toPdoBindValue(body.get("phone")));
+			HttpServletRequest request, Map<String, Object> body, PhoneLookup phone, boolean desktop, String locale) {
+		// Two companies can hold one number (ADR-0020's duplicate pairs): the
+		// one stored exactly as sent answers, and otherwise neither does.
+		Map<String, Object> company = PhoneLookup.singleRow(store.companiesForLogin(phone), body.get("phone"));
 		if (company == null) {
 			throw new LegacyApiException(401,
 					desktop ? "company_not_registered" : "invalid_phone_password");
@@ -597,15 +622,13 @@ public class LegacyRegistrationService {
 		}
 
 		if (LegacyValues.toPhpLong(company.get("otp_verified")) == 0) {
-			String phone = LegacyOtpService.normalizePhone(body.get("phone"));
-			if (!otp.hasRecentForPhone(phone, 60)) {
-				String countryCode = LegacyValues.phpTrim(
-						LegacyValues.toPhpString(company.get("country_code")));
-				if (LegacyValues.isPhpEmpty(countryCode)) {
-					countryCode = DEFAULT_COUNTRY_CODE;
-				}
-				otp.issueAndSendWhatsApp(
-						request, phone, LegacyOtpService.SMS_OTP_VERIFY, countryCode, 10, locale);
+			// PHP keyed the code on the request's digits and sent it with the
+			// row's country code; it is the row's number, in E.164, now.
+			CanonicalPhone number = CanonicalPhones.parse(company.get("phone"),
+					company.get("country_code") == null ? null : LegacyValues.toPhpString(company.get("country_code")))
+					.orElseThrow(() -> new IllegalStateException("A verified company row stopped canonicalising"));
+			if (!otp.hasRecentForPhone(number, 60)) {
+				otp.issueAndSendWhatsApp(request, number, LegacyOtpService.SMS_OTP_VERIFY, 10, locale);
 			}
 			return new CompanyLoginResult.VerifyOtpFirst(LegacyPublicRow.of(company));
 		}
@@ -656,9 +679,8 @@ public class LegacyRegistrationService {
 	 * {@code employee_row_attach_hr_permissions()} takes its row branch. The
 	 * token is issued between the two reads.
 	 */
-	public Map<String, Object> desktopHrLogin(Map<String, Object> body, String locale) {
-		List<Map<String, Object>> rows = store.activeHrByPhoneOldestFirst(
-				LegacyValues.toPdoBindValue(body.get("phone")));
+	public Map<String, Object> desktopHrLogin(Map<String, Object> body, PhoneLookup phone, String locale) {
+		List<Map<String, Object>> rows = store.activeHrByPhoneOldestFirst(phone);
 		if (rows.isEmpty()) {
 			throw new LegacyApiException(401, "user_not_found");
 		}

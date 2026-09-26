@@ -7,6 +7,7 @@ import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
@@ -16,12 +17,17 @@ import org.springframework.jdbc.datasource.DelegatingDataSource;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import com.workin.legacy.LegacyMariaDb;
+import com.workin.legacy.phone.LegacyPhoneCountries;
+import com.workin.legacy.phone.LegacyPhoneNumbers;
+import com.workin.legacy.phone.PhoneLookup;
 import com.workin.legacy.wire.LegacyApiException;
 
 /**
  * {@link LegacyLoginThrottle} against real MariaDB, without the HTTP layer:
  * here the client address and the raw phone value are whatever the test says,
- * which a request from the test JVM cannot vary (D-289).
+ * which a request from the test JVM cannot vary (D-289). The phone budgets are
+ * keyed on the canonical E.164 number (D-291), so every spelling of one number
+ * is one budget.
  */
 class LegacyLoginThrottleTest {
 
@@ -34,9 +40,12 @@ class LegacyLoginThrottleTest {
 	/** When set, every DELETE the throttle prepares fails as the database would. */
 	private final AtomicBoolean failDeletes = new AtomicBoolean();
 
-	private final LegacyLoginThrottle throttle = new LegacyLoginThrottle(new FailingDeletes(
-			new DriverManagerDataSource(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword()),
-			this.failDeletes));
+	private final DriverManagerDataSource dataSource =
+			new DriverManagerDataSource(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
+
+	private final LegacyLoginThrottle throttle = new LegacyLoginThrottle(
+			new FailingDeletes(this.dataSource, this.failDeletes),
+			new LegacyPhoneNumbers(new LegacyPhoneCountries(this.dataSource)));
 
 	@BeforeEach
 	void emptyBudgets() throws SQLException {
@@ -86,23 +95,68 @@ class LegacyLoginThrottleTest {
 	}
 
 	@Test
-	void theLookupIsGivenTheFoldedPhoneTheKeyIsMadeFrom() {
-		assertThat(LegacyLoginThrottle.bindablePhone("٠١٠١٢٣٤٥٦٧٨")).isEqualTo("01012345678");
-		assertThat(LegacyLoginThrottle.bindablePhone("０１０-１２３４ ５６７８")).isEqualTo("010-1234 5678");
-		assertThat(LegacyLoginThrottle.bindablePhone(" +2010 ")).isEqualTo(" +2010 ");
-		assertThat(LegacyLoginThrottle.bindablePhone("(010) 1234.5678")).isEqualTo("(010) 1234.5678");
-		assertThat(LegacyLoginThrottle.bindablePhone("+20/10-1234")).isEqualTo("+20/10-1234");
-		String bound = this.throttle.guard("۰۱۰۱۲۳۴۵۶۷۸", OWNER, UNKNOWN, phone -> phone);
-		assertThat(bound).isEqualTo("01012345678");
+	void missesSpreadAcrossSpellingsOfOneNumberSpendOneBudget() {
+		// The bypass D-291 closes: keyed on the digits the client typed, each
+		// of these was a budget of its own, so eight spellings bought eight
+		// times the guesses. Keyed on E.164 they are one number.
+		List<String> spellings = List.of("01012345678", "+201012345678", "1012345678", "0020 10 1234 5678",
+				"(010) 1234-5678", "201012345678", "٠١٠١٢٣٤٥٦٧٨", "010.1234.5678");
+		assertThat(spellings).hasSize(LegacyLoginThrottle.MAX_PAIR_MISSES);
+		for (String spelling : spellings) {
+			miss(spelling, GUESSER);
+		}
+
+		for (String spelling : spellings) {
+			assertRefused(spelling, GUESSER);
+		}
+		assertRefused("+20 10 1234 5678", GUESSER);
 	}
 
 	@Test
-	void aPhoneTheCollationCouldFoldButNoDigitCategoryDoesNeverReachesTheLookup() {
+	void thePhoneWideCeilingIsOneBudgetAcrossSpellingsAndAddresses() {
+		List<String> spellings = List.of("01012345678", "+201012345678", "1012345678", "00201012345678", "201012345678");
+		int addresses = LegacyLoginThrottle.MAX_PHONE_MISSES / LegacyLoginThrottle.MAX_PAIR_MISSES;
+		for (int address = 0; address < addresses; address++) {
+			for (int miss = 0; miss < LegacyLoginThrottle.MAX_PAIR_MISSES; miss++) {
+				miss(spellings.get((address + miss) % spellings.size()), "192.0.2." + address);
+			}
+		}
+
+		assertRefused("(010) 1234-5678", "192.0.2.200");
+		assertRefused("+20 10 1234 5678", OWNER);
+	}
+
+	@Test
+	void aNationalNumberIsChargedUnderEveryNumberItCanReach() {
+		// 0501234567 reads as a Saudi mobile (and an Egyptian landline, and an
+		// Emirati mobile), and the lookup can reach the Saudi account stored
+		// that way -- so a miss typed nationally is a miss against +966 too.
+		for (int miss = 0; miss < LegacyLoginThrottle.MAX_PAIR_MISSES; miss++) {
+			miss("+966 50 123 4567", GUESSER);
+		}
+
+		assertRefused("0501234567", GUESSER);
+		assertRefused("501234567", GUESSER);
+		// The Egyptian reading alone is not the Saudi number's budget.
+		assertThat(guard("+20 50 1234567", GUESSER, () -> "the landline")).isEqualTo("the landline");
+	}
+
+	@Test
+	void theLookupIsGivenTheCanonicalNumberTheKeyIsMadeFrom() {
+		PhoneLookup lookup = this.throttle.guard("۰۱۰-۱۲۳۴-۵۶۷۸", OWNER, UNKNOWN, phone -> phone);
+
+		assertThat(lookup.e164s()).containsExactly("+201012345678");
+		assertThat(lookup.clause("phone").binds())
+				.containsExactly("01012345678", "1012345678", "201012345678", "+201012345678", "00201012345678");
+	}
+
+	@Test
+	void inputThatIsNotAPhoneNumberNeverReachesTheLookup() {
 		// Circled, dingbat and Hangzhou digits compare equal to ASCII digits in
-		// utf8mb4_unicode_ci but are not category Nd: refused, not keyed.
+		// utf8mb4_unicode_ci; letters, an extension and an invalid number are
+		// not a phone at all. All refused as an unknown phone, none keyed.
 		for (String phone : new String[] {"⓿➀⓿➀➁➂➃➄➅➆➇", "〇〡〇〡〢〣〤〥〦〧〨", "0101234567➇", "01012345678x",
-				"010\u200B12345678", "0+1012345678", "+-+2010"}) {
-			assertThat(LegacyLoginThrottle.bindablePhone(phone)).as(phone).isNull();
+				"0+1012345678", "+-+2010", "01012345678 ext 9", "01312345678", "010ABCDEFGH"}) {
 			assertThatThrownBy(() -> this.throttle.guard(phone, GUESSER, UNKNOWN, bound -> {
 				throw new AssertionError("the lookup ran for " + phone);
 			})).isInstanceOfSatisfying(LegacyApiException.class,
@@ -126,26 +180,28 @@ class LegacyLoginThrottleTest {
 	}
 
 	@Test
-	void aJsonNumberIsKeyedOnTheStringTheLookupBinds() {
-		// PHP's (string) cast of this float is "1012345678", which is what
-		// login_company binds; String.valueOf gave digits of its own each time.
-		assertThat(LegacyLoginThrottle.bindablePhone(1.01234567800001E9)).isEqualTo("1012345678");
+	void aJsonNumberIsKeyedOnTheNumberItIs() {
+		// PHP's (string) cast of this float is "1012345678": the Egyptian
+		// mobile without its trunk zero, which is the same number as 010...
 		for (int miss = 0; miss < LegacyLoginThrottle.MAX_PAIR_MISSES; miss++) {
 			miss("1012345678", GUESSER);
 		}
 
 		assertRefused(1.01234567800001E9, GUESSER);
 		assertRefused(1012345678L, GUESSER);
+		assertRefused("01012345678", GUESSER);
 	}
 
 	@Test
 	void aPhoneWithNoDigitsIsChargedToTheAddressAloneRatherThanToASharedBucket() {
 		for (int miss = 0; miss < LegacyLoginThrottle.MAX_PAIR_MISSES + 1; miss++) {
-			miss(" - ", GUESSER);
+			assertThatThrownBy(() -> guard(" - ", GUESSER, () -> "never"))
+					.isInstanceOfSatisfying(LegacyApiException.class, ex -> assertThat(ex.getStatus()).isEqualTo(401));
 		}
 
-		assertThat(guard("--", GUESSER, () -> "not locked")).isEqualTo("not locked");
-		assertThat(guard("", OWNER, () -> "not locked")).isEqualTo("not locked");
+		// Nothing was keyed on the phone, so a real number from the same
+		// address still has its whole budget.
+		assertThat(guard("01012345678", GUESSER, () -> "not locked")).isEqualTo("not locked");
 	}
 
 	@Test

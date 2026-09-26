@@ -16,7 +16,9 @@ import com.workin.legacy.LegacyPagination;
 import com.workin.legacy.LegacyPhpArray;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
+import com.workin.legacy.phone.CanonicalPhone;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
+import com.workin.legacy.phone.PhoneLookup;
 import com.workin.legacy.uploads.LegacyFileUploads;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.authorization.LegacyHrPermissionEnforcer;
@@ -226,10 +228,10 @@ public class LegacyEmployeeService {
 		requireFields(body, "first_name", "last_name", "employee_code", "shift_id", "expected_daily_hours");
 
 		// resolve_employee_phone_and_country_code(): both null, or both set.
-		String[] phoneAndCountry = resolvePhoneAndCountryCode(body);
-		String phone = phoneAndCountry[0];
-		String countryCode = phoneAndCountry[1];
-		if (phone != null && store.phoneExistsGlobally(phone, null)) {
+		CanonicalPhone number = resolvePhoneAndCountryCode(body);
+		String phone = number == null ? null : number.nationalDigits();
+		String countryCode = number == null ? null : number.dialCode();
+		if (number != null && store.phoneExistsGlobally(number, null)) {
 			throw new LegacyApiException(409, "phone_already_exists");
 		}
 
@@ -313,6 +315,12 @@ public class LegacyEmployeeService {
 			// all, and a half-written employee is worse than a lost stack trace.
 			// The catch covers the transaction and nothing else -- validation
 			// ran before it and the post-commit re-read runs after it.
+			// A phone another row took between the probe and the insert is the
+			// duplicate the probe answers, once the transaction has rolled back
+			// (D-291).
+			if (LegacyPhoneNumbers.isPhoneDuplicate(ex)) {
+				throw new LegacyApiException(409, "phone_already_exists");
+			}
 			throw new LegacyApiException(500, "employee_create_failed", messageOf(ex));
 		}
 
@@ -401,23 +409,24 @@ public class LegacyEmployeeService {
 	/**
 	 * {@code resolve_employee_phone_and_country_code()} ({@code functions.php:80-94}):
 	 * a phone with no digits means no phone at all and no country code; any
-	 * digits make the country code mandatory and the number validated.
+	 * digits make the country code mandatory and the number validated -- by
+	 * {@link LegacyPhoneNumbers#forAccount} now (D-291), whose dial code is
+	 * the one stored.
+	 *
+	 * @return the number, or null for no phone
 	 */
-	private String[] resolvePhoneAndCountryCode(Map<String, Object> body) {
+	private CanonicalPhone resolvePhoneAndCountryCode(Map<String, Object> body) {
 		String rawPhone = LegacyValues.toPhpString(body.get("phone")).trim();
 		if (LegacyPhoneNumbers.digitsOnly(rawPhone).isEmpty()) {
-			return new String[] {null, null};
+			return null;
 		}
 		String countryCode = LegacyPhoneNumbers.normalizeDialCode(
 				LegacyValues.toPhpString(body.get("country_code")).trim());
 		if (countryCode.isEmpty()) {
 			throw new LegacyApiException(400, "field_required", null, Map.of("field", "country_code"));
 		}
-		String phone = phoneNumbers.normalizeLocal(countryCode, rawPhone);
-		if (!phoneNumbers.isValidLocal(countryCode, phone)) {
-			throw new LegacyApiException(400, "invalid_phone_number");
-		}
-		return new String[] {phone, countryCode};
+		return phoneNumbers.forAccount(rawPhone, countryCode)
+				.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
 	}
 
 	/**
@@ -649,23 +658,46 @@ public class LegacyEmployeeService {
 			throw new LegacyApiException(404, "shift_not_found");
 		}
 
-		// Phone: normalize_employee_phone(), which only strips to digits. This
-		// is NOT create's country-aware resolver -- no country normalisation and
-		// no validity check, so update accepts numbers create would reject.
-		if (body.containsKey("phone")) {
-			String newPhone = normalizeEmployeePhone(body.get("phone"));
-			if (newPhone != null && store.phoneExistsGlobally(newPhone, employeeId)) {
-				throw new LegacyApiException(409, "phone_already_exists");
+		// Phone: PHP's normalize_employee_phone() only stripped to digits, with
+		// no validity check, so update accepted numbers create rejected. A phone
+		// is a login identifier, so update validates it as create does now and
+		// stores it canonically (D-291). No digits still clears it. A new
+		// country_code alone re-reads the stored phone in it, so it is
+		// validated as that phone would be.
+		if (!body.containsKey("phone") && body.containsKey("country_code")) {
+			switch (LegacyPhoneNumbers.countryCodeWrite(
+					body.get("country_code"), employee.get("phone"), employee.get("country_code"))) {
+				case LegacyPhoneNumbers.Reread reread -> {
+					body.put("phone", reread.phone());
+					body.put("country_code", reread.countryCode());
+				}
+				case LegacyPhoneNumbers.Written written -> body.put("country_code", written.value());
 			}
-			body.put("phone", newPhone);
-			if (newPhone == null) {
+		}
+		if (body.containsKey("phone")) {
+			if (normalizeEmployeePhone(body.get("phone")) == null) {
+				body.put("phone", null);
 				body.put("country_code", null);
 			} else {
 				String countryCode = LegacyValues.toPhpString(body.get("country_code")).trim();
 				if (countryCode.isEmpty()) {
 					throw new LegacyApiException(400, "field_required", null, Map.of("field", "country_code"));
 				}
-				body.put("country_code", countryCode);
+				CanonicalPhone newPhone = phoneNumbers.forAccount(body.get("phone"), countryCode)
+						.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
+				if (PhoneLookup.of(newPhone).matches(employee.get("phone"), employee.get("country_code"))) {
+					// The number the row already is: written back as stored, byte
+					// for byte, so it cannot collide with another country's row
+					// holding the national digits (D-291).
+					body.put("phone", employee.get("phone"));
+					body.put("country_code", employee.get("country_code"));
+				} else {
+					if (store.phoneExistsGlobally(newPhone, employeeId)) {
+						throw new LegacyApiException(409, "phone_already_exists");
+					}
+					body.put("phone", newPhone.nationalDigits());
+					body.put("country_code", newPhone.dialCode());
+				}
 			}
 		}
 
@@ -753,6 +785,11 @@ public class LegacyEmployeeService {
 				return null;
 			});
 		} catch (Throwable ex) { // NOPMD - catch (Throwable $e), around the transaction only
+			// A phone another row took between the probe and the write is the
+			// duplicate the probe answers, not a 500 (D-291).
+			if (LegacyPhoneNumbers.isPhoneDuplicate(ex)) {
+				throw new LegacyApiException(409, "phone_already_exists");
+			}
 			// fail(ERROR_WITH_MESSAGE, 500, $e->getMessage()) -- a different key
 			// from create's, and the same exception-text-as-data shape.
 			throw new LegacyApiException(500, "error_with_message", messageOf(ex));

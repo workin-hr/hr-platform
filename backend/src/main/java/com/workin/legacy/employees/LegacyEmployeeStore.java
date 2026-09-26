@@ -26,7 +26,8 @@ import com.workin.legacy.LegacyPublicRow;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.workin.legacy.LegacyValues;
-import com.workin.legacy.phone.LegacyPhoneNumbers;
+import com.workin.legacy.phone.CanonicalPhone;
+import com.workin.legacy.phone.PhoneLookup;
 
 /**
  * The employee read path, in legacy's own SQL and legacy's own value types.
@@ -267,20 +268,6 @@ public class LegacyEmployeeStore {
 	}
 
 	/**
-	 * {@code employee_phone_exists_globally($phone, $exclude)}
-	 * ({@code functions.php:99-117}).
-	 *
-	 * <p>Three properties of this query are contract, not detail. It is
-	 * <b>global</b>: no {@code company_id} predicate, because
-	 * {@code employees.phone} is a login identifier with a database-wide unique
-	 * index. It matches through {@code phone_sql_match_clause()}, so a number
-	 * stored in any of {@link LegacyPhoneNumbers#lookupVariants}' spellings --
-	 * or with {@code + - ( )} formatting still in the column -- counts as taken.
-	 * And it ignores rows whose {@code join_request_status} is
-	 * {@code 'rejected'} (NULL counting as {@code 'accepted'}), so a rejected
-	 * join request never blocks a real hire.
-	 */
-	/**
 	 * {@code employee_excel_employees_by_code()}: every employee of one
 	 * company, keyed by normalized employee code.
 	 *
@@ -306,28 +293,42 @@ public class LegacyEmployeeStore {
 		return byCode;
 	}
 
-	public boolean phoneExistsGlobally(String phone, Long excludeEmployeeId) {
-		String digits = LegacyPhoneNumbers.digitsOnly(phone == null ? "" : phone.trim());
-		if (digits.isEmpty()) {
-			return false;
-		}
-		List<String> variants = LegacyPhoneNumbers.lookupVariants(digits);
-		if (variants.isEmpty()) {
-			return false;
-		}
-		String placeholders = String.join(", ", java.util.Collections.nCopies(variants.size(), "?"));
-		StringBuilder sql = new StringBuilder()
-				.append("SELECT COUNT(*) FROM employees WHERE (")
-				.append(LegacyPhoneNumbers.digitsSqlExpression("phone"))
-				.append(" IN (").append(placeholders).append("))")
-				.append(" AND COALESCE(join_request_status, 'accepted') <> 'rejected'");
-		List<Object> params = new ArrayList<>(variants);
+	/**
+	 * {@code employee_phone_exists_globally($phone, $exclude)}
+	 * ({@code functions.php:99-117}).
+	 *
+	 * <p>Three properties of this query are contract, not detail. It is
+	 * <b>global</b>: no {@code company_id} predicate, because
+	 * {@code employees.phone} is a login identifier with a database-wide unique
+	 * index. It matches the canonical number (D-291): every stored spelling
+	 * of it is a candidate and a row counts only when its own
+	 * {@code (phone, country_code)} is that number -- so {@code 01012345678}
+	 * and {@code 1012345678} are one number, and an Egyptian and a Saudi
+	 * number sharing their digits are two. And it ignores rows whose
+	 * {@code join_request_status} is {@code 'rejected'} (NULL counting as {@code 'accepted'}), so a rejected
+	 * join request never blocks a real hire -- except that any row, rejected
+	 * or not, holding exactly the digits the write will store blocks it,
+	 * because the column's raw unique index would ({@link PhoneLookup#writeProbe}).
+	 */
+	public boolean phoneExistsGlobally(CanonicalPhone phone, Long excludeEmployeeId) {
+		PhoneLookup lookup = PhoneLookup.of(phone);
+		PhoneLookup.Clause probe = lookup.writeProbe("phone",
+				"id, phone, country_code, COALESCE(join_request_status, 'accepted') <> 'rejected' AS counts",
+				"employees");
+		StringBuilder sql = new StringBuilder(probe.sql());
+		List<Object> params = new ArrayList<>(probe.binds());
 		if (excludeEmployeeId != null && excludeEmployeeId > 0) {
 			sql.append(" AND id <> ?");
 			params.add(excludeEmployeeId);
 		}
-		Long matches = jdbcTemplate.queryForObject(sql.toString(), Long.class, params.toArray());
-		return matches != null && matches > 0;
+		for (Map<String, Object> row : jdbcTemplate.queryForList(sql.toString(), params.toArray())) {
+			if (PhoneLookup.holdsWrittenDigits(row)
+					|| (LegacyValues.toPhpLong(row.get("counts")) != 0
+							&& lookup.matches(row.get("phone"), row.get("country_code")))) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**

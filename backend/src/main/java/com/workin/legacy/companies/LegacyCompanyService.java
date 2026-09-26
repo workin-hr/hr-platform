@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.workin.legacy.LegacyValues;
+import com.workin.legacy.phone.CanonicalPhone;
+import com.workin.legacy.phone.LegacyPhoneNumbers;
 import com.workin.legacy.uploads.LegacyFileUploads;
 import com.workin.legacy.wire.LegacyApiException;
 
@@ -18,10 +20,13 @@ public class LegacyCompanyService {
 
 	private final LegacyCompanyStore store;
 	private final LegacyFileUploads uploads;
+	private final LegacyPhoneNumbers phoneNumbers;
 
-	public LegacyCompanyService(LegacyCompanyStore store, LegacyFileUploads uploads) {
+	public LegacyCompanyService(LegacyCompanyStore store, LegacyFileUploads uploads,
+			LegacyPhoneNumbers phoneNumbers) {
 		this.store = store;
 		this.uploads = uploads;
+		this.phoneNumbers = phoneNumbers;
 	}
 
 	/**
@@ -68,7 +73,24 @@ public class LegacyCompanyService {
 			columns.put("last_name", body.get("last_name"));
 		}
 		if (body.get("country_code") != null) {
-			columns.put("country_code", body.get("country_code"));
+			// The company's phone is read in its country_code, so a new code
+			// changes which number the login is: the stored phone must hold
+			// under it, as a registered number would (D-291).
+			Map<String, Object> current = store.findById(companyId);
+			LegacyPhoneNumbers.CountryCodeWrite write = LegacyPhoneNumbers.countryCodeWrite(body.get("country_code"),
+					current == null ? null : current.get("phone"), current == null ? null : current.get("country_code"));
+			switch (write) {
+				case LegacyPhoneNumbers.Written written -> columns.put("country_code", written.value());
+				case LegacyPhoneNumbers.Reread reread -> {
+					CanonicalPhone phone = phoneNumbers.forAccount(reread.phone(), reread.countryCode())
+							.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
+					if (store.companyPhoneTaken(phone, companyId)) {
+						throw new LegacyApiException(400, "phone_already_registered");
+					}
+					columns.put("country_code", phone.dialCode());
+					columns.put("phone", phone.nationalDigits());
+				}
+			}
 		}
 
 		if (body.containsKey("email")) {
@@ -128,6 +150,11 @@ public class LegacyCompanyService {
 		try {
 			store.updateColumns(companyId, columns);
 		} catch (RuntimeException ex) {
+			// The phone a country_code re-read writes, taken between the probe
+			// and the write, is refused as the probe refuses it (D-291).
+			if (LegacyPhoneNumbers.isPhoneDuplicate(ex)) {
+				throw new LegacyApiException(400, "phone_already_registered");
+			}
 			if (isDuplicateEntry(ex)) {
 				throw new LegacyApiException(409, "already_exists", null, Map.of("field", "email"));
 			}

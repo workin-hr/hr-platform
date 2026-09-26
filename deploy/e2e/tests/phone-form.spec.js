@@ -3,7 +3,9 @@ import { test, expect } from '@playwright/test';
 
 /**
  * phone-validator.js and phone-form-bind.js on the company and employee forms, with no stack
- * behind them (D-261).
+ * behind them (D-261). Since D-291 the browser enforces no length or prefix: the server reads
+ * every phone with libphonenumber and is the one authority, so the only refusal left here is a
+ * phone with no country to read it in.
  *
  * <p>The Java end-to-end tests read the select, the message and the rules a page carries; they
  * cannot run the scripts. So the page here ends with layout.jte's own phone block, read from the
@@ -132,63 +134,33 @@ test('the rules reach the validator through the tag\'s escaped attribute', async
 	expect(await page.evaluate(() => window.WorkinPhoneCountriesRules)).toEqual(RULES);
 });
 
-test('the company phone takes digits only, as many as the chosen country\'s numbers have', async ({ page }) => {
+test('no length or prefix is enforced: no maxlength, no rewriting, whatever phone_countries says', async ({ page }) => {
 	await open(page, companyForm());
 	const phone = page.locator('#co_phone');
 
-	await expect(phone).toHaveAttribute('maxlength', '11');
-	await phone.pressSequentially('01a0-1 2');
-	await expect(phone).toHaveValue('01012');
+	await expect(phone).not.toHaveAttribute('maxlength', /.*/);
+	await phone.pressSequentially('+20 (10) 1234-5678');
+	await expect(phone).toHaveValue('+20 (10) 1234-5678');
+	await phone.blur();
+	await expect(phone).toHaveValue('+20 (10) 1234-5678');
 
 	await page.selectOption('#co_code', '+966');
-	await expect(phone).toHaveAttribute('maxlength', '10');
+	await expect(phone).not.toHaveAttribute('maxlength', /.*/);
 });
 
-test('a number typed without its leading zero gets it back on leaving the field', async ({ page }) => {
-	await open(page, companyForm());
-
-	await page.locator('#co_phone').fill('1012345678');
-	await page.locator('#co_phone').blur();
-
-	await expect(page.locator('#co_phone')).toHaveValue('01012345678');
-});
-
-test('a number the country refuses stops the save with the form\'s message; a valid one saves', async ({ page }) => {
-	const session = await open(page, companyForm());
-
-	await page.locator('#co_phone').fill('09912345678');
-	expect(await submit(page, session)).toBe(false);
-	expect(session.alerts).toEqual([INVALID]);
-	expect(await page.evaluate(() => document.activeElement.id)).toBe('co_phone');
-
-	await page.locator('#co_phone').fill('01012345678');
-	expect(await submit(page, session)).toBe(true);
-	expect(session.posts[0]).toContain('01012345678');
-	expect(session.alerts).toHaveLength(1);
-});
-
-test('a company form reopened after another country was chosen takes its own country\'s numbers again', async ({ page }) => {
-	// crud.js reopens the form with reset(), which fires no change event on the country.
-	const session = await open(page, companyModal(), { after: '<script src="/admin/_assets/crud.js"></script>' });
-	await page.click('#add-company');
-	await page.selectOption('#co_code', '+966');
-	await expect(page.locator('#co_phone')).toHaveAttribute('maxlength', '10');
-	await page.click('#companyModal .modal-close');
-
-	await page.click('#add-company');
-	await expect(page.locator('#co_code')).toHaveValue('+20');
-	await expect(page.locator('#co_phone')).toHaveAttribute('maxlength', '11');
-	await page.locator('#co_phone').pressSequentially('01012345678');
-	await expect(page.locator('#co_phone')).toHaveValue('01012345678');
-	expect(await submit(page, session)).toBe(true);
-	expect(session.alerts).toEqual([]);
-});
-
-test('a company edit opened with a number its country refuses is refused as legacy refuses it', async ({ page }) => {
-	const session = await open(page, companyForm({ phone: '0712345678', code: '+966' }));
-
-	expect(await submit(page, session)).toBe(false);
-	expect(session.alerts).toEqual([INVALID]);
+test('numbers the rows would refuse are posted for the server to judge', async ({ context }) => {
+	// Each fails the +20 row's length or prefixes. The first three are numbers the server accepts
+	// (an international Saudi mobile, a national number without its zero, Arabic-Indic digits);
+	// the last is one it refuses with its own message. The browser answers for none of them.
+	for (const typed of ['+966 50 123 4567', '1012345678', '٠١٠١٢٣٤٥٦٧٨', '09912345678']) {
+		const page = await context.newPage();
+		const session = await open(page, companyForm());
+		await page.locator('#co_phone').fill(typed);
+		expect(await submit(page, session), typed).toBe(true);
+		expect(session.posts[0], typed).toContain(typed);
+		expect(session.alerts).toEqual([]);
+		await page.close();
+	}
 });
 
 test('an employee needs no phone, but a phone needs a country', async ({ page }) => {
@@ -205,58 +177,26 @@ test('an employee needs no phone, but a phone needs a country', async ({ page })
 	expect(await submit(page, session)).toBe(true);
 });
 
-test('an employee edit saves the phone and country it was opened with, even a pair the rules refuse', async ({ context }) => {
+test('an employee edit saves the phone and country it was opened with, even a pair with no country', async ({ context }) => {
 	// A joined employee's phone with no country code (R-019), and a code no active country has.
 	for (const opened of [{ phone: '01012345678', code: '' }, { phone: '0712345678', code: '+882' }]) {
 		const page = await context.newPage();
 		const session = await open(page, employeeForm({ ...opened, edit: true }));
-		expect(await submit(page, session), JSON.stringify(opened)).toBe(true);
-		expect(session.alerts).toEqual([]);
-		await page.close();
-	}
-});
-
-test('an employee edit left through its phone field still saves the phone it was opened with, as stored', async ({ context }) => {
-	// Leaving the field rewrites it to digits with a leading zero. A phone stored with a dial
-	// prefix or spaces (register_employee.php stores it as typed), or without its zero, is still
-	// the opened phone, and the save posts the stored text so the server keeps it.
-	for (const opened of [
-		{ phone: '+201012345678', code: '' },
-		{ phone: '010 1234 5678', code: '' },
-		{ phone: '1012345678', code: '+20' },
-	]) {
-		const page = await context.newPage();
-		const session = await open(page, employeeForm({ ...opened, edit: true }));
 		await page.locator('#phone').focus();
 		await page.locator('#phone').blur();
-		expect(await page.locator('#phone').inputValue(), 'the field was rewritten').not.toBe(opened.phone);
-
 		expect(await submit(page, session), JSON.stringify(opened)).toBe(true);
 		expect(session.alerts).toEqual([]);
-		expect(new URLSearchParams(session.posts[0]).get('phone'), 'the stored text, not the rewrite').toBe(opened.phone);
+		expect(new URLSearchParams(session.posts[0]).get('phone'), 'the stored text, untouched').toBe(opened.phone);
 		await page.close();
 	}
 });
 
-test('an employee edit whose phone is retyped as the same number in full saves what was typed', async ({ page }) => {
-	// Stored without its zero; the admin writes it out. Only a phone nobody typed in is put back.
-	const session = await open(page, employeeForm({ phone: '1012345678', code: '+20', edit: true }));
-
-	await page.locator('#phone').fill('01012345678');
-	expect(await submit(page, session)).toBe(true);
-	expect(new URLSearchParams(session.posts[0]).get('phone')).toBe('01012345678');
-});
-
-test('an employee edit still checks a phone or a country that was changed', async ({ page }) => {
+test('an employee edit still needs a country for a phone that was changed', async ({ page }) => {
 	const session = await open(page, employeeForm({ phone: '01012345678', code: '', edit: true }));
 
 	await page.locator('#phone').fill('01012345679');
 	expect(await submit(page, session), 'a new phone with no country').toBe(false);
-
-	await page.goto(`${ORIGIN}/admin/page`);
-	await page.selectOption('#country_code', '+966');
-	expect(await submit(page, session), 'the same phone under a country that refuses it').toBe(false);
-	expect(session.alerts).toEqual([INVALID, INVALID]);
+	expect(session.alerts).toEqual([INVALID]);
 });
 
 test('an add is not marked, so a phone with no country is refused however it was opened', async ({ page }) => {

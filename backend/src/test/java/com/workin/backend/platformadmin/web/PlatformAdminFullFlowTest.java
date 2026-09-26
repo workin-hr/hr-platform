@@ -913,6 +913,43 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 	}
 
 	/**
+	 * An edit that leaves the number as it is keeps the row's stored spelling,
+	 * byte for byte (D-291). The Saudi {@code 501234574} and the Emirati
+	 * {@code 0501234574} are two numbers, but the frozen schema's unique key is
+	 * on the raw digits -- so rewriting the Saudi row as its national form
+	 * {@code 0501234574} collided, and an edit of nothing but the name failed.
+	 */
+	@Test
+	void editingACompanyWhoseNumberIsUnchangedKeepsItsStoredSpelling() {
+		String cookie = signIn();
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		seedLookups(jdbc);
+		try {
+			for (Object[] company : new Object[][] {
+					{24501L, "Saudi Digits", "501234574", "+966"}, {24502L, "Emirati Digits", "0501234574", "+971"}}) {
+				jdbc.update("INSERT INTO companies (id, company_name, first_name, last_name, phone, country_code,"
+						+ " password_hash, status, main_branch_address, company_activity_id, company_title_id,"
+						+ " company_size_id, logo_url) VALUES (?, ?, 'Owner', 'One', ?, ?, 'unused-hash', 'active',"
+						+ " '1 Test Street', 24401, 24411, 24421, '/uploads/logos/kept.png')",
+						company[0], company[1], company[2], company[3]);
+			}
+			for (String typed : List.of("501234574", "0501234574", "+966 50 123 4574")) {
+				ResponseEntity<String> edited = save(cookie, get("/admin/companies", cookie).csrf(),
+						"save_edit", 24501L, "Saudi " + typed, typed, "+966", "", null);
+				assertThat(edited.getStatusCode()).as(typed).isEqualTo(HttpStatus.FOUND);
+				java.util.Map<String, Object> row = jdbc.queryForMap(
+						"SELECT company_name, phone, country_code FROM companies WHERE id = 24501");
+				assertThat(row.get("company_name")).as("the edit landed for %s", typed).isEqualTo("Saudi " + typed);
+				assertThat(row.get("phone") + "|" + row.get("country_code")).as(typed).isEqualTo("501234574|+966");
+			}
+		}
+		finally {
+			jdbc.update("DELETE FROM companies WHERE id IN (24501, 24502)");
+			removeLookups(jdbc);
+		}
+	}
+
+	/**
 	 * The other side of the same ternary: an edit that <em>does</em> supply a
 	 * password replaces the hash, and replaces it with the hash of what was
 	 * posted.
@@ -1060,6 +1097,11 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 	/** The multipart POST the form makes; a null logo omits the part entirely. */
 	private ResponseEntity<String> save(String cookie, Csrf csrf, String action, long id,
 			String companyName, String phone, String password, byte[] logo) {
+		return save(cookie, csrf, action, id, companyName, phone, "+20", password, logo);
+	}
+
+	private ResponseEntity<String> save(String cookie, Csrf csrf, String action, long id,
+			String companyName, String phone, String countryCode, String password, byte[] logo) {
 		HttpHeaders headers = new HttpHeaders();
 		headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 		headers.add(HttpHeaders.COOKIE, "WORKIN_ADMIN_SESSION=" + cookie);
@@ -1069,7 +1111,7 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 		form.add("company_name", companyName);
 		form.add("first_name", "Owner");
 		form.add("last_name", "One");
-		form.add("country_code", "+20");
+		form.add("country_code", countryCode);
 		form.add("phone", phone);
 		form.add("password", password);
 		form.add("main_branch_address", "1 Test Street");

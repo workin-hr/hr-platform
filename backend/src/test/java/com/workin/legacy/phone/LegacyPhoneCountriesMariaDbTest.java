@@ -34,6 +34,9 @@ class LegacyPhoneCountriesMariaDbTest extends AbstractLegacyMySqlTest {
 	private static final long LEGACY_DEFAULT_STATUS = 197012L;
 	private static final long REJECTED = 197013L;
 	private static final long FORMATTED = 197014L;
+	private static final long WITHOUT_TRUNK_ZERO = 197015L;
+	private static final long SHARED_DIGITS = 197016L;
+	private static final long REJECTED_INTERNATIONAL = 197017L;
 
 	private static DataSource dataSource;
 	private static LegacyPhoneCountries countries;
@@ -78,64 +81,61 @@ class LegacyPhoneCountriesMariaDbTest extends AbstractLegacyMySqlTest {
 	}
 
 	@Test
-	void aConfiguredCountryValidatesOnItsOwnLengthAndPrefixes() {
-		// +218 is seeded with length 10 and JSON prefixes 091..096.
-		assertThat(numbers.isValidLocal("+218", "0912345678")).isTrue();
-		assertThat(numbers.isValidLocal("+218", "0962345678")).isTrue();
-		// Wrong length, right prefix.
-		assertThat(numbers.isValidLocal("+218", "091234567")).isFalse();
-		assertThat(numbers.isValidLocal("+218", "09123456789")).isFalse();
-		// Right length, wrong prefix.
-		assertThat(numbers.isValidLocal("+218", "0812345678")).isFalse();
+	void anOfferedCountryIsValidatedByTheMetadataNotByItsRow() {
+		// +218 is seeded with length 10 and JSON prefixes 091..096. The row
+		// offers the country; libphonenumber decides the numbers (ADR-0020).
+		assertThat(numbers.forAccount("0912345678", "+218").map(CanonicalPhone::e164)).contains("+218912345678");
+		assertThat(numbers.forAccount("0962345678", "+218")).isPresent();
+		// A missing trunk zero is the metadata's to restore now.
+		assertThat(numbers.forAccount("912345678", "+218").map(CanonicalPhone::nationalDigits)).contains("0912345678");
+		// Wrong length.
+		assertThat(numbers.forAccount("091234567", "+218")).isEmpty();
+		assertThat(numbers.forAccount("09123456789", "+218")).isEmpty();
+		// 081 is a Libyan landline -- a number, but not one an account may hold.
+		assertThat(numbers.forAccount("0812345678", "+218")).isEmpty();
 	}
 
 	@Test
-	void aMissingLeadingZeroIsRestoredFromTheConfiguredPrefix() {
-		// length - 1 digits that match a configured prefix without its zero.
-		assertThat(numbers.normalizeLocal("+218", "912345678")).isEqualTo("0912345678");
-		assertThat(numbers.isValidLocal("+218", "912345678")).isTrue();
-		// The same shape with a prefix that is not configured stays as typed
-		// and therefore fails the length check.
-		assertThat(numbers.normalizeLocal("+218", "812345678")).isEqualTo("812345678");
-		assertThat(numbers.isValidLocal("+218", "812345678")).isFalse();
-	}
-
-	@Test
-	void aPrefixListStoredAsADelimitedStringWorksToo() {
+	void aRowsPrefixListNoLongerDecidesValidity() {
 		// +973 is seeded with "033 034;035" rather than JSON, which json_decode
-		// rejects and PHP splits on [\s,;]+.
+		// rejects and PHP splits on [\s,;]+. The list still decodes for the
+		// selectors that display it, and no longer decides which numbers pass:
+		// 36 is a Bahraini mobile range the row never listed.
 		assertThat(LegacyPhoneNumbers.decodePrefixes(countries.find("+973").orElseThrow().phonePrefixes()))
 				.containsExactly("033", "034", "035");
-		assertThat(numbers.isValidLocal("+973", "03312345")).isTrue();
-		assertThat(numbers.isValidLocal("+973", "03612345")).isFalse();
+		assertThat(numbers.forAccount("36123456", "+973").map(CanonicalPhone::e164)).contains("+97336123456");
+		assertThat(numbers.forAccount("03312345", "+973")).isEmpty();
 	}
 
 	@Test
-	void egyptIgnoresTheTableAndKeepsItsOwnRule() {
-		// phone_country_is_valid_local() decides +20 by regex "regardless of DB
-		// prefix quirks" -- the seeded +20 row carries a deliberately wrong
-		// length and prefix set, and Egyptian numbers still behave.
-		assertThat(numbers.isValidLocal("+20", "01012345678")).isTrue();
-		assertThat(numbers.isValidLocal("+20", "01512345678")).isTrue();
-		assertThat(numbers.isValidLocal("+20", "01312345678")).isFalse();
-		assertThat(numbers.isValidLocal("+20", "0101234567")).isFalse();
-
-		// Normalization restores the leading zero and strips a pasted dial code.
-		assertThat(numbers.normalizeLocal("+20", "1012345678")).isEqualTo("01012345678");
-		assertThat(numbers.normalizeLocal("+20", "201012345678")).isEqualTo("01012345678");
-		assertThat(numbers.normalizeLocal("20", "201012345678")).isEqualTo("01012345678");
-		// An unrecognised Egyptian number is stored as typed, and then rejected.
-		assertThat(numbers.normalizeLocal("+20", "01312345678")).isEqualTo("01312345678");
+	void egyptIgnoresTheTable() {
+		// The seeded +20 row carries a deliberately wrong length and prefix
+		// set, and Egyptian numbers still behave -- PHP special-cased +20 and
+		// the metadata does not read the row at all.
+		assertThat(numbers.forAccount("01012345678", "+20")).isPresent();
+		assertThat(numbers.forAccount("01512345678", "+20")).isPresent();
+		assertThat(numbers.forAccount("01312345678", "+20")).isEmpty();
+		assertThat(numbers.forAccount("0101234567", "+20")).isEmpty();
+		for (String spelling : List.of("1012345678", "201012345678", "+20 10 1234 5678")) {
+			assertThat(numbers.forAccount(spelling, "+20").map(CanonicalPhone::nationalDigits))
+					.as(spelling).contains("01012345678");
+		}
+		assertThat(numbers.forAccount("201012345678", "20").map(CanonicalPhone::nationalDigits))
+				.contains("01012345678");
 	}
 
 	@Test
-	void anUnknownDialCodeFallsBackToTheHardCodedRules() {
-		// +966 has no row here, so phone_is_valid_local_legacy() decides.
+	void aCountryOutsideTheTableIsOfferedOnlyWhenPhpsFallbackRulesAcceptedIt() {
+		// +966 has no row here, and phone_is_valid_local_legacy() still took it.
 		assertThat(countries.find("+966")).isEmpty();
-		assertThat(numbers.isValidLocal("+966", "0512345678")).isTrue();
-		assertThat(numbers.isValidLocal("+966", "0412345678")).isFalse();
-		// A country the fallback rules do not know is rejected outright.
-		assertThat(numbers.isValidLocal("+999", "12345678")).isFalse();
+		assertThat(numbers.forAccount("0512345678", "+966")).isPresent();
+		assertThat(numbers.forAccount("0412345678", "+966")).isEmpty();
+		// An inactive row offers nothing, and neither does a country no rule
+		// ever accepted -- however valid the number is where it belongs.
+		assertThat(numbers.forAccount("07712345678", "+964")).isEmpty();
+		assertThat(numbers.forAccount("07400123456", "+44")).isEmpty();
+		assertThat(numbers.forAccount("12345678", "+999")).isEmpty();
+		assertThat(numbers.offeredDialCodes()).containsExactly("+20", "+966", "+971", "+218", "+973");
 	}
 
 	@Test
@@ -163,12 +163,15 @@ class LegacyPhoneCountriesMariaDbTest extends AbstractLegacyMySqlTest {
 		assertThat(absent.find("+966")).isPresent();
 		assertThat(absent.find("+973")).isEmpty();
 
-		// The fallback definitions are the ones that then validate.
-		assertThat(fallbackNumbers.isValidLocal("+966", "0512345678")).isTrue();
-		assertThat(fallbackNumbers.isValidLocal("+966", "051234567")).isFalse();
-		assertThat(fallbackNumbers.isValidLocal("+971", "0501234567")).isTrue();
-		assertThat(fallbackNumbers.isValidLocal("+971", "0511234567")).isFalse();
-		assertThat(fallbackNumbers.isValidLocal("+218", "0912345678")).isTrue();
+		// The fallback rows are the countries then offered; the metadata
+		// validates inside them.
+		assertThat(fallbackNumbers.offeredDialCodes()).containsExactly("+20", "+966", "+971", "+218");
+		assertThat(fallbackNumbers.forAccount("0512345678", "+966")).isPresent();
+		assertThat(fallbackNumbers.forAccount("051234567", "+966")).isEmpty();
+		assertThat(fallbackNumbers.forAccount("0501234567", "+971")).isPresent();
+		assertThat(fallbackNumbers.forAccount("0511234567", "+971")).isEmpty();
+		assertThat(fallbackNumbers.forAccount("0912345678", "+218")).isPresent();
+		assertThat(fallbackNumbers.forAccount("36123456", "+973")).isEmpty();
 	}
 
 	@Test
@@ -192,36 +195,59 @@ class LegacyPhoneCountriesMariaDbTest extends AbstractLegacyMySqlTest {
 	}
 
 	@Test
-	void globalPhoneUniquenessMatchesEveryStoredSpelling() {
-		// The stored number itself.
-		assertThat(employees.phoneExistsGlobally("01012345678", null)).isTrue();
-		// Every lookup variant of it.
-		assertThat(employees.phoneExistsGlobally("1012345678", null)).isTrue();
-		assertThat(employees.phoneExistsGlobally("201012345678", null)).isTrue();
-		// Formatting in the request is stripped before matching.
-		assertThat(employees.phoneExistsGlobally("+20 (10) 1234-5678", null)).isTrue();
-		// Formatting already in the column is stripped by the SQL expression.
-		assertThat(employees.phoneExistsGlobally("01099999999", null)).isTrue();
+	void globalPhoneUniquenessMatchesTheCanonicalNumberInEveryStoredSpelling() {
+		// The stored number, whichever way the new one was written.
+		for (String spelling : List.of("01012345678", "1012345678", "201012345678", "+20 (10) 1234-5678")) {
+			assertThat(employees.phoneExistsGlobally(egyptian(spelling), null)).as(spelling).isTrue();
+		}
+		// A row stored without its trunk zero is found by the national form.
+		assertThat(employees.phoneExistsGlobally(egyptian("01066666666"), null)).isTrue();
 		// An unrelated number is free.
-		assertThat(employees.phoneExistsGlobally("01111111111", null)).isFalse();
-		// Blank input is not a match, it is "no phone".
-		assertThat(employees.phoneExistsGlobally("", null)).isFalse();
-		assertThat(employees.phoneExistsGlobally("   ", null)).isFalse();
+		assertThat(employees.phoneExistsGlobally(egyptian("01111111111"), null)).isFalse();
+		// The same digits in another country are another number: the row is an
+		// Egyptian (Mansoura) number. A Saudi mobile spelled alike is still
+		// refused, because a write stores it as 0502345678 -- the row's exact
+		// digits, which the column's unique index refuses (round 5 of #360).
+		assertThat(employees.phoneExistsGlobally(egyptian("0502345678"), null)).isTrue();
+		assertThat(employees.phoneExistsGlobally(
+				CanonicalPhones.parse("0502345678", "+966").orElseThrow(), null)).isTrue();
+		// A Saudi number whose written digits no row holds is free, even where
+		// an Egyptian row holds its digits in another spelling.
+		assertThat(employees.phoneExistsGlobally(
+				CanonicalPhones.parse("0502345677", "+966").orElseThrow(), null)).isFalse();
+	}
+
+	@Test
+	void aStoredValueWithFormattingInTheColumnIsNotACandidate() {
+		// PHP matched REPLACE()-stripped column values; the lookup binds the
+		// number's digit spellings and uses the unique index instead, so a
+		// value stored with punctuation is not found. The owner's production
+		// profile (2026-09-26) has no such value in either table, and every
+		// Java write stores digits (ADR-0020 records the re-check).
+		assertThat(employees.phoneExistsGlobally(egyptian("01099999999"), null)).isFalse();
 	}
 
 	@Test
 	void globalPhoneUniquenessIsGlobalButSkipsRejectedJoinRequests() {
 		// The row is in another company entirely -- there is no company_id
 		// predicate, because employees.phone is globally unique.
-		assertThat(employees.phoneExistsGlobally("01055555555", null)).isTrue();
+		assertThat(employees.phoneExistsGlobally(egyptian("01055555555"), null)).isTrue();
 		// The schema default ('accepted', written by omitting the column) counts.
-		assertThat(employees.phoneExistsGlobally("01044444444", null)).isTrue();
-		// A rejected join request does not reserve the number.
-		assertThat(employees.phoneExistsGlobally("01033333333", null)).isFalse();
+		assertThat(employees.phoneExistsGlobally(egyptian("01044444444"), null)).isTrue();
+		// A rejected join request does not reserve the number -- but a row
+		// holding exactly the digits a write would store blocks the unique
+		// index whatever its status, so the national spelling is refused and
+		// only a rejected row stored in another spelling leaves it free.
+		assertThat(employees.phoneExistsGlobally(egyptian("01033333333"), null)).isTrue();
+		assertThat(employees.phoneExistsGlobally(egyptian("01022222222"), null)).isFalse();
 		// The exclusion is only applied for a positive id.
-		assertThat(employees.phoneExistsGlobally("01012345678", ACCEPTED)).isFalse();
-		assertThat(employees.phoneExistsGlobally("01012345678", 0L)).isTrue();
-		assertThat(employees.phoneExistsGlobally("01012345678", -5L)).isTrue();
+		assertThat(employees.phoneExistsGlobally(egyptian("01012345678"), ACCEPTED)).isFalse();
+		assertThat(employees.phoneExistsGlobally(egyptian("01012345678"), 0L)).isTrue();
+		assertThat(employees.phoneExistsGlobally(egyptian("01012345678"), -5L)).isTrue();
+	}
+
+	private static CanonicalPhone egyptian(String spelling) {
+		return CanonicalPhones.parse(spelling, null).orElseThrow();
 	}
 
 	/** Fails the first connection attempt, then delegates -- one bad moment, then health. */
@@ -295,6 +321,8 @@ class LegacyPhoneCountriesMariaDbTest extends AbstractLegacyMySqlTest {
 					""");
 			insertEmployee(st, ACCEPTED, COMPANY, BRANCH, "'01012345678'", "'accepted'");
 			insertEmployee(st, FORMATTED, COMPANY, BRANCH, "'+20 (10) 9999-9999'", "'accepted'");
+			insertEmployee(st, WITHOUT_TRUNK_ZERO, COMPANY, BRANCH, "'1066666666'", "'accepted'");
+			insertEmployee(st, SHARED_DIGITS, COMPANY, BRANCH, "'0502345678'", "'accepted'");
 			// join_request_status is NOT NULL DEFAULT 'accepted' in the vendored
 			// schema (line 448), so PHP's COALESCE(...,'accepted') can only ever
 			// be defensive here -- a NULL is not reachable through this schema,
@@ -302,6 +330,7 @@ class LegacyPhoneCountriesMariaDbTest extends AbstractLegacyMySqlTest {
 			// the default itself, written by an insert that omits the column.
 			insertEmployeeWithDefaultJoinStatus(st, LEGACY_DEFAULT_STATUS, COMPANY, BRANCH, "'01044444444'");
 			insertEmployee(st, REJECTED, COMPANY, BRANCH, "'01033333333'", "'rejected'");
+			insertEmployee(st, REJECTED_INTERNATIONAL, COMPANY, BRANCH, "'201022222222'", "'rejected'");
 			// Another company's employee: uniqueness is global, not tenant-scoped.
 			insertEmployee(st, 197021L, 19702L, 19712L, "'01055555555'", "'accepted'");
 		}

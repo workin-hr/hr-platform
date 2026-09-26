@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.workin.legacy.phone.LegacyPhoneNumbers;
 
 /**
  * The platform-admin operations on companies (ADR-0009 Option E): approve,
@@ -80,7 +81,7 @@ public class PlatformAdminCompanyService {
 		if (!this.actionsEnabled) {
 			return new Saved(false, "admin_actions_disabled");
 		}
-		if (this.companies.phoneTaken(write.phone(), 0L)) {
+		if (this.companies.phoneTaken(write.number(), 0L)) {
 			return new Saved(false, "error_phone_registered");
 		}
 		if (!this.companies.lookupsExist(write.activityId(), write.titleId(), write.sizeId())) {
@@ -92,8 +93,16 @@ public class PlatformAdminCompanyService {
 		}
 		String commercialUrl = this.uploads.store(commercialReg, "commercial");
 
-		long companyId = this.companies.create(write,
-				this.passwordEncoder.encode(write.password()), logoUrl, commercialUrl);
+		long companyId;
+		try {
+			companyId = this.companies.create(write,
+					this.passwordEncoder.encode(write.password()), logoUrl, commercialUrl);
+		} catch (org.springframework.dao.DataIntegrityViolationException ex) {
+			if (LegacyPhoneNumbers.isPhoneDuplicate(ex)) {
+				return new Saved(false, "error_phone_registered");
+			}
+			throw ex;
+		}
 		this.auditService.recordAction(platformAdminId,
 				PlatformAdminAuditEventType.COMPANY_CREATED, TARGET_TYPE,
 				String.valueOf(companyId), write.companyName());
@@ -117,9 +126,16 @@ public class PlatformAdminCompanyService {
 				&& this.companies.companyCodeTaken(write.companyCode(), companyId)) {
 			return new Saved(false, "company_code_taken");
 		}
-		if (this.companies.phoneTaken(write.phone(), companyId)) {
+		// The number the row already is keeps its stored spelling and code, byte
+		// for byte: rewriting it as the national form could collide with another
+		// country's row holding those digits under the raw unique index (D-291).
+		boolean samePhone = com.workin.legacy.phone.PhoneLookup.of(write.number())
+				.matches(stored.get().phone(), stored.get().countryCode());
+		if (!samePhone && this.companies.phoneTaken(write.number(), companyId)) {
 			return new Saved(false, "error_phone_registered");
 		}
+		CompanyForm.CompanyWrite written = samePhone
+				? write.withStoredPhone(stored.get().phone(), stored.get().countryCode()) : write;
 		if (!this.companies.lookupsExist(write.activityId(), write.titleId(), write.sizeId())) {
 			return new Saved(false, "error_required");
 		}
@@ -133,9 +149,16 @@ public class PlatformAdminCompanyService {
 		String commercialUrl = firstNonNull(this.uploads.store(commercialReg, "commercial"),
 				stored.get().commercialRegUrl());
 
-		this.companies.update(companyId, write,
-				write.password() == null ? null : this.passwordEncoder.encode(write.password()),
-				logoUrl, commercialUrl);
+		try {
+			this.companies.update(companyId, written,
+					write.password() == null ? null : this.passwordEncoder.encode(write.password()),
+					logoUrl, commercialUrl);
+		} catch (org.springframework.dao.DataIntegrityViolationException ex) {
+			if (LegacyPhoneNumbers.isPhoneDuplicate(ex)) {
+				return new Saved(false, "error_phone_registered");
+			}
+			throw ex;
+		}
 		this.auditService.recordAction(platformAdminId,
 				PlatformAdminAuditEventType.COMPANY_UPDATED, TARGET_TYPE,
 				String.valueOf(companyId), write.companyName());

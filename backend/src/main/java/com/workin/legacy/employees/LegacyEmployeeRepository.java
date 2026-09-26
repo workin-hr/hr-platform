@@ -16,7 +16,7 @@ import org.springframework.data.repository.query.Param;
  * stops being a database guarantee and becomes an application
  * invariant -- and the way that invariant is kept honest is by making a
  * company-blind query impossible to write by accident.
- * {@link #findByPhone} is the one deliberate exception, because login
+ * {@link #findByPhoneInOrderByIdDesc} is the one deliberate exception, because login
  * has to resolve a phone before any tenant is known; its javadoc says so
  * and its shape (a list, not an optional) is legacy's own.
  */
@@ -27,7 +27,9 @@ public interface LegacyEmployeeRepository extends JpaRepository<LegacyEmployee, 
 	List<LegacyEmployee> findByCompanyId(Long companyId);
 
 	/**
-	 * Every employee row owning this phone, newest first.
+	 * Every employee row holding one of these stored spellings, newest
+	 * first -- the candidates of a {@code PhoneLookup}, which the caller
+	 * then verifies (ADR-0020).
 	 *
 	 * <p>Deliberately company-blind and deliberately a {@code List}:
 	 * this is the pre-authentication lookup, and legacy's own login runs
@@ -41,7 +43,7 @@ public interface LegacyEmployeeRepository extends JpaRepository<LegacyEmployee, 
 	 * and reproducing that 409 is a Phase 1 parity requirement -- the
 	 * multi-tenant identity model that removes it is Phase 3.
 	 */
-	List<LegacyEmployee> findByPhoneOrderByIdDesc(String phone);
+	List<LegacyEmployee> findByPhoneInOrderByIdDesc(java.util.Collection<String> phones);
 
 	/**
 	 * Legacy's {@code employee_issue_session_token()} bump (P-7, D-049):

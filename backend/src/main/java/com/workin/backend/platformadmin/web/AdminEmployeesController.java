@@ -279,6 +279,7 @@ public class AdminEmployeesController {
 			// raw key. `already_exists` is defined and means this.
 			case CODE_TAKEN -> "already_exists";
 			case PHONE_INVALID -> "error_invalid_phone";
+			case PHONE_TAKEN -> "phone_exists";
 		};
 	}
 

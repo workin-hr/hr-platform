@@ -11,6 +11,10 @@ import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyLoginCandidate;
 import com.workin.legacy.auth.LegacyPhoneAuthResolver;
 import com.workin.legacy.auth.LegacyRefreshTokenService;
+import com.workin.legacy.phone.CanonicalPhone;
+import com.workin.legacy.phone.CanonicalPhones;
+import com.workin.legacy.phone.LegacyPhoneNumbers;
+import com.workin.legacy.phone.PhoneLookup;
 import com.workin.legacy.wire.LegacyApiException;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -37,20 +41,21 @@ public class LegacyOtpAuthService {
 
 	private static final String COMPANY = "company";
 	private static final String EMPLOYEE = "employee";
-	private static final String DEFAULT_COUNTRY_CODE = "+20";
 
 	private final LegacyOtpService otp;
 	private final LegacyOtpAuthStore store;
 	private final PasswordEncoder passwordEncoder;
 	private final LegacyRefreshTokenService refreshTokens;
+	private final LegacyPhoneNumbers phoneNumbers;
 
 	public LegacyOtpAuthService(
 			LegacyOtpService otp, LegacyOtpAuthStore store, PasswordEncoder passwordEncoder,
-			LegacyRefreshTokenService refreshTokens) {
+			LegacyRefreshTokenService refreshTokens, LegacyPhoneNumbers phoneNumbers) {
 		this.otp = otp;
 		this.store = store;
 		this.passwordEncoder = passwordEncoder;
 		this.refreshTokens = refreshTokens;
+		this.phoneNumbers = phoneNumbers;
 	}
 
 	/**
@@ -69,18 +74,17 @@ public class LegacyOtpAuthService {
 	 */
 	public void verifyOtp(Map<String, Object> body) {
 		required(body, "phone", "otp", "type");
-		String phone = LegacyOtpService.normalizePhone(body.get("phone"));
+		// The reading whose code this is. A phone that is not a number holds no
+		// code, so it is answered as an unknown code is.
 		Object authType = body.get("type");
+		CanonicalPhone phone = otp.verifiedReading(body.get("phone"), body.get("otp"))
+				.orElseThrow(() -> new LegacyApiException(400, "invalid_expired_otp"));
 		String purpose = body.get("purpose") == null
 				? "" : LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("purpose")));
 		boolean isPasswordReset = "password_reset".equals(purpose);
 
-		if (otp.verifyLatestForPhone(phone, body.get("otp")) == null) {
-			throw new LegacyApiException(400, "invalid_expired_otp");
-		}
-
 		if (COMPANY.equals(authType) && !isPasswordReset) {
-			store.markCompanyOtpVerified(phone);
+			store.markCompanyOtpVerified(phone, body.get("phone"));
 		}
 		if (!isPasswordReset) {
 			otp.clearForPhone(phone);
@@ -97,16 +101,23 @@ public class LegacyOtpAuthService {
 	 * same 60-second window again and would answer 429; in practice the 400
 	 * always wins because it is checked first.
 	 *
-	 * <p>It does not verify that the phone belongs to anybody. Any number can
-	 * be sent an OTP through this route, once a minute.
+	 * <p>It does not verify that the phone belongs to anybody -- it also
+	 * resends the code {@code request_phone_change} sent to a number no account
+	 * holds yet -- so what bounds it is where it delivers: a number in a
+	 * country the product offers, once a minute. Any other number is refused
+	 * as an invalid one is, and nothing is sent (D-291).
 	 */
 	public void resendOtp(HttpServletRequest request, Map<String, Object> body, String locale) {
 		required(body, "phone");
-		String phone = LegacyOtpService.normalizePhone(body.get("phone"));
+		// PHP refused a phone with no digits with this key; a phone that is
+		// not a valid number is refused with it now (D-291).
+		CanonicalPhone phone = otp.resolvePhone(body.get("phone"))
+				.filter(phoneNumbers::offered)
+				.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
 		if (otp.hasRecentForPhone(phone, 60)) {
 			throw new LegacyApiException(400, "please_wait_before_resending");
 		}
-		otp.issueAndSendWhatsApp(request, phone, LegacyOtpService.SMS_OTP_RESEND, null, 10, locale);
+		otp.issueAndSendWhatsApp(request, phone, LegacyOtpService.SMS_OTP_RESEND, 10, locale);
 	}
 
 	/**
@@ -117,65 +128,48 @@ public class LegacyOtpAuthService {
 	 * endpoint tells an unauthenticated caller whether a phone is registered.
 	 * That is legacy's contract and the clients depend on the 404.
 	 *
-	 * <p>When an account is found, the OTP is keyed on the <b>stored</b> phone
-	 * rather than the submitted one, so the code that
-	 * {@code reset_password.php} later looks up under the stored spelling is
-	 * the same row.
+	 * <p>When an account is found, the OTP is keyed on the account's own
+	 * number in E.164 rather than on the submitted text, so
+	 * {@code reset_password.php} finds the same code under any spelling of it.
 	 */
 	public void forgotPassword(HttpServletRequest request, Map<String, Object> body, String locale) {
 		required(body, "phone", "type");
-		String phone = LegacyOtpService.normalizePhone(body.get("phone"));
+		PhoneLookup lookup = phoneNumbers.lookup(body.get("phone"));
 		Object authType = body.get("type");
-		String countryCode = null;
-		boolean found = false;
+		Map<String, Object> account = null;
 
 		if (COMPANY.equals(authType)) {
-			Map<String, Object> company = store.findCompanyByPhone(phone);
-			if (company != null) {
-				found = true;
-				phone = LegacyOtpService.normalizePhone(company.get("phone"));
-				countryCode = LegacyValues.toPhpString(company.get("country_code"));
-			}
+			account = store.findCompanyByPhone(lookup);
 		} else if (EMPLOYEE.equals(authType)) {
 			long companyId = body.get("company_id") == null
 					? 0L : LegacyValues.toPhpLong(body.get("company_id"));
 			if (companyId > 0) {
-				Map<String, Object> employee = store.findEmployeeByPhoneInCompany(phone, companyId);
-				if (employee != null) {
-					found = true;
-					phone = LegacyOtpService.normalizePhone(employee.get("phone"));
-					countryCode = LegacyValues.toPhpString(employee.get("country_code"));
-				}
+				account = store.findEmployeeByPhoneInCompany(lookup, companyId);
 			} else {
 				// resolve_single_employee_auth_by_phone() throws on every
 				// rejection, so reaching the next line means an account exists.
 				LegacyLoginCandidate candidate = LegacyPhoneAuthResolver.resolve(
-						store.employeeAuthCandidatesByPhone(phone));
-				found = true;
-				Map<String, Object> contact = store.employeeContact(candidate.employeeId());
-				if (contact != null) {
-					Object stored = contact.get("phone");
-					phone = LegacyOtpService.normalizePhone(stored == null ? phone : stored);
-					// PHP keeps the row's country code rather than re-deriving it.
-					countryCode = LegacyValues.toPhpString(contact.get("country_code"));
-				}
+						store.employeeAuthCandidatesByPhone(lookup));
+				account = store.employeeContact(candidate.employeeId());
 			}
 		} else {
 			throw new LegacyApiException(400, "invalid_input");
 		}
 
-		if (!found) {
+		if (account == null) {
 			throw new LegacyApiException(404, "phone_not_found");
 		}
 
-		// trim((string) ($found[COUNTRY_CODE] ?? '')) ?: '+20' -- the ?: makes
-		// "0" fall back too, which the ?? alone would not.
-		String resolved = LegacyValues.phpTrim(countryCode == null ? "" : countryCode);
-		if (LegacyValues.isPhpEmpty(resolved)) {
-			resolved = DEFAULT_COUNTRY_CODE;
-		}
-		otp.issueAndSendWhatsApp(
-				request, phone, LegacyOtpService.SMS_OTP_PASSWORD_RESET, resolved, 10, locale);
+		// The code goes to the account's own number, read in the account's own
+		// country -- PHP's trim(COUNTRY_CODE) ?: '+20' is that country, Egypt
+		// when blank -- and is keyed on it, so reset_password finds it under any
+		// spelling (D-291). An account in a country the product does not offer
+		// is not delivered to, and is answered as no account.
+		CanonicalPhone phone = CanonicalPhones.parse(account.get("phone"),
+				account.get("country_code") == null ? null : LegacyValues.toPhpString(account.get("country_code")))
+				.filter(phoneNumbers::offered)
+				.orElseThrow(() -> new LegacyApiException(404, "phone_not_found"));
+		otp.issueAndSendWhatsApp(request, phone, LegacyOtpService.SMS_OTP_PASSWORD_RESET, 10, locale);
 	}
 
 	/**
@@ -187,18 +181,15 @@ public class LegacyOtpAuthService {
 	 * {@code profile/change_password.php}'s six characters -- so a one-character
 	 * password is accepted through this route.
 	 *
-	 * <p>The company branch updates <b>every</b> company whose phone matches a
-	 * variant, not one row. Two companies sharing a number both have their
-	 * password replaced.
+	 * <p>The company branch updates <b>every</b> company holding the number,
+	 * not one row. Two companies sharing a number -- in any two spellings --
+	 * both have their password replaced, as PHP's variant match did.
 	 */
 	public void resetPassword(Map<String, Object> body) {
 		required(body, "phone", "password", "otp", "type");
-		String phone = LegacyOtpService.normalizePhone(body.get("phone"));
 		Object authType = body.get("type");
-
-		if (otp.verifyLatestForPhone(phone, body.get("otp")) == null) {
-			throw new LegacyApiException(400, "invalid_expired_otp");
-		}
+		CanonicalPhone phone = otp.verifiedReading(body.get("phone"), body.get("otp"))
+				.orElseThrow(() -> new LegacyApiException(400, "invalid_expired_otp"));
 
 		String hash = passwordEncoder.encode(LegacyValues.toPhpString(body.get("password")));
 
@@ -209,11 +200,8 @@ public class LegacyOtpAuthService {
 					? 0L : LegacyValues.toPhpLong(body.get("company_id"));
 			if (companyId <= 0) {
 				LegacyLoginCandidate candidate = LegacyPhoneAuthResolver.resolve(
-						store.employeeAuthCandidatesByPhone(phone));
+						store.employeeAuthCandidatesByPhone(PhoneLookup.of(phone)));
 				companyId = candidate.companyId();
-				Map<String, Object> contact = store.employeeContact(candidate.employeeId());
-				Object stored = contact == null ? null : contact.get("phone");
-				phone = LegacyOtpService.normalizePhone(stored == null ? phone : stored);
 			}
 			// ADR-0005: "Logout and password change/reset revoke the relevant
 			// session(s) -- closing the gap where hr-legacy password resets
@@ -232,7 +220,7 @@ public class LegacyOtpAuthService {
 			// identities. It must not be read as evidence that revocation is
 			// currently covering anything.
 			List<Long> affected = store.employeeIdsByPhoneInCompany(phone, companyId);
-			store.updateEmployeePasswordByPhone(phone, companyId, hash);
+			store.updateEmployeePasswords(affected, companyId, hash);
 			for (Long employeeId : affected) {
 				refreshTokens.revokeAllForEmployee(employeeId);
 			}

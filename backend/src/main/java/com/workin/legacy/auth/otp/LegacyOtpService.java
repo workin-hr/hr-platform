@@ -4,6 +4,7 @@ import java.security.SecureRandom;
 import java.util.Locale;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import javax.sql.DataSource;
 
@@ -12,7 +13,10 @@ import org.springframework.stereotype.Service;
 
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.whatsapp.LegacyWhatsAppSender;
+import com.workin.legacy.phone.CanonicalPhone;
+import com.workin.legacy.phone.CanonicalPhones;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
+import com.workin.legacy.phone.PhoneLookup;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyMessages;
 
@@ -37,28 +41,61 @@ public class LegacyOtpService {
 	public static final String SMS_OTP_PASSWORD_RESET = "sms_otp_password_reset";
 
 	private static final SecureRandom RANDOM = new SecureRandom();
-	private static final String DEFAULT_COUNTRY_CODE = "+20";
 
 	private final LegacyOtpStore store;
 	private final LegacyOtpRateLimit rateLimit;
 	private final LegacyWhatsAppSender whatsApp;
 	private final LegacyMessages messages;
 	private final JdbcTemplate jdbcTemplate;
+	private final LegacyPhoneNumbers phoneNumbers;
 
 	public LegacyOtpService(
 			LegacyOtpStore store, LegacyOtpRateLimit rateLimit, LegacyWhatsAppSender whatsApp,
-			LegacyMessages messages, DataSource legacyDataSource) {
+			LegacyMessages messages, DataSource legacyDataSource, LegacyPhoneNumbers phoneNumbers) {
 		this.store = store;
 		this.rateLimit = rateLimit;
 		this.whatsApp = whatsApp;
 		this.messages = messages;
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
+		this.phoneNumbers = phoneNumbers;
 	}
 
-	/** {@code otp_normalize_phone()}: trim, then digits only. */
-	public static String normalizePhone(Object phone) {
-		return LegacyPhoneNumbers.digitsOnly(
-				LegacyValues.phpTrim(phone == null ? "" : LegacyValues.toPhpString(phone)));
+	/**
+	 * The number {@code resend_otp}'s {@code phone} names, the one OTP route
+	 * that delivers to a number it has no stored row to take from -- PHP's {@code otp_normalize_phone()} plus
+	 * {@code otp_resolve_country_code_for_phone()}, through the one
+	 * normalizer (ADR-0020).
+	 *
+	 * <p>Written internationally, or read the same in every country the
+	 * product offers, it has one reading and that is the answer. A national
+	 * number with several readings takes the country of the stored account it
+	 * belongs to -- companies first, then employees, as PHP's country lookup
+	 * orders them -- and with no account, Egypt's. Anything else is empty.
+	 * {@link #verifiedReading} is how the routes that check a code choose.
+	 */
+	public Optional<CanonicalPhone> resolvePhone(Object rawPhone) {
+		PhoneLookup lookup = phoneNumbers.lookup(rawPhone);
+		if (lookup.isEmpty()) {
+			return Optional.empty();
+		}
+		Optional<CanonicalPhone> only = lookup.only();
+		if (only.isPresent()) {
+			return only;
+		}
+		for (String table : new String[] {"companies", "employees"}) {
+			PhoneLookup.Clause match = lookup.clause("phone");
+			List<Map<String, Object>> rows = lookup.verified(jdbcTemplate.queryForList(
+					"SELECT phone, country_code FROM " + table + " WHERE " + match.sql() + " ORDER BY id ASC",
+					match.binds().toArray()));
+			if (!rows.isEmpty()) {
+				Map<String, Object> row = rows.get(0);
+				return CanonicalPhones.parse(row.get("phone"),
+						row.get("country_code") == null ? null : LegacyValues.toPhpString(row.get("country_code")));
+			}
+		}
+		return lookup.readings().stream()
+				.filter(phone -> CanonicalPhones.DEFAULT_REGION.equals(phone.region()))
+				.findFirst();
 	}
 
 	/**
@@ -82,41 +119,33 @@ public class LegacyOtpService {
 	/**
 	 * {@code otp_issue_and_send_whatsapp()} ({@code otp_helper.php:337-359}).
 	 *
-	 * @param rawPhone normalised internally, as PHP does
+	 * <p>The code, its cooldowns and its hourly caps are keyed on the number's
+	 * E.164 form, so every spelling of one number shares them (D-291), and it
+	 * is delivered to that number -- its country comes with it, where PHP had
+	 * to look a country code up.
+	 *
 	 * @param messageLangKey one of the three {@code SMS_OTP_*} keys
-	 * @param countryCode may be null or blank -- then it is resolved from the
-	 *        companies and employees tables
 	 * @return the issued code, which callers must <b>not</b> put on the wire
 	 *         (PMR-05, {@code hr-legacy#4})
 	 */
 	public String issueAndSendWhatsApp(
-			HttpServletRequest request, String rawPhone, String messageLangKey,
-			String countryCode, int expiresMinutes, String locale) {
-		String phone = normalizePhone(rawPhone);
+			HttpServletRequest request, CanonicalPhone phone, String messageLangKey,
+			int expiresMinutes, String locale) {
 		String purpose = purposeFromMessageKey(messageLangKey);
 		String ip = LegacyClientAddress.clientIp(request);
 
-		rateLimit.assertCanSend(phone, purpose, ip);
-		String code = issueForPhone(request, phone, expiresMinutes, purpose, ip);
+		rateLimit.assertCanSend(phone.e164(), purpose, ip);
+		String code = issueForPhone(request, phone.e164(), expiresMinutes, purpose, ip);
 
-		if (!sendWhatsApp(phone, code, messageLangKey, countryCode, locale)) {
+		if (!whatsApp.sendText(phone.nationalDigits(), messageBody(messageLangKey, code, locale), phone.dialCode())) {
 			throw new LegacyApiException(503, "otp_delivery_failed");
 		}
 		return code;
 	}
 
-	/**
-	 * {@code otp_issue_for_phone()} ({@code otp_helper.php:180-227}).
-	 *
-	 * <p>An empty phone is rejected here and not by the caller, so a request
-	 * whose phone reduced to no digits gets {@code invalid_phone_number} even
-	 * though it passed {@code required()}.
-	 */
+	/** {@code otp_issue_for_phone()} ({@code otp_helper.php:180-227}). */
 	private String issueForPhone(
 			HttpServletRequest request, String phone, int expiresMinutes, String purpose, String ip) {
-		if (phone.isEmpty()) {
-			throw new LegacyApiException(400, "invalid_phone_number");
-		}
 		String userAgent = LegacyClientAddress.userAgent(request);
 		store.clearForPhone(phone);
 		String code = generateCode();
@@ -126,71 +155,47 @@ public class LegacyOtpService {
 	}
 
 	/** {@code otp_has_recent_for_phone($phone, 60)}. */
-	public boolean hasRecentForPhone(String rawPhone, long withinSeconds) {
-		String phone = normalizePhone(rawPhone);
-		return !phone.isEmpty() && rateLimit.countRecentSends(phone, null, "", withinSeconds) > 0;
+	public boolean hasRecentForPhone(CanonicalPhone phone, long withinSeconds) {
+		return rateLimit.countRecentSends(phone.e164(), null, "", withinSeconds) > 0;
+	}
+
+	/**
+	 * The number {@code verify_otp} and {@code reset_password} act on: the one
+	 * reading of the typed phone whose latest live code is this code, or empty.
+	 *
+	 * <p>A national number can be several numbers -- two accounts, of one type
+	 * or two, may hold the same digits in two countries -- and a code was
+	 * issued to exactly one of them, so the code decides which, not an
+	 * account's id or table. Each reading's code is compared once, as a
+	 * request naming that number alone would compare it, so no number is
+	 * guessed at faster than before; a code only ever authorises the number it
+	 * was issued to; and when two readings both hold this code the request is
+	 * refused, since it cannot say which number it proves. Every refusal is
+	 * the same empty answer.
+	 */
+	public Optional<CanonicalPhone> verifiedReading(Object rawPhone, Object rawCode) {
+		String code = LegacyValues.phpTrim(rawCode == null ? "" : LegacyValues.toPhpString(rawCode));
+		CanonicalPhone match = null;
+		for (CanonicalPhone reading : phoneNumbers.lookup(rawPhone).readings()) {
+			if (store.verifyLatest(reading.e164(), code) != null) {
+				if (match != null) {
+					return Optional.empty();
+				}
+				match = reading;
+			}
+		}
+		return Optional.ofNullable(match);
 	}
 
 	/** {@code otp_verify_latest_for_phone()}. */
-	public Long verifyLatestForPhone(String rawPhone, Object rawCode) {
-		return store.verifyLatest(normalizePhone(rawPhone),
+	public Long verifyLatestForPhone(CanonicalPhone phone, Object rawCode) {
+		return store.verifyLatest(phone.e164(),
 				LegacyValues.phpTrim(rawCode == null ? "" : LegacyValues.toPhpString(rawCode)));
 	}
 
 	/** {@code otp_clear_for_phone()}. */
-	public void clearForPhone(String rawPhone) {
-		store.clearForPhone(normalizePhone(rawPhone));
-	}
-
-	/**
-	 * {@code otp_resolve_country_code_for_phone()}: companies first, then
-	 * employees, then {@code +20}.
-	 *
-	 * <p>Both lookups match the phone <b>exactly</b> against the stored column
-	 * -- no {@code phone_sql_match_clause()} here, unlike the callers around
-	 * it -- so a company whose stored phone carries a {@code +} or a space is
-	 * not found and the default is used. Preserved.
-	 */
-	public String resolveCountryCodeForPhone(String rawPhone) {
-		String phone = normalizePhone(rawPhone);
-		if (phone.isEmpty()) {
-			return DEFAULT_COUNTRY_CODE;
-		}
-		String company = firstNonEmpty(
-				"SELECT country_code FROM companies WHERE phone = ? LIMIT 1", phone);
-		if (company != null) {
-			return company;
-		}
-		String employee = firstNonEmpty(
-				"SELECT country_code FROM employees WHERE phone = ? LIMIT 1", phone);
-		return employee != null ? employee : DEFAULT_COUNTRY_CODE;
-	}
-
-	/** {@code $row && !empty($row[COUNTRY_CODE])} -- PHP emptiness, so {@code "0"} does not count. */
-	private String firstNonEmpty(String sql, String phone) {
-		List<String> values = jdbcTemplate.queryForList(sql, String.class, phone);
-		if (values.isEmpty()) {
-			return null;
-		}
-		String value = values.get(0);
-		return LegacyValues.isPhpEmpty(value) ? null : value;
-	}
-
-	/**
-	 * {@code otp_send_whatsapp()} plus {@code otp_whatsapp_message_body()}.
-	 *
-	 * <p>The body is <b>hard-coded Arabic</b> for the verify and resend
-	 * templates, whatever the request's language: legacy comments that company
-	 * registration and verification "always in Arabic (exact template)". Only
-	 * the password-reset key goes through {@code t()} and can come out in
-	 * English.
-	 */
-	private boolean sendWhatsApp(
-			String phone, String code, String messageLangKey, String countryCode, String locale) {
-		String resolved = countryCode == null || LegacyValues.phpTrim(countryCode).isEmpty()
-				? resolveCountryCodeForPhone(phone)
-				: countryCode;
-		return whatsApp.sendText(phone, messageBody(messageLangKey, code, locale), resolved);
+	public void clearForPhone(CanonicalPhone phone) {
+		store.clearForPhone(phone.e164());
 	}
 
 	/** {@code otp_whatsapp_message_body()} ({@code otp_helper.php:291-302}). */

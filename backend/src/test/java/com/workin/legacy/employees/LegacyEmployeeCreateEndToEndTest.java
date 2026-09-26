@@ -286,27 +286,20 @@ class LegacyEmployeeCreateEndToEndTest {
 	}
 
 	@Test
-	void aRejectedJoinRequestDoesNotReserveThePhoneButTheUniqueIndexStillDoes() throws Exception {
-		// employee_phone_exists_globally() ignores rejected rows, so validation
-		// passes -- and then the database's own unique index rejects the insert.
-		// PHP documents this as a race; here it is deterministic, and it is the
-		// cleanest proof that the transaction rolls back completely.
+	void aRejectedJoinRequestHoldingTheExactDigitsIsRefusedBeforeTheInsert() throws Exception {
+		// A rejected join request does not reserve the number, but its row
+		// holds exactly the digits the insert would write, and the column's
+		// unique index refuses those whatever the row's status. PHP let the
+		// insert fail (500, rolled back); the write probe now refuses it first
+		// with the route's duplicate answer, and nothing is written (D-291,
+		// round 5 of #360). The rollback itself stays pinned by
+		// anErrorInsideTheTransactionRollsEverythingBackToo.
 		long before = count("SELECT COUNT(*) FROM employees WHERE company_id = " + COMPANY_1);
 		Map<String, Object> body = validBody("5400", "01099990000");
 		body.put("salary", Map.of("basic", 5000));
 
-		ResponseEntity<Map<String, Object>> response = post(body, ADMIN_1);
-		assertThat(response.getStatusCode().value()).isEqualTo(500);
-		assertThat(response.getBody().get("success")).isEqualTo(false);
-		// The catalog entry carries a {error} placeholder, but PHP passes the
-		// exception text as $data (the third argument), not as $replace (the
-		// fourth) -- so the placeholder is never substituted and the message
-		// reaches the client literally, with the detail alongside it in data.
-		assertThat(response.getBody().get("message")).isEqualTo("Failed to create employee: {error}");
-		assertThat(response.getBody().get("data")).isInstanceOf(String.class);
-		assertThat((String) response.getBody().get("data")).isNotBlank();
+		assertThat(message(post(body, ADMIN_1), 409)).isEqualTo("Phone already exists");
 
-		// Nothing survived: no employee, and therefore no salary or leave rows.
 		assertThat(count("SELECT COUNT(*) FROM employees WHERE company_id = " + COMPANY_1)).isEqualTo(before);
 		assertThat(count("SELECT COUNT(*) FROM employees WHERE employee_code = '5400'")).isZero();
 		assertThat(count("SELECT COUNT(*) FROM salary_contracts WHERE basic_salary = 5000.00")).isZero();

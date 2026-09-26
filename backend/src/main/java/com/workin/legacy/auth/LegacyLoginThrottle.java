@@ -3,7 +3,6 @@ package com.workin.legacy.auth;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.text.Normalizer;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -27,7 +26,8 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
-import com.workin.legacy.LegacyValues;
+import com.workin.legacy.phone.LegacyPhoneNumbers;
+import com.workin.legacy.phone.PhoneLookup;
 import com.workin.legacy.wire.LegacyApiException;
 
 /**
@@ -67,24 +67,25 @@ import com.workin.legacy.wire.LegacyApiException;
  * One phone is one budget across all three routes, so a guesser cannot
  * rotate between them.
  *
- * <h2>The key and the lookup share one value by construction</h2>
- * <p>MariaDB's {@code utf8mb4_unicode_ci} matches far more than ASCII digits
- * to a stored {@code 01012345678}: Arabic-Indic, Persian and fullwidth digits,
- * but also circled and dingbat digits, Hangzhou numerals, Ethiopic and Khmer
- * number signs and more -- 94 code points outside any digit category, found
- * by comparing the whole BMP against the collation. No key derived from the
- * raw string can follow all of that. So the phone is not keyed on what the
- * client sent; the route looks up {@link #bindablePhone}, the value the key
- * is made from. That folds NFKC and every decimal digit (category Nd) to ASCII,
- * and then admits only ASCII digits, a leading {@code +}, the separators
- * {@code - ( ) . /} and the whitespace PHP's {@code trim()} strips. Anything else never reaches the
- * lookup: it is answered as the route answers an unknown phone and charged
- * to the address as a miss. So the key is the ASCII digits of exactly the
- * string the lookup binds, and a phone written in characters the collation
- * would have folded can no longer find an account under a different key. A
- * legitimate phone typed in Arabic-Indic digits is folded, and still finds
- * its row. A phone with no digits at all is charged to the address only,
- * never to one bucket every such phone would share.
+ * <h2>The key is the number, and the lookup can reach nothing else</h2>
+ * <p>A phone is keyed on its canonical E.164 number (ADR-0020, D-291), so
+ * {@code 01012345678}, {@code +20 10 1234 5678}, {@code 0020 1012345678} and
+ * the same digits in Arabic-Indic are one budget, not four. The route never
+ * binds what the client sent: it is handed the {@link PhoneLookup} the key was
+ * made from, which binds only the stored spellings of those numbers and keeps
+ * only rows that canonicalise to them. A number typed nationally with no
+ * country can read as more than one number -- {@code 0501234567} is a Saudi
+ * mobile and an Egyptian landline -- and then every reading is charged, so
+ * whichever account the lookup reaches was charged under its own number.
+ *
+ * <p>Input that is not a valid phone number -- letters, circled or dingbat
+ * digits, an extension, a number the metadata rejects -- is refused before
+ * any lookup, answered as the route answers an unknown phone, and charged to
+ * the address alone, never to one bucket every such input would share. The
+ * collation no longer matters here: MariaDB's {@code utf8mb4_unicode_ci}
+ * equates circled and other non-decimal digits to ASCII ones, and that was
+ * why {@code bindablePhone} kept an allowlist of what could reach the
+ * {@code WHERE}; nothing the client typed reaches it now.
  *
  * <p>Only a 401 is a miss -- an unknown phone or a wrong password, the two
  * answers a guesser gets. Every other outcome, a success included, returns
@@ -107,15 +108,17 @@ public class LegacyLoginThrottle {
 	public static final Duration WINDOW = Duration.ofMinutes(15);
 
 	private final JdbcTemplate jdbcTemplate;
+	private final LegacyPhoneNumbers phoneNumbers;
 	private final Clock clock;
 
 	@Autowired
-	public LegacyLoginThrottle(DataSource legacyDataSource) {
-		this(legacyDataSource, Clock.systemUTC());
+	public LegacyLoginThrottle(DataSource legacyDataSource, LegacyPhoneNumbers phoneNumbers) {
+		this(legacyDataSource, phoneNumbers, Clock.systemUTC());
 	}
 
-	LegacyLoginThrottle(DataSource legacyDataSource, Clock clock) {
+	LegacyLoginThrottle(DataSource legacyDataSource, LegacyPhoneNumbers phoneNumbers, Clock clock) {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
+		this.phoneNumbers = phoneNumbers;
 		this.clock = clock;
 	}
 
@@ -124,24 +127,23 @@ public class LegacyLoginThrottle {
 	 *
 	 * @param rawPhone the request's {@code phone}, before any conversion
 	 * @param unknownPhone the route's answer to a phone that matches no
-	 *        account, given to a phone {@link #bindablePhone} refuses, so the
+	 *        account, given to input that is not a phone number, so the
 	 *        refusal reads exactly as a miss does
-	 * @param login the login, given the phone to bind in its lookup in place
-	 *        of the request's
+	 * @param login the login, given the lookup to find its rows with in place
+	 *        of the request's phone
 	 * @throws LegacyApiException 429 {@code too_many_login_attempts} when any
 	 *         budget is spent, before the password is looked at
 	 */
 	public <T> T guard(Object rawPhone, String clientAddress,
-			Supplier<LegacyApiException> unknownPhone, Function<String, T> login) {
+			Supplier<LegacyApiException> unknownPhone, Function<PhoneLookup, T> login) {
 		String address = clientAddress == null ? "" : clientAddress;
-		String bound = bindablePhone(rawPhone);
-		String phone = bound == null ? "" : asciiDigits(bound);
+		PhoneLookup lookup = this.phoneNumbers.lookup(rawPhone);
 
 		Map<String, Integer> budgets = new LinkedHashMap<>();
 		budgets.put(hash("api-addr:" + address), MAX_ADDRESS_MISSES);
-		if (!phone.isEmpty()) {
-			budgets.put(hash("api-phone:" + phone), MAX_PHONE_MISSES);
-			budgets.put(hash("api-pair:" + phone + "|" + address), MAX_PAIR_MISSES);
+		for (String e164 : lookup.e164s()) {
+			budgets.put(hash("api-phone:" + e164), MAX_PHONE_MISSES);
+			budgets.put(hash("api-pair:" + e164 + "|" + address), MAX_PAIR_MISSES);
 		}
 
 		Instant now = this.clock.instant();
@@ -151,14 +153,14 @@ public class LegacyLoginThrottle {
 			throw new LegacyApiException(429, "too_many_login_attempts");
 		}
 
-		if (bound == null) {
+		if (lookup.isEmpty()) {
 			// Refused before any lookup, and kept as a miss against the address.
 			throw unknownPhone.get();
 		}
 
 		T result;
 		try {
-			result = login.apply(bound);
+			result = login.apply(lookup);
 		} catch (LegacyApiException ex) {
 			if (ex.getStatus() != 401) {
 				release(reservation);
@@ -170,64 +172,6 @@ public class LegacyLoginThrottle {
 		}
 		release(reservation);
 		return result;
-	}
-
-	/**
-	 * The phone a route binds in its lookup, or {@code null} when it must not
-	 * reach one: PHP's {@code (string)} cast, NFKC-folded, every decimal digit
-	 * (category Nd) written as ASCII, and then only ASCII digits, a leading
-	 * {@code +}, the separators a phone is written with ({@code - ( ) . /}) and
-	 * {@code trim()}'s whitespace admitted. {@code register_employee.php}
-	 * stores a phone as sent, so a refused separator would lock out an
-	 * account whose stored phone holds it. Those are
-	 * the only characters left, and none of them can compare equal to a digit
-	 * under the collation, so the ASCII digits of this string are the digits
-	 * the lookup matches on.
-	 */
-	public static String bindablePhone(Object rawPhone) {
-		String folded = Normalizer.normalize(LegacyValues.toPhpString(rawPhone), Normalizer.Form.NFKC);
-		StringBuilder bound = new StringBuilder(folded.length());
-		boolean signAllowed = true;
-		for (int index = 0; index < folded.length(); ) {
-			int codePoint = folded.codePointAt(index);
-			index += Character.charCount(codePoint);
-			if (Character.getType(codePoint) == Character.DECIMAL_DIGIT_NUMBER) {
-				int digit = Character.digit(codePoint, 10);
-				if (digit < 0) {
-					return null;
-				}
-				bound.append((char) ('0' + digit));
-				signAllowed = false;
-			} else if (isTrimWhitespace(codePoint)) {
-				bound.append((char) codePoint);
-			} else if (codePoint == '+' && signAllowed) {
-				bound.append('+');
-				signAllowed = false;
-			} else if (codePoint == '-' || codePoint == '(' || codePoint == ')' || codePoint == '.' || codePoint == '/') {
-				bound.append((char) codePoint);
-				signAllowed = false;
-			} else {
-				return null;
-			}
-		}
-		return bound.toString();
-	}
-
-	/** {@code trim()}'s default characters: space, tab, newline, return, NUL and vertical tab. */
-	private static boolean isTrimWhitespace(int codePoint) {
-		return codePoint == ' ' || codePoint == '\t' || codePoint == '\n' || codePoint == '\r'
-				|| codePoint == 0 || codePoint == 0x0B;
-	}
-
-	private static String asciiDigits(String bound) {
-		StringBuilder digits = new StringBuilder(bound.length());
-		for (int index = 0; index < bound.length(); index++) {
-			char character = bound.charAt(index);
-			if (character >= '0' && character <= '9') {
-				digits.append(character);
-			}
-		}
-		return digits.toString();
 	}
 
 	/**

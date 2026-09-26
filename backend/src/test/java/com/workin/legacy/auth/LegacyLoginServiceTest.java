@@ -15,6 +15,8 @@ import com.workin.legacy.companies.LegacyCompany;
 import com.workin.legacy.companies.LegacyCompanyRepository;
 import com.workin.legacy.employees.LegacyEmployee;
 import com.workin.legacy.employees.LegacyEmployeeRepository;
+import com.workin.legacy.phone.LegacyPhoneCountries;
+import com.workin.legacy.phone.LegacyPhoneNumbers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -55,9 +57,12 @@ class LegacyLoginServiceTest {
 
 	@Test
 	void aDanglingCompanyReferenceOnOneCandidateDoesNotFailLoginForAValidSiblingCandidate() {
+		// An international number needs no phone_countries read, so the
+		// countries component is never asked for its data source.
 		LegacyLoginService service = new LegacyLoginService(
 				legacyEmployeeRepository, legacyCompanyRepository, tenantFilterActivator,
-				passwordEncoder, jwtService, legacyRefreshTokenService);
+				passwordEncoder, jwtService, legacyRefreshTokenService,
+				new LegacyPhoneNumbers(new LegacyPhoneCountries(org.mockito.Mockito.mock(javax.sql.DataSource.class))));
 
 		// toCandidate() returns before reading role/joinRequestStatus/
 		// active/passwordHash when the company lookup is empty, so this
@@ -65,8 +70,11 @@ class LegacyLoginServiceTest {
 		LegacyEmployee danglingEmployee = org.mockito.Mockito.mock(LegacyEmployee.class);
 		when(danglingEmployee.getId()).thenReturn(90051L);
 		when(danglingEmployee.getCompanyId()).thenReturn(9999L);
+		when(danglingEmployee.getPhone()).thenReturn("01100090051");
 		LegacyEmployee validEmployee = mockEmployee(90052L, 9001L);
-		when(legacyEmployeeRepository.findByPhoneOrderByIdDesc("+201100090051"))
+		when(legacyEmployeeRepository.findByPhoneInOrderByIdDesc(
+				org.mockito.ArgumentMatchers.argThat(spellings -> spellings.contains("01100090051")
+						&& spellings.contains("+201100090051"))))
 				.thenReturn(List.of(danglingEmployee, validEmployee));
 
 		LegacyCompany validCompany = mockCompany("active");
@@ -97,6 +105,7 @@ class LegacyLoginServiceTest {
 		LegacyEmployee employee = org.mockito.Mockito.mock(LegacyEmployee.class);
 		when(employee.getId()).thenReturn(id);
 		when(employee.getCompanyId()).thenReturn(companyId);
+		when(employee.getPhone()).thenReturn("1100090051");
 		when(employee.role()).thenReturn(LegacyEmployee.Role.EMPLOYEE);
 		when(employee.joinRequestStatus()).thenReturn(LegacyEmployee.JoinRequestStatus.ACCEPTED);
 		when(employee.active()).thenReturn(true);

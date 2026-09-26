@@ -11,6 +11,8 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import com.workin.backend.platformadmin.web.DashboardListFilters;
+import com.workin.legacy.phone.CanonicalPhone;
+import com.workin.legacy.phone.PhoneLookup;
 import com.workin.backend.platformadmin.web.DashboardPage;
 
 /**
@@ -31,6 +33,30 @@ public class EmployeeStore {
 
 	public EmployeeStore(JdbcTemplate jdbcTemplate) {
 		this.jdbcTemplate = jdbcTemplate;
+	}
+
+	/**
+	 * Another employee holds the number, in any stored spelling -- the scope
+	 * of every other employee uniqueness check ({@code employee_phone_exists_globally()}):
+	 * global, and a rejected join request does not reserve it (D-291).
+	 */
+	public boolean phoneTaken(CanonicalPhone phone, long excludeEmployeeId) {
+		PhoneLookup lookup = PhoneLookup.of(phone);
+		PhoneLookup.Clause probe = lookup.writeProbe("phone",
+				"id, phone, country_code, COALESCE(join_request_status, 'accepted') <> 'rejected' AS counts",
+				"employees");
+		List<Object> binds = new ArrayList<>(probe.binds());
+		binds.add(excludeEmployeeId);
+		// A rejected row is absent to the number check, but a row holding the
+		// exact digits to be written blocks the raw unique index whatever it is.
+		for (java.util.Map<String, Object> row
+				: this.jdbcTemplate.queryForList(probe.sql() + " AND id <> ?", binds.toArray())) {
+			if (PhoneLookup.holdsWrittenDigits(row) || (row.get("counts") instanceof Number counts
+					&& counts.longValue() != 0 && lookup.matches(row.get("phone"), row.get("country_code")))) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**

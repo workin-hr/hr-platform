@@ -16,6 +16,7 @@ import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.employees.LegacyEmployee.Role;
+import com.workin.legacy.phone.CanonicalPhone;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
 import com.workin.legacy.wire.LegacyApiException;
 
@@ -137,8 +138,10 @@ public class LegacyHrEmployeeService {
 		requireField(body, "role");
 		requireField(body, "branch_id");
 
-		String[] phone = resolvePhoneAndCountry(body);
-		if (phone[0] != null && store.phoneExistsGlobally(phone[0], null)) {
+		CanonicalPhone number = resolvePhoneAndCountry(body);
+		String[] phone = number == null
+				? new String[] {null, null} : new String[] {number.nationalDigits(), number.dialCode()};
+		if (number != null && store.phoneExistsGlobally(number, null)) {
 			throw new LegacyApiException(409, "phone_already_exists");
 		}
 
@@ -437,22 +440,23 @@ public class LegacyHrEmployeeService {
 	/**
 	 * {@code resolve_employee_phone_and_country_code()}, the strict one: an
 	 * absent country code and an invalid number both end the request, unlike
-	 * the spreadsheet's forgiving resolver.
+	 * the spreadsheet's forgiving resolver. Validity is
+	 * {@link LegacyPhoneNumbers#forAccount}'s (D-291), and the dial code
+	 * returned is the number's own.
+	 *
+	 * @return the number, or null for no phone
 	 */
-	private String[] resolvePhoneAndCountry(Map<String, Object> body) {
+	private CanonicalPhone resolvePhoneAndCountry(Map<String, Object> body) {
 		String rawPhone = trimmed(body.get("phone"));
 		if (LegacyPhoneNumbers.digitsOnly(rawPhone).isEmpty()) {
-			return new String[] {null, null};
+			return null;
 		}
 		String countryCode = LegacyPhoneNumbers.normalizeDialCode(trimmed(body.get("country_code")));
 		if (countryCode.isEmpty()) {
 			throw new LegacyApiException(400, "field_required", null, Map.of("field", "country_code"));
 		}
-		String normalized = phoneNumbers.normalizeLocal(countryCode, rawPhone);
-		if (!phoneNumbers.isValidLocal(countryCode, normalized)) {
-			throw new LegacyApiException(400, "invalid_phone_number");
-		}
-		return new String[] {normalized, countryCode};
+		return phoneNumbers.forAccount(rawPhone, countryCode)
+				.orElseThrow(() -> new LegacyApiException(400, "invalid_phone_number"));
 	}
 
 	/**

@@ -14,7 +14,9 @@ import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.employees.LegacyEmployeeStore;
 import com.workin.legacy.phone.LegacyPhoneCountries;
+import com.workin.legacy.phone.CanonicalPhone;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
+import com.workin.legacy.phone.PhoneLookup;
 
 /**
  * {@code employee_excel_row_to_update_payload()} and
@@ -357,22 +359,28 @@ public class LegacyEmployeeUpdateAnalyzer {
 			return;
 		}
 
-		String[] resolved = normalizePhone(phoneCell, row.get("country_code"), employee);
+		CanonicalPhone resolved = normalizePhone(phoneCell, row.get("country_code"), employee);
 		if (resolved == null) {
 			errors.add("invalid_phone");
 			return;
 		}
-		String phone = resolved[0];
-		String countryCode = resolved[1];
 
-		if (this.store.phoneExistsGlobally(phone, employeeId)) {
+		if (PhoneLookup.of(resolved).matches(employee.get("phone"), employee.get("country_code"))) {
+			// The employee's own number: the stored spelling and code are kept
+			// byte for byte, so the write cannot collide with another country's
+			// row holding the national digits (D-291).
+			payload.put("phone", employee.get("phone"));
+			payload.put("country_code", employee.get("country_code"));
+			return;
+		}
+		if (this.store.phoneExistsGlobally(resolved, employeeId)) {
 			// Reported, and neither field written: the row fails, so the
 			// payload must not carry a number that was rejected.
 			errors.add("phone_exists");
 			return;
 		}
-		payload.put("phone", phone);
-		payload.put("country_code", countryCode);
+		payload.put("phone", resolved.nationalDigits());
+		payload.put("country_code", resolved.dialCode());
 	}
 
 	/**
@@ -381,18 +389,27 @@ public class LegacyEmployeeUpdateAnalyzer {
 	 * phone or it does not resolve. {@code update.php} stores a phone as sent
 	 * -- {@code 201012345678}, a code of {@code 20} -- so a re-uploaded export
 	 * resolves to a different string for the same number, and only this form
-	 * says whether a row really changes it (D-289).
+	 * says whether a row really changes it (D-289). Both sides are the
+	 * canonical number's storage form now (D-291), so one number is one pair
+	 * of strings however either side spelled it.
 	 */
 	public String[] storedPhoneAsSheetResolves(Map<String, Object> employee) {
 		Object stored = employee.get("phone");
 		if (LegacyValues.phpTrim(LegacyPhoneNumbers.excelCellToRaw(stored)).isEmpty()) {
 			return null;
 		}
-		return normalizePhone(stored, employee.get("country_code"), employee);
+		CanonicalPhone resolved = normalizePhone(stored, employee.get("country_code"), employee);
+		return resolved == null ? null : new String[] {resolved.nationalDigits(), resolved.dialCode()};
 	}
 
-	/** The phone and country code a sheet's two cells resolve to, or {@code null} for an invalid phone. */
-	private String[] normalizePhone(Object phoneCell, Object countryCell, Map<String, Object> employee) {
+	/**
+	 * The number a sheet's two cells resolve to, or {@code null} for an
+	 * invalid phone: read in the cell's country (the employee's own, then the
+	 * default, when the cell is blank or a label), and retried as Egyptian
+	 * before it is refused -- the sheet's forgiving order, over
+	 * {@link LegacyPhoneNumbers#forAccount}'s validity (D-291).
+	 */
+	private CanonicalPhone normalizePhone(Object phoneCell, Object countryCell, Map<String, Object> employee) {
 		String rawCountry = trimmed(countryCell);
 		String folded = LegacyValues.mbStrToLower(rawCountry);
 		if (rawCountry.isEmpty() || folded.contains("دولة") || folded.contains("country")) {
@@ -406,16 +423,10 @@ public class LegacyEmployeeUpdateAnalyzer {
 			countryCode = this.phoneCountries.defaultCode();
 		}
 
-		String phone = this.phoneNumbers.normalizeLocal(countryCode, phoneCell);
-		if (!this.phoneNumbers.isValidLocal(countryCode, phone)) {
-			String egyptian = this.phoneNumbers.normalizeLocal("+20", phoneCell);
-			if (!this.phoneNumbers.isValidLocal("+20", egyptian)) {
-				return null;
-			}
-			phone = egyptian;
-			countryCode = "+20";
-		}
-		return new String[] {phone, countryCode};
+		String raw = LegacyPhoneNumbers.excelCellToRaw(phoneCell);
+		return this.phoneNumbers.forAccount(raw, countryCode)
+				.or(() -> this.phoneNumbers.forAccount(raw, "+20"))
+				.orElse(null);
 	}
 
 	/** {@code employee_excel_cell_filled()}: present and non-blank after trimming. */

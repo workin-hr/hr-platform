@@ -11,7 +11,8 @@ import org.springframework.stereotype.Repository;
 
 import com.workin.legacy.LegacyGeneratedKeys;
 import com.workin.legacy.LegacyJdbcValues;
-import com.workin.legacy.phone.LegacyPhoneNumbers;
+import com.workin.legacy.phone.CanonicalPhone;
+import com.workin.legacy.phone.PhoneLookup;
 
 /** The reads and writes behind the nine account-lifecycle {@code auth} endpoints. */
 @Repository
@@ -90,27 +91,33 @@ public class LegacyRegistrationStore {
 	// ---------------- check_status.php ----------------
 
 	/**
-	 * {@code check_status.php}'s row. The phone is matched <b>exactly</b>,
-	 * not through {@code phone_sql_match_clause()} -- so a client that sends a
-	 * differently-formatted number than the one stored is told
-	 * {@code status_not_found} and pointed back at the company-code screen.
+	 * {@code check_status.php}'s row: the newest row in the company holding
+	 * the number. PHP matched the column exactly, so a differently formatted
+	 * number was {@code status_not_found}; any spelling of the number is found
+	 * now (D-291).
 	 */
-	public Map<String, Object> employeeStatus(String phone, long companyId) {
-		return single(jdbcTemplate.query("""
-				SELECT e.id, e.is_active, e.role, c.status AS company_status
+	public Map<String, Object> employeeStatus(PhoneLookup phone, long companyId) {
+		return single(verified(phone, "e.phone", """
+				SELECT e.id, e.phone, e.country_code, e.is_active, e.role, c.status AS company_status
 				FROM employees AS e
 				JOIN companies AS c ON c.id = e.company_id
-				WHERE e.phone = ? AND e.company_id = ?""",
-				LegacyJdbcValues.rowMapper(), phone, companyId));
+				WHERE %s AND e.company_id = ?
+				ORDER BY e.id DESC""", companyId));
 	}
 
 	// ---------------- register_company.php ----------------
 
-	/** Its uniqueness probe: an <b>exact</b> phone match, unlike `join_company`'s. */
-	public boolean companyPhoneExistsExactly(String phone) {
-		Long count = jdbcTemplate.queryForObject(
-				"SELECT COUNT(*) FROM companies WHERE phone = ?", Long.class, phone);
-		return count != null && count > 0;
+	/**
+	 * Its uniqueness probe: any company holding the number, in any spelling.
+	 * PHP matched the column exactly, which is how 16 pairs of companies came
+	 * to share one number under two spellings (ADR-0020).
+	 */
+	public boolean companyPhoneExists(CanonicalPhone phone) {
+		// Or a company holding the exact digits the insert stores, which the
+		// raw unique index would refuse (PhoneLookup#writeProbe).
+		PhoneLookup lookup = PhoneLookup.of(phone);
+		PhoneLookup.Clause probe = lookup.writeProbe("phone", "id, phone, country_code", "companies");
+		return jdbcTemplate.queryForList(probe.sql(), probe.binds().toArray()).stream().anyMatch(lookup::blocksWrite);
 	}
 
 	/**
@@ -183,64 +190,63 @@ public class LegacyRegistrationStore {
 
 	// ---------------- register_employee.php / join_company.php ----------------
 
-	/** {@code register_employee.php} finds the company by its <b>phone</b>, not its code. */
-	public Map<String, Object> companyByPhoneExactly(String phone) {
-		return single(jdbcTemplate.query(
-				"SELECT id, status FROM companies WHERE phone = ?", LegacyJdbcValues.rowMapper(), phone));
+	/**
+	 * {@code register_employee.php} finds the company by its <b>phone</b>, not
+	 * its code: every company holding the number, lowest id first, for the
+	 * caller to pick one with {@link PhoneLookup#singleRow}.
+	 */
+	public List<Map<String, Object>> companiesByPhone(PhoneLookup phone) {
+		return verified(phone, "phone",
+				"SELECT id, status, phone, country_code FROM companies WHERE %s ORDER BY id ASC");
 	}
 
-	/** {@code register_employee.php}'s duplicate probe: exact phone, one company. */
-	public boolean employeeExistsInCompanyExactly(String phone, long companyId) {
-		Long count = jdbcTemplate.queryForObject(
-				"SELECT COUNT(*) FROM employees WHERE phone = ? AND company_id = ?",
-				Long.class, phone, companyId);
-		return count != null && count > 0;
+	/** {@code register_employee.php}'s duplicate probe: the number, in any spelling, in one company. */
+	public boolean employeeExistsInCompany(CanonicalPhone phone, long companyId) {
+		return !verified(PhoneLookup.of(phone), "phone",
+				"SELECT id, phone, country_code FROM employees WHERE %s AND company_id = ?", companyId).isEmpty();
 	}
 
-	public long insertEmployeeMinimal(long companyId, String phone, String passwordHash) {
+	/** Stored in the convention every Java write uses: national digits beside their dial code. */
+	public long insertEmployeeMinimal(long companyId, CanonicalPhone phone, String passwordHash) {
 		return LegacyGeneratedKeys.insert(jdbcTemplate,
-				"INSERT INTO employees (company_id, phone, password_hash, role) VALUES (?, ?, ?, 'employee')",
-				companyId, phone, passwordHash);
+				"INSERT INTO employees (company_id, phone, country_code, password_hash, role)"
+						+ " VALUES (?, ?, ?, ?, 'employee')",
+				companyId, phone.nationalDigits(), phone.dialCode(), passwordHash);
 	}
 
 	/**
-	 * {@code join_company.php}'s duplicate probe. Variant-aware, and it
-	 * deliberately treats a <b>rejected</b> row as absent -- a rejected
-	 * applicant may apply again, an accepted or pending one may not.
+	 * {@code join_company.php}'s duplicate probe: the number, in any spelling,
+	 * in one company -- and it deliberately treats a <b>rejected</b> row as
+	 * absent: a rejected applicant may apply again, an accepted or pending one
+	 * may not.
 	 */
-	public boolean joinRequestAlreadyExists(String phone, long companyId) {
-		LegacyPhoneNumbers.MatchClause match = LegacyPhoneNumbers.sqlMatchClause("phone", phone);
-		List<Object> binds = new ArrayList<>(match.binds());
-		binds.add(companyId);
-		Long count = jdbcTemplate.queryForObject(
-				"SELECT COUNT(*) FROM employees WHERE (" + match.sql() + ") AND company_id = ?"
-						+ " AND COALESCE(join_request_status, 'accepted') <> 'rejected'",
-				Long.class, binds.toArray());
-		return count != null && count > 0;
+	public boolean joinRequestAlreadyExists(CanonicalPhone phone, long companyId) {
+		return !verified(PhoneLookup.of(phone), "phone", """
+				SELECT id, phone, country_code FROM employees
+				WHERE %s AND company_id = ? AND COALESCE(join_request_status, 'accepted') <> 'rejected'""",
+				companyId).isEmpty();
 	}
 
-	/** {@code company_phone_exists_globally($phone, $excludeCompanyId)}. */
-	public boolean companyPhoneExistsGlobally(String phone, long excludeCompanyId) {
-		LegacyPhoneNumbers.MatchClause match = LegacyPhoneNumbers.sqlMatchClause("phone", phone);
-		List<Object> binds = new ArrayList<>(match.binds());
-		String sql = "SELECT COUNT(*) FROM companies WHERE " + match.sql();
-		if (excludeCompanyId > 0) {
-			sql += " AND id <> ?";
-			binds.add(excludeCompanyId);
-		}
-		Long count = jdbcTemplate.queryForObject(sql, Long.class, binds.toArray());
-		return count != null && count > 0;
+	/** {@code company_phone_exists_globally($phone, $excludeCompanyId)}: the number, in any spelling. */
+	public boolean companyPhoneExistsGlobally(CanonicalPhone phone, long excludeCompanyId) {
+		return !verified(PhoneLookup.of(phone), "phone",
+				"SELECT id, phone, country_code FROM companies WHERE %s AND id <> ?", excludeCompanyId).isEmpty();
 	}
 
+	/**
+	 * The pending row, stored in the convention every Java write uses. PHP
+	 * wrote the digits and left {@code country_code} NULL; the dial code is
+	 * written now, so the row reads as the number it is in any country.
+	 */
 	public long insertJoinRequestEmployee(
 			long companyId, long branchId, String firstName, String lastName,
-			String phone, String passwordHash) {
+			CanonicalPhone phone, String passwordHash) {
 		return LegacyGeneratedKeys.insert(jdbcTemplate, """
 				INSERT INTO employees
-					(company_id, branch_id, first_name, last_name, phone, password_hash,
+					(company_id, branch_id, first_name, last_name, phone, country_code, password_hash,
 					 role, is_active, join_request_status)
-				VALUES (?, ?, ?, ?, ?, ?, 'employee', 0, 'pending')""",
-				companyId, branchId, firstName, lastName, phone, passwordHash);
+				VALUES (?, ?, ?, ?, ?, ?, ?, 'employee', 0, 'pending')""",
+				companyId, branchId, firstName, lastName, phone.nationalDigits(), phone.dialCode(), passwordHash);
 	}
 
 	public Map<String, Object> employee(long employeeId) {
@@ -250,10 +256,9 @@ public class LegacyRegistrationStore {
 
 	// ---------------- login_company.php ----------------
 
-	/** Its lookup is an <b>exact</b> phone match on the submitted value. */
-	public Map<String, Object> companyByPhoneForLogin(Object phone) {
-		return single(jdbcTemplate.query(
-				"SELECT * FROM companies WHERE phone = ?", LegacyJdbcValues.rowMapper(), phone));
+	/** Every company holding the number, lowest id first; the caller picks with {@link PhoneLookup#singleRow}. */
+	public List<Map<String, Object>> companiesForLogin(PhoneLookup phone) {
+		return verified(phone, "phone", "SELECT * FROM companies WHERE %s ORDER BY id ASC");
 	}
 
 	// ---------------- login_desktop.php ----------------
@@ -264,14 +269,13 @@ public class LegacyRegistrationStore {
 	 * and that the role and active filters are in the SQL rather than in the
 	 * decision, so a non-HR row never reaches the password loop at all.
 	 */
-	public List<Map<String, Object>> activeHrByPhoneOldestFirst(Object phone) {
-		return jdbcTemplate.query("""
+	public List<Map<String, Object>> activeHrByPhoneOldestFirst(PhoneLookup phone) {
+		return verified(phone, "e.phone", """
 				SELECT e.*, c.status AS company_status
 				FROM employees AS e
 				INNER JOIN companies AS c ON c.id = e.company_id
-				WHERE e.phone = ? AND e.phone IS NOT NULL AND TRIM(e.phone) <> ''
-				  AND e.role = 'hr' AND e.is_active = 1
-				ORDER BY e.id ASC""", LegacyJdbcValues.rowMapper(), phone);
+				WHERE %s AND e.role = 'hr' AND e.is_active = 1
+				ORDER BY e.id ASC""");
 	}
 
 	/** The re-read with the permission columns joined, so the row branch is taken. */
@@ -282,6 +286,19 @@ public class LegacyRegistrationStore {
 				"SELECT e.*, " + permissions + " FROM employees AS e"
 						+ " LEFT JOIN hr_permissions AS p ON p.employee_id = e.id WHERE e.id = ?",
 				LegacyJdbcValues.rowMapper(), employeeId));
+	}
+
+	/**
+	 * The rows {@code sql} returns with its {@code %s} replaced by the
+	 * lookup's {@code column IN (...)}, kept only when they are the number
+	 * (ADR-0020). The trailing binds follow the lookup's.
+	 */
+	private List<Map<String, Object>> verified(PhoneLookup phone, String column, String sql, Object... trailing) {
+		PhoneLookup.Clause match = phone.clause(column);
+		List<Object> binds = new ArrayList<>(match.binds());
+		java.util.Collections.addAll(binds, trailing);
+		return phone.verified(jdbcTemplate.query(
+				sql.formatted(match.sql()), LegacyJdbcValues.rowMapper(), binds.toArray()));
 	}
 
 	private static Map<String, Object> single(List<Map<String, Object>> rows) {
