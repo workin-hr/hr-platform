@@ -349,7 +349,7 @@ class LegacyClientApiHardeningEndToEndTest {
 		long staff = staff(BRANCH_A, 1, "accepted");
 		String phone = "+20100" + staff;
 
-		for (int miss = 0; miss < LegacyLoginThrottle.MAX_PHONE_MISSES; miss++) {
+		for (int miss = 0; miss < LegacyLoginThrottle.MAX_PAIR_MISSES; miss++) {
 			ResponseEntity<Map<String, Object>> wrong = login("login_employee", phone, "wrong", null);
 			assertThat(wrong.getStatusCode().value()).isEqualTo(401);
 			assertThat(wrong.getBody().get("message")).as("the existing answer is unchanged")
@@ -367,23 +367,63 @@ class LegacyClientApiHardeningEndToEndTest {
 	}
 
 	@Test
-	void aSuccessClearsThePhonesBudget() throws Exception {
+	void aSuccessReturnsOnlyItsOwnReservationAndClearsNoEarlierMiss() throws Exception {
+		// A success used to clear the phone's whole budget -- and join_company
+		// lets a pending row share the admin's phone, so a guesser's own
+		// successful login reset the admin's budget at will.
 		long staff = staff(BRANCH_A, 1, "accepted");
 		String phone = "+20100" + staff;
 
-		for (int miss = 0; miss < LegacyLoginThrottle.MAX_PHONE_MISSES - 1; miss++) {
-			login("login_employee", phone, "wrong", null);
+		for (int miss = 0; miss < LegacyLoginThrottle.MAX_PAIR_MISSES - 1; miss++) {
+			assertThat(login("login_employee", phone, "wrong", null).getStatusCode().value()).isEqualTo(401);
 		}
-		assertThat(login("login_employee", phone, PASSWORD, null).getStatusCode().value()).isEqualTo(200);
-		for (int miss = 0; miss < LegacyLoginThrottle.MAX_PHONE_MISSES; miss++) {
-			assertThat(login("login_employee", phone, "wrong", null).getStatusCode().value())
-					.as("miss %d after the success", miss).isEqualTo(401);
+		assertThat(login("login_employee", phone, PASSWORD, null).getStatusCode().value())
+				.as("within the budget, the right password still signs in").isEqualTo(200);
+		assertThat(login("login_employee", phone, "wrong", null).getStatusCode().value())
+				.as("the success returned its own row, so this is the eighth miss").isEqualTo(401);
+		assertThat(login("login_employee", phone, PASSWORD, null).getStatusCode().value())
+				.as("the seven misses before the success still count").isEqualTo(429);
+	}
+
+	@Test
+	void aGuesserSpendingThePhonesBudgetFromTheirAddressDoesNotLockTheOwnerOut() throws Exception {
+		long staff = staff(BRANCH_A, 1, "accepted");
+		String phone = "+20100" + staff;
+
+		for (int miss = 0; miss < LegacyLoginThrottle.MAX_PAIR_MISSES; miss++) {
+			assertThat(loginFrom("127.0.0.1", "login_employee", phone, "wrong").getStatusCode().value())
+					.isEqualTo(401);
 		}
+		assertThat(loginFrom("127.0.0.1", "login_employee", phone, PASSWORD).getStatusCode().value())
+				.as("the guesser's address is refused").isEqualTo(429);
+
+		// The owner, from an address of their own: IPv6 loopback is another
+		// client address as far as getRemoteAddr() is concerned.
+		assertThat(loginFrom("[::1]", "login_employee", phone, PASSWORD).getStatusCode().value())
+				.as("the owner's correct password from elsewhere").isEqualTo(200);
+	}
+
+	@Test
+	void theSamePhoneWrittenInArabicIndicDigitsSpendsTheSameBudget() throws Exception {
+		long staff = staff(BRANCH_A, 1, "accepted");
+		String phone = "+20100" + staff;
+		String arabicIndic = "+" + toArabicIndic(phone.substring(1));
+
+		assertThat(login("login_employee", arabicIndic, PASSWORD, null).getStatusCode().value())
+				.as("MariaDB's collation finds the row by these digits").isEqualTo(200);
+		for (int miss = 0; miss < LegacyLoginThrottle.MAX_PAIR_MISSES; miss++) {
+			assertThat(login("login_employee", phone, "wrong", null).getStatusCode().value()).isEqualTo(401);
+		}
+		assertThat(login("login_employee", arabicIndic, PASSWORD, null).getStatusCode().value())
+				.as("another script is not another budget").isEqualTo(429);
+		String mixed = phone.substring(0, 6) + toArabicIndic(phone.substring(6));
+		assertThat(login("login_employee", mixed, PASSWORD, null).getStatusCode().value())
+				.as("nor is a mix of scripts").isEqualTo(429);
 	}
 
 	@Test
 	void theCompanyLoginIsChargedToo() throws Exception {
-		for (int miss = 0; miss < LegacyLoginThrottle.MAX_PHONE_MISSES; miss++) {
+		for (int miss = 0; miss < LegacyLoginThrottle.MAX_PAIR_MISSES; miss++) {
 			assertThat(login("login_company", "+201000289000", "wrong", null).getStatusCode().value())
 					.isEqualTo(401);
 		}
@@ -443,6 +483,25 @@ class LegacyClientApiHardeningEndToEndTest {
 		return restTemplate.exchange(
 				URI.create(restTemplate.getRootUri() + "/apis/api/auth/" + route + ".php"), HttpMethod.POST,
 				new HttpEntity<>(body, headers), new ParameterizedTypeReference<Map<String, Object>>() { });
+	}
+
+	/** A login from the client address the host names, which is what getRemoteAddr() then reports. */
+	private ResponseEntity<Map<String, Object>> loginFrom(String host, String route, String phone, String password) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		int port = URI.create(restTemplate.getRootUri()).getPort();
+		return restTemplate.exchange(
+				URI.create("http://" + host + ":" + port + "/apis/api/auth/" + route + ".php"), HttpMethod.POST,
+				new HttpEntity<>(Map.of("phone", phone, "password", password), headers),
+				new ParameterizedTypeReference<Map<String, Object>>() { });
+	}
+
+	private static String toArabicIndic(String asciiDigits) {
+		StringBuilder out = new StringBuilder();
+		for (char digit : asciiDigits.toCharArray()) {
+			out.append((char) ('\u0660' + (digit - '0')));
+		}
+		return out.toString();
 	}
 
 	private ResponseEntity<Map<String, Object>> call(String path, HttpMethod method, String token, Object body) {
