@@ -269,6 +269,31 @@ class LegacyClientApiHardeningEndToEndTest {
 				.collect(java.util.stream.Collectors.toList());
 	}
 
+	@Test
+	void aPeersRowCarryingTheirStoredPhoneUnchangedStillApplies() throws Exception {
+		// update.php stores a phone as it was sent: 2010... and a code of 20.
+		// A re-uploaded export resolves the same number to 010... and +20, and
+		// that is not a change to the manager's credentials.
+		long manager = nextStaffId();
+		String stored = "2010" + String.format("%08d", manager);
+		execute("""
+				INSERT INTO employees
+				  (id, company_id, branch_id, employee_code, first_name, last_name, phone, country_code,
+				   password_hash, token_version, role, is_active, join_request_status, created_at)
+				VALUES (%d, %d, %d, '%d', 'Stored', 'Form', '%s', '20',
+				   '%s', 1, 'manager', 1, 'accepted', '2025-05-01 09:00:00')
+				""".formatted(manager, COMPANY, BRANCH_A, manager % 100_000, stored, HASH));
+
+		ResponseEntity<Map<String, Object>> bulk = call("/apis/api/employees/update_bulk.php", HttpMethod.POST,
+				token(HR_PERMITTED, "hr", 1), Map.of("rows", java.util.List.of(Map.of(
+						"employee_code", String.valueOf(manager % 100_000), "phone", stored,
+						"country_code", "20", "address", "Re-uploaded"))));
+		assertThat(failedErrors(bulk)).isEmpty();
+		assertThat(data(bulk).get("updated")).isEqualTo(1);
+		assertThat(queryString("SELECT address FROM employees WHERE id = " + manager)).isEqualTo("Re-uploaded");
+		assertThat(queryString("SELECT password_hash FROM employees WHERE id = " + manager)).isEqualTo(HASH);
+	}
+
 	@SuppressWarnings("unchecked")
 	private static Map<String, Object> data(ResponseEntity<Map<String, Object>> response) {
 		return (Map<String, Object>) response.getBody().get("data");
@@ -550,6 +575,10 @@ class LegacyClientApiHardeningEndToEndTest {
 		long id = nextStaff++;
 		insertEmployee(id, branchId, "employee", active, joinStatus);
 		return id;
+	}
+
+	private static synchronized long nextStaffId() {
+		return nextStaff++;
 	}
 
 	private static synchronized long hrEmployee() throws Exception {

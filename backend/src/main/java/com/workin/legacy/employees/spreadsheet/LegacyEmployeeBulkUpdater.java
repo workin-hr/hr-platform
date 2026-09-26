@@ -258,18 +258,23 @@ public class LegacyEmployeeBulkUpdater {
 	}
 
 	/**
-	 * The credential fields this row would actually write: a password the apply
-	 * step would hash, and a phone or country code that differs from the
-	 * stored one. The bulk sheet has no active-flag column.
+	 * The credential fields this row would actually change: a password the
+	 * apply step would hash, and a phone or country code that differs from
+	 * the stored one once both are in the form the sheet resolves to -- a
+	 * stored {@code 201012345678} is the sheet's {@code 01012345678}. The bulk
+	 * sheet has no active-flag column.
 	 */
-	private static List<String> changedCredentials(Map<String, Object> payload, Map<String, Object> employee) {
+	private List<String> changedCredentials(Map<String, Object> payload, Map<String, Object> employee) {
 		List<String> changed = new ArrayList<>();
 		if (payload.containsKey("password") && !String.valueOf(payload.get("password")).trim().isEmpty()) {
 			changed.add("password");
 		}
-		for (String field : List.of("phone", "country_code")) {
-			if (payload.containsKey(field) && !LegacyValues.toPhpString(payload.get(field))
-					.equals(LegacyValues.toPhpString(employee.get(field)))) {
+		String[] stored = this.analyzer.storedPhoneAsSheetResolves(employee);
+		List<String> fields = List.of("phone", "country_code");
+		for (int index = 0; index < fields.size(); index++) {
+			String field = fields.get(index);
+			String current = stored == null ? LegacyValues.toPhpString(employee.get(field)) : stored[index];
+			if (payload.containsKey(field) && !LegacyValues.toPhpString(payload.get(field)).equals(current)) {
 				changed.add(field);
 			}
 		}
