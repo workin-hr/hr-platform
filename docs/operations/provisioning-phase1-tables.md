@@ -21,7 +21,7 @@ their sections below say what that means.
 | `legacy_refresh_tokens` | Token refresh for every mobile and desktop client |
 | `platform_admins` | The platform-admin surface at `/admin` |
 | `platform_admin_audit_events` | The platform-admin audit trail |
-| `platform_admin_login_attempts` | Platform-admin login throttling, and since D-289 the app logins' miss budgets (`api-phone:`/`api-addr:` keys, hashed) |
+| `platform_admin_login_attempts` | Platform-admin login throttling, and since D-289 the app logins' miss budgets (`api-pair:`/`api-phone:`/`api-addr:` keys, hashed) |
 | `SPRING_SESSION` | The platform-admin web session |
 | `SPRING_SESSION_ATTRIBUTES` | That session's contents |
 

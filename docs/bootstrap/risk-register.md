@@ -1379,7 +1379,7 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Description | `login_employee` answers `user_not_found` for an unknown phone and `incorrect_password` for a known one; `login_desktop` does the same, and its company branch says `company_not_registered`. So anyone can test whether a number belongs to a customer's employee. D-289's address budget bounds the rate -- 60 misses per client address per 15 minutes, about 5,700 phones a day from one address -- but does not remove the oracle. |
 | Category | Security / Account enumeration |
 | Probability | High -- one unauthenticated call per phone. |
-| Impact | Low-Medium: a list of which phones are employees of some customer, useful for targeted phishing and for spending each phone's miss budget on purpose. |
+| Impact | Low-Medium: a list of which phones are employees of some customer, useful for targeted phishing and for spending a phone's miss budget on purpose -- since D-289's first review round that refuses only the guesser's own address, unless forty misses arrive from several addresses within the window, which refuses the phone everywhere until it passes. |
 | Severity | Low |
 | Owner | Repository owner -- **the messages are what the app shows**, so merging them is a product decision and a client-visible change. D-289 kept them unchanged for that reason. |
 | Recommendation | Answer both with one message (`invalid_phone_password` already exists and `login_company` already uses it on mobile), after checking the Flutter clients do not branch on the key. Keep the budget either way. |
