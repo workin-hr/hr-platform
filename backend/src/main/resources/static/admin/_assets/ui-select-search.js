@@ -105,7 +105,10 @@
     empty.textContent = emptyText;
     empty.hidden = true;
     popup.append(search, list, empty);
-    document.body.appendChild(popup);
+    // Inside the dialog when there is one: the dialog's backdrop sits above
+    // everything outside it, so a popup in <body> opened underneath it, and a
+    // click on the list landed on the backdrop and closed the dialog.
+    (select.closest('.modal-bg') || document.body).appendChild(popup);
 
     const state = { select: select, wrap: wrap, button: button, valueText: valueText, popup: popup,
       search: search, list: list, empty: empty, items: [], active: -1 };
@@ -180,15 +183,20 @@
         move(state, event.key === 'Home' ? 1 : -1, event.key === 'End');
       } else if (event.key === 'Enter') {
         event.preventDefault();
-        if (state.active >= 0) {
-          choose(state, state.items[state.active]);
+        const item = state.items[state.active];
+        if (item && item.getAttribute('aria-disabled') !== 'true') {
+          choose(state, item);
         }
       } else if (event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
         close(true);
       } else if (event.key === 'Tab') {
+        // The search box lives at the end of <body> or its dialog, so the
+        // browser's own Tab would leave from there. Leave from the field.
+        event.preventDefault();
         close(false);
+        neighbour(state.button, event.shiftKey ? -1 : 1).focus();
       }
     });
     list.addEventListener('mousedown', function (event) {
@@ -250,8 +258,10 @@
     });
     state.list.replaceChildren(fragment);
     state.empty.hidden = state.items.length > 0;
-    if (state.active < 0 && query && state.items.length) {
-      state.active = 0;
+    if (state.active < 0 && query) {
+      state.active = state.items.findIndex(function (item) {
+        return item.getAttribute('aria-disabled') !== 'true';
+      });
     }
     highlight(state);
   }
@@ -301,6 +311,23 @@
       popup.style.bottom = '';
       popup.style.top = (rect.bottom + 4) + 'px';
     }
+  }
+
+  const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]),'
+    + ' select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+  // The field before or after this one, within its dialog when it has one;
+  // the field itself when it is the only one.
+  function neighbour(button, step) {
+    const scope = button.closest('.modal-bg') || document;
+    const fields = Array.from(scope.querySelectorAll(FOCUSABLE)).filter(function (node) {
+      return node.offsetParent !== null && !node.closest('.ui-select__popup');
+    });
+    const at = fields.indexOf(button);
+    if (at < 0 || fields.length < 2) {
+      return button;
+    }
+    return fields[(at + step + fields.length) % fields.length];
   }
 
   function open(state, seed) {

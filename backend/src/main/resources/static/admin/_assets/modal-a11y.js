@@ -22,10 +22,19 @@
     .map(function (selector) { return '.modal ' + selector.trim() + ':not(.modal-close)'; })
     .join(', ');
 
-  let opener = null;
+  // Per dialog: a confirm window opened over a dialog must not overwrite the
+  // dialog's own opener, or closing the dialog later has nowhere to return to.
+  const openers = new Map();
+
+  // The topmost open dialog is the last in document order: the confirm window
+  // is rendered after the page's own dialogs.
+  function topmost() {
+    const open = document.querySelectorAll('.modal-bg.open');
+    return open.length ? open[open.length - 1] : null;
+  }
 
   function open(modal) {
-    opener = document.activeElement;
+    openers.set(modal, document.activeElement);
     modal.setAttribute('aria-hidden', 'false');
     const first = modal.querySelector(FIELD) || modal.querySelector('.modal-close');
     if (first) {
@@ -37,10 +46,11 @@
     modal.setAttribute('aria-hidden', 'true');
     // Back where it came from, so a keyboard user is not returned to the top
     // of the document every time they cancel.
+    const opener = openers.get(modal);
+    openers.delete(modal);
     if (opener && document.contains(opener)) {
       opener.focus();
     }
-    opener = null;
   }
 
   // crud.js toggles the class rather than firing an event, so that is what
@@ -73,7 +83,7 @@
   }
 
   document.addEventListener('keydown', function (event) {
-    const modal = document.querySelector('.modal-bg.open');
+    const modal = topmost();
     if (!modal) {
       return;
     }
