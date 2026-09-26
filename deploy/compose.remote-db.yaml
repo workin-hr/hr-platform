@@ -111,5 +111,5 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${APP_MEMORY_LIMIT:-1g}
+          memory: ${APP_MEMORY_LIMIT:-2g} # D-295: a 1g limit is under the JVM's own footprint
     stop_grace_period: 40s

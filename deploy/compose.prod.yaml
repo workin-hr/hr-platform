@@ -121,9 +121,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${APP_MEMORY_LIMIT:-1g}
+          memory: ${APP_MEMORY_LIMIT:-2g}
     # The JVM reads this as its heap ceiling via MaxRAMPercentage in the
-    # Dockerfile, so the limit above actually bounds the heap.
+    # Dockerfile, so the limit above actually bounds the heap. 2g, not 1g
+    # (D-295): the JVM needs ~300 MB outside a 75% heap, so a full 768 MiB
+    # heap under 1g is a ~1,050-1,100 MB process the kernel kills.
     stop_grace_period: 40s
 
 volumes:

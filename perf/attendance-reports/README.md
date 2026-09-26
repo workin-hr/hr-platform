@@ -22,7 +22,8 @@ its warm-up and its garbage.
   the `3000x...` cases.
 - **The application jar**, started by [`bench.py`](bench.py) the way the
   production container runs it: `-Xmx768m -XX:+ExitOnOutOfMemoryError`
-  (`APP_MEMORY_LIMIT=1g` at `MaxRAMPercentage=75`), pinned to 4 CPUs with
+  (`APP_MEMORY_LIMIT=1g` at `MaxRAMPercentage=75`, the production limit
+  before D-295 raised it to 2g), pinned to 4 CPUs with
   `taskset` -- the owner's VPS is 4 vCPU.
 - **`rpt356-toxiproxy`** (optional): the database behind 53 ms of latency in
   each direction, ~106 ms per round trip -- production's measured distance to

@@ -254,8 +254,9 @@ Two caveats that matter more than the numbers:
   container memory limit, so `MaxRAMPercentage=75` in the Dockerfile applied to
   the host's 23 GiB and the JVM ran with a **17,792 MiB** heap ceiling.
   `compose.prod.yaml` and `compose.remote-db.yaml` set
-  `memory: ${APP_MEMORY_LIMIT:-1g}`, so 768 MiB of heap unless an operator
-  raises it -- about 23x smaller. Measured here: heap used peaked at 163
+  `memory: ${APP_MEMORY_LIMIT:-2g}` (1g before D-295), so 1,536 MiB of heap
+  unless an operator changes it -- about 12x smaller (the run below was under
+  the old 768 MiB). Measured here: heap used peaked at 163
   MiB, 83 collections, 0.188 s total GC pause, **0.06% GC overhead**. That
   number is not transferable; under a 1 GiB cap the same run has real GC work to
   do. Set `APP_MEMORY_LIMIT` and add a limit block to the stack you measure on
