@@ -146,8 +146,12 @@ class LegacyEmployeeBulkUpdaterChunkTest {
 	@Test
 	void aReferenceRetiredWhileTheSheetAppliesIsSeenByTheNextChunk() throws Exception {
 		try (Connection connection = MARIADB.connect(); Statement st = connection.createStatement()) {
-			// The first chunk's shift assignment retires the title the second chunk names.
-			st.execute("CREATE TRIGGER bulk359_retire_title AFTER INSERT ON employee_shift_assignments"
+			// The first chunk's employee update retires the title the second
+			// chunk names. On employees, not on the shift assignments: a
+			// writing trigger on a table the driver bulk-inserts into breaks
+			// Connector/J 3.5's bulk batch (D-294), which would send this
+			// chunk through halving instead of committing it as one.
+			st.execute("CREATE TRIGGER bulk359_retire_title AFTER UPDATE ON employees"
 					+ " FOR EACH ROW UPDATE job_titles SET is_active = 0 WHERE id = 359531");
 		}
 		List<Object> rows = new ArrayList<>();
@@ -155,11 +159,23 @@ class LegacyEmployeeBulkUpdaterChunkTest {
 			Map<String, Object> row = new LinkedHashMap<>();
 			row.put("employee_code", String.valueOf(80000 + n));
 			row.put("first_name", "Renamed" + n);
-			row.put(n < CHUNK ? "shift_name" : "job_title_name", n < CHUNK ? "Day" : "Welder");
+			if (n == CHUNK) {
+				row.put("job_title_name", "Welder");
+			}
 			rows.add(row);
 		}
 
-		Map<String, Object> result = update(rows);
+		Map<String, Object> result;
+		List<String> warnings;
+		try (CapturedWarnings captured = CapturedWarnings.start()) {
+			result = update(rows);
+			warnings = captured.lines();
+		}
+
+		assertThat(warnings).as("the first chunk commits as one transaction").isEmpty();
+		for (int n = 0; n < CHUNK; n++) {
+			assertThat(firstName(n)).isEqualTo("Renamed" + n);
+		}
 
 		@SuppressWarnings("unchecked")
 		List<Map<String, Object>> failed = (List<Map<String, Object>>) result.get("failed");
@@ -168,6 +184,30 @@ class LegacyEmployeeBulkUpdaterChunkTest {
 			assertThat(row).containsEntry("errors", List.of("job_title_department_mismatch"));
 		});
 		assertThat(firstName(CHUNK)).isEqualTo("Original");
+	}
+
+	/**
+	 * A row written alone whose commit fails may have landed too, and is
+	 * logged as a chunk's is: the operator's signal to check it.
+	 */
+	@Test
+	void aSingleRowWhoseCommitFailsIsLoggedAsMayHaveLanded() throws Exception {
+		this.commits.set(0);
+		this.failCommit.set(2);
+
+		Map<String, Object> result;
+		List<String> warnings;
+		try (CapturedWarnings captured = CapturedWarnings.start()) {
+			result = update(0, 1);
+			warnings = captured.lines();
+		}
+
+		@SuppressWarnings("unchecked")
+		List<Map<String, Object>> failed = (List<Map<String, Object>>) result.get("failed");
+		assertThat(failed).singleElement()
+				.satisfies(row -> assertThat(row).containsEntry("errors", List.of("employee_update_failed")));
+		assertThat(warnings).singleElement()
+				.satisfies(line -> assertThat(line).startsWith("employees.update_bulk.chunk_commit_failed"));
 	}
 
 	/**
@@ -219,6 +259,34 @@ class LegacyEmployeeBulkUpdaterChunkTest {
 				this.store.spreadsheetLookup("job_titles", COMPANY, true),
 				this.store.spreadsheetLookup("shifts", COMPANY, false));
 		return this.updater.updateRows(admin, LegacyPhpArray.of(rows), lookups);
+	}
+
+	/** WARN lines the bulk updater logs while open. */
+	static final class CapturedWarnings implements AutoCloseable {
+
+		private final ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+				org.slf4j.LoggerFactory.getLogger(LegacyEmployeeBulkUpdater.class);
+
+		private final ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+				new ch.qos.logback.core.read.ListAppender<>();
+
+		static CapturedWarnings start() {
+			CapturedWarnings captured = new CapturedWarnings();
+			captured.appender.start();
+			captured.logger.addAppender(captured.appender);
+			return captured;
+		}
+
+		List<String> lines() {
+			return this.appender.list.stream()
+					.filter(event -> event.getLevel() == ch.qos.logback.classic.Level.WARN)
+					.map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage).toList();
+		}
+
+		@Override
+		public void close() {
+			this.logger.detachAppender(this.appender);
+		}
 	}
 
 	private static String firstName(int n) throws Exception {

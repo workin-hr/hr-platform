@@ -63,7 +63,10 @@ import com.workin.legacy.employees.LegacyHrPeerCredentials;
  * alone, until a failing row is in a transaction of its own -- PHP's loop
  * exactly for that row: it rolls back only itself and every other row
  * lands. One bad row costs about twice the log of the chunk in extra
- * transactions. The one failure that is not retried is the commit itself:
+ * transactions; a part under eight rows, or one that failed on a lock, is
+ * written a row at a time instead, so a chunk whose every row fails costs
+ * about {@code 1.25 n} transactions and a lock is waited out at most twice
+ * (the chunk's, then the row's own). The one failure that is not retried is the commit itself:
  * whether its rows landed is then unknown, so they are reported failed, as
  * PHP reports a row whose commit failed.
  */
@@ -219,6 +222,40 @@ public class LegacyEmployeeBulkUpdater {
 	}
 
 	/**
+	 * Below this many rows to write, a part that did not commit is written a
+	 * row at a time rather than halved again: halving pays two transactions
+	 * per level, and with several failing rows in a small part that is more
+	 * than writing its rows one by one. It bounds the worst case -- every row
+	 * failing at the database -- at about {@code n + n/4} transactions
+	 * for a chunk of {@code n} instead of {@code 2n}.
+	 */
+	private static final int ROW_BY_ROW_BELOW = 8;
+
+	/** How one chunk's failed transactions went, for its one summary line. */
+	private static final class Splits {
+
+		private int failedTransactions;
+
+		private final Set<String> causes = new java.util.TreeSet<>();
+	}
+
+	/**
+	 * Rows {@code from} (inclusive) to {@code to}, one chunk: applied by
+	 * {@link #apply}, and -- when any of its transactions failed -- one WARN
+	 * line for the whole chunk, however many parts it was split into.
+	 */
+	private void applyChunk(Batch batch, int from, int to) {
+		Splits splits = new Splits();
+		apply(batch, from, to, splits);
+		if (splits.failedTransactions > 0) {
+			// The class only -- a driver message can quote the row's values.
+			LOG.warn("employees.update_bulk.chunk_replayed tenant_id={} first_row={} rows={} failed_transactions={}"
+					+ " causes={}", batch.context().companyId(), from + 1, to - from, splits.failedTransactions,
+					splits.causes);
+		}
+	}
+
+	/**
 	 * Rows {@code from} (inclusive) to {@code to}: validated in order against
 	 * the holders the rows before them left, and written as one transaction.
 	 *
@@ -226,9 +263,12 @@ public class LegacyEmployeeBulkUpdater {
 	 * halved and applied again, each half validated afresh in sheet order,
 	 * until the rows that fail are alone -- where a row's own transaction is
 	 * PHP's {@code apply_update()} exactly. One bad row among {@code n} costs
-	 * about {@code 2 log2 n} extra transactions rather than {@code n}.
+	 * about {@code 2 log2 n} extra transactions rather than {@code n}. A part
+	 * of fewer than {@link #ROW_BY_ROW_BELOW} rows, or one that failed on a
+	 * lock -- a deadlock or a lock-wait timeout, which would be waited out
+	 * again at every level -- is written a row at a time instead.
 	 */
-	private void applyChunk(Batch batch, int from, int to) {
+	private void apply(Batch batch, int from, int to, Splits splits) {
 		LegacyEmployeeUpdateSheet sheet = batch.sheet();
 		int mark = sheet.mark();
 		List<Planned> writes = new ArrayList<>();
@@ -263,11 +303,10 @@ public class LegacyEmployeeBulkUpdater {
 			return;
 		} catch (TransactionSystemException ex) {
 			// The commit (or the rollback) itself failed, so whether the rows
-			// landed is unknown. Replaying could apply a shift assignment
+			// landed is unknown. Retrying could apply a shift assignment
 			// twice; PHP, whose commit fails the same way, reports the row
 			// failed. Every row written is reported so, and none is retried.
-			LOG.warn("employees.update_bulk.chunk_commit_failed tenant_id={} first_row={} rows={} cause={}",
-					batch.context().companyId(), from + 1, to - from, ex.getClass().getSimpleName());
+			commitFailed(batch.context(), from, to - from, ex);
 			sheet.rollBackTo(mark);
 			for (Planned planned : writes) {
 				batch.outcomes().set(planned.position(), List.of("employee_update_failed"));
@@ -276,17 +315,39 @@ public class LegacyEmployeeBulkUpdater {
 		} catch (RuntimeException ex) {
 			// Either a write failed or the re-read disagreed with the
 			// validation; the transaction is rolled back either way, and the
-			// halves below decide each row's own outcome. Logged because a
-			// split costs extra transactions: an operator seeing slow sheets
-			// needs to know it happened. The class only -- a driver message
-			// can quote the row's values.
-			LOG.warn("employees.update_bulk.chunk_replayed tenant_id={} first_row={} rows={} cause={}",
-					batch.context().companyId(), from + 1, to - from, ex.getClass().getSimpleName());
+			// parts below decide each row's own outcome.
+			splits.failedTransactions++;
+			splits.causes.add(ex.getClass().getSimpleName());
 			sheet.rollBackTo(mark);
+			if (writes.size() < ROW_BY_ROW_BELOW || onALock(ex)) {
+				for (int position = from; position < to; position++) {
+					apply(batch, position, position + 1, splits);
+				}
+				return;
+			}
 		}
 		int middle = writes.get(writes.size() / 2).position();
-		applyChunk(batch, from, middle);
-		applyChunk(batch, middle, to);
+		apply(batch, from, middle, splits);
+		apply(batch, middle, to, splits);
+	}
+
+	/** MariaDB's deadlock (1213) or lock-wait timeout (1205), however Spring wrapped it. */
+	private static boolean onALock(Throwable failure) {
+		for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+			if (cause instanceof org.springframework.dao.PessimisticLockingFailureException) {
+				return true;
+			}
+			if (cause instanceof java.sql.SQLException sql && (sql.getErrorCode() == 1213 || sql.getErrorCode() == 1205)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Rows whose commit failed may have landed: one WARN, wherever it happened. */
+	private static void commitFailed(LegacyRequestContext context, int from, int rows, RuntimeException ex) {
+		LOG.warn("employees.update_bulk.chunk_commit_failed tenant_id={} first_row={} rows={} cause={}",
+				context.companyId(), from + 1, rows, ex.getClass().getSimpleName());
 	}
 
 	private static void succeeded(Batch batch, Planned planned) {
@@ -374,6 +435,9 @@ public class LegacyEmployeeBulkUpdater {
 			return List.of();
 		} catch (RowRefused refused) {
 			return List.of(refused.error);
+		} catch (TransactionSystemException ex) {
+			commitFailed(context, planned.position(), 1, ex);
+			return List.of("employee_update_failed");
 		} catch (RuntimeException ex) {
 			// PHP catches Throwable, rolls back and reports one opaque code.
 			// The cause is deliberately not surfaced: the desktop client shows

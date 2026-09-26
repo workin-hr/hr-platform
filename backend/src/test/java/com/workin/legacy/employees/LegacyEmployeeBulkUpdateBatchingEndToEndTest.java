@@ -81,7 +81,7 @@ class LegacyEmployeeBulkUpdateBatchingEndToEndTest {
 	private static final long ADMIN = 3599999L;
 	/** Employees {@code FIRST} to {@code FIRST + EMPLOYEES - 1}, code {@code 70000 + n}. */
 	private static final long FIRST = 3590000L;
-	private static final int EMPLOYEES = 3800;
+	private static final int EMPLOYEES = 4400;
 
 	/** Employees whose shift-assignment insert the database refuses. */
 	private static final int REFUSED_SHIFT = 1600;
@@ -141,9 +141,7 @@ class LegacyEmployeeBulkUpdateBatchingEndToEndTest {
 		List<String> overflow = measureUpdate(10 + CHUNK, CHUNK + 1);
 
 		assertThat(full).as("statements for %d rows against those for 10: %s", CHUNK, full).hasSameSizeAs(ten);
-		// The request guard reads the actor twice whatever the sheet holds;
-		// anything else repeated would be a statement per row.
-		assertThat(repeated(full)).as("no statement is issued once per row").isEqualTo(repeated(ten));
+		assertThat(repeated(full)).as("no statement is issued once per row").isEmpty();
 		// One row past the chunk is a second chunk: its one reference read
 		// (shifts, department links, departments, titles and phone holders in
 		// one statement), its re-read and its three batches -- the lone row
@@ -159,9 +157,7 @@ class LegacyEmployeeBulkUpdateBatchingEndToEndTest {
 		List<String> full = measureAnalyze(CHUNK);
 
 		assertThat(full).as("statements for %d rows against those for 10: %s", CHUNK, full).hasSameSizeAs(ten);
-		// The request guard reads the actor twice whatever the sheet holds;
-		// anything else repeated would be a statement per row.
-		assertThat(repeated(full)).as("no statement is issued once per row").isEqualTo(repeated(ten));
+		assertThat(repeated(full)).as("no statement is issued once per row").isEmpty();
 	}
 
 	// ---------------- what batching must not change ----------------
@@ -374,10 +370,110 @@ class LegacyEmployeeBulkUpdateBatchingEndToEndTest {
 				assertThat(column(FIRST + n, "first_name")).isEqualTo("Again" + n);
 			}
 		}
-		// Halving 500 rows down to one takes 9 levels; each level writes two
-		// halves of at most five statements (a re-read and four batches).
+		// Halving 500 rows reaches a part under eight rows in seven failed
+		// transactions, beside six that commit, each at most five statements
+		// (a re-read and four batches); that last part's rows, at most seven,
+		// are then written alone at four statements or fewer.
 		assertThat(issued.size()).as("statements with one refused row, against %d clean", cleanIssued.size())
-				.isLessThanOrEqualTo(cleanIssued.size() + 2 * 9 * 5 + 5);
+				.isLessThanOrEqualTo(cleanIssued.size() + 13 * 5 + 7 * 4);
+	}
+
+	/**
+	 * A hundred of five hundred rows refused by the database. Halving alone
+	 * would cost up to two transactions per row; below eight rows a part is
+	 * written a row at a time, which caps the whole chunk near the per-row
+	 * cost -- and the chunk is reported in one WARN line, not one per split.
+	 */
+	@Test
+	void manyRefusedRowsInOneChunkStayNearPerRowCostAndLogOneLine() throws Exception {
+		int from = 3800;
+		String clean = rows(from, CHUNK, n -> fullRow(n, "Clean" + n));
+		List<String> cleanIssued = measure(() -> update(clean));
+		String body = rows(from, CHUNK, n -> {
+			Map<String, Object> row = fullRow(n, "Again" + n);
+			if ((n - from) % 5 == 2) {
+				row.put("address", "boom");
+			}
+			return row;
+		});
+
+		AtomicReference<Map<String, Object>> data = new AtomicReference<>();
+		List<String> issued;
+		List<String> warnings;
+		try (CapturedWarnings captured = CapturedWarnings.start()) {
+			issued = measure(() -> data.set(update(body)));
+			warnings = captured.lines();
+		}
+
+		assertThat(data.get()).containsEntry("updated", CHUNK - CHUNK / 5);
+		assertThat(failed(data.get())).hasSize(CHUNK / 5).allSatisfy(row -> {
+			assertThat(((Number) row.get("row_index")).intValue() % 5).isEqualTo(3);
+			assertThat(row).containsEntry("errors", List.of("employee_update_failed"));
+		});
+		// Every row alone would be about four statements a row (a re-read and
+		// up to three batches); the cap is that plus a quarter for the halving.
+		assertThat(issued.size()).as("statements with a fifth of the rows refused, against %d clean",
+				cleanIssued.size()).isLessThanOrEqualTo(cleanIssued.size() + 4 * (CHUNK + CHUNK / 4));
+		assertThat(warnings).as("WARN lines: %s", warnings).singleElement()
+				.satisfies(line -> assertThat(line).startsWith("employees.update_bulk.chunk_replayed"));
+	}
+
+	/**
+	 * A transaction that fails on a lock is not halved: every level would
+	 * wait the lock out again (up to {@code innodb_lock_wait_timeout} each),
+	 * where PHP waits once. Its rows go straight to one transaction each:
+	 * one chunk re-read, then one per row.
+	 */
+	@Test
+	void aDeadlockSendsTheChunkStraightToRowByRow() throws Exception {
+		int from = 4300;
+		int rows = 16;
+		String body = rows(from, rows, n -> {
+			Map<String, Object> row = fullRow(n, "Locked" + n);
+			if (n == from + 4) {
+				row.put("address", "deadlock");
+			}
+			return row;
+		});
+
+		AtomicReference<Map<String, Object>> data = new AtomicReference<>();
+		List<String> issued = measure(() -> data.set(update(body)));
+
+		assertThat(failed(data.get())).singleElement().satisfies(row -> {
+			assertThat(row).containsEntry("row_index", 5);
+			assertThat(row).containsEntry("errors", List.of("employee_update_failed"));
+		});
+		assertThat(issued.stream().filter(sql -> sql.startsWith("SELECT e.id, e.role")).count())
+				.as("boundary re-reads: the chunk's, then one per row").isEqualTo(1 + rows);
+	}
+
+	/** WARN lines the bulk updater logs while open. */
+	static final class CapturedWarnings implements AutoCloseable {
+
+		private final ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+				org.slf4j.LoggerFactory.getLogger(
+						com.workin.legacy.employees.spreadsheet.LegacyEmployeeBulkUpdater.class);
+
+		private final ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+				new ch.qos.logback.core.read.ListAppender<>();
+
+		static CapturedWarnings start() {
+			CapturedWarnings captured = new CapturedWarnings();
+			captured.appender.start();
+			captured.logger.addAppender(captured.appender);
+			return captured;
+		}
+
+		List<String> lines() {
+			return this.appender.list.stream()
+					.filter(event -> event.getLevel() == ch.qos.logback.classic.Level.WARN)
+					.map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage).toList();
+		}
+
+		@Override
+		public void close() {
+			this.logger.detachAppender(this.appender);
+		}
 	}
 
 	private static final List<String> ALL_CELLS = List.of("first_name", "last_name", "address", "national_id",
@@ -647,12 +743,18 @@ class LegacyEmployeeBulkUpdateBatchingEndToEndTest {
 	}
 
 	/**
-	 * The statements {@code operation} issued, less Spring Session's
-	 * once-a-minute expiry sweep: it shares the DataSource and lands inside a
-	 * long measurement now and then, which is not the sheet's cost.
+	 * The statements {@code operation} issued for the sheet: less Spring
+	 * Session's once-a-minute expiry sweep, which shares the DataSource and
+	 * lands inside a long measurement now and then, and less the request
+	 * guard's entity reads (Hibernate's, the only lower-case SQL), which
+	 * read the actor and company once or twice depending on the persistence
+	 * context and were seen to differ by one between two identical requests.
+	 * Neither is the sheet's cost, and both would make a count flaky.
 	 */
 	private static List<String> measure(Runnable operation) {
-		return COUNTER.measure(operation).stream().filter(sql -> !sql.contains("SPRING_SESSION")).toList();
+		return COUNTER.measure(operation).stream()
+				.filter(sql -> !sql.contains("SPRING_SESSION") && !sql.startsWith("select "))
+				.toList();
 	}
 
 	/** The statements issued more than once, with how many times. */
@@ -746,7 +848,10 @@ class LegacyEmployeeBulkUpdateBatchingEndToEndTest {
 					+ " SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'refused'; END IF; END");
 			st.execute("CREATE TRIGGER bulk359_refuse_boom BEFORE UPDATE ON employees"
 					+ " FOR EACH ROW BEGIN IF NEW.address = 'boom' THEN"
-					+ " SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'refused'; END IF; END");
+					+ " SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'refused'; END IF;"
+					// What InnoDB answers a deadlock victim, raised on demand.
+					+ " IF NEW.address = 'deadlock' THEN"
+					+ " SIGNAL SQLSTATE '40001' SET MYSQL_ERRNO = 1213, MESSAGE_TEXT = 'deadlock'; END IF; END");
 		}
 	}
 }
