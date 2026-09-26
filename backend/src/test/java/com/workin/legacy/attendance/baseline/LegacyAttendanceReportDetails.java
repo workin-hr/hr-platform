@@ -1,5 +1,6 @@
-package com.workin.legacy.attendance.calendar;
+package com.workin.legacy.attendance.baseline;
 
+import com.workin.legacy.attendance.calendar.*;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -8,10 +9,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import javax.sql.DataSource;
+
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-import com.workin.legacy.attendance.session.LegacyAttendanceSessions;
-import com.workin.legacy.payroll.LegacyPayrollAttendanceFigures;
+import com.workin.legacy.attendance.baseline.LegacyAttendanceSessions;
+import com.workin.legacy.attendance.baseline.LegacyPayrollAttendanceFigures;
 
 /**
  * The per-employee detail helpers {@code overall_attendance_report_build()}
@@ -33,24 +37,50 @@ import com.workin.legacy.payroll.LegacyPayrollAttendanceFigures;
  * {@code company_settings}. Substituting one for the other under-reports the
  * report's holiday credit, so this port sits with its only caller and says so.
  */
-@Component
 public class LegacyAttendanceReportDetails {
 
+	private static final String EXCEPTION_DETAILS = """
+			SELECT DATE(a.check_in) AS exception_date, et.name AS exception_name
+			FROM attendance AS a
+			INNER JOIN exception_types AS et ON et.id = a.exception_type_id
+			WHERE a.employee_id = ?
+			  AND a.exception_type_id IS NOT NULL
+			  AND DATE(a.check_in) BETWEEN ? AND ?
+			ORDER BY exception_date ASC""";
+
+	private static final String HOLIDAY_CREDIT_DAYS = """
+			SELECT COUNT(*)
+			FROM company_official_holidays h
+			WHERE h.company_id = ?
+			  AND h.holiday_date BETWEEN ? AND ?
+			  AND NOT EXISTS (
+			      SELECT 1 FROM attendance a
+			      WHERE a.employee_id = ?
+			        AND DATE(a.check_in) = h.holiday_date
+			  )""";
+
+	private static final String ATTENDANCE_IN_RANGE = """
+			SELECT check_in, check_out, exception_type_id,
+			  TIMESTAMPDIFF(MINUTE, check_in, check_out) AS duration_minutes
+			FROM attendance AS a
+			WHERE a.employee_id = ? AND DATE(a.check_in) BETWEEN ? AND ?
+			ORDER BY a.check_in ASC""";
+
+	private final JdbcTemplate jdbcTemplate;
 	private final LegacyAttendanceCalendar calendar;
 	private final LegacyAttendanceWorkedMinutes workedMinutes;
 	private final LegacyWeeklyRestCredit weeklyRestCredit;
 	private final LegacyPayrollAttendanceFigures payrollFigures;
-	private final LegacyAttendanceRangeRows rangeRows;
 
 	public LegacyAttendanceReportDetails(
-			LegacyAttendanceCalendar calendar, LegacyAttendanceWorkedMinutes workedMinutes,
-			LegacyWeeklyRestCredit weeklyRestCredit, LegacyPayrollAttendanceFigures payrollFigures,
-			LegacyAttendanceRangeRows rangeRows) {
+			DataSource legacyDataSource, LegacyAttendanceCalendar calendar,
+			LegacyAttendanceWorkedMinutes workedMinutes, LegacyWeeklyRestCredit weeklyRestCredit,
+			LegacyPayrollAttendanceFigures payrollFigures) {
+		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
 		this.calendar = calendar;
 		this.workedMinutes = workedMinutes;
 		this.weeklyRestCredit = weeklyRestCredit;
 		this.payrollFigures = payrollFigures;
-		this.rangeRows = rangeRows;
 	}
 
 	/** Worked and expected minutes for a period, as {@code attendance_period_work_minutes()} returns them. */
@@ -69,37 +99,9 @@ public class LegacyAttendanceReportDetails {
 		if (companyId <= 0 || employeeId <= 0 || from.isEmpty() || to.isEmpty()) {
 			return 0;
 		}
-		return holidayCreditDays(companyId, employeeId, rangeRows.forEmployee(employeeId, from, to), from, to);
-	}
-
-	/**
-	 * {@link #holidayCreditDays(long, long, String, String)} over attendance
-	 * already read for this employee (D-292). {@code rows} must cover
-	 * {@code [from, to]}; rows outside it cannot share a date with a holiday
-	 * inside it, so a wider window is harmless.
-	 *
-	 * <p>Legacy's statement is {@code COUNT(*)} over the company's holidays in
-	 * range {@code NOT EXISTS} an attendance row of that date. The holidays are
-	 * {@link LegacyAttendanceCalendar#holidaysByDate}'s rows -- one per date, by
-	 * {@code uq_company_holiday_date} -- and "an attendance row of that date" is
-	 * a row whose check-in date is that date, whatever kind of row it is.
-	 */
-	public int holidayCreditDays(
-			long companyId, long employeeId, List<LegacyAttendanceRangeRows.Row> rows, String from, String to) {
-		if (companyId <= 0 || employeeId <= 0 || from.isEmpty() || to.isEmpty()) {
-			return 0;
-		}
-		Set<String> attended = new java.util.HashSet<>();
-		for (LegacyAttendanceRangeRows.Row row : rows) {
-			attended.add(row.dateKey());
-		}
-		int count = 0;
-		for (String date : calendar.holidaysByDate(companyId, from, to).keySet()) {
-			if (!attended.contains(date)) {
-				count++;
-			}
-		}
-		return count;
+		Integer count = jdbcTemplate.queryForObject(
+				HOLIDAY_CREDIT_DAYS, Integer.class, companyId, from, to, employeeId);
+		return count == null ? 0 : count;
 	}
 
 	/**
@@ -111,39 +113,18 @@ public class LegacyAttendanceReportDetails {
 	 * emitted with a blank label -- legacy's own {@code continue}.
 	 */
 	public List<Map<String, Object>> exceptionDetails(long employeeId, String from, String to) {
-		return exceptionDetails(rangeRows.forEmployee(employeeId, from, to), from, to);
-	}
-
-	/**
-	 * {@link #exceptionDetails(long, String, String)} over attendance already
-	 * read for this employee (D-292).
-	 *
-	 * <p>Legacy's statement inner-joins {@code exception_types}, so a row whose
-	 * type no longer exists is not listed; with the left join the rows are read
-	 * through, that is a row whose type name is null ({@code name} is
-	 * {@code NOT NULL}, so null means no match). Its order is
-	 * {@code exception_date ASC} and nothing else, so two exception rows on one
-	 * date came back in whatever order MariaDB's sort left them -- not a
-	 * property of the rows: the same statement over the same rows was measured
-	 * returning them in both orders. Here they come in check-in then id order,
-	 * the one deliberate divergence D-292 records.
-	 */
-	public List<Map<String, Object>> exceptionDetails(
-			List<LegacyAttendanceRangeRows.Row> rows, String from, String to) {
 		List<Map<String, Object>> details = new ArrayList<>();
-		for (LegacyAttendanceRangeRows.Row row : LegacyAttendanceRangeRows.between(rows, from, to)) {
-			if (row.exceptionTypeId() == null || row.exceptionTypeName() == null) {
-				continue;
-			}
-			String trimmed = row.exceptionTypeName().trim();
+		jdbcTemplate.query(EXCEPTION_DETAILS, rs -> {
+			String name = rs.getString("exception_name");
+			String trimmed = name == null ? "" : name.trim();
 			if (trimmed.isEmpty()) {
-				continue;
+				return;
 			}
-			Map<String, Object> detail = new LinkedHashMap<>();
-			detail.put("date", row.dateKey());
-			detail.put("exception_name", trimmed);
-			details.add(detail);
-		}
+			Map<String, Object> row = new LinkedHashMap<>();
+			row.put("date", rs.getString("exception_date"));
+			row.put("exception_name", trimmed);
+			details.add(row);
+		}, employeeId, from, to);
 		return details;
 	}
 
@@ -159,31 +140,6 @@ public class LegacyAttendanceReportDetails {
 	public List<Map<String, Object>> absentDetails(
 			long companyId, long employeeId, String from, String to, String asOf,
 			String absentLabel, String presentLabel, String weeklyRestLabel) {
-		if (companyId <= 0 || employeeId <= 0 || from.isEmpty() || to.isEmpty()) {
-			return new ArrayList<>();
-		}
-		String rangeTo = to.compareTo(asOf) > 0 ? asOf : to;
-		if (rangeTo.compareTo(from) < 0) {
-			return new ArrayList<>();
-		}
-		return absentDetails(companyId, employeeId, rangeRows.forEmployee(employeeId, from, rangeTo),
-				from, to, asOf, absentLabel, weeklyRestLabel);
-	}
-
-	/**
-	 * {@link #absentDetails(long, long, String, String, String, String, String, String)}
-	 * over attendance already read for this employee (D-292); {@code rows} must
-	 * cover {@code [from, min(to, asOf)]}.
-	 *
-	 * <p>Legacy reads the present dates through
-	 * {@code attendance_present_details_for_period()}, whose statement groups by
-	 * {@code DATE(check_in)}; only the dates are used here, and they are the
-	 * distinct check-in dates of the rows in range. The present label that
-	 * statement carried is therefore not needed.
-	 */
-	public List<Map<String, Object>> absentDetails(
-			long companyId, long employeeId, List<LegacyAttendanceRangeRows.Row> rows, String from, String to,
-			String asOf, String absentLabel, String weeklyRestLabel) {
 		List<Map<String, Object>> details = new ArrayList<>();
 		if (companyId <= 0 || employeeId <= 0 || from.isEmpty() || to.isEmpty()) {
 			return details;
@@ -194,8 +150,15 @@ public class LegacyAttendanceReportDetails {
 		}
 
 		Set<String> presentDates = new LinkedHashSet<>();
-		for (LegacyAttendanceRangeRows.Row row : LegacyAttendanceRangeRows.between(rows, from, rangeTo)) {
-			presentDates.add(row.dateKey());
+		// Only the dates are read here, but the present label is passed through
+		// rather than reused from another key: a caller reading these rows later
+		// must see `csv_attendance_present_day`, which is what legacy emits.
+		for (Map<String, Object> row : payrollFigures.attendancePresentDetails(
+				employeeId, from, rangeTo, presentLabel)) {
+			String date = (String) row.get("date");
+			if (date != null && !date.isEmpty()) {
+				presentDates.add(date);
+			}
 		}
 
 		Map<String, String> holidayByDate = calendar.holidaysByDate(companyId, from, rangeTo);
@@ -203,8 +166,7 @@ public class LegacyAttendanceReportDetails {
 		LocalDate start = LocalDate.parse(from);
 		LocalDate end = LocalDate.parse(rangeTo);
 		// One statement for the whole range instead of one per date, for the
-		// isOnApprovedLeave below -- and none at all when a report already warmed
-		// every employee at once. The window is the one voidWeeklyRestAbsentDetails
+		// isOnApprovedLeave below. The window is the one voidWeeklyRestAbsentDetails
 		// needs, not the narrower one this loop needs, so a report that calls both
 		// warms once.
 		calendar.warmApprovedLeaveForEmployees(
@@ -242,22 +204,6 @@ public class LegacyAttendanceReportDetails {
 			long companyId, long employeeId, String from, String to,
 			Map<String, LegacyWeeklyRestCredit.AttendanceFlag> attendanceByDate,
 			Map<String, String> holidayByDate, String asOf, String voidLabel) {
-		return voidWeeklyRestAbsentDetails(
-				companyId, employeeId, from, to, attendanceByDate, holidayByDate, asOf, voidLabel, null);
-	}
-
-	/**
-	 * {@link #voidWeeklyRestAbsentDetails(long, long, String, String, Map, Map, String, String)}
-	 * with the employee's attendance already read over
-	 * {@code [from - 7, min(to, asOf)]} (D-292), so legacy's rebuild of empty
-	 * flags is made from those rows rather than by another statement. Null
-	 * {@code rows} reads them, as before.
-	 */
-	public List<Map<String, Object>> voidWeeklyRestAbsentDetails(
-			long companyId, long employeeId, String from, String to,
-			Map<String, LegacyWeeklyRestCredit.AttendanceFlag> attendanceByDate,
-			Map<String, String> holidayByDate, String asOf, String voidLabel,
-			List<LegacyAttendanceRangeRows.Row> rows) {
 		List<Map<String, Object>> details = new ArrayList<>();
 		if (companyId <= 0 || employeeId <= 0 || from.isEmpty() || to.isEmpty()) {
 			return details;
@@ -267,15 +213,9 @@ public class LegacyAttendanceReportDetails {
 			return details;
 		}
 
-		Map<String, LegacyWeeklyRestCredit.AttendanceFlag> flags;
-		if (!attendanceByDate.isEmpty()) {
-			flags = attendanceByDate;
-		} else if (rows != null) {
-			flags = LegacyWeeklyRestCredit.attendanceFlags(LegacyAttendanceRangeRows.between(
-					rows, LocalDate.parse(from).minusDays(7).toString(), rangeTo));
-		} else {
-			flags = weeklyRestCredit.attendanceFlagsInRange(companyId, employeeId, from, rangeTo);
-		}
+		Map<String, LegacyWeeklyRestCredit.AttendanceFlag> flags = attendanceByDate.isEmpty()
+				? weeklyRestCredit.attendanceFlagsInRange(companyId, employeeId, from, rangeTo)
+				: attendanceByDate;
 		// Legacy's own fallback looks back seven days, because weekly-rest credit
 		// is decided against the block of workdays preceding the rest day.
 		Map<String, String> holidays = holidayByDate.isEmpty()
@@ -325,53 +265,41 @@ public class LegacyAttendanceReportDetails {
 	 */
 	public WorkMinutes periodWorkMinutes(
 			long companyId, long employeeId, String from, String to, String weeklyRestLabel) {
-		return periodWorkMinutes(
-				companyId, employeeId, rangeRows.forEmployee(employeeId, from, to), from, to, weeklyRestLabel);
-	}
-
-	/**
-	 * {@link #periodWorkMinutes(long, long, String, String, String)} over
-	 * attendance already read for this employee (D-292), in check-in order.
-	 */
-	public WorkMinutes periodWorkMinutes(
-			long companyId, long employeeId, List<LegacyAttendanceRangeRows.Row> rows, String from, String to,
-			String weeklyRestLabel) {
 		Set<String> seen = new LinkedHashSet<>();
-		int workedTotal = 0;
-		int expectedTotal = 0;
+		int[] totals = new int[2];
 
-		for (LegacyAttendanceRangeRows.Row row : LegacyAttendanceRangeRows.between(rows, from, to)) {
-			String checkIn = row.checkIn();
+		jdbcTemplate.query(ATTENDANCE_IN_RANGE, rs -> {
+			String checkIn = rs.getString("check_in");
 			if (checkIn == null || checkIn.isEmpty()) {
-				continue;
+				return;
 			}
 			String dateKey = checkIn.substring(0, Math.min(10, checkIn.length()));
 			if (!seen.add(dateKey)) {
-				continue;
+				return;
 			}
 
-			String rawCheckOut = row.checkOut();
+			String rawCheckOut = rs.getString("check_out");
 			String checkOut = rawCheckOut == null || rawCheckOut.trim().isEmpty() ? null : rawCheckOut;
-			Object exceptionTypeId = row.exceptionTypeId();
+			Object exceptionTypeId = rs.getObject("exception_type_id");
 			if (LegacyAttendanceSessions.isExceptionOnlyRow(checkIn, checkOut, exceptionTypeId)) {
-				continue;
+				return;
 			}
 
 			int expectedMinutes = calendar
 					.expectedForDay(companyId, employeeId, dateKey, weeklyRestLabel).expectedMinutes();
-			int raw = checkOut != null ? Math.max(0, row.durationMinutes()) : 0;
+			int raw = checkOut != null ? Math.max(0, rs.getInt("duration_minutes")) : 0;
 			int dayWorked = workedMinutes.rowWorkedMinutes(
 					companyId, employeeId, dateKey, checkIn, checkOut, raw, exceptionTypeId, weeklyRestLabel);
 
 			if (dayWorked <= 0 && checkIn.isEmpty() && checkOut == null) {
-				continue;
+				return;
 			}
 			if (!checkIn.isEmpty() || checkOut != null || dayWorked > 0) {
-				expectedTotal += expectedMinutes;
-				workedTotal += dayWorked;
+				totals[1] += expectedMinutes;
+				totals[0] += dayWorked;
 			}
-		}
+		}, employeeId, from, to);
 
-		return new WorkMinutes(workedTotal, expectedTotal);
+		return new WorkMinutes(totals[0], totals[1]);
 	}
 }

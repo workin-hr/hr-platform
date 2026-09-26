@@ -123,7 +123,8 @@ class LegacyAttendanceReportDetailsTest extends AbstractLegacyMySqlTest {
 				new LegacyAttendanceWorkedMinutes(dataSource, calendar, sessions, clock);
 		LegacyPayrollAttendanceFigures figures = new LegacyPayrollAttendanceFigures(
 				dataSource, calendar, weeklyRestCredit, worked, weeklyOffDays);
-		details = new LegacyAttendanceReportDetails(dataSource, calendar, worked, weeklyRestCredit, figures);
+		details = new LegacyAttendanceReportDetails(
+				calendar, worked, weeklyRestCredit, figures, new LegacyAttendanceRangeRows(dataSource));
 	}
 
 	@Test

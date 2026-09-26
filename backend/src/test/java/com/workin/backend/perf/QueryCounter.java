@@ -34,13 +34,19 @@ import javax.sql.DataSource;
  * which is what a ratchet needs; they are not a number to quote as production
  * cost.
  *
- * <p>Not thread-safe by design, and it does not need to be: a query budget is
- * asserted around a single operation on the calling thread. Counting across a
- * concurrent load run is what the Prometheus scrape is for.
+ * <p>One operation at a time: a query budget is asserted around a single
+ * operation, on the calling thread or on the one server thread serving a single
+ * HTTP request the caller is waiting for. Counting across a concurrent load run
+ * is what the Prometheus scrape is for.
  */
 public final class QueryCounter {
 
-	private final List<String> statements = new ArrayList<>();
+	/**
+	 * Synchronized because an HTTP-level budget runs the request on the
+	 * server's thread while the test thread waits on the response; the list is
+	 * written there and read here.
+	 */
+	private final List<String> statements = java.util.Collections.synchronizedList(new ArrayList<>());
 	private final AtomicBoolean recording = new AtomicBoolean();
 
 	/** Wraps a DataSource so every statement prepared through it is recorded. */
@@ -89,7 +95,9 @@ public final class QueryCounter {
 		} finally {
 			recording.set(false);
 		}
-		return List.copyOf(statements);
+		synchronized (statements) {
+			return List.copyOf(statements);
+		}
 	}
 
 	/**

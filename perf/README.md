@@ -108,6 +108,14 @@ runner means nothing, and the Actions minutes are not free. These are for a
 local run before and after a change, or a nightly run on a machine that is
 otherwise idle.
 
+## Single-request benchmarks
+
+Some questions are not about load: how one report request scales with its
+roster and its range. [`attendance-reports/`](attendance-reports/README.md)
+measures that for the attendance report endpoints -- one request per case,
+one JVM per case under the production heap, with statement counts from
+`performance_schema` and an optional ~106 ms database round trip (D-292).
+
 ## What is measured, and what is not
 
 Run on 2026-09-10 against the local stack. Recorded because "we have load

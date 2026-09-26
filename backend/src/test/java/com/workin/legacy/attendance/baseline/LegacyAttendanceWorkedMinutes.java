@@ -1,5 +1,6 @@
-package com.workin.legacy.attendance.calendar;
+package com.workin.legacy.attendance.baseline;
 
+import com.workin.legacy.attendance.calendar.*;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -11,7 +12,7 @@ import org.springframework.stereotype.Component;
 
 import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyPhpStrtotime;
-import com.workin.legacy.attendance.session.LegacyAttendanceSessions;
+import com.workin.legacy.attendance.baseline.LegacyAttendanceSessions;
 import com.workin.legacy.workforce.LegacyShiftTimes;
 
 /**
@@ -20,7 +21,6 @@ import com.workin.legacy.workforce.LegacyShiftTimes;
  * truth for one attendance day's displayed duration, shared by {@code list.php}
  * (both branches), {@code stats.php} and {@code employee_monthly_attendance.php}.
  */
-@Component
 public class LegacyAttendanceWorkedMinutes {
 
 	/** {@code ATTENDANCE_INCOMPLETE_PUNCH_DEDUCTION_MINUTES}. */
@@ -63,20 +63,14 @@ public class LegacyAttendanceWorkedMinutes {
 	 * "mission"), or null.
 	 */
 	public TimedRequest approvedTimedRequestForDay(long employeeId, String dateYmd) {
-		TimedRequest row;
-		if (calendar.timedRequestWarmed(employeeId, dateYmd)) {
-			// A report read this for its whole roster and range at once (D-292).
-			row = calendar.warmedTimedRequest(employeeId, dateYmd);
-		} else {
-			List<TimedRequest> rows = jdbcTemplate.query(
-					APPROVED_TIMED_REQUEST_FOR_DAY,
-					(rs, index) -> new TimedRequest(rs.getString("from_time"), rs.getString("to_time")),
-					employeeId, dateYmd, dateYmd);
-			row = rows.isEmpty() ? null : rows.get(0);
-		}
-		if (row == null) {
+		List<TimedRequest> rows = jdbcTemplate.query(
+				APPROVED_TIMED_REQUEST_FOR_DAY,
+				(rs, index) -> new TimedRequest(rs.getString("from_time"), rs.getString("to_time")),
+				employeeId, dateYmd, dateYmd);
+		if (rows.isEmpty()) {
 			return null;
 		}
+		TimedRequest row = rows.get(0);
 		String from = row.fromTime() == null ? "" : row.fromTime().trim();
 		String to = row.toTime() == null ? "" : row.toTime().trim();
 		return from.isEmpty() || to.isEmpty() ? null : new TimedRequest(from, to);

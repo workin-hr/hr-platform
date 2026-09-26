@@ -1,5 +1,6 @@
-package com.workin.legacy.attendance.calendar;
+package com.workin.legacy.attendance.baseline;
 
+import com.workin.legacy.attendance.calendar.*;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -59,8 +60,6 @@ import com.workin.legacy.workforce.LegacyShiftTimes;
  * same reasoning and the same mechanism as {@link LegacyWeeklyOffDays} (see
  * that class's javadoc) and {@link com.workin.legacy.LegacyClock}.
  */
-@Component
-@RequestScope(proxyMode = ScopedProxyMode.TARGET_CLASS)
 public class LegacyAttendanceCalendar {
 
 	/**
@@ -135,43 +134,19 @@ public class LegacyAttendanceCalendar {
 	private final Map<String, Map<String, String>> holidayCache = new HashMap<>();
 
 	/**
-	 * The holiday ranges {@link #warmHolidays} read, per company. A narrower
-	 * {@link #holidaysByDate} request inside one of them is answered by
-	 * filtering it instead of by another statement.
+	 * {@code employeeId|date} to the answer {@link #isOnApprovedLeave} would
+	 * have queried. An absent key is not {@code false}: it means the date was
+	 * never warmed, and the query still runs.
 	 */
-	private final Map<Long, List<HolidayWindow>> holidayWindows = new HashMap<>();
-
-	/** {@link #FALLBACK_HOURS}' answer per employee, filled only by {@link #warmFallbackHours}. */
-	private final Map<Long, java.math.BigDecimal> fallbackHoursCache = new HashMap<>();
+	private final Map<String, Boolean> approvedLeaveCache = new HashMap<>();
 
 	/**
-	 * The timed request {@link LegacyAttendanceWorkedMinutes#approvedTimedRequestForDay}
-	 * would have read for an employee and date, before its trim; null when
-	 * warmed and there is none.
+	 * The {@code (ids, from, to)} windows already warmed. Two methods on one
+	 * request ask for the same window -- the absent-day list and the void
+	 * weekly-rest list both cover the period plus its lookback -- and without
+	 * this the second re-issues an identical statement.
 	 */
-	private final LegacyWarmedDays<LegacyAttendanceWorkedMinutes.TimedRequest> timedRequests =
-			new LegacyWarmedDays<>(NOT_WARMED_TIMED);
-
-	private static final LegacyAttendanceWorkedMinutes.TimedRequest NOT_WARMED_TIMED =
-			new LegacyAttendanceWorkedMinutes.TimedRequest("not warmed", "not warmed");
-
-	private record HolidayWindow(String from, String to, Map<String, String> byDate) {
-	}
-
-	/**
-	 * The answer {@link #isOnApprovedLeave} would have queried, per employee and
-	 * day. A day that was not warmed still runs the query.
-	 */
-	private final LegacyWarmedDays<Boolean> approvedLeave = new LegacyWarmedDays<>(null);
-
-	/**
-	 * The shift {@link #SHIFT_ON_DATE} would have returned, per employee and day,
-	 * for the days {@link #warmShiftsForEmployees} read. {@link #shiftCache}
-	 * still memoizes the dates asked one at a time.
-	 */
-	private final LegacyWarmedDays<Map<String, Object>> warmedShifts = new LegacyWarmedDays<>(NOT_WARMED_SHIFT);
-
-	private static final Map<String, Object> NOT_WARMED_SHIFT = Map.of("not", "warmed");
+	private final java.util.Set<String> approvedLeaveWarmed = new java.util.HashSet<>();
 
 	public LegacyAttendanceCalendar(DataSource legacyDataSource, LegacyWeeklyOffDays weeklyOffDays) {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
@@ -212,12 +187,7 @@ public class LegacyAttendanceCalendar {
 		}
 
 		if (shift == null) {
-			java.math.BigDecimal warmed = fallbackHoursCache.get(employeeId);
-			// getDouble on the DECIMAL the statement returns and BigDecimal's
-			// doubleValue() are both the nearest double to the same decimal text.
-			Double hours = warmed != null
-					? Double.valueOf(warmed.doubleValue())
-					: jdbcTemplate.queryForObject(FALLBACK_HOURS, Double.class, employeeId);
+			Double hours = jdbcTemplate.queryForObject(FALLBACK_HOURS, Double.class, employeeId);
 			double fallback = hours == null ? 8d : hours;
 			return new DayExpectation(
 					Math.max(0, (int) Math.round(fallback * 60)), null, null, null, false, null);
@@ -245,10 +215,6 @@ public class LegacyAttendanceCalendar {
 	 * because the cached value is legitimately {@code null}.
 	 */
 	public Map<String, Object> shiftForEmployeeOnDate(long employeeId, String date) {
-		Map<String, Object> warmed = warmedShifts.get(employeeId, date);
-		if (warmed != NOT_WARMED_SHIFT) {
-			return warmed;
-		}
 		String key = employeeId + "|" + date;
 		if (shiftCache.containsKey(key)) {
 			return shiftCache.get(key);
@@ -290,8 +256,7 @@ public class LegacyAttendanceCalendar {
 	 * while SQL applies it that day. The drift gate is what would catch the
 	 * widening; this sentence is what tells the next reader why it matters.
 	 *
-	 * @param employeeIds the employees to warm, bound {@link LegacyIdBatches#SIZE} per statement;
-	 *        a warm past {@link LegacyWarmedDays#MAX_SLOTS} employee-days is not made
+	 * @param employeeIds the page's employees; at most a page size of them
 	 * @param from        first date to resolve, inclusive
 	 * @param to          last date to resolve, inclusive
 	 */
@@ -316,52 +281,44 @@ public class LegacyAttendanceCalendar {
 			return;
 		}
 
-		if (!warmedShifts.admits(ids.size(), java.time.temporal.ChronoUnit.DAYS.between(first, last) + 1)) {
-			return;
+		String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+		Object[] args = new Object[ids.size() + 1];
+		for (int i = 0; i < ids.size(); i++) {
+			args[i] = ids.get(i);
 		}
-
+		args[ids.size()] = to;
 		Map<Long, List<Map<String, Object>>> byEmployee = new java.util.LinkedHashMap<>();
-		for (List<Long> batch : LegacyIdBatches.of(ids)) {
-			Object[] args = new Object[batch.size() + 1];
-			for (int i = 0; i < batch.size(); i++) {
-				args[i] = batch.get(i);
-			}
-			args[batch.size()] = to;
-			jdbcTemplate.query(
-					"SELECT esa.employee_id AS " + WARM_EMPLOYEE_KEY + ", esa.shift_id, esa.effective_from, s.*"
-							+ " FROM employee_shift_assignments esa"
-							+ " INNER JOIN shifts s ON s.id = esa.shift_id"
-							+ " WHERE esa.employee_id IN (" + LegacyIdBatches.placeholders(batch.size()) + ")"
-							+ " AND esa.effective_from <= ?"
-							+ " ORDER BY esa.employee_id ASC, esa.effective_from ASC, esa.id ASC",
-					rs -> {
-						Map<String, Object> row = com.workin.legacy.LegacyJdbcValues.rowMapper().mapRow(rs, 0);
-						Object owner = row.remove(WARM_EMPLOYEE_KEY);
-						long employeeId = owner instanceof Number number ? number.longValue()
-								: Long.parseLong(String.valueOf(owner));
-						byEmployee.computeIfAbsent(employeeId, key -> new java.util.ArrayList<>()).add(row);
-					}, args);
-		}
+		jdbcTemplate.query(
+				"SELECT esa.employee_id AS " + WARM_EMPLOYEE_KEY + ", esa.shift_id, esa.effective_from, s.*"
+						+ " FROM employee_shift_assignments esa"
+						+ " INNER JOIN shifts s ON s.id = esa.shift_id"
+						+ " WHERE esa.employee_id IN (" + placeholders + ") AND esa.effective_from <= ?"
+						+ " ORDER BY esa.employee_id ASC, esa.effective_from ASC, esa.id ASC",
+				rs -> {
+					Map<String, Object> row = com.workin.legacy.LegacyJdbcValues.rowMapper().mapRow(rs, 0);
+					Object owner = row.remove(WARM_EMPLOYEE_KEY);
+					long employeeId = owner instanceof Number number ? number.longValue()
+							: Long.parseLong(String.valueOf(owner));
+					byEmployee.computeIfAbsent(employeeId, key -> new java.util.ArrayList<>()).add(row);
+				}, args);
 
-		int days = (int) java.time.temporal.ChronoUnit.DAYS.between(first, last) + 1;
 		for (Long employeeId : ids) {
 			List<Map<String, Object>> assignments = byEmployee.getOrDefault(employeeId, List.of());
 			int next = 0;
 			Map<String, Object> current = null;
-			Object[] answers = new Object[days];
-			for (int offset = 0; offset < days; offset++) {
-				String text = first.plusDays(offset).toString();
+			for (java.time.LocalDate date = first; !date.isAfter(last); date = date.plusDays(1)) {
+				String text = date.toString();
 				while (next < assignments.size()
 						&& text(assignments.get(next).get("effective_from")).compareTo(text) <= 0) {
 					current = assignments.get(next);
 					next++;
 				}
-				// The same map for every day an assignment is in effect: a slot is a
-				// reference, not a copy. Null -- no assignment yet -- is recorded as
-				// warmed, so it is not re-asked.
-				answers[offset] = current;
+				// put, not putIfAbsent: the two can only ever be the same answer,
+				// because nothing writes employee_shift_assignments mid-request --
+				// and putIfAbsent would not have protected a cached absence anyway,
+				// since it replaces a mapping whose value is null.
+				shiftCache.put(employeeId + "|" + text, current);
 			}
-			warmedShifts.put(employeeId, first, answers);
 		}
 	}
 
@@ -375,7 +332,7 @@ public class LegacyAttendanceCalendar {
 	 * not reach this date changes the cost, never the answer.
 	 */
 	public boolean isOnApprovedLeave(long employeeId, String date) {
-		Boolean warmed = approvedLeave.get(employeeId, date);
+		Boolean warmed = approvedLeaveCache.get(employeeId + "|" + date);
 		if (warmed != null) {
 			return warmed;
 		}
@@ -416,8 +373,7 @@ public class LegacyAttendanceCalendar {
 	 * comparing datetime against the coerced midnight, agrees. The equality is
 	 * the fragile case either way, so the drift gate is what protects it.
 	 *
-	 * @param employeeIds the employees to warm, bound {@link LegacyIdBatches#SIZE} per statement;
-	 *        a warm past {@link LegacyWarmedDays#MAX_SLOTS} employee-days is not made
+	 * @param employeeIds the page's employees; at most a page size of them
 	 * @param from        first date to resolve, inclusive
 	 * @param to          last date to resolve, inclusive
 	 */
@@ -442,55 +398,41 @@ public class LegacyAttendanceCalendar {
 		if (last.isBefore(first)) {
 			return;
 		}
-		// An employee whose every date here is already warmed -- by a wider warm
-		// over the whole report, or by the same window asked twice -- costs
-		// nothing to skip, and re-reading them is the per-employee statement the
-		// report-wide warm exists to remove.
-		ids = ids.stream().filter(id -> !approvedLeave.covers(id, first, last)).toList();
-		if (!approvedLeave.admits(ids.size(), java.time.temporal.ChronoUnit.DAYS.between(first, last) + 1)) {
+		String warmKey = ids + "|" + from + "|" + to;
+		if (approvedLeaveWarmed.contains(warmKey)) {
 			return;
 		}
 
-		Map<Long, List<String[]>> byEmployee = new LinkedHashMap<>();
-		java.util.Set<Long> undecidable = new java.util.HashSet<>();
-		for (List<Long> batch : LegacyIdBatches.of(ids)) {
-			Object[] args = new Object[batch.size() + 2];
-			for (int i = 0; i < batch.size(); i++) {
-				args[i] = batch.get(i);
-			}
-			args[batch.size()] = to;
-			args[batch.size() + 1] = from;
-			jdbcTemplate.query(
-					"SELECT r.employee_id AS " + WARM_EMPLOYEE_KEY + ", r.from_date, r.to_date"
-							+ " FROM requests r"
-							+ " INNER JOIN request_types t ON t.id = r.request_type_id"
-							+ " WHERE r.employee_id IN (" + LegacyIdBatches.placeholders(batch.size()) + ")"
-							+ " AND r.status = 'approved' AND t.counts_as_paid_leave = 1"
-							+ " AND r.from_date <= ? AND r.to_date >= ?",
-					rs -> {
-						long employeeId = rs.getLong(WARM_EMPLOYEE_KEY);
-						String fromDate = rs.getString("from_date");
-						String toDate = rs.getString("to_date");
-						if (fromDate == null || toDate == null) {
-							// A date the driver cannot hand back as text cannot be
-							// compared here, so this employee is left to the query.
-							undecidable.add(employeeId);
-							return;
-						}
-						byEmployee.computeIfAbsent(employeeId, key -> new java.util.ArrayList<>())
-								.add(new String[] { fromDate, toDate });
-					}, args);
+		String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+		Object[] args = new Object[ids.size() + 2];
+		for (int i = 0; i < ids.size(); i++) {
+			args[i] = ids.get(i);
 		}
+		args[ids.size()] = to;
+		args[ids.size() + 1] = from;
+		Map<Long, List<String[]>> byEmployee = new LinkedHashMap<>();
+		jdbcTemplate.query(
+				"SELECT r.employee_id AS " + WARM_EMPLOYEE_KEY + ", r.from_date, r.to_date"
+						+ " FROM requests r"
+						+ " INNER JOIN request_types t ON t.id = r.request_type_id"
+						+ " WHERE r.employee_id IN (" + placeholders + ")"
+						+ " AND r.status = 'approved' AND t.counts_as_paid_leave = 1"
+						+ " AND r.from_date <= ? AND r.to_date >= ?",
+				rs -> {
+					long employeeId = rs.getLong(WARM_EMPLOYEE_KEY);
+					String fromDate = rs.getString("from_date");
+					String toDate = rs.getString("to_date");
+					if (fromDate == null || toDate == null) {
+						return;
+					}
+					byEmployee.computeIfAbsent(employeeId, key -> new java.util.ArrayList<>())
+							.add(new String[] { fromDate, toDate });
+				}, args);
 
-		int days = (int) java.time.temporal.ChronoUnit.DAYS.between(first, last) + 1;
 		for (Long employeeId : ids) {
-			if (undecidable.contains(employeeId)) {
-				continue;
-			}
 			List<String[]> leaves = byEmployee.getOrDefault(employeeId, List.of());
-			Object[] answers = new Object[days];
-			for (int offset = 0; offset < days; offset++) {
-				String text = first.plusDays(offset).toString();
+			for (LocalDate date = first; !date.isAfter(last); date = date.plusDays(1)) {
+				String text = date.toString();
 				boolean covered = false;
 				for (String[] leave : leaves) {
 					if (leave[0].compareTo(text) <= 0 && leave[1].compareTo(text) >= 0) {
@@ -498,255 +440,15 @@ public class LegacyAttendanceCalendar {
 						break;
 					}
 				}
-				answers[offset] = covered ? Boolean.TRUE : Boolean.FALSE;
-			}
-			// Recorded only after the statement returned: a warm whose query threw
-			// leaves nothing behind, and a later call warms again.
-			approvedLeave.put(employeeId, first, answers);
-		}
-	}
-
-	/**
-	 * Days before a report's first date that its per-day rules read: weekly-rest
-	 * credit walks back up to seven days to the start of a rest block
-	 * ({@link LegacyWeeklyRestCredit#blockStart}) and seven more over the
-	 * workdays before it.
-	 */
-	public static final int REPORT_LOOKBACK_DAYS = 14;
-
-	/**
-	 * Days after a report's last date that its per-day rules read: an open
-	 * punch's deadline looks up to eight days ahead
-	 * ({@code LegacyAttendanceSessions.openSessionDeadline}).
-	 */
-	public static final int REPORT_LOOKAHEAD_DAYS = 8;
-
-	/**
-	 * Reads, in a fixed number of statements, everything the per-day rules ask
-	 * this calendar about a set of employees over {@code [from, to]} (D-292).
-	 *
-	 * <p>A report asks {@link #shiftForEmployeeOnDate}, {@link #isOnApprovedLeave},
-	 * {@link #holidaysByDate}, the no-shift fallback hours and
-	 * {@link LegacyAttendanceWorkedMinutes#approvedTimedRequestForDay} once per
-	 * employee per day, and each used to be its own statement -- the whole of
-	 * the report endpoints' cost, measured in D-292. After this they are map
-	 * lookups. Each warm selects the same rows and decides each date with the
-	 * same comparison as the query it stands in for, and a date outside what was
-	 * warmed still falls back to that query, so a warm changes what a request
-	 * costs and never what it answers.
-	 *
-	 * @param employeeIds the report's employees, any number of them
-	 * @param from        the report's first date, ISO
-	 * @param to          the report's last date, ISO
-	 */
-	public void warmReportRange(long companyId, java.util.Collection<Long> employeeIds, String from, String to) {
-		List<Long> ids = LegacyIdBatches.usable(employeeIds);
-		LocalDate first = isoDate(from);
-		LocalDate last = isoDate(to);
-		if (ids.isEmpty() || first == null || last == null || last.isBefore(first)) {
-			return;
-		}
-		// What each warm below may hold is bounded in employee-days
-		// (LegacyWarmedDays.MAX_SLOTS), not by this range: a warm that does not
-		// fit is not made, and its dates go to the per-date statements. When the
-		// roster over the widest window cannot fit at all -- 0001-01-01 to
-		// 9999-12-31 for anyone -- nothing here is read.
-		long windowDays = java.time.temporal.ChronoUnit.DAYS.between(first, last) + 1
-				+ REPORT_LOOKBACK_DAYS + REPORT_LOOKAHEAD_DAYS;
-		if (windowDays > LegacyWarmedDays.MAX_SLOTS / ids.size()) {
-			return;
-		}
-		String lookback = first.minusDays(REPORT_LOOKBACK_DAYS).toString();
-		String lookahead = last.plusDays(REPORT_LOOKAHEAD_DAYS).toString();
-		warmHolidays(companyId, lookback, lookahead);
-		warmShiftsForEmployees(ids, lookback, lookahead);
-		warmApprovedLeaveForEmployees(ids, lookback, to);
-		warmTimedRequestsForEmployees(ids, lookback, lookahead);
-		warmFallbackHours(ids);
-	}
-
-	/**
-	 * Reads a company's holidays over {@code [from, to]} once, so that every
-	 * narrower {@link #holidaysByDate} inside it -- {@link #expectedForDay} asks
-	 * for one date at a time -- is answered from memory.
-	 *
-	 * <p>The narrower answer is the wider one filtered to its bounds, which is
-	 * the same map the narrower query builds: the same rows, because
-	 * {@code holiday_date} is a {@code DATE} compared lexically as ISO text; the
-	 * same order, because both are {@code holiday_date ASC}; and no collapsed
-	 * duplicates, because {@code uq_company_holiday_date} allows one row per
-	 * company and date.
-	 */
-	public void warmHolidays(long companyId, String from, String to) {
-		if (companyId <= 0 || isoDate(from) == null || isoDate(to) == null) {
-			return;
-		}
-		Map<String, String> byDate = holidaysByDate(companyId, from, to);
-		holidayWindows.computeIfAbsent(companyId, key -> new java.util.ArrayList<>())
-				.add(new HolidayWindow(from, to, byDate));
-	}
-
-	private Map<String, String> holidaysFromWarmedWindow(long companyId, String from, String to) {
-		List<HolidayWindow> windows = holidayWindows.get(companyId);
-		if (windows == null || isoDate(from) == null || isoDate(to) == null) {
-			return null;
-		}
-		for (HolidayWindow window : windows) {
-			if (window.from().compareTo(from) <= 0 && window.to().compareTo(to) >= 0) {
-				Map<String, String> filtered = new LinkedHashMap<>();
-				window.byDate().forEach((date, name) -> {
-					if (date.compareTo(from) >= 0 && date.compareTo(to) <= 0) {
-						filtered.put(date, name);
-					}
-				});
-				return filtered;
+				approvedLeaveCache.put(employeeId + "|" + text, covered);
 			}
 		}
-		return null;
-	}
-
-	/**
-	 * {@link #FALLBACK_HOURS} for a whole roster in one statement per batch, so
-	 * {@link #expectedForDay} stops asking it once per day an employee has no
-	 * shift, and {@code payroll_employee_work_hours_per_day()}'s identical
-	 * statement once per employee.
-	 */
-	public void warmFallbackHours(java.util.Collection<Long> employeeIds) {
-		List<Long> ids = LegacyIdBatches.usable(employeeIds).stream()
-				.filter(id -> !fallbackHoursCache.containsKey(id)).toList();
-		for (List<Long> batch : LegacyIdBatches.of(ids)) {
-			jdbcTemplate.query(
-					"SELECT e.id AS " + WARM_EMPLOYEE_KEY + ","
-							+ " COALESCE(NULLIF(e.expected_daily_hours, 0), NULLIF(jt.work_hours, 0), 8) AS hours"
-							+ " FROM employees e"
-							+ " LEFT JOIN job_titles jt ON jt.id = e.job_title_id"
-							+ " WHERE e.id IN (" + LegacyIdBatches.placeholders(batch.size()) + ")",
-					rs -> {
-						java.math.BigDecimal hours = rs.getBigDecimal("hours");
-						if (hours != null) {
-							fallbackHoursCache.put(rs.getLong(WARM_EMPLOYEE_KEY), hours);
-						}
-					}, batch.toArray());
-		}
-	}
-
-	/**
-	 * The fallback hours {@link #warmFallbackHours} read for this employee, or
-	 * null when it did not -- the caller then runs its own statement, which for
-	 * an employee that does not exist is the exception it always was.
-	 */
-	public java.math.BigDecimal warmedFallbackHours(long employeeId) {
-		return fallbackHoursCache.get(employeeId);
-	}
-
-	/**
-	 * {@code attendance_approved_timed_request_for_day()} for a roster and a
-	 * range in one statement per batch.
-	 *
-	 * <p>The per-day statement returns the approved request with the highest id
-	 * whose {@code [from_date, to_date]} covers the date and whose from- and
-	 * to-times are both set. This selects every such request overlapping the
-	 * range -- the same filter, with the overlap form of the date test -- and
-	 * decides each date with the per-day comparison, keeping the highest id.
-	 * The dates are compared as ISO text, which is only right because both
-	 * columns are {@code DATE}; see {@link #warmApprovedLeaveForEmployees} for
-	 * why that is the fragile part and what holds it.
-	 *
-	 * <p>An employee with a request whose date cannot be read back as text is
-	 * not warmed at all, so that employee's dates still go to the per-day
-	 * statement: a warm that cannot decide a date must not decide it.
-	 */
-	public void warmTimedRequestsForEmployees(java.util.Collection<Long> employeeIds, String from, String to) {
-		List<Long> ids = LegacyIdBatches.usable(employeeIds);
-		LocalDate first = isoDate(from);
-		LocalDate last = isoDate(to);
-		if (ids.isEmpty() || first == null || last == null || last.isBefore(first)
-				|| !timedRequests.admits(ids.size(), java.time.temporal.ChronoUnit.DAYS.between(first, last) + 1)) {
-			return;
-		}
-		record Timed(long id, String fromDate, String toDate, LegacyAttendanceWorkedMinutes.TimedRequest answer) {
-		}
-		Map<Long, List<Timed>> byEmployee = new HashMap<>();
-		java.util.Set<Long> undecidable = new java.util.HashSet<>();
-		for (List<Long> batch : LegacyIdBatches.of(ids)) {
-			Object[] args = new Object[batch.size() + 2];
-			for (int i = 0; i < batch.size(); i++) {
-				args[i] = batch.get(i);
-			}
-			args[batch.size()] = to;
-			args[batch.size() + 1] = from;
-			jdbcTemplate.query(
-					"SELECT id, employee_id AS " + WARM_EMPLOYEE_KEY + ", from_date, to_date, from_time, to_time"
-							+ " FROM requests"
-							+ " WHERE employee_id IN (" + LegacyIdBatches.placeholders(batch.size()) + ")"
-							+ " AND status = 'approved'"
-							+ " AND from_date <= ? AND to_date >= ?"
-							+ " AND from_time IS NOT NULL AND TRIM(from_time) <> ''"
-							+ " AND to_time IS NOT NULL AND TRIM(to_time) <> ''",
-					rs -> {
-						long employeeId = rs.getLong(WARM_EMPLOYEE_KEY);
-						String fromDate = rs.getString("from_date");
-						String toDate = rs.getString("to_date");
-						if (fromDate == null || toDate == null) {
-							undecidable.add(employeeId);
-							return;
-						}
-						byEmployee.computeIfAbsent(employeeId, key -> new java.util.ArrayList<>()).add(new Timed(
-								rs.getLong("id"), fromDate, toDate, new LegacyAttendanceWorkedMinutes.TimedRequest(
-										rs.getString("from_time"), rs.getString("to_time"))));
-					}, args);
-		}
-		int days = (int) java.time.temporal.ChronoUnit.DAYS.between(first, last) + 1;
-		for (Long employeeId : ids) {
-			if (undecidable.contains(employeeId)) {
-				continue;
-			}
-			List<Timed> requests = byEmployee.getOrDefault(employeeId, List.of());
-			Object[] answers = new Object[days];
-			for (int offset = 0; offset < days; offset++) {
-				String text = first.plusDays(offset).toString();
-				Timed winner = null;
-				for (Timed request : requests) {
-					if (request.fromDate().compareTo(text) <= 0 && request.toDate().compareTo(text) >= 0
-							&& (winner == null || request.id() > winner.id())) {
-						winner = request;
-					}
-				}
-				answers[offset] = winner == null ? null : winner.answer();
-			}
-			timedRequests.put(employeeId, first, answers);
-		}
-	}
-
-	/** Whether {@link #warmTimedRequestsForEmployees} decided this employee and date. */
-	public boolean timedRequestWarmed(long employeeId, String date) {
-		return timedRequests.get(employeeId, date) != NOT_WARMED_TIMED;
-	}
-
-	/**
-	 * The warmed timed request for this employee and date, untrimmed, or null
-	 * when there is none -- meaningful only when {@link #timedRequestWarmed}.
-	 */
-	public LegacyAttendanceWorkedMinutes.TimedRequest warmedTimedRequest(long employeeId, String date) {
-		LegacyAttendanceWorkedMinutes.TimedRequest warmed = timedRequests.get(employeeId, date);
-		return warmed == NOT_WARMED_TIMED ? null : warmed;
-	}
-
-	/** Employee-days the per-day warms hold, for a test to bound what one request can allocate. */
-	long warmedSlotCount() {
-		return warmedShifts.slotCount() + approvedLeave.slotCount() + timedRequests.slotCount();
-	}
-
-	/** An ISO {@code yyyy-MM-dd} string as a date, or null for anything else. */
-	private static LocalDate isoDate(String value) {
-		if (value == null || value.length() != 10) {
-			return null;
-		}
-		try {
-			return LocalDate.parse(value);
-		} catch (java.time.format.DateTimeParseException unparseable) {
-			return null;
-		}
+		// Recorded only now. Marking the window before the query would leave it
+		// marked with nothing cached if that query threw, and a later call in the
+		// same request would then skip a warm it never got -- correct answers, by
+		// falling back to the per-date query, but the round trips this exists to
+		// remove, silently back.
+		approvedLeaveWarmed.add(warmKey);
 	}
 
 	/**
@@ -776,11 +478,6 @@ public class LegacyAttendanceCalendar {
 		Map<String, String> cached = holidayCache.get(key);
 		if (cached != null) {
 			return cached;
-		}
-		Map<String, String> fromWindow = holidaysFromWarmedWindow(companyId, from, to);
-		if (fromWindow != null) {
-			holidayCache.put(key, fromWindow);
-			return fromWindow;
 		}
 		Map<String, String> map = new LinkedHashMap<>();
 		jdbcTemplate.query(HOLIDAYS_IN_RANGE, rs -> {

@@ -1,5 +1,6 @@
-package com.workin.legacy.attendance.records;
+package com.workin.legacy.attendance.baseline;
 
+import com.workin.legacy.attendance.records.*;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -15,12 +16,11 @@ import com.workin.legacy.LegacyPhpStrtotime;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.payroll.LegacyPayrollFiscalSettings;
-import com.workin.legacy.attendance.calendar.LegacyAttendanceCalendar;
-import com.workin.legacy.attendance.calendar.LegacyAttendancePeriodStats;
-import com.workin.legacy.attendance.calendar.LegacyAttendanceRangeCalendar;
-import com.workin.legacy.attendance.calendar.LegacyAttendanceWorkedMinutes;
+import com.workin.legacy.attendance.baseline.LegacyAttendancePeriodStats;
+import com.workin.legacy.attendance.baseline.LegacyAttendanceRangeCalendar;
+import com.workin.legacy.attendance.baseline.LegacyAttendanceWorkedMinutes;
 import com.workin.legacy.attendance.calendar.LegacyReportRange;
-import com.workin.legacy.attendance.session.LegacyAttendanceSessions;
+import com.workin.legacy.attendance.baseline.LegacyAttendanceSessions;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.employees.LegacyEmployee;
 import com.workin.legacy.employees.LegacyEmployeeStore;
@@ -39,7 +39,6 @@ import com.workin.legacy.wire.LegacyApiException;
  * never actually reads, so it is bare `requireAuth()` in truth as well as in
  * source.
  */
-@Service
 public class LegacyAttendanceReportService {
 
 	private final LegacyAttendanceReportStore store;
@@ -48,7 +47,6 @@ public class LegacyAttendanceReportService {
 	private final LegacyAttendancePeriodStats periodStats;
 	private final LegacyAttendanceSessions sessions;
 	private final LegacyEmployeeStore employeeStore;
-	private final LegacyAttendanceCalendar calendar;
 	private final LegacyClock clock;
 
 	/** month/year label a fiscal period here, not a calendar month. */
@@ -57,15 +55,14 @@ public class LegacyAttendanceReportService {
 	public LegacyAttendanceReportService(
 			LegacyAttendanceReportStore store, LegacyAttendanceRangeCalendar rangeCalendar,
 			LegacyAttendanceWorkedMinutes workedMinutes, LegacyAttendancePeriodStats periodStats,
-			LegacyAttendanceSessions sessions, LegacyEmployeeStore employeeStore, LegacyAttendanceCalendar calendar,
-			LegacyClock clock, LegacyPayrollFiscalSettings fiscalSettings) {
+			LegacyAttendanceSessions sessions, LegacyEmployeeStore employeeStore, LegacyClock clock,
+			LegacyPayrollFiscalSettings fiscalSettings) {
 		this.store = store;
 		this.rangeCalendar = rangeCalendar;
 		this.workedMinutes = workedMinutes;
 		this.periodStats = periodStats;
 		this.sessions = sessions;
 		this.employeeStore = employeeStore;
-		this.calendar = calendar;
 		this.clock = clock;
 		this.fiscalSettings = fiscalSettings;
 	}
@@ -117,11 +114,9 @@ public class LegacyAttendanceReportService {
 				store.rosterForFillDays(context.companyId(), employeeId, branchId, departmentId, search);
 
 		List<Map<String, Object>> rows = new ArrayList<>();
-		// One read for the whole roster rather than one per employee per day (D-292).
-		rangeCalendar.forEachEmployeeRangeCalendar(
-				context.companyId(), roster.stream().map(LegacyAttendanceReportStore.RosterEmployee::id).toList(),
-				from, to, true, weeklyRestLabel, today, (index, days) -> {
-			LegacyAttendanceReportStore.RosterEmployee employee = roster.get(index);
+		for (LegacyAttendanceReportStore.RosterEmployee employee : roster) {
+			List<Map<String, Object>> days = rangeCalendar.buildEmployeeRangeCalendar(
+					context.companyId(), employee.id(), from, to, true, weeklyRestLabel, today);
 			for (Map<String, Object> day : days) {
 				Map<String, Object> row = new LinkedHashMap<>(day);
 				row.put("employee_id", employee.id());
@@ -133,7 +128,7 @@ public class LegacyAttendanceReportService {
 				row.put("job_title_name", employee.jobTitleName());
 				rows.add(row);
 			}
-		});
+		}
 
 		long total = rows.size();
 		LegacyPagination.Params pseudoPagination = new LegacyPagination.Params(1, Math.max(1, total), 0);
@@ -366,10 +361,6 @@ public class LegacyAttendanceReportService {
 			rows = store.periodRows(targetEmployeeId, bounds[0], bounds[1]);
 		}
 
-		// The rows' per-day answers read once for the period (D-292). A row dated
-		// outside it -- a check-in that does not parse is dated today -- still
-		// gets its own statements, and the same answer.
-		calendar.warmReportRange(context.companyId(), List.of(targetEmployeeId), bounds[0], bounds[1]);
 		for (Map<String, Object> row : rows) {
 			String checkIn = nullIfEmpty(row.get("check_in"));
 			String checkOut = nullIfEmpty(row.get("check_out"));
